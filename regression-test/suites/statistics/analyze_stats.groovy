@@ -23,6 +23,7 @@ suite("test_analyze") {
 
     String tbl = "analyzetestlimited_duplicate_all"
 
+    sql """set global enable_auto_analyze=false"""
     sql """
         DROP DATABASE IF EXISTS `${db}`
     """
@@ -163,12 +164,28 @@ suite("test_analyze") {
         exception = e
     }
 
+    // Test sample agg table value column. Min max is N/A when zone map is not available.
+    sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+    sql """analyze table agg_table_test with sample rows 100 with sync"""
+    def agg_result = sql """show column stats agg_table_test (name)"""
+    logger.info("show column agg_table_test(name) stats: " + agg_result)
+    assertEquals(agg_result[0][7], "N/A")
+    assertEquals(agg_result[0][8], "N/A")
+
     def a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
-    """
-
-    def a_result_2 = sql """
-        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 5
     """
 
     def a_result_3 = sql """
@@ -2613,27 +2630,6 @@ PARTITION `p599` VALUES IN (599)
     sql """insert into partition_test values (102, '1', '1')"""
     partition_result = sql """show table stats partition_test"""
     assertEquals(partition_result[0][6], "false")
-
-    // Test sample agg table value column
-    sql """
-     CREATE TABLE `agg_table_test` (
-      `id` BIGINT NOT NULL,
-      `name` VARCHAR(10) REPLACE NULL
-     ) ENGINE=OLAP
-     AGGREGATE KEY(`id`)
-     COMMENT 'OLAP'
-     DISTRIBUTED BY HASH(`id`) BUCKETS 32
-     PROPERTIES (
-      "replication_num" = "1"
-     );
-   """
-    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
-    Thread.sleep(1000 * 60)
-    sql """analyze table agg_table_test with sample rows 100 with sync"""
-    def agg_result = sql """show column stats agg_table_test (name)"""
-    logger.info("show column agg_table_test(name) stats: " + agg_result)
-    assertEquals(agg_result[0][7], "N/A")
-    assertEquals(agg_result[0][8], "N/A")
 
     // Test sample string type min max
     sql """
