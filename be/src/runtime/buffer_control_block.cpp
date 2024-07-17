@@ -24,6 +24,7 @@
 #include <google/protobuf/stubs/callback.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -79,6 +80,13 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_empty_batch(true);
         result->set_packet_seq(packet_seq);
         result->set_eos(eos);
+    }
+
+    /// The size limit of proto buffer message is 2G
+    if (result->ByteSizeLong() > std::numeric_limits<int32_t>::max()) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", result->ByteSizeLong());
+        result->clear_row_batch();
+        result->set_empty_batch(true);
     }
     st.to_protobuf(result->mutable_status());
     { done->Run(); }
