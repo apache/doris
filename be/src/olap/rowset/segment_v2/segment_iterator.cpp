@@ -2849,6 +2849,11 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_values.insert(v_literal_expr->value());
+    } else if (node_type == TExprNodeType::NULL_LITERAL) {
+        if (!_column_predicate_info->column_name.empty()) {
+            auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
+            _column_predicate_info->query_values.insert(v_literal_expr->value());
+        }
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
