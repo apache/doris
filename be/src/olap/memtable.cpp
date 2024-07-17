@@ -187,7 +187,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         if (_keys_type != KeysType::DUP_KEYS) {
-            _init_agg_functions(input_block);
+            _init_agg_functions(&cloneBlock);
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {
