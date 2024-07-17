@@ -886,7 +886,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.storeRowColumn(),
                                             binlogConfig,
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            objectPool);
+                                            objectPool,
+                                            olapTable.rowStorePageSize());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
