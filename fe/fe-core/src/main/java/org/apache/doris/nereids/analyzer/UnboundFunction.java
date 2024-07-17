@@ -106,7 +106,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql, indexInSqlString);
+        return new UnboundFunction(dbName, getName(), isDistinct, children, indexInSqlString);
     }
 
     @Override
