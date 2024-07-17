@@ -88,10 +88,10 @@ echo "Start docker-compose..."
 sudo docker compose -f docker-compose.yml --env-file docker-compose.env up -d
 
 echo "Start init iceberg and paimon tables..."
-sudo docker exec -it doris-iceberg-paimon-jobmanager sql-client.sh -f /opt/flink/sql/init_tables.sql | tee -a init.log > /dev/null
+sudo docker exec -it doris-iceberg-paimon-jobmanager sql-client.sh -f /opt/flink/sql/init_tables.sql | tee -a init.log >/dev/null
 
 echo "Start prepare data for tables..."
-sudo docker exec -it doris-iceberg-paimon-spark spark-sql --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f /opt/sql/prepare_data.sql | tee -a init.log > /dev/null
+sudo docker exec -it doris-iceberg-paimon-spark spark-sql --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f /opt/sql/prepare_data.sql | tee -a init.log >/dev/null
 
 echo "============================================================================="
 echo "Success to launch doris+iceberg+paimon+flink+spark+minio environments!"
