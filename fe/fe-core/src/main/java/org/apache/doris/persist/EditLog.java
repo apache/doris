@@ -1277,6 +1277,9 @@ public class EditLog {
             }
             batch.addJournal(op, entry);
         }
+        if (!batch.getJournalEntities().isEmpty()) {
+            batches.add(batch);
+        }
         for (JournalBatch b : batches) {
             journal.write(b);
         }
