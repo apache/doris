@@ -1475,7 +1475,6 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-
     def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
