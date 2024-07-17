@@ -317,6 +317,8 @@ under the License.
         <hudi.version>0.14.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
+        <!-- lakesoul -->
+        <lakesoul.version>2.6.0</lakesoul.version>
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
@@ -792,7 +794,6 @@ under the License.
                 <artifactId>javax.servlet-api</artifactId>
                 <version>${javax.servlet-api.version}</version>
             </dependency>
-            <!-- change for lakesoule local debug -->
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
