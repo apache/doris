@@ -1,0 +1,3 @@
+[submodule ".github/actions/include-what-you-use-action"]
+    path = .github/actions/include-what-you-use-action
+    url = https://github.com/include-what-you-use/include-what-you-use.git
