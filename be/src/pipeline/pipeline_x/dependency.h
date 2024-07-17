@@ -365,9 +365,8 @@ public:
     std::vector<size_t> make_nullable_keys;
 
     struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
+        int64_t used_in_arena {};
+        int64_t used_in_state {};
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
@@ -754,14 +753,9 @@ struct DataDistribution {
     DataDistribution(ExchangeType type) : distribution_type(type) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
-    DataDistribution(const DataDistribution& other)
-            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
-    DataDistribution& operator=(const DataDistribution& other) {
-        distribution_type = other.distribution_type;
-        partition_exprs = other.partition_exprs;
-        return *this;
-    }
+    DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
 };
@@ -774,7 +768,8 @@ public:
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
-    std::atomic<size_t> mem_usage = 0;
+    std::atomic<int64_t> mem_usage = 0;
+    // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     void create_source_dependencies(int operator_id, int node_id, QueryContext* ctx) {
         for (size_t i = 0; i < source_deps.size(); i++) {
