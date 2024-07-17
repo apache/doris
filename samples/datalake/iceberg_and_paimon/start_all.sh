@@ -3,13 +3,6 @@ set -e
 DORIS_PACKAGE=apache-doris-2.1.4-bin-x64
 DORIS_DOWNLOAD_URL=https://apache-doris-releases.oss-accelerate.aliyuncs.com
 
-# md5_jdk17="0930efa680ac61e833699ccc36bfc739"
-# md5_doris="a4d8bc9730aca3a51294e87d7d5b3e8e"
-# md5_jars="bb8be12571310c06fd700dcf0fe1bd47"
-# md5_connector_jdbc="5c99b637721dd339e10725b81ccedb60"
-# md5_flink_shaded_hadoop="f6f0be5b9cbebfd43e38121b209f4ecc"
-# md5_iceberg_aws_bundle=""
-
 download_source_file() {
     local FILE_PATH="$1"
     local EXPECTED_MD5="$2"
