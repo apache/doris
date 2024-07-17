@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -74,6 +75,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
     @Override
     public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
+        LogicalPlan queryPlan = exists.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            exists = exists.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -88,6 +94,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
     @Override
     public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
+        LogicalPlan queryPlan = expr.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            expr = expr.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
