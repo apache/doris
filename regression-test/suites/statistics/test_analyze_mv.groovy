@@ -127,12 +127,9 @@ suite("test_analyze_mv") {
             "replication_num" = "1"
         )
     """
-    sql """create materialized view mv1 as select key1 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
-    sql """create materialized view mv2 as select key2 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
-    sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;"""
-    wait_mv_finish("test_analyze_mv", "mvTestDup")
+    createMV("create materialized view mv1 as select key1 from mvTestDup;")
+    createMV("create materialized view mv2 as select key2 from mvTestDup;")
+    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
@@ -237,12 +234,9 @@ suite("test_analyze_mv") {
         );
     """
 
-    sql """create materialized view mv1 as select key2 from mvTestAgg;"""
-    wait_mv_finish("test_analyze_mv", "mvTestAgg")
-    sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;"""
-    wait_mv_finish("test_analyze_mv", "mvTestAgg")
-    sql """create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;"""
-    wait_mv_finish("test_analyze_mv", "mvTestAgg")
+    createMV("create materialized view mv1 as select key2 from mvTestAgg;")
+    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;")
+    createMV("create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;")
     sql """alter table mvTestAgg ADD ROLLUP rollup1(key1, value1)"""
     wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
@@ -379,10 +373,8 @@ suite("test_analyze_mv") {
         );
     """
 
-    sql """create materialized view mv1 as select key1 from mvTestUni;"""
-    wait_mv_finish("test_analyze_mv", "mvTestUni")
-    sql """create materialized view mv6 as select key2, value2, value3 from mvTestUni;"""
-    wait_mv_finish("test_analyze_mv", "mvTestUni")
+    createMV("create materialized view mv1 as select key1 from mvTestUni;")
+    createMV("create materialized view mv6 as select key2, value2, value3 from mvTestUni;")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""

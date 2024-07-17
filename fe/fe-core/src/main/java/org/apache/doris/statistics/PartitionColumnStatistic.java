@@ -137,7 +137,7 @@ public class PartitionColumnStatistic {
                     / partitionStatisticBuilder.getCount());
             String min = row.get(9);
             String max = row.get(10);
-            if (!"NULL".equalsIgnoreCase(min)) {
+            if (min != null && !"NULL".equalsIgnoreCase(min)) {
                 try {
                     partitionStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                     partitionStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
@@ -148,7 +148,7 @@ public class PartitionColumnStatistic {
             } else {
                 partitionStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
             }
-            if (!"NULL".equalsIgnoreCase(max)) {
+            if (max != null && !"NULL".equalsIgnoreCase(max)) {
                 try {
                     partitionStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                     partitionStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));

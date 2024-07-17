@@ -100,8 +100,6 @@ public:
         __builtin_unreachable();
     }
 
-    void insert_default_into(IColumn& column) const override;
-
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return true; }
