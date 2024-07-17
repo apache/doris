@@ -3534,7 +3534,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         PartitionNames partitionNames = truncateEntireTable ? null
                 : new PartitionNames(false, tblRef.getPartitionNames().getPartitionNames());
         Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
-        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId());
+        Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId(), 0);
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
