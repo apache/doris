@@ -21,7 +21,7 @@
 
 namespace doris {
 
-bvar::Adder<int64_t> too_many_request_retry_times("too_many_request_retry_times");
+bvar::Adder<int64_t> s3_too_many_request_retry_cnt("s3_too_many_request_retry_cnt");
 
 S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
 
@@ -31,7 +31,7 @@ bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
                                         long attemptedRetries) const {
     if (attemptedRetries < m_maxRetries &&
         error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
-        too_many_request_retry_times << 1;
+        s3_too_many_request_retry_cnt << 1;
         return true;
     }
     return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
@@ -48,7 +48,7 @@ std::unique_ptr<Azure::Core::Http::RawResponse> AzureRetryRecordPolicy::Send(
     if (retry_cnt != 0 &&
         resp->GetStatusCode() == Azure::Core::Http::HttpStatusCode::TooManyRequests) {
         retry_cnt--;
-        too_many_request_retry_times << 1;
+        s3_too_many_request_retry_cnt << 1;
     }
     return resp;
 }
