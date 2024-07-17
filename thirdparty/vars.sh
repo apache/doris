@@ -139,10 +139,10 @@ RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
 RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
 
 # curl
-CURL_DOWNLOAD="https://curl.se/download/curl-7.79.0.tar.gz"
-CURL_NAME=curl-7.79.0.tar.gz
-CURL_SOURCE=curl-7.79.0
-CURL_MD5SUM="b40e4dc4bbc9e109c330556cd58c8ec8"
+CURL_DOWNLOAD="https://curl.se/download/curl-8.2.1.tar.gz"
+CURL_NAME=curl-8.2.1.tar.gz
+CURL_SOURCE=curl-8.2.1
+CURL_MD5SUM="b25588a43556068be05e1624e0e74d41"
 
 # RE2
 RE2_DOWNLOAD="https://github.com/google/re2/archive/2021-02-02.tar.gz"
