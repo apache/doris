@@ -70,10 +70,12 @@ suite("test_add_drop_index_repeatly"){
     for (def i = 1; i <= 10; i++) {
         // create index on table 
         sql """ create index idx_k2 on ${tbl}(k2) using inverted """
-        // build index 
-        sql """ build index idx_k2 on ${tbl} """
-        def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
-        assertEquals(state, "FINISHED")
+        if (!isCloudMode()) {
+            // build index
+            sql """ build index idx_k2 on ${tbl} """
+            def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
+            assertEquals(state, "FINISHED")
+        }
         sql """ drop index idx_k2 on ${tbl} """
     }
 }

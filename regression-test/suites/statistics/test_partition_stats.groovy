@@ -904,10 +904,8 @@ suite("test_partition_stats") {
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
     )"""
-    sql """create materialized view mv1 as select id, colint from part8;"""
-    wait_mv_finish("test_partition_stats", "part8")
-    sql """create materialized view mv2 as select colsmallint, sum(colbigint) from part8 group by colsmallint;"""
-    wait_mv_finish("test_partition_stats", "part8")
+    createMV("create materialized view mv1 as select id, colint from part8;")
+    createMV("create materialized view mv2 as select colsmallint, sum(colbigint) from part8 group by colsmallint;")
     sql """alter table part8 ADD ROLLUP rollup1(coltinyint, collargeint)"""
     wait_mv_finish("test_partition_stats", "part8")
 
