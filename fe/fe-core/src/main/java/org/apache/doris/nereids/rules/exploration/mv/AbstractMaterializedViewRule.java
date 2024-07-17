@@ -583,9 +583,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 targetToTargetReplacementMappingQueryBased.entrySet()) {
             if (targetExpressionEntry.getKey() instanceof SlotReference
                     && ((SlotReference) targetExpressionEntry.getKey()).getDataType() instanceof VariantType) {
-                List<String> nameIdentifier = new ArrayList<>();
-                nameIdentifier.add(((SlotReference) targetExpressionEntry.getKey()).getName());
-                nameIdentifier.addAll(((SlotReference) targetExpressionEntry.getKey()).getSubPath());
+                SlotReference targetSlotReference = (SlotReference) targetExpressionEntry.getKey();
+                List<String> nameIdentifier = new ArrayList<>(targetSlotReference.getQualifier());
+                nameIdentifier.add(targetSlotReference.getName());
+                nameIdentifier.addAll(targetSlotReference.getSubPath());
                 viewNameToExprMap.put(nameIdentifier, targetExpressionEntry.getValue());
             }
         }
@@ -594,7 +595,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         Map<List<String>, SlotReference> queryNameAndExpressionMap = new HashMap<>();
         for (SlotReference slotReference : queryVariants) {
-            List<String> nameIdentifier = new ArrayList<>();
+            List<String> nameIdentifier = new ArrayList<>(slotReference.getQualifier());
             nameIdentifier.add(slotReference.getName());
             nameIdentifier.addAll(slotReference.getSubPath());
             queryNameAndExpressionMap.put(nameIdentifier, slotReference);

@@ -85,6 +85,12 @@ public class SlotMapping extends Mapping {
                     return null;
                 }
                 if (targetSlot == null) {
+                    // if variant, though can not map slot from query to view, but we maybe derive slot from query
+                    // variant self, such as query slot to view slot mapping is payload#4 -> payload#10
+                    // and query has a variant which is payload['issue']['number']#20, this can not get from view.
+                    // in this scene, we can derive
+                    // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
+                    // in expression rewrite
                     continue;
                 }
                 relationSlotMap.put(MappedSlot.of(sourceSlot,

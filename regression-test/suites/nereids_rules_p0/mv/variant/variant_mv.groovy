@@ -109,7 +109,6 @@ suite("variant_mv") {
     where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
     """
     order_qt_query1_0_before "${query1_0}"
-//    variant field in where, java.lang.NullPointerException: childColStats is null, tmp comment
     check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
@@ -157,9 +156,64 @@ suite("variant_mv") {
     FROM github_events1;
     """
     order_qt_query1_2_before "${query1_2}"
+    // the expression floor(cast(actor['id'] as int) + 200.5) in query and view is different
     check_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
+
+    def mv1_3 = """
+    SELECT
+    id,
+    type,
+    actor['type'],
+    payload,
+    payload['issue']
+    FROM github_events1
+    where actor['id'] > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
+    """
+    def query1_3 = """
+    SELECT
+    id,
+    type,
+    floor(cast(actor['id'] as int) + 100.5),
+    actor['display_login'],
+    payload['issue']['href']
+    FROM github_events1
+    where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
+    """
+    order_qt_query1_3_before "${query1_3}"
+    // the query repo['id'] expression in compensatory filter is not in mv
+    check_mv_rewrite_fail(db, mv1_3, query1_3, "mv1_3")
+    order_qt_query1_3_after "${query1_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
+
+
+    def mv1_4 = """
+    SELECT
+    id,
+    type,
+    actor,
+    repo['id'],
+    payload,
+    payload['issue']
+    FROM github_events1
+    where actor['id'] > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
+    """
+    def query1_4 = """
+    SELECT
+    id,
+    type,
+    floor(cast(actor['id'] as int) + 100.5),
+    actor['display_login'],
+    payload['issue']['href']
+    FROM github_events1
+    where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
+    """
+    order_qt_query1_4_before "${query1_4}"
+    // the query repo['id'] expression in compensatory filter is not in mv
+    check_mv_rewrite_success(db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 
 
     // variant appear in agg both slot and in expression
@@ -266,6 +320,77 @@ suite("variant_mv") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
 
+    def mv2_3 = """
+    SELECT
+    id,
+    type,
+    cast(repo['name'] as varchar(100)),
+    count(*),
+    max(floor(cast(actor['id'] as int) + 100.5))
+    FROM github_events1
+    where actor['id'] > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
+    group by 
+    id,
+    type,
+    cast(actor['id'] as int),
+    cast(repo['name'] as varchar(100));
+    """
+    def query2_3 = """
+    SELECT
+    id,
+    type,
+    cast(repo['name'] as varchar(100)),
+    count(*),
+    max(floor(cast(actor['id'] as int) + 100.5))
+    FROM github_events1
+    where cast(actor['id'] as int) > 34259300 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
+    group by 
+    id,
+    type,
+    cast(repo['name'] as varchar(100));
+    """
+    order_qt_query2_3_before "${query2_3}"
+    check_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
+    order_qt_query2_3_after "${query2_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
+
+
+    def mv2_4 = """
+    SELECT
+    id,
+    type,
+    cast(actor['id'] as int),
+    cast(repo['name'] as varchar(100)),
+    count(*),
+    max(floor(cast(actor['id'] as int) + 100.5))
+    FROM github_events1
+    where actor['id'] > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
+    group by 
+    id,
+    type,
+    cast(repo['name'] as varchar(100)),
+    cast(actor['id'] as int);
+    """
+    def query2_4 = """
+    SELECT
+    id,
+    type,
+    cast(repo['name'] as varchar(100)),
+    count(*),
+    max(floor(cast(actor['id'] as int) + 100.5))
+    FROM github_events1
+    where cast(actor['id'] as int) > 34259300 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
+    group by 
+    id,
+    type,
+    cast(repo['name'] as varchar(100));
+    """
+    order_qt_query2_4_before "${query2_4}"
+    check_mv_rewrite_success_without_check_chosen(db, mv2_4, query2_4, "mv2_4")
+    order_qt_query2_4_after "${query2_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_4"""
+
+
     // variant appear in join both slot and in expression
     def mv3_0 = """
     SELECT
@@ -345,4 +470,62 @@ suite("variant_mv") {
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
+
+    def mv3_3 = """
+    SELECT
+    g1.id,
+    g2.type,
+    g1.actor,
+    g2.payload,
+    g1.payload['issue']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
+    """
+    def query3_3 = """
+    SELECT
+    g1.id,
+    g2.type,
+    floor(cast(g1.actor['id'] as int) + 100.5),
+    g1.actor['display_login'],
+    g2.payload['issue']['href']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
+    """
+    order_qt_query3_3_before "${query3_3}"
+    // the query g2.actor['id'] expression in compensatory filter is not in mv
+    check_mv_rewrite_fail(db, mv3_3, query3_3, "mv3_3")
+    order_qt_query3_3_after "${query3_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
+
+
+    def mv3_4 = """
+    SELECT
+    g1.id,
+    g2.type,
+    g1.actor,
+    g2.payload,
+    g2.actor['id'],
+    g1.payload['issue']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
+    """
+    def query3_4 = """
+    SELECT
+    g1.id,
+    g2.type,
+    floor(cast(g1.actor['id'] as int) + 100.5),
+    g1.actor['display_login'],
+    g2.payload['issue']['href']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
+    """
+    order_qt_query3_4_before "${query3_4}"
+    // the query g2.actor['id'] expression in compensatory filter is not in mv
+    check_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    order_qt_query3_4_after "${query3_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 }
