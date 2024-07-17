@@ -30,6 +30,6 @@ public interface CatalogRelation extends Relation {
 
     // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
     default long getRowCountForNereids() {
-        return Math.max(getTable().fetchRowCount(), 1);
+        return Math.max(getTable().getRowCount(), 1);
     }
 }
