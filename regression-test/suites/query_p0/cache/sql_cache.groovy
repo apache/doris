@@ -191,9 +191,7 @@ suite("sql_cache") {
     sql 'set default_order_by_limit = 2'
     sql 'set sql_select_limit = 1'
 
-    profile {
-        tag "sql_cache8"
-
+    profile("sql_cache8") {
         run {
             qt_sql_cache8 """
                 -- sql_cache8
@@ -219,9 +217,7 @@ suite("sql_cache") {
         }
     }
 
-    profile {
-        tag "sql_cache9"
-
+    profile("sql_cache9") {
         run {
             qt_sql_cache9 """
                 -- sql_cache9

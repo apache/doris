@@ -31,13 +31,11 @@ class ProfileAction implements SuiteAction {
     private Closure<String> check
     private SuiteContext context
 
-    ProfileAction(SuiteContext context) {
+    ProfileAction(SuiteContext context, String tag) {
         this.context = context
+        this.tag = Objects.requireNonNull(tag, "tag can not be null")
     }
 
-    void tag(String tag) {
-        this.tag = tag
-    }
     void run(@ClosureParams(value = FromString, options = []) Runnable run) {
         runCallback = run
     }
@@ -49,9 +47,6 @@ class ProfileAction implements SuiteAction {
 
     @Override
     void run() {
-        if (tag.is(null)) {
-            throw new IllegalStateException("Missing tag")
-        }
         if (runCallback.is(null)) {
             throw new IllegalStateException("Missing tag")
         }

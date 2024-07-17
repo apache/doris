@@ -621,8 +621,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void profile(Closure<String> actionSupplier) {
-        runAction(new ProfileAction(context), actionSupplier)
+    void profile(String tag, Closure<String> actionSupplier) {
+        runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
     void createMV(String sql) {
