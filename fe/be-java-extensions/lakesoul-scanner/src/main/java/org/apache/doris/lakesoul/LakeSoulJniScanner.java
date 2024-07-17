@@ -23,9 +23,9 @@ import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
 import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
 import io.substrait.proto.Plan;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
+import com.lakesoul.shaded.org.apache.arrow.vector.VectorSchemaRoot;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +80,13 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
             Plan predicate = SubstraitUtil.decodeBase64String(base64Predicate);
             LOG.info("push predicate={}", predicate);
             nativeIOReader.addFilterProto(predicate);
+        }
+
+        for (String key:LakeSoulUtils.OBJECT_STORE_OPTIONS) {
+            String value = optionsMap.get(key);
+            if (key != null) {
+                nativeIOReader.setObjectStoreOption(key, value);
+            }
         }
 
         Schema tableSchema = Schema.fromJSON(params.get(LakeSoulUtils.SCHEMA_JSON));
@@ -163,5 +170,19 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         if (currentBatch != null) {
             currentBatch.close();
         }
+    }
+
+    public static void main(String[] args) throws IOException {
+        HashMap<String, String> params = new HashMap<>();
+        params.put("required_fields", "r_regionkey;r_name;r_comment");
+        params.put("primary_keys", "r_regionkey;r_name");
+        params.put("query_id", "e9d075a6500a4cac-b94630fd4b30c171");
+        params.put("file_paths", "file:/Users/ceng/Documents/GitHub/LakeSoul/rust/lakesoul-datafusion/default/region/part-RzmUvDFtYV8ceb3J_0000.parquet");
+        params.put("options", "{}");
+        params.put("table_schema", "{\"fields\":[{\"name\":\"r_regionkey\",\"type\":{\"name\":\"int\",\"isSigned\":true,\"bitWidth\":64},\"nullable\":false,\"children\":[]},{\"name\":\"r_name\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]},{\"name\":\"r_comment\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]}],\"metadata\":null}");
+        params.put("partition_descs", "");
+        LakeSoulJniScanner scanner = new LakeSoulJniScanner(1024, params);
+        scanner.open();
+        System.out.println(scanner.getNext());
     }
 }

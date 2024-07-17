@@ -17,6 +17,9 @@
 
 package org.apache.doris.lakesoul;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class LakeSoulUtils {
     public static final String FILE_NAMES = "file_paths";
     public static final String PRIMARY_KEYS = "primary_keys";
@@ -27,4 +30,16 @@ public class LakeSoulUtils {
     public static final String SUBSTRAIT_PREDICATE = "substrait_predicate";
     public static final String LIST_DELIM = ";";
     public static final String PARTITIONS_KV_DELIM = "=";
+
+    public static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    public static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    public static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    public static final String FS_S3A_PATH_STYLE_ACCESS = "fs.s3a.path.style.access";
+
+    public static final List<String> OBJECT_STORE_OPTIONS = Arrays.asList(
+        FS_S3A_ACCESS_KEY,
+        FS_S3A_SECRET_KEY,
+        FS_S3A_ENDPOINT,
+        FS_S3A_PATH_STYLE_ACCESS
+    );
 }

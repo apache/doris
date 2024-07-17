@@ -36,7 +36,7 @@ import java.util.Map;
 
 public class LakeSoulExternalCatalog extends ExternalCatalog {
 
-    private DBManager dbManager;
+    private DBManager lakesoulMetadataManager;
 
     private final Map<String, String> props;
 
@@ -51,13 +51,13 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     @Override
     protected List<String> listDatabaseNames() {
         initLocalObjectsImpl();
-        return dbManager.listNamespaces();
+        return lakesoulMetadataManager.listNamespaces();
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        List<TableInfo> tifs = dbManager.getTableInfosByNamespace(dbName);
+        List<TableInfo> tifs = lakesoulMetadataManager.getTableInfosByNamespace(dbName);
         List<String> tableNames = Lists.newArrayList();
         for (TableInfo item : tifs) {
             tableNames.add(item.getTableName());
@@ -68,14 +68,13 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        TableInfo tableInfo = dbManager.getTableInfoByNameAndNamespace(dbName, tblName);
-
+        TableInfo tableInfo = lakesoulMetadataManager.getTableInfoByNameAndNamespace(dbName, tblName);
         return null != tableInfo;
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        if (dbManager == null) {
+        if (lakesoulMetadataManager == null) {
             if (props != null) {
                 if (props.containsKey(DBUtil.urlKey)) {
                     System.setProperty(DBUtil.urlKey, props.get(DBUtil.urlKey));
@@ -87,24 +86,20 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
                     System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
                 }
             }
-            dbManager = new DBManager();
+            lakesoulMetadataManager = new DBManager();
         }
     }
 
     public TableInfo getLakeSoulTable(String dbName, String tblName) {
         makeSureInitialized();
-        return dbManager.getTableInfoByNameAndNamespace(tblName, dbName);
+        return lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
     }
 
     public List<PartitionInfo> listPartitionInfo(String tableId) {
         makeSureInitialized();
-        return dbManager.getAllPartitionInfo(tableId);
+        return lakesoulMetadataManager.getAllPartitionInfo(tableId);
     }
-
-    protected void initS3Param(Configuration conf) {
-        Map<String, String> properties = catalogProperty.getHadoopProperties();
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
-    }
+    
 
 
 }

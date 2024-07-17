@@ -177,9 +177,8 @@ under the License.
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
         </dependency>
-        <!-- change for lakesoule local debug -->
         <dependency>
-            <groupId>com.sleepycat</groupId>
+            <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->

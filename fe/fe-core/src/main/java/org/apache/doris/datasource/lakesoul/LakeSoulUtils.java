@@ -9,8 +9,8 @@ import io.substrait.expression.Expression;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.doris.analysis.*;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
@@ -36,6 +36,11 @@ public class LakeSoulUtils {
     public static final String CDC_COLUMN = "lakesoul_cdc_change_column";
     public static final String LIST_DELIM = ";";
     public static final String PARTITIONS_KV_DELIM = "=";
+    public static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    public static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    public static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    public static final String FS_S3A_REGION = "fs.s3a.endpoint.region";
+    public static final String FS_S3A_PATH_STYLE_ACCESS = "fs.s3a.path.style.access";
 
     public static List<PartitionInfo> applyPartitionFilters(List<PartitionInfo> allPartitionInfo, String tableName, Schema partitionArrowSchema, Map<String, ColumnRange> columnNameToRange) throws IOException {
 

@@ -19,22 +19,23 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
-import com.lakesoul.shaded.com.fasterxml.jackson.core.JsonProcessingException;
 import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
 import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
 import io.substrait.proto.Plan;
 import lombok.SneakyThrows;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -77,7 +78,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     Schema tableArrowSchema;
 
     Schema partitionArrowSchema;
-    private Map<String, String> properties;
+    private Map<String, String> tableProperties;
 
     String readType;
 
@@ -95,7 +96,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         partitions = tableInfo.getPartitions();
         readType = LakeSoulOptions.ReadType$.MODULE$.FULL_READ();
         try {
-            properties = new ObjectMapper().readValue(tableInfo.getProperties(), new TypeReference<Map<String, String>>() {});
+            tableProperties = new ObjectMapper().readValue(tableInfo.getProperties(), new TypeReference<Map<String, String>>() {});
             tableArrowSchema = Schema.fromJSON(tableInfo.getTableSchema());
             List<Field> partitionFields = DBUtil.parseTableInfoPartitions(partitions).rangeKeys.stream().map(tableArrowSchema::findField).collect(Collectors.toList());
             partitionArrowSchema = new Schema(partitionFields);
@@ -144,6 +145,10 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
+    public ExternalCatalog getCatalog() {
+        return lakeSoulExternalTable.getCatalog();
+    }
+
     public static boolean isExistHashPartition(TableInfo tif) {
         JSONObject tableProperties = JSON.parseObject(tif.getProperties());
         if (tableProperties.containsKey(LakeSoulOptions.HASH_BUCKET_NUM())
@@ -169,11 +174,28 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             tableName,
             tableArrowSchema,
             partitionArrowSchema,
-            properties,
+            tableProperties,
             readType.equals(LakeSoulOptions.ReadType$.MODULE$.INCREMENTAL_READ()));
         if (predicate != null) {
             options.put(LakeSoulUtils.SUBSTRAIT_PREDICATE, SubstraitUtil.encodeBase64String(predicate));
         }
+        Map<String, String> catalogProps = getCatalog().getProperties();
+        LOG.info("{}", catalogProps);
+
+        if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
+            options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
+            options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
+            if (catalogProps.get(S3Properties.Env.ACCESS_KEY) != null) {
+                options.put(LakeSoulUtils.FS_S3A_ACCESS_KEY, catalogProps.get(S3Properties.Env.ACCESS_KEY));
+            }
+            if (catalogProps.get(S3Properties.Env.SECRET_KEY) != null) {
+                options.put(LakeSoulUtils.FS_S3A_SECRET_KEY, catalogProps.get(S3Properties.Env.SECRET_KEY));
+            }
+            if (catalogProps.get(S3Properties.Env.REGION) != null) {
+                options.put(LakeSoulUtils.FS_S3A_REGION, catalogProps.get(S3Properties.Env.REGION));
+            }
+        }
+
         fileDesc.setOptions(JSON.toJSONString(options));
 
         fileDesc.setPartitionDescs(lakeSoulSplit.getPartitionDesc()
