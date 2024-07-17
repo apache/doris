@@ -1,3 +1,4 @@
+import java.util.concurrent.atomic.AtomicReference
 import java.util.stream.Collectors
 
 // Licensed to the Apache Software Foundation (ASF) under one
@@ -191,7 +192,16 @@ suite("sql_cache") {
     sql 'set default_order_by_limit = 2'
     sql 'set sql_select_limit = 1'
 
-    qt_sql_cache8 """
+
+    AtomicReference<Throwable> exception = new AtomicReference<>()
+
+    profile {
+        tag "sql_cache8"
+
+        run {
+            try {
+                qt_sql_cache8 """
+                    -- sql_cache8
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -204,8 +214,25 @@ suite("sql_cache") {
                     order by
                         k1;
                 """
-    
-    qt_sql_cache9 """
+            } catch (Throwable t) {
+                exception.set(t)
+            }
+        }
+
+        check { def profileString ->
+            if (!exception.get().is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception.get())
+            }
+        }
+    }
+
+    profile {
+        tag "sql_cache9"
+
+        run {
+            try {
+                qt_sql_cache9 """
+                    -- sql_cache9
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -218,6 +245,17 @@ suite("sql_cache") {
                     order by
                         k1;
                 """
+            } catch (Throwable t) {
+                exception.set(t)
+            }
+        }
+
+        check { def profileString ->
+            if (!exception.get().is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception.get())
+            }
+        }
+    }
 
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 }
