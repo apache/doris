@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,6 +26,12 @@ suite("sql_cache") {
     // so this suite does not check whether cache is used, :)
     def tableName = "test_sql_cache"
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '0')"
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
