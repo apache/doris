@@ -478,7 +478,7 @@ inline void allocator_detect(size_t size) {
 // Mem Hook to consume thread mem tracker
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)           \
     do {                                                   \
-        allocator_detect(size);                            \
+        doris::allocator_detect(size);                     \
         if (doris::use_mem_hook) {                         \
             doris::thread_context()->consume_memory(size); \
         }                                                  \
@@ -488,7 +488,7 @@ inline void allocator_detect(size_t size) {
 
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)           \
     do {                                                                   \
-        allocator_detect(size_fn(__VA_ARGS__));                            \
+        doris::allocator_detect(size_fn(__VA_ARGS__));                     \
         if (doris::use_mem_hook) {                                         \
             doris::thread_context()->consume_memory(size_fn(__VA_ARGS__)); \
         }                                                                  \
