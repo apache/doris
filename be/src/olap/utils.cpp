@@ -537,7 +537,7 @@ bool valid_signed_number<int128_t>(const std::string& value_str) {
 }
 
 bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac) {
-    const char* decimal_pattern = "-?\\d+(.\\d+)?";
+    const char* decimal_pattern = "-?(\\d+)(.\\d+)?";
     std::regex e(decimal_pattern);
     std::smatch what;
     if (!std::regex_match(value_str, what, e) || what[0].str().size() != value_str.size()) {
@@ -562,11 +562,14 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
         fractional_len = number_length - point_pos - 1;
     }
 
-    if (integer_len <= (precision - frac) && fractional_len <= frac) {
-        return true;
-    } else {
-        return false;
+    /// For value likes "0.xxxxxx", the integer_len should actually be 0.
+    if (integer_len == 1 && precision - frac == 0) {
+        if (what[1].str() == "0") {
+            integer_len = 0;
+        }
     }
+
+    return (integer_len <= (precision - frac) && fractional_len <= frac);
 }
 
 bool valid_datetime(const std::string& value_str, const uint32_t scale) {

@@ -464,7 +464,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         size_t block_rows = block->rows();
         // Delete sign could not be applied when delete on cumu compaction is enabled, bucause it is meant for delete with predicates.
         // If delete design is applied on cumu compaction, it will lose effect when doing base compaction.
-        if (_filter_delete && !_cumu_delete && block_rows > 0) {
+        if (_delete_sign_available && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
                 *eof = (res.is<END_OF_FILE>());

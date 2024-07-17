@@ -3247,8 +3247,23 @@ public class Env {
         getInternalCatalog().createTableAsSelect(stmt);
     }
 
-    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        getInternalCatalog().addPartition(db, tableName, addPartitionClause);
+    /**
+     * Adds a partition to a table
+     *
+     * @param db
+     * @param tableName
+     * @param addPartitionClause clause in the CreateTableStmt
+     * @param isCreateTable this call is for creating table
+     * @param generatedPartitionId the preset partition id for the partition to add
+     * @param writeEditLog whether to write an edit log for this addition
+     * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
+     * @throws DdlException
+     */
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog) throws DdlException {
+        return getInternalCatalog().addPartition(db, tableName, addPartitionClause,
+            isCreateTable, generatedPartitionId, writeEditLog);
     }
 
     public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
@@ -3510,6 +3525,10 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
+
+            // row store page size
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
         // skip inverted index on load

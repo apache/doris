@@ -644,11 +644,14 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION and CUMULATIVE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
-    _cumu_delete = read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
-                   config::enable_delete_when_cumu_compaction;
-    _filter_delete = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
-                      read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
-                      _cumu_delete || read_params.reader_type == ReaderType::READER_CHECKSUM);
+    bool cumu_delete = read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                       config::enable_delete_when_cumu_compaction;
+    // Delete sign could not be applied when delete on cumu compaction is enabled, bucause it is meant for delete with predicates.
+    // If delete design is applied on cumu compaction, it will lose effect when doing base compaction.
+    _delete_sign_available = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+                              read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+                              read_params.reader_type == ReaderType::READER_CHECKSUM);
+    _filter_delete = _delete_sign_available || cumu_delete;
     auto* runtime_state = read_params.runtime_state;
     bool enable_sub_pred_v2 =
             runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
