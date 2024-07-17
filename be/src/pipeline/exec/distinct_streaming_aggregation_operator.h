@@ -83,8 +83,10 @@ private:
     bool _reach_limit = false;
     std::unique_ptr<vectorized::Block> _aggregated_block = nullptr;
     vectorized::Block _cache_block;
+
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;

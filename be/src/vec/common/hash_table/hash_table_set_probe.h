@@ -34,6 +34,7 @@ struct HashTableProbe {
 
         KeyGetter key_getter(_probe_raw_ptrs);
         hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _probe_rows);
+        hash_table_ctx.compute_hash(_probe_rows);
 
         for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
             auto find_result = hash_table_ctx.find(key_getter, probe_index);

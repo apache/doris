@@ -260,7 +260,10 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
 
                         AggState state(key_columns);
                         size_t num_rows = input_block->rows();
-                        agg_method.init_serialized_keys(key_columns, num_rows);
+                        {
+                            SCOPED_TIMER(local_state._emplace_key_timer);
+                            agg_method.init_serialized_keys(key_columns, num_rows);
+                        }
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin,
@@ -281,6 +284,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         };
 
                         SCOPED_TIMER(local_state._emplace_key_timer);
+                        agg_method.compute_hash(num_rows);
                         for (size_t row = 0; row < num_rows; ++row) {
                             auto& mapped = agg_method.lazy_emplace(state, row, creator,
                                                                    creator_for_null_key);

@@ -239,6 +239,7 @@ private:
         HashTableContext ctx;
         ctx.init_serialized_keys(columns, columns[0]->size(),
                                  null_map ? null_map->data() : nullptr);
+        ctx.compute_hash(columns[0]->size(), null_map ? null_map->data() : nullptr);
 
         using KeyGetter = typename HashTableContext::State;
         KeyGetter key_getter(columns);

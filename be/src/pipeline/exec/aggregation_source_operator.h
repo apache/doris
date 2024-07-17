@@ -79,6 +79,7 @@ protected:
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _serialize_data_timer = nullptr;
 
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;

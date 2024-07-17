@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "pipeline/exec/operator.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
@@ -46,6 +47,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
+    _serialize_key_timer = ADD_TIMER(profile(), "SerializeKeyTime");
     _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
@@ -586,7 +588,6 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                            using HashMethodType = std::decay_t<decltype(agg_method)>;
                            using AggState = typename HashMethodType::State;
                            AggState state(key_columns);
-                           agg_method.init_serialized_keys(key_columns, num_rows);
 
                            auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                                HashMethodType::try_presis_key_and_origin(
@@ -611,10 +612,18 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
                                }
                            };
 
-                           SCOPED_TIMER(_hash_table_emplace_timer);
-                           for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                           {
+                               SCOPED_TIMER(_serialize_key_timer);
+                               agg_method.init_serialized_keys(key_columns, num_rows);
+                           }
+
+                           {
+                               SCOPED_TIMER(_hash_table_emplace_timer);
+                               agg_method.compute_hash(num_rows);
+                               for (size_t i = 0; i < num_rows; ++i) {
+                                   places[i] = agg_method.lazy_emplace(state, i, creator,
+                                                                       creator_for_null_key);
+                               }
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -633,6 +642,7 @@ void AggLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
                                          using AggState = typename HashMethodType::State;
                                          AggState state(key_columns);
                                          agg_method.init_serialized_keys(key_columns, num_rows);
+                                         agg_method.compute_hash(num_rows);
 
                                          /// For all rows.
                                          for (size_t i = 0; i < num_rows; ++i) {

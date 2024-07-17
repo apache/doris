@@ -46,10 +46,9 @@ struct HashMethodOneNumber
                                                       Value, Mapped, false> {
     using Self = HashMethodOneNumber<Value, Mapped, FieldType>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
+    using Base::find_key_with_hash;
 
     HashMethodOneNumber(const ColumnRawPtrs& key_columns) {}
-
-    using Base::find_key_with_hash;
 };
 
 /// For the case when there is one string key.

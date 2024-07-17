@@ -32,6 +32,7 @@ struct HashTableBuild {
         using Mapped = typename HashTableContext::Mapped;
         KeyGetter key_getter(_build_raw_ptrs);
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows);
+        hash_table_ctx.compute_hash(_rows);
 
         size_t k = 0;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {

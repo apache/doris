@@ -205,8 +205,10 @@ struct ProcessHashTableBuild {
                                                                       *has_null_key);
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr, true, true,
+                                            null_map ? null_map->data() : nullptr, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.compute_hash(_rows, null_map ? null_map->data() : nullptr, true);
+
         hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
                 hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
         hash_table_ctx.bucket_nums.resize(_batch_size);
