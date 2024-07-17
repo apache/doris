@@ -366,7 +366,12 @@ Status FunctionMatchPhrasePrefix::execute_match(
                 analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
                                    current_src_array_offset);
 
-        for (size_t j = 0; j < data_tokens.size() - query_tokens.size() + 1; j++) {
+        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        if (dis_count < 0) {
+            continue;
+        }
+
+        for (size_t j = 0; j < dis_count + 1; j++) {
             if (data_tokens[j] == query_tokens[0] || query_tokens.size() == 1) {
                 bool match = true;
                 for (size_t k = 0; k < query_tokens.size(); k++) {
