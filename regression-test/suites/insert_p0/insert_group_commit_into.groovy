@@ -37,6 +37,7 @@ suite("insert_group_commit_into") {
     }
 
     def getAlterTableState = {
+        sql "use ${dbName};"
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
             time 600
