@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.lakesoul;
 
-import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
+
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -26,10 +26,9 @@ import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.dmetasoul.lakesoul.meta.DBManager;
 import com.dmetasoul.lakesoul.meta.DBUtil;
+import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.s3a.Constants;
 
 import java.util.List;
 import java.util.Map;
@@ -99,8 +98,5 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         return lakesoulMetadataManager.getAllPartitionInfo(tableId);
     }
-    
-
-
 }
 

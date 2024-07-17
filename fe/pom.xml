@@ -794,7 +794,7 @@ under the License.
             </dependency>
             <!-- change for lakesoule local debug -->
             <dependency>
-                <groupId>com.sleepycat</groupId>
+                <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
             </dependency>

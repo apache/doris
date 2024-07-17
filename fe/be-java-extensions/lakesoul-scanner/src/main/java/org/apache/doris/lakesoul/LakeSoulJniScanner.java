@@ -17,21 +17,26 @@
 
 package org.apache.doris.lakesoul;
 
+import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
+
 import com.dmetasoul.lakesoul.LakeSoulArrowReader;
 import com.dmetasoul.lakesoul.lakesoul.io.NativeIOReader;
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
 import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
-import io.substrait.proto.Plan;
 import com.lakesoul.shaded.org.apache.arrow.vector.VectorSchemaRoot;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
+import io.substrait.proto.Plan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
@@ -74,15 +79,17 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         }
 
         String options = params.getOrDefault(LakeSoulUtils.OPTIONS, "{}");
-        Map<String, String> optionsMap = new ObjectMapper().readValue(options, new TypeReference<Map<String, String>>() {});
+        Map<String, String> optionsMap = new ObjectMapper().readValue(
+                options, new TypeReference<Map<String, String>>() {}
+        );
         String base64Predicate = optionsMap.get(LakeSoulUtils.SUBSTRAIT_PREDICATE);
-        if (base64Predicate !=null) {
+        if (base64Predicate != null) {
             Plan predicate = SubstraitUtil.decodeBase64String(base64Predicate);
             LOG.info("push predicate={}", predicate);
             nativeIOReader.addFilterProto(predicate);
         }
 
-        for (String key:LakeSoulUtils.OBJECT_STORE_OPTIONS) {
+        for (String key : LakeSoulUtils.OBJECT_STORE_OPTIONS) {
             String value = optionsMap.get(key);
             if (key != null) {
                 nativeIOReader.setObjectStoreOption(key, value);
@@ -177,9 +184,19 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         params.put("required_fields", "r_regionkey;r_name;r_comment");
         params.put("primary_keys", "r_regionkey;r_name");
         params.put("query_id", "e9d075a6500a4cac-b94630fd4b30c171");
-        params.put("file_paths", "file:/Users/ceng/Documents/GitHub/LakeSoul/rust/lakesoul-datafusion/default/region/part-RzmUvDFtYV8ceb3J_0000.parquet");
+        params.put("file_paths",
+                "file:/Users/ceng/Documents/GitHub/LakeSoul/rust/lakesoul-datafusion/"
+                    + "default/region/part-RzmUvDFtYV8ceb3J_0000.parquet"
+        );
         params.put("options", "{}");
-        params.put("table_schema", "{\"fields\":[{\"name\":\"r_regionkey\",\"type\":{\"name\":\"int\",\"isSigned\":true,\"bitWidth\":64},\"nullable\":false,\"children\":[]},{\"name\":\"r_name\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]},{\"name\":\"r_comment\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]}],\"metadata\":null}");
+        params.put("table_schema",
+                "{\"fields\":["
+                    + "{\"name\":\"r_regionkey\",\"type\":{\"name\":\"int\",\"isSigned\":true,\"bitWidth\":64},"
+                    + "\"nullable\":false,\"children\":[]},"
+                    + "{\"name\":\"r_name\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]},"
+                    + "{\"name\":\"r_comment\",\"type\":{\"name\":\"utf8\"},\"nullable\":false,\"children\":[]}"
+                    + "],"
+                    + "\"metadata\":null}");
         params.put("partition_descs", "");
         LakeSoulJniScanner scanner = new LakeSoulJniScanner(1024, params);
         scanner.open();

@@ -37,9 +37,9 @@ public class LakeSoulUtils {
     public static final String FS_S3A_PATH_STYLE_ACCESS = "fs.s3a.path.style.access";
 
     public static final List<String> OBJECT_STORE_OPTIONS = Arrays.asList(
-        FS_S3A_ACCESS_KEY,
-        FS_S3A_SECRET_KEY,
-        FS_S3A_ENDPOINT,
-        FS_S3A_PATH_STYLE_ACCESS
+            FS_S3A_ACCESS_KEY,
+            FS_S3A_SECRET_KEY,
+            FS_S3A_ENDPOINT,
+            FS_S3A_PATH_STYLE_ACCESS
     );
 }

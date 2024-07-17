@@ -17,14 +17,8 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
-import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
-import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
-import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
-import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
-import io.substrait.proto.Plan;
-import lombok.SneakyThrows;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
+
+
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -45,14 +39,22 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.DataFileInfo;
 import com.dmetasoul.lakesoul.meta.DataOperation;
 import com.dmetasoul.lakesoul.meta.LakeSoulOptions;
+import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
+import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
+import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
+import io.substrait.proto.Plan;
+import lombok.SneakyThrows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -96,9 +98,16 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         partitions = tableInfo.getPartitions();
         readType = LakeSoulOptions.ReadType$.MODULE$.FULL_READ();
         try {
-            tableProperties = new ObjectMapper().readValue(tableInfo.getProperties(), new TypeReference<Map<String, String>>() {});
+            tableProperties = new ObjectMapper().readValue(
+                tableInfo.getProperties(),
+                new TypeReference<Map<String, String>>() {}
+            );
             tableArrowSchema = Schema.fromJSON(tableInfo.getTableSchema());
-            List<Field> partitionFields = DBUtil.parseTableInfoPartitions(partitions).rangeKeys.stream().map(tableArrowSchema::findField).collect(Collectors.toList());
+            List<Field> partitionFields =
+                    DBUtil.parseTableInfoPartitions(partitions)
+                        .rangeKeys
+                        .stream()
+                        .map(tableArrowSchema::findField).collect(Collectors.toList());
             partitionArrowSchema = new Schema(partitionFields);
         } catch (IOException e) {
             throw new UserException(e);
@@ -170,12 +179,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
         JSONObject options = new JSONObject();
         Plan predicate = LakeSoulUtils.getPushPredicate(
-            conjuncts,
-            tableName,
-            tableArrowSchema,
-            partitionArrowSchema,
-            tableProperties,
-            readType.equals(LakeSoulOptions.ReadType$.MODULE$.INCREMENTAL_READ()));
+                conjuncts,
+                tableName,
+                tableArrowSchema,
+                partitionArrowSchema,
+                tableProperties,
+                readType.equals(LakeSoulOptions.ReadType$.MODULE$.INCREMENTAL_READ()));
         if (predicate != null) {
             options.put(LakeSoulUtils.SUBSTRAIT_PREDICATE, SubstraitUtil.encodeBase64String(predicate));
         }
@@ -214,7 +223,13 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         LOG.info("allPartitionInfo={}", allPartitionInfo);
         List<PartitionInfo> filteredPartitionInfo = allPartitionInfo;
         try {
-            filteredPartitionInfo = LakeSoulUtils.applyPartitionFilters(allPartitionInfo, tableName, partitionArrowSchema, columnNameToRange);
+            filteredPartitionInfo =
+                    LakeSoulUtils.applyPartitionFilters(
+                        allPartitionInfo,
+                        tableName,
+                        partitionArrowSchema,
+                        columnNameToRange
+                    );
         } catch (IOException e) {
             throw new UserException(e);
         }

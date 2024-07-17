@@ -1,20 +1,44 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.datasource.lakesoul;
+
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.planner.ColumnBound;
+import org.apache.doris.planner.ColumnRange;
+import org.apache.doris.thrift.TExprOpcode;
 
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import io.substrait.expression.Expression;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.doris.analysis.*;
-import org.apache.doris.planner.ColumnBound;
-import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.thrift.TExprOpcode;
 
 import java.io.IOException;
 import java.util.List;
@@ -42,14 +66,19 @@ public class LakeSoulUtils {
     public static final String FS_S3A_REGION = "fs.s3a.endpoint.region";
     public static final String FS_S3A_PATH_STYLE_ACCESS = "fs.s3a.path.style.access";
 
-    public static List<PartitionInfo> applyPartitionFilters(List<PartitionInfo> allPartitionInfo, String tableName, Schema partitionArrowSchema, Map<String, ColumnRange> columnNameToRange) throws IOException {
+    public static List<PartitionInfo> applyPartitionFilters(
+            List<PartitionInfo> allPartitionInfo,
+            String tableName,
+            Schema partitionArrowSchema,
+            Map<String, ColumnRange> columnNameToRange
+    ) throws IOException {
 
         Expression conjunctionFilter = null;
-        for (Field field: partitionArrowSchema.getFields()) {
+        for (Field field : partitionArrowSchema.getFields()) {
             ColumnRange columnRange = columnNameToRange.get(field.getName());
             if (columnRange != null) {
                 Expression expr = columnRangeToSubstraitFilter(field, columnRange);
-                if (expr !=null) {
+                if (expr != null) {
                     if (conjunctionFilter == null) {
                         conjunctionFilter = expr;
                     } else {
@@ -58,10 +87,17 @@ public class LakeSoulUtils {
                 }
             }
         }
-        return SubstraitUtil.applyPartitionFilters(allPartitionInfo, partitionArrowSchema, SubstraitUtil.substraitExprToProto(conjunctionFilter, tableName));
+        return SubstraitUtil.applyPartitionFilters(
+            allPartitionInfo,
+            partitionArrowSchema,
+            SubstraitUtil.substraitExprToProto(conjunctionFilter, tableName)
+        );
     }
 
-    public static Expression columnRangeToSubstraitFilter(Field columnField, ColumnRange columnRange) throws IOException {
+    public static Expression columnRangeToSubstraitFilter(
+            Field columnField,
+            ColumnRange columnRange
+    ) throws IOException {
         Optional<RangeSet<ColumnBound>> rangeSetOpt = columnRange.getRangeSet();
         if (columnRange.hasConjunctiveIsNull() || !rangeSetOpt.isPresent()) {
             return SubstraitUtil.CONST_TRUE;
@@ -71,9 +107,9 @@ public class LakeSoulUtils {
                 return SubstraitUtil.CONST_TRUE;
             } else {
                 Expression conjunctionFilter = null;
-                for (Range range:rangeSet.asRanges()) {
+                for (Range range : rangeSet.asRanges()) {
                     Expression expr = rangeToSubstraitFilter(columnField, range);
-                    if (expr !=null) {
+                    if (expr != null) {
                         if (conjunctionFilter == null) {
                             conjunctionFilter = expr;
                         } else {
@@ -95,39 +131,60 @@ public class LakeSoulUtils {
             if (range.hasUpperBound()) {
                 String func = range.upperBoundType() == BoundType.OPEN ? "lt:any_any" : "lte:any_any";
                 Expression left = SubstraitUtil.arrowFieldToSubstraitField(columnField);
-                Expression right = SubstraitUtil.anyToSubstraitLiteral(SubstraitUtil.arrowFieldToSubstraitType(columnField), ((ColumnBound)range.upperEndpoint()).getValue().getRealValue());
-                upper = SubstraitUtil.makeBinary(left, right, DefaultExtensionCatalog.FUNCTIONS_COMPARISON, func, TypeCreator.NULLABLE.BOOLEAN);
+                Expression right = SubstraitUtil.anyToSubstraitLiteral(
+                        SubstraitUtil.arrowFieldToSubstraitType(columnField),
+                        ((ColumnBound) range.upperEndpoint()).getValue().getRealValue());
+                upper = SubstraitUtil.makeBinary(
+                        left,
+                        right,
+                        DefaultExtensionCatalog.FUNCTIONS_COMPARISON,
+                        func,
+                        TypeCreator.NULLABLE.BOOLEAN
+                );
             }
             Expression lower = SubstraitUtil.CONST_TRUE;
             if (range.hasLowerBound()) {
                 String func = range.lowerBoundType() == BoundType.OPEN ? "gt:any_any" : "gte:any_any";
                 Expression left = SubstraitUtil.arrowFieldToSubstraitField(columnField);
-                Expression right = SubstraitUtil.anyToSubstraitLiteral(SubstraitUtil.arrowFieldToSubstraitType(columnField), ((ColumnBound)range.lowerEndpoint()).getValue().getRealValue());
-                lower = SubstraitUtil.makeBinary(left, right, DefaultExtensionCatalog.FUNCTIONS_COMPARISON, func, TypeCreator.NULLABLE.BOOLEAN);
+                Expression right = SubstraitUtil.anyToSubstraitLiteral(
+                        SubstraitUtil.arrowFieldToSubstraitType(columnField),
+                        ((ColumnBound) range.lowerEndpoint()).getValue().getRealValue());
+                lower = SubstraitUtil.makeBinary(
+                        left,
+                        right,
+                        DefaultExtensionCatalog.FUNCTIONS_COMPARISON,
+                        func,
+                        TypeCreator.NULLABLE.BOOLEAN
+                );
             }
             return SubstraitUtil.and(upper, lower);
         }
     }
 
     public static io.substrait.proto.Plan getPushPredicate(
-        List<Expr> conjuncts,
-        String tableName,
-        Schema tableSchema,
-        Schema partitionArrowSchema,
-        Map<String, String> properties,
-        boolean incRead
+            List<Expr> conjuncts,
+            String tableName,
+            Schema tableSchema,
+            Schema partitionArrowSchema,
+            Map<String, String> properties,
+            boolean incRead
     ) throws IOException {
 
-        Set<String> partitionColumn = partitionArrowSchema.getFields().stream().map(Field::getName).collect(Collectors.toSet());
+        Set<String> partitionColumn =
+                partitionArrowSchema
+                    .getFields()
+                    .stream()
+                    .map(Field::getName)
+                    .collect(Collectors.toSet());
         Expression conjunctionFilter = null;
         String cdcColumn = properties.get(CDC_COLUMN);
         if (cdcColumn != null && !incRead) {
             conjunctionFilter = SubstraitUtil.cdcColumnMergeOnReadFilter(tableSchema.findField(cdcColumn));
         }
-        for (Expr expr:conjuncts) {
+        for (Expr expr : conjuncts) {
             if (!isAllPartitionPredicate(expr, partitionColumn)) {
                 Expression predicate = convertToSubstraitExpr(expr, tableSchema);
-                if (predicate !=null) {
+                if (predicate != null) {
                     if (conjunctionFilter == null) {
                         conjunctionFilter = predicate;
                     } else {
@@ -215,76 +272,81 @@ public class LakeSoulUtils {
     }
 
     private static Expression convertBinaryExpr(Expr dorisExpr, Schema tableSchema) throws IOException {
-            TExprOpcode opcode = dorisExpr.getOpcode();
-            // Make sure the col slot is always first
-            SlotRef slotRef = convertDorisExprToSlotRef(dorisExpr.getChild(0));
-            LiteralExpr literalExpr = convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
-            if (slotRef == null || literalExpr == null) {
-                return null;
-            }
-            String colName = slotRef.getColumnName();
-            Field field = tableSchema.findField(colName);
-            Expression fieldRef = SubstraitUtil.arrowFieldToSubstraitField(field);
+        TExprOpcode opcode = dorisExpr.getOpcode();
+        // Make sure the col slot is always first
+        SlotRef slotRef = convertDorisExprToSlotRef(dorisExpr.getChild(0));
+        LiteralExpr literalExpr = convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
+        if (slotRef == null || literalExpr == null) {
+            return null;
+        }
+        String colName = slotRef.getColumnName();
+        Field field = tableSchema.findField(colName);
+        Expression fieldRef = SubstraitUtil.arrowFieldToSubstraitField(field);
 
-            Type type = field.getType().accept(new SubstraitUtil.ArrowTypeToSubstraitTypeConverter(field.isNullable()));
-            Expression literal = SubstraitUtil.anyToSubstraitLiteral(type, literalExpr.getRealValue());
+        Type type = field.getType().accept(
+            new SubstraitUtil.ArrowTypeToSubstraitTypeConverter(field.isNullable())
+        );
+        Expression literal = SubstraitUtil.anyToSubstraitLiteral(
+                type,
+                literalExpr.getRealValue()
+        );
 
-            String namespace;
-            String func;
-            switch (opcode) {
-                case EQ:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "equal:any_any";
-                    break;
-                case EQ_FOR_NULL:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "is_null:any";
-                    break;
-                case NE:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "not_equal:any_any";
-                    break;
-                case GE:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "gte:any_any";
-                    break;
-                case GT:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "gt:any_any";
-                    break;
-                case LE:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "lte:any_any";
-                    break;
-                case LT:
-                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                    func = "lt:any_any";
-                    break;
-                case INVALID_OPCODE:
-                    if (dorisExpr instanceof FunctionCallExpr) {
-                        String name = dorisExpr.getExprName().toLowerCase();
-                        String s = literalExpr.getStringValue();
-                        if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
-                            namespace = DefaultExtensionCatalog.FUNCTIONS_STRING;
-                            func = "like:bool";
-                            break;
-                        }
-                    } else if (dorisExpr instanceof IsNullPredicate) {
-                        if (((IsNullPredicate) dorisExpr).isNotNull()) {
-                            namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                            func = "is_not_null:any";
-
-                        } else {
-                            namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                            func = "is_null:any";
-                        }
+        String namespace;
+        String func;
+        switch (opcode) {
+            case EQ:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "equal:any_any";
+                break;
+            case EQ_FOR_NULL:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "is_null:any";
+                break;
+            case NE:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "not_equal:any_any";
+                break;
+            case GE:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "gte:any_any";
+                break;
+            case GT:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "gt:any_any";
+                break;
+            case LE:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "lte:any_any";
+                break;
+            case LT:
+                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                func = "lt:any_any";
+                break;
+            case INVALID_OPCODE:
+                if (dorisExpr instanceof FunctionCallExpr) {
+                    String name = dorisExpr.getExprName().toLowerCase();
+                    String s = literalExpr.getStringValue();
+                    if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
+                        namespace = DefaultExtensionCatalog.FUNCTIONS_STRING;
+                        func = "like:bool";
                         break;
                     }
-                    return null;
-                default:
-                    return null;
-            }
-            return SubstraitUtil.makeBinary(fieldRef, literal, namespace, func, TypeCreator.NULLABLE.BOOLEAN);
+                } else if (dorisExpr instanceof IsNullPredicate) {
+                    if (((IsNullPredicate) dorisExpr).isNotNull()) {
+                        namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                        func = "is_not_null:any";
+
+                    } else {
+                        namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                        func = "is_null:any";
+                    }
+                    break;
+                }
+                return null;
+            default:
+                return null;
+        }
+        return SubstraitUtil.makeBinary(fieldRef, literal, namespace, func, TypeCreator.NULLABLE.BOOLEAN);
     }
 
 }
