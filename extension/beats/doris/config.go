@@ -29,8 +29,9 @@ import (
 )
 
 type config struct {
-	Hosts               []string `config:"fenodes" validate:"required"`
-	User                string   `config:"user"`
+	Hosts               []string `config:"fenodes"`
+	HttpHosts           []string `config:"http_hosts"`
+	User                string   `config:"user" validate:"required"`
 	Password            string   `config:"password"`
 	Database            string   `config:"database" validate:"required"`
 	Table               string   `config:"table" validate:"required"`
@@ -57,13 +58,13 @@ type backoff struct {
 func defaultConfig() config {
 	return config{
 		Password:            "",
-		LabelPrefix:         "doris_beats",
+		LabelPrefix:         "beats",
 		LineDelimiter:       "\n",
 		LogRequest:          true,
 		LogProgressInterval: 10,
 
 		BulkMaxSize: 100000,
-		MaxRetries:  3,
+		MaxRetries:  -1,
 		Backoff: backoff{
 			Init: 1 * time.Second,
 			Max:  60 * time.Second,
@@ -72,6 +73,9 @@ func defaultConfig() config {
 }
 
 func (c *config) Validate() error {
+	if len(c.HttpHosts) != 0 {
+		c.Hosts = HttpHosts
+	}
 	if len(c.Hosts) == 0 {
 		return errors.New("no http_hosts configured")
 	}

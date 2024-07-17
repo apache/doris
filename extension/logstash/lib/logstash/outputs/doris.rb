@@ -69,11 +69,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :host_resolve_ttl_sec, :validate => :number, :default => 120
 
-   config :retry_count, :validate => :number, :default => -1
+   config :max_retries, :validate => :number, :default => -1
 
-   config :log_request, :validate => :boolean, :default => false
+   config :log_request, :validate => :boolean, :default => true
 
-   config :log_speed_interval, :validate => :number, :default => 10
+   config :log_progress_interval, :validate => :number, :default => 10
 
 
    def print_plugin_info()
@@ -107,9 +107,9 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          last_time = @init_time
          last_bytes = @total_bytes.get
          last_rows = @total_rows.get
-         @logger.info("will report speed every #{@log_speed_interval} seconds")
-         while @log_speed_interval > 0
-            sleep(@log_speed_interval)
+         @logger.info("will report speed every #{@log_progress_interval} seconds")
+         while @log_progress_interval > 0
+            sleep(@log_progress_interval)
 
             cur_time = Time.now.to_i # seconds
             cur_bytes = @total_bytes.get
@@ -210,7 +210,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          else
             @logger.warn("FAILED doris stream load response:\n#{response}")
 
-            if @retry_count >= 0 && req_count > @retry_count
+            if @max_retries >= 0 && req_count > @max_retries
                @logger.warn("DROP this batch after failed #{req_count} times.")
                if @save_on_failure
                   @logger.warn("Try save to disk.Disk file path : #{save_dir}/#{table}_#{save_file}")
