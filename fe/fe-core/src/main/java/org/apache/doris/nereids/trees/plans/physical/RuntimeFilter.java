@@ -158,7 +158,7 @@ public class RuntimeFilter {
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable()
                 .getIgnoredRuntimeFilterIds().contains(id.asInt())) {
-            ignore="(ignore)";
+            ignore = "(ignored)";
         }
         StringBuilder sb = new StringBuilder();
         sb.append(ignore).append("RF").append(id.asInt())
@@ -178,7 +178,7 @@ public class RuntimeFilter {
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable()
                 .getIgnoredRuntimeFilterIds().contains(id.asInt())) {
-            ignore="(ignore)";
+            ignore = "(ignored)";
         }
         StringBuilder sb = new StringBuilder();
         sb.append(ignore).append("RF").append(id.asInt())
