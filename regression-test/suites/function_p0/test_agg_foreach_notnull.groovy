@@ -61,6 +61,10 @@ suite("test_agg_foreach_not_null") {
     (4,[null,2],[[2],null],[null,'c']);
    """
 
+   qt_select_sum_not_null """
+      select sum_foreach(a) from foreach_table_not_null group by id order by id;
+   """
+   
    // this case also test combinator should be case-insensitive
    qt_sql """
        select min_ForEach(a), min_by_foreach(a,a),max_foreach(a),max_by_foreach(a,a) , avg_foreach(a),avg_weighted_foreach(a,a) from foreach_table_not_null ;
