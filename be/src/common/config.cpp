@@ -1059,8 +1059,6 @@ DEFINE_mInt64(max_tablet_io_errors, "-1");
 DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
 DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
-// Page size of row column, default 4KB
-DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task

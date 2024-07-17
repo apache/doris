@@ -255,7 +255,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
-        opts.data_page_size = config::row_column_page_size;
+        opts.data_page_size = _tablet_schema->row_store_page_size();
     }
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
