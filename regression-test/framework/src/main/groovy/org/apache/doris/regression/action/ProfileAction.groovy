@@ -62,7 +62,12 @@ class ProfileAction implements SuiteAction {
         try {
             JdbcUtils.executeToList(conn, "set enable_profile=true")
 
-            this.runCallback.run()
+            Throwable exception = null
+            try {
+                this.runCallback.run()
+            } catch (Throwable t) {
+                exception = t
+            }
 
             def httpCli = new HttpCliAction(context)
             httpCli.endpoint(context.config.feHttpAddress)
@@ -106,7 +111,7 @@ class ProfileAction implements SuiteAction {
                             def profileText = jsonSlurper2.parseText(profileResp).data
                             profileText = profileText.replace("&nbsp;", " ")
                             profileText = profileText.replace("</br>", "\n")
-                            this.check(profileText)
+                            this.check(profileText, exception)
                         }
                         profileCli.run()
 

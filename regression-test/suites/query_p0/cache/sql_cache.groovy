@@ -19,7 +19,6 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
 
-import java.util.concurrent.atomic.AtomicReference
 import java.util.stream.Collectors
 
 suite("sql_cache") {
@@ -192,37 +191,30 @@ suite("sql_cache") {
     sql 'set default_order_by_limit = 2'
     sql 'set sql_select_limit = 1'
 
-
-    AtomicReference<Throwable> exception = new AtomicReference<>()
-
     profile {
         tag "sql_cache8"
 
         run {
-            try {
-                qt_sql_cache8 """
-                    -- sql_cache8
-                    select
-                        k1,
-                        sum(k2) as total_pv 
-                    from
-                        ${tableName} 
-                    where
-                        k1 between '2022-05-28' and '2022-06-30' 
-                    group by
-                        k1 
-                    order by
-                        k1;
-                """
-            } catch (Throwable t) {
-                exception.set(t)
-            }
+            qt_sql_cache8 """
+                -- sql_cache8
+                select
+                    k1,
+                    sum(k2) as total_pv 
+                from
+                    ${tableName} 
+                where
+                    k1 between '2022-05-28' and '2022-06-30' 
+                group by
+                    k1 
+                order by
+                    k1;
+            """
         }
 
-        check { def profileString ->
-            if (!exception.get().is(null)) {
-                logger.error("Profile failed, profile result:\n${profileString}", exception.get())
-                throw exception.get()
+        check { profileString, exception ->
+            if (!exception.is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception)
+                throw exception
             }
         }
     }
@@ -231,30 +223,26 @@ suite("sql_cache") {
         tag "sql_cache9"
 
         run {
-            try {
-                qt_sql_cache9 """
-                    -- sql_cache9
-                    select
-                        k1,
-                        sum(k2) as total_pv 
-                    from
-                        ${tableName} 
-                    where
-                        k1 between '2022-05-28' and '2022-06-30' 
-                    group by
-                        k1 
-                    order by
-                        k1;
-                """
-            } catch (Throwable t) {
-                exception.set(t)
-            }
+            qt_sql_cache9 """
+                -- sql_cache9
+                select
+                    k1,
+                    sum(k2) as total_pv 
+                from
+                    ${tableName} 
+                where
+                    k1 between '2022-05-28' and '2022-06-30' 
+                group by
+                    k1 
+                order by
+                    k1;
+            """
         }
 
-        check { def profileString ->
-            if (!exception.get().is(null)) {
-                logger.error("Profile failed, profile result:\n${profileString}", exception.get())
-                throw exception.get()
+        check { profileString, exception ->
+            if (!exception.is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception)
+                throw exception
             }
         }
     }
