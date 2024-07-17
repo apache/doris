@@ -35,7 +35,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const T& num) const;
+    void push_number(ColumnString::Chars& chars, const T& num) const;
 };
 
 using DataTypeUInt8 = DataTypeNumber<UInt8>;

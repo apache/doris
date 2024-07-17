@@ -24,6 +24,9 @@ import org.slf4j.LoggerFactory
 enum NodeType {
     FE,
     BE,
+    // cloud
+    MS,
+    RECYCLER,
 }
 
 class DebugPoint {
