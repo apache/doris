@@ -595,6 +595,8 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// enable stream load commit txn on BE directly, bypassing FE. Only for cloud.
+DECLARE_mBool(enable_stream_load_commit_txn_on_be);
 // The buffer size to store stream table function schema info
 DECLARE_Int64(stream_tvf_buffer_size);
 
