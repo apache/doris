@@ -1744,7 +1744,7 @@ public class Config extends ConfigBase {
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_workload_group = true;
+    public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
