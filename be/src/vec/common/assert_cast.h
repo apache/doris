@@ -32,7 +32,6 @@
   */
 template <typename To, typename From>
 PURE To assert_cast(From&& from) {
-#ifndef NDEBUG
     try {
         if constexpr (std::is_pointer_v<To>) {
             if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
@@ -58,7 +57,4 @@ PURE To assert_cast(From&& from) {
     LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
                               demangle(typeid(To).name()));
     __builtin_unreachable();
-#else
-    return static_cast<To>(from);
-#endif
 }
