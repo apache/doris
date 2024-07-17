@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,22 +68,29 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // Project(Scan) -> project(agg(scan))
-                logicalProject(logicalOlapScan()).when(project -> isRandomDistributedTbl(project.child()))
+                logicalProject(logicalOlapScan())
+                        .when(this::isQuery)
+                        .when(project -> isRandomDistributedTbl(project.child()))
                         .then(project -> preAggForRandomDistribution(project, project.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_PROJECT_SCAN),
                 // agg(scan) -> agg(agg(scan)), agg(agg) may optimized by MergeAggregate
-                logicalAggregate(logicalOlapScan()).when(agg -> isRandomDistributedTbl(agg.child())).whenNot(agg -> {
-                    Set<AggregateFunction> functions = agg.getAggregateFunctions();
-                    List<Expression> groupByExprs = agg.getGroupByExpressions();
-                    // check if need generate an inner agg plan or not
-                    // should not rewrite twice if we had rewritten olapScan to aggregate(olapScan)
-                    return functions.stream().allMatch(this::aggTypeMatch) && groupByExprs.stream()
+                logicalAggregate(logicalOlapScan())
+                        .when(this::isQuery)
+                        .when(agg -> isRandomDistributedTbl(agg.child()))
+                        .whenNot(agg -> {
+                            Set<AggregateFunction> functions = agg.getAggregateFunctions();
+                            List<Expression> groupByExprs = agg.getGroupByExpressions();
+                            // check if need generate an inner agg plan or not
+                            // should not rewrite twice if we had rewritten olapScan to aggregate(olapScan)
+                            return functions.stream().allMatch(this::aggTypeMatch) && groupByExprs.stream()
                                     .allMatch(this::isKeyOrConstantExpr);
-                })
+                        })
                         .then(agg -> preAggForRandomDistribution(agg, agg.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_AGG_SCAN),
                 // filter(scan) -> filter(agg(scan))
-                logicalFilter(logicalOlapScan()).when(filter -> isRandomDistributedTbl(filter.child()))
+                logicalFilter(logicalOlapScan())
+                        .when(this::isQuery)
+                        .when(filter -> isRandomDistributedTbl(filter.child()))
                         .then(filter -> preAggForRandomDistribution(filter, filter.child()))
                         .toRule(RuleType.BUILD_AGG_FOR_RANDOM_DISTRIBUTED_TABLE_FILTER_SCAN));
 
@@ -99,6 +107,12 @@ public class BuildAggForRandomDistributedTable implements AnalysisRuleFactory {
         KeysType keysType = olapTable.getKeysType();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
         return keysType == KeysType.AGG_KEYS && distributionInfo.getType() == DistributionInfoType.RANDOM;
+    }
+
+    private boolean isQuery(LogicalPlan plan) {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getState() != null
+                && ConnectContext.get().getState().isQuery();
     }
 
     /**
