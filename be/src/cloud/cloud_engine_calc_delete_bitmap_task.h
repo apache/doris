@@ -37,6 +37,9 @@ public:
                                     int64_t transaction_id, int64_t version);
     ~CloudTabletCalcDeleteBitmapTask() = default;
 
+    void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
+                              int64_t ms_cumulative_point);
+
     Status handle() const;
 
 private:
@@ -46,6 +49,10 @@ private:
     int64_t _tablet_id;
     int64_t _transaction_id;
     int64_t _version;
+
+    int64_t _ms_base_compaction_cnt {-1};
+    int64_t _ms_cumulative_compaction_cnt {-1};
+    int64_t _ms_cumulative_point {-1};
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 

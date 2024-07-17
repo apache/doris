@@ -1570,7 +1570,14 @@ class Suite implements GroovyInterceptable {
         json.result.cluster
     }
 
-    def drop_cluster = { cluster_name, cluster_id ->
+    // cloud
+    String getCloudBeTagByName(String clusterName) {
+        def bes = sql_return_maparray "show backends"
+        def be = bes.stream().filter(be -> be.Tag.contains(clusterName)).findFirst().orElse(null)
+        return be.Tag
+    }
+
+    def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                      type: "COMPUTE",
@@ -1585,6 +1592,11 @@ class Suite implements GroovyInterceptable {
 
         def drop_cluster_api = { request_body, check_func ->
             httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body

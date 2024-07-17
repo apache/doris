@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -89,6 +91,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 Expression v = kv.getValue();
                 for (Expression childPredicate : childPredicates) {
                     allPredicates.add(childPredicate.rewriteDownShortCircuit(c -> c.equals(v) ? k : c));
+                }
+            }
+            for (NamedExpression expr : project.getProjects()) {
+                if (expr instanceof Alias && expr.child(0) instanceof Literal) {
+                    allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
                 }
             }
             return getAvailableExpressions(allPredicates, project);

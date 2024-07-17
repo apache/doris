@@ -21,12 +21,13 @@
  *
  */
 suite("load") {
+    def s3Region = getS3Region()
     restore {
         location "s3://${getS3BucketName()}/regression/tpcds/sf1000"
         ak "${getS3AK()}"
         sk "${getS3SK()}"
         endpoint "http://${getS3Endpoint()}"
-        region "ap-beijing"
+        region "${s3Region}"
         repository "tpcds_backup"
         snapshot "tpcds_customer"
         timestamp "2022-03-31-10-16-46"
@@ -40,7 +41,7 @@ suite("load") {
         ak "${getS3AK()}"
         sk "${getS3SK()}"
         endpoint "http://${getS3Endpoint()}"
-        region "ap-beijing"
+        region "${s3Region}"
         repository "tpcds_backup"
         snapshot "tpcds"
         timestamp "2022-03-30-12-22-31"
