@@ -88,7 +88,7 @@ suite("regression_test_variant_mtmv"){
         CREATE MATERIALIZED VIEW mv2
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
-            as SELECT id, cast(actor['id'] as bigint), payload  FROM github_events_mtmv limit 1024;
+            as SELECT id, cast(actor['id'] as bigint) FROM github_events_mtmv limit 1024;
     """ 
     def job_name_2 = getJobName(db, "mv2") 
     waitingMTMVTaskFinished(job_name_2)
