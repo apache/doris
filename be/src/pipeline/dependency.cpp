@@ -37,13 +37,42 @@ Dependency* BasicSharedState::create_source_dependency(int operator_id, int node
                                                        std::string name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
+    _running_source_operators++;
+    DCHECK_EQ(_running_source_operators, source_deps.size());
+    DCHECK(typeid(*this) != typeid(LocalExchangeSharedState))
+            << "LocalExchangeSharedState can not use create_source_dependency";
     return source_deps.back().get();
 }
 
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
     sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
+    _running_sink_operators++;
+    DCHECK_EQ(_running_sink_operators, sink_deps.size());
+    DCHECK(typeid(*this) != typeid(LocalExchangeSharedState))
+            << "LocalExchangeSharedState can not use create_sink_dependency";
     return sink_deps.back().get();
+}
+
+void BasicSharedState::sub_running_sink_operators() {
+    _running_sink_operators--;
+}
+
+void BasicSharedState::sub_running_source_operators() {
+    if (_running_source_operators.fetch_sub(1) == 1) {
+        set_all_dep_always_ready();
+    }
+}
+
+void BasicSharedState::set_all_dep_always_ready() {
+    for (auto& dep : source_deps) {
+        DCHECK(dep);
+        dep->set_always_ready();
+    }
+    for (auto& dep : sink_deps) {
+        DCHECK(dep);
+        dep->set_always_ready();
+    }
 }
 
 void Dependency::_add_block_task(PipelineTask* task) {
@@ -182,19 +211,10 @@ void RuntimeFilterTimerQueue::start() {
 }
 
 void LocalExchangeSharedState::sub_running_sink_operators() {
-    std::unique_lock<std::mutex> lc(le_lock);
-    if (exchanger->_running_sink_operators.fetch_sub(1) == 1) {
-        _set_always_ready();
+    if (_running_sink_operators.fetch_sub(1) == 1) {
+        set_all_dep_always_ready();
     }
 }
-
-void LocalExchangeSharedState::sub_running_source_operators() {
-    std::unique_lock<std::mutex> lc(le_lock);
-    if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
-        _set_always_ready();
-    }
-}
-
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
     mem_trackers.resize(num_instances, nullptr);

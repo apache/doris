@@ -74,7 +74,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
         return Status::OK();
     };
 
-    bool all_finished = _running_sink_operators == 0;
+    bool all_finished = local_state._shared_state->running_sink_operators() == 0;
     if (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
         SCOPED_TIMER(local_state._copy_data_timer);
         mutable_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
@@ -224,7 +224,7 @@ void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    bool all_finished = _running_sink_operators == 0;
+    bool all_finished = local_state._shared_state->running_sink_operators() == 0;
     if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
         local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
@@ -259,7 +259,7 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
         return Status::OK();
     }
     vectorized::Block next_block;
-    bool all_finished = _running_sink_operators == 0;
+    bool all_finished = local_state._shared_state->running_sink_operators() == 0;
     if (_data_queue[0].try_dequeue(next_block)) {
         *block = std::move(next_block);
     } else if (all_finished) {
@@ -302,7 +302,7 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
         vectorized::BlockSupplier block_supplier = [&, id = channel_id](vectorized::Block* block,
                                                                         bool* eos) {
             vectorized::Block next_block;
-            bool all_finished = _running_sink_operators == 0;
+            bool all_finished = local_state._shared_state->running_sink_operators() == 0;
             if (_data_queue[id].try_dequeue(next_block)) {
                 block->swap(next_block);
                 if (_free_block_limit == 0 ||
@@ -421,7 +421,7 @@ void BroadcastExchanger::close(LocalExchangeSourceLocalState& local_state) {
 Status BroadcastExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                      LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    bool all_finished = _running_sink_operators == 0;
+    bool all_finished = local_state._shared_state->running_sink_operators() == 0;
     if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         *block = std::move(next_block);
     } else if (all_finished) {
@@ -532,7 +532,7 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, vectorized::
                                                bool* eos,
                                                LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    bool all_finished = _running_sink_operators == 0;
+    bool all_finished = local_state._shared_state->running_sink_operators() == 0;
     if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
         if (_free_block_limit == 0 ||

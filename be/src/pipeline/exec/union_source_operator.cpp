@@ -40,8 +40,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     if (p.get_child_count() != 0) {
-        ((UnionSharedState*)_dependency->shared_state())
-                ->data_queue.set_source_dependency(_shared_state->source_deps.front());
+        _shared_state->data_queue.set_source_dependency(_dependency->shared_from_this());
     } else {
         _only_const_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");

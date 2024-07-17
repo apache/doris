@@ -20,15 +20,12 @@
 #include <sqltypes.h>
 
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <utility>
 
 #include "common/logging.h"
-#include "concurrentqueue.h"
-#include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/exec/data_queue.h"
@@ -46,6 +43,7 @@ class VSlotRef;
 namespace doris::pipeline {
 
 class Dependency;
+struct LocalExchangeSharedState;
 class PipelineTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
@@ -72,16 +70,33 @@ struct BasicSharedState {
                 << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET*>(this);
     }
-    std::vector<DependencySPtr> source_deps;
-    std::vector<DependencySPtr> sink_deps;
+    //sub when operator close
+
+    virtual void sub_running_sink_operators();
+    // When all sources are closed, it will wake up the sink
+    // (for example, if there is a limit in the downstream pipeline, causing the source to end early).
+    virtual void sub_running_source_operators();
+
+    // sink and source will all always_ready
+    void set_all_dep_always_ready();
+
     int id = 0;
     std::set<int> related_op_ids;
 
     virtual ~BasicSharedState() = default;
-
+    // All source/sinkDependencies, except for LocalExchange,
+    // can only be constructed  by create_source_dependency and create_sink_dependency.
     Dependency* create_source_dependency(int operator_id, int node_id, std::string name);
 
     Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
+
+private:
+    friend class Dependency;
+    friend struct LocalExchangeSharedState;
+    std::vector<DependencySPtr> source_deps;
+    std::vector<DependencySPtr> sink_deps;
+    std::atomic<int> _running_sink_operators = 0;
+    std::atomic<int> _running_source_operators = 0;
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
@@ -835,7 +850,6 @@ public:
     std::vector<MemTracker*> mem_trackers;
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
-    std::mutex le_lock;
     void create_source_dependencies(int operator_id, int node_id) {
         for (auto& source_dep : source_deps) {
             source_dep = std::make_shared<Dependency>(operator_id, node_id,
@@ -843,17 +857,23 @@ public:
             source_dep->set_shared_state(this);
         }
     };
-    void sub_running_sink_operators();
-    void sub_running_source_operators();
-    void _set_always_ready() {
-        for (auto& dep : source_deps) {
-            DCHECK(dep);
-            dep->set_always_ready();
-        }
-        for (auto& dep : sink_deps) {
-            DCHECK(dep);
-            dep->set_always_ready();
-        }
+
+    // For a local exchange, it is possible that only one block exists and all upstream concurrency has only one block.
+    // Therefore, it is necessary to wake up the source after all sinks have finished.
+    void sub_running_sink_operators() override;
+
+    int running_sink_operators() const { return _running_sink_operators; }
+
+    int running_source_operators() const { return _running_source_operators; }
+
+    void set_sink_dep(DependencySPtr sink_dep) {
+        DCHECK(sink_deps.empty());
+        sink_deps.push_back(sink_dep);
+    }
+
+    void set_sink_and_source_num(int sink, int source) {
+        _running_sink_operators = sink;
+        _running_source_operators = source;
     }
 
     Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }

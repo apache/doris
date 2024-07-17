@@ -131,8 +131,8 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
                    "_running_sink_operators: {}, _running_source_operators: {}, _release_count: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
-                   _release_count);
+                   _shared_state->running_sink_operators(),
+                   _shared_state->running_source_operators(), _release_count);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -144,13 +144,11 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
 
     // If all exchange sources ended due to limit reached, current task should also finish
-    if (local_state._exchanger->_running_source_operators == 0) {
+    if (local_state._shared_state->running_source_operators() == 0) {
         local_state._release_count = true;
-        local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
     }
     if (eos) {
-        local_state._shared_state->sub_running_sink_operators();
         local_state._release_count = true;
     }
 

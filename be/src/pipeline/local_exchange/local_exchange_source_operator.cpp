@@ -55,9 +55,6 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
     if (_exchanger) {
         _exchanger->close(*this);
     }
-    if (_shared_state) {
-        _shared_state->sub_running_source_operators();
-    }
 
     return Base::close(state);
 }
@@ -78,8 +75,8 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
                    "_running_sink_operators: {}, _running_source_operators: {}, mem_usage: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
-                   _shared_state->mem_usage.load());
+                   _shared_state->running_sink_operators(),
+                   _shared_state->running_source_operators(), _shared_state->mem_usage.load());
     size_t i = 0;
     fmt::format_to(debug_string_buffer, ", MemTrackers: ");
     for (auto* mem_tracker : _shared_state->mem_trackers) {
