@@ -559,7 +559,8 @@ public class OneRangePartitionEvaluator
         return context;
     }
 
-    private Map<Expression, ColumnRange> replaceSlotRange(Map<Expression, ColumnRange> originRange, Expression slot, ColumnRange range) {
+    private Map<Expression, ColumnRange> replaceSlotRange(Map<Expression, ColumnRange> originRange, Expression slot,
+            ColumnRange range) {
         LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap(originRange);
         newRanges.put(slot, range);
         return ImmutableMap.copyOf(newRanges);
