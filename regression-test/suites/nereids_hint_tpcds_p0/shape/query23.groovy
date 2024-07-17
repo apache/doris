@@ -91,7 +91,6 @@ from
     explain shape plan
     with frequent_ss_items as 
  (select 
- /*+ leading(store_sales date_dim item) */
  substr(i_item_desc,1,30) itemdesc,i_item_sk item_sk,d_date solddate,count(*) cnt
   from store_sales
       ,date_dim 
@@ -113,7 +112,6 @@ from
         group by c_customer_sk) t),
 best_ss_customer as
  (select 
- /*+ leading() */
  c_customer_sk,sum(ss_quantity*ss_sales_price) ssales
   from store_sales
       ,customer
