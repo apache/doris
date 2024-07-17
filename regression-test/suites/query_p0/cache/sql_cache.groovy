@@ -222,6 +222,7 @@ suite("sql_cache") {
         check { def profileString ->
             if (!exception.get().is(null)) {
                 logger.error("Profile failed, profile result:\n${profileString}", exception.get())
+                throw exception.get()
             }
         }
     }
@@ -253,6 +254,7 @@ suite("sql_cache") {
         check { def profileString ->
             if (!exception.get().is(null)) {
                 logger.error("Profile failed, profile result:\n${profileString}", exception.get())
+                throw exception.get()
             }
         }
     }
