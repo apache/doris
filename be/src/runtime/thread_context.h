@@ -460,7 +460,6 @@ public:
 // Mem Hook to consume thread mem tracker
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)           \
     do {                                                   \
-        doris::allocator_detect(size);                     \
         if (doris::use_mem_hook) {                         \
             doris::thread_context()->consume_memory(size); \
         }                                                  \
@@ -468,7 +467,6 @@ public:
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)           \
     do {                                                                   \
-        doris::allocator_detect(size_fn(__VA_ARGS__));                     \
         if (doris::use_mem_hook) {                                         \
             doris::thread_context()->consume_memory(size_fn(__VA_ARGS__)); \
         }                                                                  \
