@@ -59,6 +59,10 @@ suite("test_audit_log_behavior") {
             [
                     "insert into audit_log_behavior select 1, '3F6B9A_${cnt}' from audit_log_behavior",
                     "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}' from a ..."
+            ],
+            [
+                    "select id, name from audit_log_behavior as loooooooooooooooong_alias",
+                    "select id, name from audit_log_behavior as loooooooooooooo ..."
             ]
     ]
 
