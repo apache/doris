@@ -96,10 +96,11 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
             memcpy(dest, null_map + i, sizeof(UInt8));
             if (null_map[i] == 0) {
                 memcpy_fixed<T>(dest + 1, (char*)&data[i]);
-                keys[i].size += sizeof(T) + sizeof(UInt8);
-            } else {
-                keys[i].size += sizeof(UInt8);
             }
+        }
+
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
         }
     } else {
         for (size_t i = 0; i < num_rows; ++i) {
