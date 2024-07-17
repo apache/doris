@@ -562,11 +562,12 @@ suite("test_delete") {
     """
     sql """
         insert into table_decimal values
-        (false, '0.1234567', -20);
+        (false, '0.1234567', -20),
+        (true, '0.1234567', 10);
     """
 
     sql """
-        delete from table_decimal where k2 = '0.1234567';
+        delete from table_decimal where k2 = '0.1234567' and k3 = 10;
     """
     qt_check_decimal """
         select * from table_decimal;

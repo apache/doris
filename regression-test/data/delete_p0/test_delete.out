@@ -152,4 +152,5 @@ ccc	ccc
 true	-1.0	10
 
 -- !check_decimal --
-\N
+false	0.1234567	-20
+
