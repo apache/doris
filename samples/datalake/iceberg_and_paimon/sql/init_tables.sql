@@ -51,7 +51,3 @@ CREATE TABLE if not exists paimon.db_paimon.customer (
   'deletion-vectors.enabled' = 'true',
   'bucket'='1'
 );
-
-bin/spark-sql \
-    --conf spark.sql.catalog.paimon=org.apache.paimon.spark.SparkCatalog \
-    --conf spark.sql.catalog.paimon.warehouse=file://$HOME/data/paimon

@@ -165,7 +165,7 @@ services:
       - ./packages/doris-bin:/opt/doris-bin
       - ./sql/init_doris.sql:/opt/doris-bin/init_doris.sql
       - ./scripts:/opt/scripts
-    command: sh /opt/scripts/start_doris.sh
+    command: bin/bash /opt/scripts/start_doris.sh
 
 networks:
   demo-iceberg:

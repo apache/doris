@@ -46,7 +46,7 @@ Flink SQL> show tables;
 +------------+
 1 row in set
 
-Flink SQL> show create table tb_paimon;
+Flink SQL> show create table customer;
 +------------------------------------------------------------------------+
 |                                                                 result |
 +------------------------------------------------------------------------+
@@ -164,38 +164,7 @@ mysql> explain verbose select * from customer where c_nationkey < 3;
 +------------------------------------------------------------------------------------------------------------------------------------------------+
 | Explain String(Nereids Planner)                                                                                                                |
 +------------------------------------------------------------------------------------------------------------------------------------------------+
-| PLAN FRAGMENT 0                                                                                                                                |
-|   OUTPUT EXPRS:                                                                                                                                |
-|     c_custkey[#0]                                                                                                                              |
-|     c_name[#1]                                                                                                                                 |
-|     c_address[#2]                                                                                                                              |
-|     c_nationkey[#3]                                                                                                                            |
-|     c_phone[#4]                                                                                                                                |
-|     c_acctbal[#5]                                                                                                                              |
-|     c_mktsegment[#6]                                                                                                                           |
-|     c_comment[#7]                                                                                                                              |
-|   PARTITION: UNPARTITIONED                                                                                                                     |
-|                                                                                                                                                |
-|   HAS_COLO_PLAN_NODE: false                                                                                                                    |
-|                                                                                                                                                |
-|   VRESULT SINK                                                                                                                                 |
-|      MYSQL_PROTOCAL                                                                                                                            |
-|                                                                                                                                                |
-|   1:VEXCHANGE                                                                                                                                  |
-|      offset: 0                                                                                                                                 |
-|      distribute expr lists:                                                                                                                    |
-|      tuple ids: 0                                                                                                                              |
-|                                                                                                                                                |
-| PLAN FRAGMENT 1                                                                                                                                |
-|                                                                                                                                                |
-|   PARTITION: RANDOM                                                                                                                            |
-|                                                                                                                                                |
-|   HAS_COLO_PLAN_NODE: false                                                                                                                    |
-|                                                                                                                                                |
-|   STREAM DATA SINK                                                                                                                             |
-|     EXCHANGE ID: 01                                                                                                                            |
-|     UNPARTITIONED                                                                                                                              |
-|                                                                                                                                                |
+| ...............                                                                                                                                |
 |   0:VPAIMON_SCAN_NODE(68)                                                                                                                      |
 |      table: customer                                                                                                                           |
 |      predicates: (c_nationkey[#3] < 3)                                                                                                         |
@@ -249,44 +218,11 @@ Job ID: ff838b7b778a94396b332b0d93c8f7ac
 After waiting for the task to be completed, we can view the modified data through doris.
 
 ```sql
-mysql> refresh table customer;
-Query OK, 0 rows affected (0.02 sec)
-
 mysql> explain verbose select * from customer where c_nationkey < 3;
 +------------------------------------------------------------------------------------------------------------------------------------------------+
 | Explain String(Nereids Planner)                                                                                                                |
 +------------------------------------------------------------------------------------------------------------------------------------------------+
-| PLAN FRAGMENT 0                                                                                                                                |
-|   OUTPUT EXPRS:                                                                                                                                |
-|     c_custkey[#0]                                                                                                                              |
-|     c_name[#1]                                                                                                                                 |
-|     c_address[#2]                                                                                                                              |
-|     c_nationkey[#3]                                                                                                                            |
-|     c_phone[#4]                                                                                                                                |
-|     c_acctbal[#5]                                                                                                                              |
-|     c_mktsegment[#6]                                                                                                                           |
-|     c_comment[#7]                                                                                                                              |
-|   PARTITION: UNPARTITIONED                                                                                                                     |
-|                                                                                                                                                |
-|   HAS_COLO_PLAN_NODE: false                                                                                                                    |
-|                                                                                                                                                |
-|   VRESULT SINK                                                                                                                                 |
-|      MYSQL_PROTOCAL                                                                                                                            |
-|                                                                                                                                                |
-|   1:VEXCHANGE                                                                                                                                  |
-|      offset: 0                                                                                                                                 |
-|      distribute expr lists:                                                                                                                    |
-|      tuple ids: 0                                                                                                                              |
-|                                                                                                                                                |
-| PLAN FRAGMENT 1                                                                                                                                |
-|                                                                                                                                                |
-|   PARTITION: RANDOM                                                                                                                            |
-|                                                                                                                                                |
-|   HAS_COLO_PLAN_NODE: false                                                                                                                    |
-|                                                                                                                                                |
-|   STREAM DATA SINK                                                                                                                             |
-|     EXCHANGE ID: 01                                                                                                                            |
-|     UNPARTITIONED                                                                                                                              |
+| ...............                                                                                                                                |
 |                                                                                                                                                |
 |   0:VPAIMON_SCAN_NODE(68)                                                                                                                      |
 |      table: customer                                                                                                                           |
