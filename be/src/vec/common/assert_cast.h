@@ -23,7 +23,7 @@
 #include <type_traits>
 #include <typeinfo>
 
-#include "commont/config.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "vec/common/demangle.h"
 
@@ -44,8 +44,8 @@ PURE To assert_cast(From&& from) {
                         return ptr;
                     }
                     LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
-                                            demangle(typeid(*from).name()),
-                                            demangle(typeid(To).name()));
+                                              demangle(typeid(*from).name()),
+                                              demangle(typeid(To).name()));
                 }
             } else {
                 if (typeid(from) == typeid(To)) {
@@ -57,7 +57,7 @@ PURE To assert_cast(From&& from) {
         }
 
         LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                                demangle(typeid(To).name()));
+                                  demangle(typeid(To).name()));
         __builtin_unreachable();
     } else {
         return static_cast<To>(from);
