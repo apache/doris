@@ -3446,11 +3446,6 @@ public class Env {
             sb.append(olapTable.getDataSortInfo().toSql());
         }
 
-        if (olapTable.getTTLSeconds() != 0) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
-            sb.append(olapTable.getTTLSeconds()).append("\"");
-        }
-
         // in memory
         if (olapTable.isInMemory()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
