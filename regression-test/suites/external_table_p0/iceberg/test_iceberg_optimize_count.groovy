@@ -40,7 +40,6 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
             );"""
 
         sql """ switch ${catalog_name} """
-        sql """ create database if not exists ${catalog_name} """
         sql """ use format_v2 """
 
         sqlstr1 = """ select count(*) from sample_cow_orc; """

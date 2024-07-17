@@ -26,15 +26,18 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "cpp/s3_rate_limiter.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv_error.h"
-#include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris::cloud {
+
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
 
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 

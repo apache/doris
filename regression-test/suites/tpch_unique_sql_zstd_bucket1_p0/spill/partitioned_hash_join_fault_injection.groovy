@@ -17,7 +17,7 @@
 
 suite("partitioned_hash_join_fault_injection", "nonConcurrent") {
     multi_sql """
-    use regression_test_tpch_unique_sql_zstd_p0;
+    use regression_test_tpch_unique_sql_zstd_bucket1_p0;
     set enable_force_spill=true;
     set min_revocable_mem=1024;
     """
