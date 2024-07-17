@@ -207,7 +207,7 @@ struct ConvStringImpl {
         StringRef str = data_column->get_data_at(index);
         StringParser::ParseResult parse_res;
         int64_t decimal_num =
-                StringParser::string_to_int<int64_t>(str.data, str.size, src_base, &parse_res);
+                StringParser::string_to_int<uint64_t>(str.data, str.size, src_base, &parse_res);
         if (src_base < 0 && decimal_num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();
