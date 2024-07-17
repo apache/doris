@@ -264,6 +264,10 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexCharFilter
     | CREATE INVERTED INDEX NORMALIZER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                                  #createIndexNormalizer
+    | CREATE DATA MASK POLICY (IF NOT EXISTS)? name=identifier
+        ON column=multipartIdentifier
+        TO (user=userIdentify | ROLE roleName=identifier)
+        USING dataMaskType=identifier (LEVEL level=INTEGER_VALUE)?                  #createDataMaskPolicy
     ;
 
 dictionaryColumnDefs:
@@ -351,6 +355,7 @@ supportedDropStatement
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
     | DROP INVERTED INDEX NORMALIZER (IF EXISTS)? name=identifier               #dropIndexNormalizer
+    | DROP DATA MASK POLICY (IF EXISTS)? name=identifier                        #dropDataMaskPolicy
     ;
 
 supportedShowStatement
@@ -469,6 +474,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
+    | SHOW DATA MASK POLICY (FOR (user=userIdentify | ROLE roleName=identifier))?   #showDataMaskPolicy
     ;
 
 supportedLoadStatement
@@ -1048,7 +1054,7 @@ dataDesc
 statementScope
     : (GLOBAL | SESSION | LOCAL)
     ;
-    
+
 buildMode
     : BUILD (IMMEDIATE | DEFERRED)
     ;
@@ -2083,6 +2089,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MASK
     | MATCHED
     | MATCH_ALL
     | MATCH_ANY

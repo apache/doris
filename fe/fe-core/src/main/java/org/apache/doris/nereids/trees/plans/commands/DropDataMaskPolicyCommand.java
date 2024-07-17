@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -34,34 +32,23 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * DropRowPolicyCommand
  **/
-public class DropRowPolicyCommand extends DropCommand {
+public class DropDataMaskPolicyCommand extends DropCommand {
     private final boolean ifExists;
     private final String policyName;
-    private final TableNameInfo tableNameInfo;
-    private final UserIdentity user;
-    private final String roleName;
 
     /**
      * DropRowPolicyCommand
      **/
-    public DropRowPolicyCommand(boolean ifExists,
-                                String policyName,
-                                TableNameInfo tableNameInfo,
-                                UserIdentity user,
-                                String roleName) {
-        super(PlanType.DROP_ROW_POLICY_COMMAND);
+    public DropDataMaskPolicyCommand(String policyName, boolean ifExists) {
+        super(PlanType.DROP_DATA_MASK_POLICY_COMMAND);
         this.ifExists = ifExists;
         this.policyName = policyName;
-        this.tableNameInfo = tableNameInfo;
-        this.user = user;
-        this.roleName = roleName;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        DropPolicyLog dropPolicyLog = new DropPolicyLog(tableNameInfo.getCtl(), tableNameInfo.getDb(),
-                tableNameInfo.getTbl(), PolicyTypeEnum.ROW, policyName, user, roleName);
+        DropPolicyLog dropPolicyLog = new DropPolicyLog(PolicyTypeEnum.DATA_MASK, policyName);
         Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, ifExists);
     }
 
@@ -69,10 +56,6 @@ public class DropRowPolicyCommand extends DropCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
-        if (user != null) {
-            user.analyze();
-        }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
@@ -89,20 +72,8 @@ public class DropRowPolicyCommand extends DropCommand {
         return policyName;
     }
 
-    public TableNameInfo getTableNameInfo() {
-        return tableNameInfo;
-    }
-
-    public UserIdentity getUser() {
-        return user;
-    }
-
-    public String getRoleName() {
-        return roleName;
-    }
-
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitDropRowPolicyCommand(this, context);
+        return visitor.visitDropDataMaskPolicyCommand(this, context);
     }
 }
