@@ -257,9 +257,6 @@ public class Coordinator implements CoordInterface {
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
 
-    // parallel execute
-    private final TUniqueId nextInstanceId;
-
     // a timestamp represent the absolute timeout
     // eg, System.currentTimeMillis() + executeTimeoutS * 1000
     private long timeoutDeadline;
@@ -355,9 +352,6 @@ public class Coordinator implements CoordInterface {
         } else {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
-        this.nextInstanceId = new TUniqueId();
-        nextInstanceId.setHi(queryId.hi);
-        nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragments);
@@ -380,15 +374,12 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.nextInstanceId = new TUniqueId();
-        nextInstanceId.setHi(queryId.hi);
-        nextInstanceId.setLo(queryId.lo + 1);
         this.executionProfile = new ExecutionProfile(queryId, fragments);
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
         String qualifiedUser = connectContext.getQualifiedUser();
-        // set cpu resource limit
+        // set cpu resource limitch
         int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
         if (cpuLimit > 0) {
             // overwrite the cpu resource limit from session variable;
