@@ -50,6 +50,7 @@ statementBase
     | materailizedViewStatement         #materailizedViewStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedShowStatement            #supportedShowStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -151,6 +152,10 @@ supportedCreateStatement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | CREATE DATA MASK POLICY (IF NOT EXISTS)? name=identifier
+        ON column=multipartIdentifier
+        TO (user=userIdentify | ROLE roleName=identifier)
+        USING dataMaskType=identifier                                  #createDataMaskPolicy
     ;
 
 supportedAlterStatement
@@ -161,6 +166,11 @@ supportedAlterStatement
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    | DROP DATA MASK POLICY (IF EXISTS)? name=identifier                       #dropDataMaskPolicy
+    ;
+
+supportedShowStatement
+    : SHOW DATA MASK POLICY (FOR (user=userIdentify | ROLE roleName=identifier))? #showDataMaskPolicy
     ;
 
 unsupportedCreateStatement
@@ -1385,6 +1395,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MASK
     | MATCH_ALL
     | MATCH_ANY
     | MATCH_PHRASE

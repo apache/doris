@@ -119,6 +119,15 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                         stmt.getTableName().getDb(), stmt.getTableName().getTbl(), userIdent, stmt.getRoleName(),
                         stmt.getOrigStmt().originStmt, stmt.getOrigStmt().idx, stmt.getFilterType(),
                         stmt.getWherePredicate());
+            case DATA_MASK:
+                UserIdentity userIdentity = stmt.getUser();
+                if (userIdentity != null) {
+                    userIdentity.analyze();
+                }
+                return new DorisDataMaskPolicy(policyId, stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName(),
+                    stmt.getColName().getCtl(), stmt.getColName().getDb(), stmt.getColName().getTbl(),
+                    stmt.getColName().getCol(), stmt.getDataMaskType());
+
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }

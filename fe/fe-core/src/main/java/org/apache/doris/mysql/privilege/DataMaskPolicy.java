@@ -17,8 +17,14 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+
 public interface DataMaskPolicy {
     String getMaskTypeDef();
 
     String getPolicyIdent();
+
+    Expression parseMaskTypeDef(NereidsParser parser, Slot slot);
 }
