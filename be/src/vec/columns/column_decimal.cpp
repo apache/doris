@@ -97,9 +97,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
             if (null_map[i] == 0) {
                 memcpy_fixed<T>(dest + 1, (char*)&data[i]);
             }
-        }
 
-        for (size_t i = 0; i < num_rows; ++i) {
             keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
         }
     } else {

@@ -88,9 +88,7 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
                 // If this row is not null, serialize the value
                 memcpy(dest + 1, (void*)&data[i], sizeof(T));
             }
-        }
 
-        for (size_t i = 0; i < num_rows; ++i) {
             keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
         }
     } else {
