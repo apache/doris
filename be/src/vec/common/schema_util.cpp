@@ -475,7 +475,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             // already parsed
             continue;
         }
-        ColumnPtr raw_json_column;
+        ColumnPtr scalar_root_column;
         if (WhichDataType(remove_nullable(var.get_root_type())).is_json()) {
             // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
             // json str and parse them into variant
@@ -483,22 +483,31 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                                         var.get_root()->is_nullable()
                                                 ? make_nullable(std::make_shared<DataTypeString>())
                                                 : std::make_shared<DataTypeString>(),
-                                        &raw_json_column));
-            if (raw_json_column->is_nullable()) {
-                raw_json_column = assert_cast<const ColumnNullable*>(raw_json_column.get())
-                                          ->get_nested_column_ptr();
+                                        &scalar_root_column));
+            if (scalar_root_column->is_nullable()) {
+                scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
+                                             ->get_nested_column_ptr();
             }
         } else {
             const auto& root = *var.get_root();
-            raw_json_column =
+            scalar_root_column =
                     root.is_nullable()
                             ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
                             : var.get_root();
         }
 
-        variant_column = ColumnObject::create(true);
-        parse_json_to_variant(*variant_column.get(),
-                              assert_cast<const ColumnString&>(*raw_json_column));
+        if (scalar_root_column->is_column_string()) {
+            variant_column = ColumnObject::create(true);
+            parse_json_to_variant(*variant_column.get(),
+                                  assert_cast<const ColumnString&>(*scalar_root_column));
+        } else {
+            // Root maybe other types rather than string like ColumnObject(Int32).
+            // In this case, we should finlize the root and cast to JSON type
+            auto expected_root_type =
+                    make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+            const_cast<ColumnObject&>(var).ensure_root_node_type(expected_root_type);
+            variant_column = var.assume_mutable();
+        }
 
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
