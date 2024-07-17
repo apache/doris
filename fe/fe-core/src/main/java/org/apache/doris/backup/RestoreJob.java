@@ -783,7 +783,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteView.resetIdsForRestore(env);
+                    String srcDbName = backupMeta.getDbName();
+                    remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
                     restoredTbls.add(remoteView);
                 }
             }
@@ -1126,7 +1127,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storeRowColumn(),
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool);
+                            objectPool,
+                            localTbl.rowStorePageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

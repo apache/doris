@@ -79,24 +79,23 @@ suite("agg_nullable_2") {
         contains "colUniqueId=null, type=INT, nullable=true"
     }
 
-    // TODO: now foreach agg function have error, wait another PR fixed it
-    // qt_select_sum_foreach """select sum_foreach(kaint) from agg_nullable_test_2;"""
-    // explain {
-    //     sql("verbose select sum_foreach(kaint) from agg_nullable_test_2;")
-    //     contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
-    // }
+    qt_select_sum_foreach """select sum_foreach(kaint) from agg_nullable_test_2;"""
+    explain {
+        sql("verbose select sum_foreach(kaint) from agg_nullable_test_2;")
+        contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
+    }
 
-    // qt_select_sum_foreach2 """select sum_foreach(kaint) from agg_nullable_test_2 group by id;"""
-    // explain {
-    //     sql("verbose select sum_foreach(kaint) from agg_nullable_test_2 group by id;")
-    //     contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
-    // }
+    qt_select_sum_foreach2 """select sum_foreach(kaint) from agg_nullable_test_2 group by id;"""
+    explain {
+        sql("verbose select sum_foreach(kaint) from agg_nullable_test_2 group by id;")
+        contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=false"
+    }
 
-    // qt_select_sum_foreach_n """select sum_foreach(knaint) from agg_nullable_test_2;"""
-    // explain {
-    //     sql("verbose select sum_foreach(knaint) from agg_nullable_test_2;")
-    //     contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
-    // }
+    qt_select_sum_foreach_n """select sum_foreach(knaint) from agg_nullable_test_2;"""
+    explain {
+        sql("verbose select sum_foreach(knaint) from agg_nullable_test_2;")
+        contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
+    }
 
     qt_select_approx_count_distinct """select approx_count_distinct(kint) from agg_nullable_test_2;"""
     explain {
@@ -875,19 +874,19 @@ suite("agg_nullable_2") {
     qt_select_topn_weighted """select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2;")
-        contains "colUniqueId=null, type=ARRAY<CHARACTER>, nullable=true"
+        contains ">, nullable=true"
     }
 
     qt_select_topn_weighted2 """select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2 group by id;"""
     explain {
         sql("verbose select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2 group by id;")
-        contains "colUniqueId=null, type=ARRAY<CHARACTER>, nullable=false"
+        contains ">, nullable=false"
     }
 
     qt_select_topn_weighted_n """select topn_weighted(knvchrs1, kntint, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_weighted(knvchrs1, kntint, 3) from agg_nullable_test_2;")
-        contains "colUniqueId=null, type=ARRAY<CHARACTER>, nullable=true"
+        contains ">, nullable=true"
     }
 
     qt_select_variance """select variance(kint) from agg_nullable_test_2;"""

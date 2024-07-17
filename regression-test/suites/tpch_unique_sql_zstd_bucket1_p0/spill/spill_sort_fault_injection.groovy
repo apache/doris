@@ -15,42 +15,46 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("partitioned_agg_fault_injection", "nonConcurrent") {
+suite("spill_sort_fault_injection", "nonConcurrent") {
     multi_sql """
-    use regression_test_tpch_unique_sql_zstd_p0;
+    use regression_test_tpch_unique_sql_zstd_bucket1_p0;
     set enable_force_spill=true;
     set min_revocable_mem=1024;
     """
     def test_sql = """
     select
     l_orderkey,
-    l_suppkey,
+    l_linenumber,
     l_partkey,
+    l_suppkey,
     l_quantity,
     l_extendedprice,
     l_discount,
+    l_tax,
     l_returnflag,
     l_linestatus,
     l_commitdate,
     l_receiptdate,
     l_shipinstruct,
     l_shipmode,
-    sum(l_tax)
+    l_shipdate
 from
     lineitem
-group by
+order by
     l_orderkey,
-    l_suppkey,
+    l_linenumber,
     l_partkey,
+    l_suppkey,
     l_quantity,
     l_extendedprice,
     l_discount,
+    l_tax,
     l_returnflag,
     l_linestatus,
     l_commitdate,
     l_receiptdate,
     l_shipinstruct,
-    l_shipmode
+    l_shipmode;
     """
     try {
         GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_stream::spill_block")
@@ -93,57 +97,62 @@ group by
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::sink")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_sink::sink")
         sql test_sql
     } catch(Exception e) {
         log.error(e.getMessage())
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_sink sink failed"))
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_sink sink failed"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::sink")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_sink::sink")
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::revoke_memory_submit_func")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_sink::revoke_memory_cancel")
         sql test_sql
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_sink revoke_memory submit_func failed"));
+        log.error(e.getMessage())
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_sink revoke_memory canceled"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::revoke_memory_submit_func")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_sink::revoke_memory_cancel")
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::revoke_memory_cancel")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_sink::revoke_memory_submit_func")
         sql test_sql
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_sink revoke_memory canceled"));
+        log.error(e.getMessage())
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_sink revoke_memory submit_func failed"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_sink::revoke_memory_cancel")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_sink::revoke_memory_submit_func")
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_source::recover_spill_data")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_source::recover_spill_data")
         sql test_sql
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_source recover_spill_data failed"));
+        log.error(e.getMessage())
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_source recover_spill_data failed"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_source::recover_spill_data")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_source::recover_spill_data")
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_source::merge_spill_data_cancel")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_source::spill_merged_data")
         sql test_sql
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_source merge spill data canceled"));
+        log.error(e.getMessage())
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_source spill_merged_data failed"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_source::merge_spill_data_cancel")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_source::spill_merged_data")
     }
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::partitioned_agg_source::submit_func")
+        GetDebugPoint().enableDebugPointForAllBEs("fault_inject::spill_sort_source::spill_merged_data")
         sql test_sql
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("fault_inject partitioned_agg_source submit_func failed"));
+        log.error(e.getMessage())
+        assertTrue(e.getMessage().contains("fault_inject spill_sort_source spill_merged_data failed"))
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::partitioned_agg_source::submit_func")
+        GetDebugPoint().disableDebugPointForAllBEs("fault_inject::spill_sort_source::spill_merged_data")
     }
 }
