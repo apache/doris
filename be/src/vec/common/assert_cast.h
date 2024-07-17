@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <typeinfo>
 
+#include "commont/config.h"
 #include "common/logging.h"
 #include "vec/common/demangle.h"
 
@@ -32,29 +33,33 @@
   */
 template <typename To, typename From>
 PURE To assert_cast(From&& from) {
-    try {
-        if constexpr (std::is_pointer_v<To>) {
-            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
-                return static_cast<To>(from);
-            }
-            if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
-                if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
-                    return ptr;
+    if (config::enable_assert_cast) {
+        try {
+            if constexpr (std::is_pointer_v<To>) {
+                if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+                    return static_cast<To>(from);
                 }
-                LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
-                                          demangle(typeid(*from).name()),
-                                          demangle(typeid(To).name()));
+                if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
+                    if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
+                        return ptr;
+                    }
+                    LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
+                                            demangle(typeid(*from).name()),
+                                            demangle(typeid(To).name()));
+                }
+            } else {
+                if (typeid(from) == typeid(To)) {
+                    return static_cast<To>(from);
+                }
             }
-        } else {
-            if (typeid(from) == typeid(To)) {
-                return static_cast<To>(from);
-            }
+        } catch (const std::exception& e) {
+            LOG(FATAL) << "assert cast err:" << e.what();
         }
-    } catch (const std::exception& e) {
-        LOG(FATAL) << "assert cast err:" << e.what();
-    }
 
-    LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                              demangle(typeid(To).name()));
-    __builtin_unreachable();
+        LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
+                                demangle(typeid(To).name()));
+        __builtin_unreachable();
+    } else {
+        return static_cast<To>(from);
+    }
 }

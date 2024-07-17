@@ -1339,6 +1339,8 @@ DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
+DEFINE_Bool(enable_assert_cast, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
