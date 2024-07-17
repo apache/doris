@@ -112,7 +112,7 @@ void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t
     }
 }
 
-template<typename T>
+template <typename T>
 void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                     const size_t num_rows,
                                                     const uint8_t* null_map) {
