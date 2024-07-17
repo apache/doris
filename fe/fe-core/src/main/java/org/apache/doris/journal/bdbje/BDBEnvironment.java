@@ -212,7 +212,8 @@ public class BDBEnvironment {
                         LOG.warn("", e1);
                     }
                 } else {
-                    LOG.error("error to open replicated environment. will exit.", e);
+                    LOG.error("error to open replicated environment,"
+                            + "Maybe it's due to insufficient disk. will exit.", e);
                     System.exit(-1);
                 }
             }
