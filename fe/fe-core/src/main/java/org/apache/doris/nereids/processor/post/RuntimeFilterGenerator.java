@@ -260,6 +260,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // do not generate RF on this join
             return join;
         }
+        AbstractPlan right = (AbstractPlan) join.right();
+        if (right.getStats().getRowCount() > 9760768) {
+            return join;
+        }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
