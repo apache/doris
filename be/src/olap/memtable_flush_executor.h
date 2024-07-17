@@ -136,7 +136,7 @@ public:
                               std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority);
 
     Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                              std::shared<RowsetWriter> rowset_writer,
+                              std::shared_ptr<RowsetWriter> rowset_writer,
                               ThreadPool* wg_flush_pool_ptr);
 
 private:
