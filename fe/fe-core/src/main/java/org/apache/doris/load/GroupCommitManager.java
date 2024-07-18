@@ -223,7 +223,8 @@ public class GroupCommitManager {
             for (Backend backend : backends) {
                 if (backend.isActive() && !backend.isDecommissioned()) {
                     tableToBeMap.put(tableId, backend.getId());
-                    tablePressureMap.put(tableId, new SlidingWindowCounter(table.getGroupCommitIntervalMs()));
+                    tablePressureMap.put(tableId,
+                            new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
                     return backend.getId();
                 }
             }
@@ -252,11 +253,11 @@ public class GroupCommitManager {
             for (Backend backend : backends) {
                 if (backend.isActive() && !backend.isDecommissioned()) {
                     tableToBeMap.put(tableId, backend.getId());
-                    tablePressureMap.put(tableId, new SlidingWindowCounter(table.getGroupCommitIntervalMs()));
+                    tablePressureMap.put(tableId,
+                            new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
                     return backend.getId();
                 }
             }
-
             List<String> backendsInfo = backends.stream()
                     .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
                             + ", decommission=" + be.isDecommissioned() + " }")
