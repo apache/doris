@@ -57,13 +57,13 @@ class WaitForAction implements SuiteAction {
         if (ObjectUtils.isEmpty(time) || time <= 0) {
             time = 600
         }
-        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def forRollUp = sql.toUpperCase().contains("ALTER TABLE ROLLUP")
         def num = 9
         if (forRollUp) {
             num = 8
         }
-        while (time--) {
+        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
             String res = result.get(0).get(num)
@@ -72,6 +72,6 @@ class WaitForAction implements SuiteAction {
                 return true;
             }
             return false;
-        }});
+        });
     }
 }
