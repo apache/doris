@@ -287,10 +287,11 @@ public:
 
     bool should_fetch_from_peer(int64_t tablet_id);
 
-    Status get_compaction_status_json(std::string* result);
+    const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
+        return _stream_load_recorder;
+    }
 
-    // check cumulative compaction config
-    void check_cumulative_compaction_config();
+    void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force, bool eager = true);
@@ -381,8 +382,6 @@ private:
                                                             bool check_score);
     void _update_cumulative_compaction_policy();
 
-    bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
-                                                CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
@@ -486,6 +485,7 @@ private:
 
     CompactionPermitLimiter _permit_limiter;
 
+    CompactionSubmitRegistry _compaction_submit_registry;
     std::mutex _tablet_submitted_compaction_mutex;
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_cumu_compaction;

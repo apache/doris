@@ -477,23 +477,6 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
-void StorageEngine::check_cumulative_compaction_config() {
-    int64_t promotion_size = config::compaction_promotion_size_mbytes;
-    int64_t promotion_min_size = config::compaction_promotion_min_size_mbytes;
-    int64_t compaction_min_size = config::compaction_min_size_mbytes;
-
-    // check size_based_promotion_size must be greater than size_based_promotion_min_size and 2 * size_based_compaction_lower_bound_size
-    int64_t should_min_promotion_size = std::max(promotion_min_size, 2 * compaction_min_size);
-
-    if (promotion_size < should_min_promotion_size) {
-        promotion_size = should_min_promotion_size;
-        LOG(WARNING) << "the config promotion_size is adjusted to "
-                        "promotion_min_size or  2 * "
-                        "compaction_min_size "
-                     << should_min_promotion_size << ", because size_based_promotion_size is small";
-    }
-}
-
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
     int32_t interval = config::unused_rowset_monitor_interval;
     do {
@@ -711,13 +694,8 @@ void StorageEngine::_adjust_compaction_thread_num() {
 void StorageEngine::_compaction_tasks_producer_callback() {
     LOG(INFO) << "try to start compaction producer process!";
 
-    std::unordered_set<TabletSharedPtr> tablet_submitted_cumu;
-    std::unordered_set<TabletSharedPtr> tablet_submitted_base;
     std::vector<DataDir*> data_dirs = get_stores();
-    for (auto& data_dir : data_dirs) {
-        _tablet_submitted_cumu_compaction[data_dir] = tablet_submitted_cumu;
-        _tablet_submitted_base_compaction[data_dir] = tablet_submitted_base;
-    }
+    _compaction_submit_registry.reset(data_dirs);
 
     int round = 0;
     CompactionType compaction_type;
@@ -889,13 +867,13 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     // Therefore, it is currently not possible to determine whether it should be a base compaction or cumulative compaction.
     // As a result, the tablet needs to be pushed to both the _tablet_submitted_cumu_compaction and the _tablet_submitted_base_compaction simultaneously.
     bool already_exist =
-            _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+            _compaction_submit_registry.insert(tablet, CompactionType::CUMULATIVE_COMPACTION);
     if (already_exist) {
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
-    already_exist = _push_tablet_into_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
+    already_exist = _compaction_submit_registry.insert(tablet, CompactionType::BASE_COMPACTION);
     if (already_exist) {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         return Status::AlreadyExist<false>(
@@ -1087,48 +1065,13 @@ void StorageEngine::_update_cumulative_compaction_policy() {
     }
 }
 
-bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
-                                                           CompactionType compaction_type) {
-    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    bool already_existed = false;
-    switch (compaction_type) {
-    case CompactionType::CUMULATIVE_COMPACTION:
-        already_existed =
-                !(_tablet_submitted_cumu_compaction[tablet->data_dir()].insert(tablet).second);
-        break;
-    case CompactionType::BASE_COMPACTION:
-        already_existed =
-                !(_tablet_submitted_base_compaction[tablet->data_dir()].insert(tablet).second);
-        break;
-    case CompactionType::FULL_COMPACTION:
-        already_existed =
-                !(_tablet_submitted_full_compaction[tablet->data_dir()].insert(tablet).second);
-        break;
-    }
-    return already_existed;
-}
-
 void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                           CompactionType compaction_type) {
-    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    int removed = 0;
-    switch (compaction_type) {
-    case CompactionType::CUMULATIVE_COMPACTION:
-        removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet);
-        break;
-    case CompactionType::BASE_COMPACTION:
-        removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet);
-        break;
-    case CompactionType::FULL_COMPACTION:
-        removed = _tablet_submitted_full_compaction[tablet->data_dir()].erase(tablet);
-        break;
-    }
-
-    if (removed == 1) {
+    _compaction_submit_registry.remove(tablet, compaction_type, [this]() {
         std::unique_lock<std::mutex> lock(_compaction_producer_sleep_mutex);
         _wakeup_producer_flag = 1;
         _compaction_producer_sleep_cv.notify_one();
-    }
+    });
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
@@ -1145,7 +1088,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 
         return Status::OK();
     }
-    bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
+    bool already_exist = _compaction_submit_registry.insert(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
