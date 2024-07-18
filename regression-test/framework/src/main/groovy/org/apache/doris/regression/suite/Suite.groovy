@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
@@ -618,6 +619,10 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void profile(String tag, Closure<String> actionSupplier) {
+        runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
     void createMV(String sql) {
@@ -1570,7 +1575,14 @@ class Suite implements GroovyInterceptable {
         json.result.cluster
     }
 
-    def drop_cluster = { cluster_name, cluster_id ->
+    // cloud
+    String getCloudBeTagByName(String clusterName) {
+        def bes = sql_return_maparray "show backends"
+        def be = bes.stream().filter(be -> be.Tag.contains(clusterName)).findFirst().orElse(null)
+        return be.Tag
+    }
+
+    def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                      type: "COMPUTE",
@@ -1585,6 +1597,11 @@ class Suite implements GroovyInterceptable {
 
         def drop_cluster_api = { request_body, check_func ->
             httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body

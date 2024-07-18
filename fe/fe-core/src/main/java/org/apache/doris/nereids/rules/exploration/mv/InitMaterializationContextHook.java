@@ -146,40 +146,45 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         for (Map.Entry<String, Long> entry : olapTable.getIndexNameToId().entrySet()) {
             long indexId = entry.getValue();
-            // when doing schema change, a shadow index would be created and put together with mv indexes
-            // we must roll out these unexpected shadow indexes here
-            if (indexId != baseIndexId && !olapTable.isShadowIndex(indexId)) {
-                MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(entry.getValue());
-                String createMvSql;
-                if (meta.getDefineStmt() != null) {
-                    // get the original create mv sql
-                    createMvSql = meta.getDefineStmt().originStmt;
-                } else {
-                    // it's rollup, need assemble create mv sql manually
-                    if (olapTable.getKeysType() == KeysType.AGG_KEYS) {
-                        createMvSql = assembleCreateMvSqlForAggTable(olapTable.getQualifiedName(),
-                                entry.getKey(), meta.getSchema(false), keyCount);
+            try {
+                // when doing schema change, a shadow index would be created and put together with mv indexes
+                // we must roll out these unexpected shadow indexes here
+                if (indexId != baseIndexId && !olapTable.isShadowIndex(indexId)) {
+                    MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(entry.getValue());
+                    String createMvSql;
+                    if (meta.getDefineStmt() != null) {
+                        // get the original create mv sql
+                        createMvSql = meta.getDefineStmt().originStmt;
                     } else {
-                        createMvSql =
-                                assembleCreateMvSqlForDupOrUniqueTable(olapTable.getQualifiedName(),
-                                        entry.getKey(), meta.getSchema(false));
+                        // it's rollup, need assemble create mv sql manually
+                        if (olapTable.getKeysType() == KeysType.AGG_KEYS) {
+                            createMvSql = assembleCreateMvSqlForAggTable(olapTable.getQualifiedName(),
+                                    entry.getKey(), meta.getSchema(false), keyCount);
+                        } else {
+                            createMvSql =
+                                    assembleCreateMvSqlForDupOrUniqueTable(olapTable.getQualifiedName(),
+                                            entry.getKey(), meta.getSchema(false));
+                        }
+                    }
+                    if (createMvSql != null) {
+                        Optional<String> querySql =
+                                new NereidsParser().parseForSyncMv(createMvSql);
+                        if (!querySql.isPresent()) {
+                            LOG.warn(String.format("can't parse %s ", createMvSql));
+                            continue;
+                        }
+                        MTMVCache mtmvCache = MaterializedViewUtils.createMTMVCache(querySql.get(),
+                                cascadesContext.getConnectContext());
+                        contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
+                                mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), entry.getKey(),
+                                cascadesContext, mtmvCache.getStatistics()));
+                    } else {
+                        LOG.warn(String.format("can't assemble create mv sql for index ", entry.getKey()));
                     }
                 }
-                if (createMvSql != null) {
-                    Optional<String> querySql =
-                            new NereidsParser().parseForSyncMv(createMvSql);
-                    if (!querySql.isPresent()) {
-                        LOG.warn(String.format("can't parse %s ", createMvSql));
-                        continue;
-                    }
-                    MTMVCache mtmvCache = MaterializedViewUtils.createMTMVCache(querySql.get(),
-                            cascadesContext.getConnectContext());
-                    contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
-                            mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), entry.getKey(),
-                            cascadesContext, mtmvCache.getStatistics()));
-                } else {
-                    LOG.warn(String.format("can't assemble create mv sql for index ", entry.getKey()));
-                }
+            } catch (Exception exception) {
+                LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s",
+                        entry.getValue(), entry.getValue()), exception);
             }
         }
         return contexts;

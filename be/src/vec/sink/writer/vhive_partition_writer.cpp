@@ -56,7 +56,8 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
+            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
+            .fs_name {}};
     // If the destination path contains a schema, use the schema directly.
     // If not, use defaultFS.
     // Otherwise a write error will occur.
