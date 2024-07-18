@@ -72,7 +72,7 @@ suite("test_index_rqg_bug3", "test_index_rqg_bug3"){
     "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
     "group_commit_data_bytes" = "134217728",
-    "enable_mow_delete_on_delete_predicate" = "false"
+    "enable_mow_light_delete" = "false"
     );
     """
 
