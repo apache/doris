@@ -60,6 +60,7 @@
 #include "util/doris_metrics.h"
 #include "util/perf_counters.h"
 #include "util/telemetry/telemetry.h"
+#include "util/thread.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -247,6 +248,15 @@ void check_required_instructions() {
     if (sigaction(signal, &sa_old, nullptr)) {
         WRITE_ERROR("Can not set signal handler\n");
         _Exit(1);
+    }
+}
+
+void forceShutdown() {
+    if (doris::config::grace_shutdown_wait_seconds > 0) {
+        sleep(doris::config::grace_shutdown_wait_seconds);
+        LOG(WARNING) << "Doris BE grace stop time over "
+                     << doris::config::grace_shutdown_wait_seconds << ", force shutdown!";
+        exit(-1);
     }
 }
 
@@ -498,6 +508,16 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
         sleep(10);
+    }
+
+    scoped_refptr<doris::Thread> force_shutdown_thread;
+    if (doris::config::grace_shutdown_wait_seconds > 0) {
+        LOG(INFO) << "If Doris BE can't be closed successfully within "
+                  << doris::config::grace_shutdown_wait_seconds
+                  << " seconds, it will be force shutdown";
+        doris::Thread::create(
+                "doris_main", "force_shutdown_thread", []() { forceShutdown(); },
+                &force_shutdown_thread);
     }
 
     http_service.stop();
