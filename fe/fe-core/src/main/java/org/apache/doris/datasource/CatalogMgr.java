@@ -138,7 +138,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
-            ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
+            }
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
                 Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
@@ -272,7 +274,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
 
-            ConnectContext.get().removeLastDBOfCatalog(stmt.getCatalogName());
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().removeLastDBOfCatalog(stmt.getCatalogName());
+            }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
         } finally {
             writeUnlock();
@@ -297,10 +301,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
 
             ConnectContext ctx = ConnectContext.get();
-            String db = ctx.getLastDBOfCatalog(stmt.getCatalogName());
-            if (db != null) {
-                ctx.removeLastDBOfCatalog(stmt.getCatalogName());
-                ctx.addLastDBOfCatalog(log.getNewCatalogName(), db);
+            if (ctx != null) {
+                String db = ctx.getLastDBOfCatalog(stmt.getCatalogName());
+                if (db != null) {
+                    ctx.removeLastDBOfCatalog(stmt.getCatalogName());
+                    ctx.addLastDBOfCatalog(log.getNewCatalogName(), db);
+                }
             }
         } finally {
             writeUnlock();
