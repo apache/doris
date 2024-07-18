@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
@@ -72,8 +73,8 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
     protected void beforeExec() {
         try {
             this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(table.getId(), ctx));
-        } catch (LoadException e) {
+                    .selectBackendForGroupCommit(table.getId(), ctx, false));
+        } catch (LoadException | DdlException e) {
             throw new RuntimeException(e);
         }
     }

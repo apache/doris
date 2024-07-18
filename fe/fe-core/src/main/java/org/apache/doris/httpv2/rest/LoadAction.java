@@ -408,7 +408,12 @@ public class LoadAction extends RestBaseController {
                 ctx.setQualifiedUser(Auth.ADMIN_USER);
                 ctx.setThreadLocalInfo();
 
-                backend = Env.getCurrentEnv().getGroupCommitManager().selectBackendForGroupCommit(tableId, ctx);
+                try {
+                    backend = Env.getCurrentEnv().getGroupCommitManager()
+                            .selectBackendForGroupCommit(tableId, ctx, false);
+                } catch (DdlException e) {
+                    throw new RuntimeException(e);
+                }
             } else {
                 for (Long backendId : backendIds) {
                     Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);

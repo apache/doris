@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -101,8 +102,8 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
-    public long getGroupCommitLoadBeId(long tableId) throws Exception {
-        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId));
+    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
         waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
@@ -243,13 +244,18 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId) {
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setGetGroupCommitLoadBeId(true);
+        groupCommitParams.setGroupCommitLoadTableId(tableId);
+        groupCommitParams.setCluster(cluster);
+        groupCommitParams.setIsCloud(isCloud);
+
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setGetGroupCommitLoadBeId(true);
-        params.setGroupCommitLoadTableId(tableId);
+        params.setGroupCommitInfo(groupCommitParams);
         params.setDb(ctx.getDatabase());
         params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy
@@ -258,13 +264,16 @@ public class MasterOpExecutor {
     }
 
     private TMasterOpRequest buildUpdateLoadDataParams(long backendId, long receiveData) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setUpdateLoadData(true);
+        groupCommitParams.setBackendId(backendId);
+        groupCommitParams.setReceiveData(receiveData);
+
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setUpdateLoadData(true);
-        params.setBackendId(backendId);
-        params.setReceiveData(receiveData);
+        params.setGroupCommitInfo(groupCommitParams);
         params.setDb(ctx.getDatabase());
         params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy

@@ -18,7 +18,12 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.mysql.privilege.Auth;
@@ -32,9 +37,11 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -42,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 public class GroupCommitManager {
 
@@ -52,7 +60,7 @@ public class GroupCommitManager {
     // Table id to BE id map. Only for group commit.
     private Map<Long, Long> tableToBeMap = new ConcurrentHashMap<>();
     // BE id to pressure map. Only for group commit.
-    private Map<Long, SlidingWindowCounter> bePressureMap = new ConcurrentHashMap<>();
+    private Map<Long, SlidingWindowCounter> tablePressureMap = new ConcurrentHashMap<>();
 
     public boolean isBlock(long tableId) {
         return blockedTableIds.contains(tableId);
@@ -177,44 +185,84 @@ public class GroupCommitManager {
         return size;
     }
 
-    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context) throws LoadException {
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context, boolean isCloud)
+            throws LoadException, DdlException {
         if (!Env.getCurrentEnv().isMaster()) {
             try {
-                long backendId = new MasterOpExecutor(context).getGroupCommitLoadBeId(tableId);
+                long backendId = new MasterOpExecutor(context)
+                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster(), isCloud);
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
         } else {
-            return Env.getCurrentSystemInfo().getBackend(selectBackendForGroupCommitInternal(tableId));
+            return Env.getCurrentSystemInfo()
+                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster(), isCloud));
         }
     }
 
-    public long selectBackendForGroupCommitInternal(long tableId) throws LoadException {
-        LOG.info("group commit new strategy select be, tableToBeMap {}, bePressureMap {}", tableToBeMap.toString(),
-                bePressureMap.toString());
-        if (tableToBeMap.containsKey(tableId)) {
-            if (bePressureMap.get(tableToBeMap.get(tableId)).get() < 1073741824) {
-                return tableToBeMap.get(tableId);
-            } else {
-                tableToBeMap.remove(tableId);
+    public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
+            throws LoadException, DdlException {
+        if (!isCloud) {
+            LOG.info("group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
+                    tablePressureMap.toString());
+            OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
+            if (tableToBeMap.containsKey(tableId)) {
+                if (tablePressureMap.get(tableToBeMap.get(tableId)).get() < table.getGroupCommitDataBytes()) {
+                    return tableToBeMap.get(tableId);
+                } else {
+                    tableToBeMap.remove(tableId);
+                }
             }
-        }
-        List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        if (allBackendIds.isEmpty()) {
-            throw new LoadException("No alive backend");
-        }
+            List<Backend> backends = new ArrayList<>((Env.getCurrentSystemInfo()).getAllBackends());
+            if (backends.isEmpty()) {
+                throw new LoadException("No alive backend");
+            }
 
-        Collections.shuffle(allBackendIds);
-        for (Long beId : allBackendIds) {
-            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-            if (!backend.isDecommissioned()) {
-                tableToBeMap.put(tableId, beId);
-                bePressureMap.put(beId, new SlidingWindowCounter(10));
-                return beId;
+            Collections.shuffle(backends);
+            for (Backend backend : backends) {
+                if (backend.isActive() && !backend.isDecommissioned()) {
+                    tableToBeMap.put(tableId, backend.getId());
+                    tablePressureMap.put(tableId, new SlidingWindowCounter(table.getGroupCommitIntervalMs()));
+                    return backend.getId();
+                }
             }
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+        } else {
+            LOG.info("cloud group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
+                    tablePressureMap.toString());
+            OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
+            if (tableToBeMap.containsKey(tableId)) {
+                if (tablePressureMap.get(tableToBeMap.get(tableId)).get() < table.getGroupCommitDataBytes()) {
+                    return tableToBeMap.get(tableId);
+                } else {
+                    tableToBeMap.remove(tableId);
+                }
+            }
+
+            if (Strings.isNullOrEmpty(cluster)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_CLUSTER_ERROR);
+            }
+
+            // select be
+            List<Backend> backends = new ArrayList<>(
+                    ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster)
+                            .values());
+            Collections.shuffle(backends);
+            for (Backend backend : backends) {
+                if (backend.isActive() && !backend.isDecommissioned()) {
+                    tableToBeMap.put(tableId, backend.getId());
+                    tablePressureMap.put(tableId, new SlidingWindowCounter(table.getGroupCommitIntervalMs()));
+                    return backend.getId();
+                }
+            }
+
+            List<String> backendsInfo = backends.stream()
+                    .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
+                            + ", decommission=" + be.isDecommissioned() + " }")
+                    .collect(Collectors.toList());
+            throw new DdlException("No suitable backend for cloud cluster=" + cluster + ", backends = " + backendsInfo);
         }
-        throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
     }
 
     public void updateLoadData(long backendId, long receiveData) {
@@ -239,10 +287,10 @@ public class GroupCommitManager {
     }
 
     public void updateLoadDataInternal(long backendId, long receiveData) {
-        if (bePressureMap.containsKey(backendId)) {
-            bePressureMap.get(backendId).add(receiveData);
+        if (tablePressureMap.containsKey(backendId)) {
+            tablePressureMap.get(backendId).add(receiveData);
             LOG.info("Update load data for backend {}, receiveData {}, bePressureMap {}", backendId, receiveData,
-                    bePressureMap.toString());
+                    tablePressureMap.toString());
         } else {
             LOG.warn("can not find backend id: {}", backendId);
         }

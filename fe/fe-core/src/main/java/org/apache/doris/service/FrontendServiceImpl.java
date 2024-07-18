@@ -173,6 +173,7 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
+import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
@@ -1032,22 +1033,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
-        if (params.isGetGroupCommitLoadBeId()) {
+        if (params.getGroupCommitInfo().isGetGroupCommitLoadBeId()) {
+            final TGroupCommitInfo info = params.getGroupCommitInfo();
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(params.groupCommitLoadTableId));
-            } catch (LoadException e) {
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster, info.isCloud));
+            } catch (LoadException | DdlException e) {
                 throw new TException(e.getMessage());
             }
             // just make the protocol happy
             result.setPacket("".getBytes());
             return result;
         }
-        if (params.isUpdateLoadData()) {
+        if (params.getGroupCommitInfo().isUpdateLoadData()) {
+            final TGroupCommitInfo info = params.getGroupCommitInfo();
             final TMasterOpResult result = new TMasterOpResult();
             Env.getCurrentEnv().getGroupCommitManager()
-                    .updateLoadData(params.backendId, params.receiveData);
+                    .updateLoadData(info.backendId, info.receiveData);
             // just make the protocol happy
             result.setPacket("".getBytes());
             return result;

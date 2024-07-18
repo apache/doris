@@ -20,24 +20,18 @@ package org.apache.doris.cloud.planner;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class CloudGroupCommitPlanner extends GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(CloudGroupCommitPlanner.class);
@@ -50,36 +44,17 @@ public class CloudGroupCommitPlanner extends GroupCommitPlanner {
 
     @Override
     protected void selectBackends(ConnectContext ctx) throws DdlException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
-        if (backend != null && backend.isAlive() && !backend.isDecommissioned()
-                && backend.getCloudClusterName().equals(ctx.getCloudCluster())) {
-            return;
-        }
-
-        String cluster = ctx.getCloudCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NO_CLUSTER_ERROR);
-        }
-
-        // select be
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster)
-                .values().stream().collect(Collectors.toList());
-        Collections.shuffle(backends);
-        for (Backend backend : backends) {
-            if (backend.isActive() && !backend.isDecommissioned()) {
-                this.backend = backend;
-                ctx.setInsertGroupCommit(this.table.getId(), backend);
-                LOG.debug("choose new be {}", backend.getId());
-                return;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx, true);
+            if (backend != null && backend.isAlive() && !backend.isDecommissioned()
+                    && backend.getCloudClusterName().equals(ctx.getCloudCluster())) {
+                LOG.info("Group commit cloud select be {}, label is {}", backend.getId(), loadId.toString());
+            } else {
+                throw new DdlException("No suitable backend");
             }
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
-
-        List<String> backendsInfo = backends.stream()
-                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
-                        + ", decommission=" + be.isDecommissioned() + " }")
-                .collect(Collectors.toList());
-        throw new DdlException("No suitable backend for cloud cluster=" + cluster + ", backends = " + backendsInfo);
     }
-
 }
-

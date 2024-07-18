@@ -540,6 +540,16 @@ struct TTxnLoadInfo {
     6: optional list<TSubTxnInfo> subTxnInfos
 }
 
+struct TGroupCommitInfo{
+    1: optional bool getGroupCommitLoadBeId
+    2: optional i64 groupCommitLoadTableId
+    3: optional string cluster
+    4: optional bool isCloud
+    5: optional bool updateLoadData
+    6: optional i64 backendId
+    7: optional i64 receiveData
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -573,11 +583,7 @@ struct TMasterOpRequest {
     28: optional map<string, Exprs.TExprNode> user_variables
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
-    30: optional bool getGroupCommitLoadBeId
-    31: optional i64 groupCommitLoadTableId
-    32: optional bool updateLoadData
-    33: optional i64 backendId
-    34: optional i64 receiveData
+    30: optional TGroupCommitInfo groupCommitInfo
 
     // selectdb cloud
     1000: optional string cloud_cluster
