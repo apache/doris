@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -586,11 +585,6 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     @Override
     public String getCatalogLocation(String catalogName) {
-        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
-    }
-
-    @Override
-    public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 }

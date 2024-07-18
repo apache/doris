@@ -114,7 +114,9 @@ public interface HMSCachedClient {
 
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
 
-    void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator);
+    default void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        // Ignored by default
+    }
 
     /**
      * close the connection, eg, to hms
