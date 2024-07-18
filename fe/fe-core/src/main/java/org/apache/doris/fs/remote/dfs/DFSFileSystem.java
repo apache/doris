@@ -146,6 +146,16 @@ public class DFSFileSystem extends RemoteFileSystem {
                 hadoopUserName = "hadoop";
                 LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
+
+            try {
+                UserGroupInformation ugi = UserGroupInformation.getLoginUser();
+                if (ugi.getUserName().equals(hadoopUserName)) {
+                    return ugi;
+                }
+            } catch (IOException e) {
+                LOG.warn("A SecurityException occurs with simple, do login immediately.", e);
+            }
+
             UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
             UserGroupInformation.setLoginUser(ugi);
             LOG.info("Login by proxy user, hadoop.username: {}", hadoopUserName);
