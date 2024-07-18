@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
@@ -618,6 +619,10 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void profile(String tag, Closure<String> actionSupplier) {
+        runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
     void createMV(String sql) {
