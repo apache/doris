@@ -752,6 +752,11 @@ class Suite implements GroovyInterceptable {
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
     }
 
+    String getS3Provider() {
+        String s3Provider = context.config.otherConfigs.get("s3Provider");
+        return s3Provider
+    }
+
     String getS3Region() {
         String s3Region = context.config.otherConfigs.get("s3Region");
         return s3Region
