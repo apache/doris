@@ -73,11 +73,11 @@ public:
     void add_returned_rows(int64_t num_rows) { returned_rows += num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
-        max_peak_memory_bytes += max_peak_memory_bytes;
+        this->max_peak_memory_bytes = max_peak_memory_bytes;
     }
 
     void set_current_used_memory_bytes(int64_t current_used_memory) {
-        current_used_memory_bytes += current_used_memory;
+        current_used_memory_bytes = current_used_memory;
     }
 
     void to_pb(PQueryStatistics* statistics);
