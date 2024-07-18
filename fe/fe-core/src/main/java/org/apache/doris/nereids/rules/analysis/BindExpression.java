@@ -76,7 +76,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -507,31 +506,6 @@ public class BindExpression implements AnalysisRuleFactory {
     private LogicalJoin<Plan, Plan> bindJoin(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
-
-        Set<String> tableNames = new HashSet<>();
-        List<Plan> children = join.children();
-        for (Plan child : children) {
-            // get alias name
-            if (child instanceof LogicalSubQueryAlias) {
-                LogicalSubQueryAlias subQueryAlias = (LogicalSubQueryAlias) child;
-                String alias = subQueryAlias.getAlias();
-
-                if (!tableNames.add(alias)) {
-                    throw new AnalysisException("Not unique table/alias: '" + alias + "'");
-                }
-                // get table name
-            } else if (child instanceof LogicalFilter) {
-                Plan grandChild = child.children().get(0);
-                if (grandChild instanceof LogicalOlapScan) {
-                    LogicalOlapScan olapScan = (LogicalOlapScan) grandChild;
-                    String tableName = olapScan.getTable().getName();
-
-                    if (!tableNames.add(tableName)) {
-                        throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
-                    }
-                }
-            }
-        }
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
