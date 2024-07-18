@@ -180,11 +180,11 @@ public class ProfileManager {
             if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
                 List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
                 for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
-                    boolean query_finished_long_enough = tmpProfile.getQueryFinishTime() > 0
+                    boolean queryFinishedLongEnough = tmpProfile.getQueryFinishTime() > 0
                             && System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
                             > Config.profile_async_collect_expire_time_secs * 1000;
 
-                    if (query_finished_long_enough) {
+                    if (queryFinishedLongEnough) {
                         finishOrExpireExecutionProfiles.add(tmpProfile);
                     }
                 }
@@ -232,9 +232,9 @@ public class ProfileManager {
                             this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
                             LOG.warn("Remove expired profile {}, queryIdDeque size {}, profile count {},"
                                     + " execution profile count {} max_query_profile_num {}",
-                                    profileElementRemoved.profile.getSummaryProfile().getProfileId(), queryIdDeque.size(),
-                                    queryIdToProfileMap.size(), queryIdToExecutionProfiles.size(),
-                                    Config.max_query_profile_num);
+                                    profileElementRemoved.profile.getSummaryProfile().getProfileId(),
+                                    queryIdDeque.size(), queryIdToProfileMap.size(),
+                                    queryIdToExecutionProfiles.size(), Config.max_query_profile_num);
                         }
                     }
                     queryIdDeque.removeFirst();
