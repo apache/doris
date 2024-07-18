@@ -193,7 +193,7 @@ struct TQueryOptions {
   // non-pipelinex engine removed. always true.
   57: optional bool enable_pipeline_engine = true
 
-  58: optional i32 repeat_max_num = 0
+  58: optional i32 repeat_max_num = 0 // Deprecated
 
   59: optional i64 external_sort_bytes_threshold = 0
 
