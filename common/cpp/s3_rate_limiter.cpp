@@ -86,7 +86,7 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
     auto [count_value, tokens_value] =
-            _update_remain_token(std::chrono::high_resolution_clock::now(), amount);
+            _update_remain_token(std::chrono::system_clock::now(), amount);
 
     if (_limit && count_value > _limit) {
         // CK would throw exception
