@@ -208,7 +208,7 @@ public class GroupCommitManager {
                     tablePressureMap.toString());
             OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
             if (tableToBeMap.containsKey(tableId)) {
-                if (tablePressureMap.get(tableToBeMap.get(tableId)).get() < table.getGroupCommitDataBytes()) {
+                if (tablePressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
                     return tableToBeMap.get(tableId);
                 } else {
                     tableToBeMap.remove(tableId);
@@ -233,7 +233,7 @@ public class GroupCommitManager {
                     tablePressureMap.toString());
             OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
             if (tableToBeMap.containsKey(tableId)) {
-                if (tablePressureMap.get(tableToBeMap.get(tableId)).get() < table.getGroupCommitDataBytes()) {
+                if (tablePressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
                     return tableToBeMap.get(tableId);
                 } else {
                     tableToBeMap.remove(tableId);
@@ -265,9 +265,9 @@ public class GroupCommitManager {
         }
     }
 
-    public void updateLoadData(long backendId, long receiveData) {
-        if (backendId == -1) {
-            LOG.warn("invalid backend id: " + backendId);
+    public void updateLoadData(long tableId, long receiveData) {
+        if (tableId == -1) {
+            LOG.warn("invalid table id: " + tableId);
         }
         if (!Env.getCurrentEnv().isMaster()) {
             ConnectContext ctx = new ConnectContext();
@@ -277,22 +277,22 @@ public class GroupCommitManager {
             ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setThreadLocalInfo();
             try {
-                new MasterOpExecutor(ctx).updateLoadData(backendId, receiveData);
+                new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         } else {
-            updateLoadDataInternal(backendId, receiveData);
+            updateLoadDataInternal(tableId, receiveData);
         }
     }
 
-    public void updateLoadDataInternal(long backendId, long receiveData) {
-        if (tablePressureMap.containsKey(backendId)) {
-            tablePressureMap.get(backendId).add(receiveData);
-            LOG.info("Update load data for backend {}, receiveData {}, bePressureMap {}", backendId, receiveData,
+    public void updateLoadDataInternal(long tableId, long receiveData) {
+        if (tablePressureMap.containsKey(tableId)) {
+            tablePressureMap.get(tableId).add(receiveData);
+            LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
                     tablePressureMap.toString());
         } else {
-            LOG.warn("can not find backend id: {}", backendId);
+            LOG.warn("can not find backend id: {}", tableId);
         }
     }
 }

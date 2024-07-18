@@ -1050,7 +1050,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TGroupCommitInfo info = params.getGroupCommitInfo();
             final TMasterOpResult result = new TMasterOpResult();
             Env.getCurrentEnv().getGroupCommitManager()
-                    .updateLoadData(info.backendId, info.receiveData);
+                    .updateLoadData(info.tableId, info.receiveData);
             // just make the protocol happy
             result.setPacket("".getBytes());
             return result;
@@ -1655,8 +1655,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (request.groupCommit) {
             try {
-                long backendId = request.getBackendId();
-                Env.getCurrentEnv().getGroupCommitManager().updateLoadData(backendId, request.receiveBytes);
+                Env.getCurrentEnv().getGroupCommitManager().updateLoadData(request.table_id, request.receiveBytes);
             } catch (Exception e) {
                 LOG.warn("Failed to update group commit load data, {}", e.getMessage());
             }

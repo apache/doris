@@ -108,8 +108,8 @@ public class MasterOpExecutor {
         return result.groupCommitLoadBeId;
     }
 
-    public void updateLoadData(long backendId, long receiveData) throws Exception {
-        result = forward(buildUpdateLoadDataParams(backendId, receiveData));
+    public void updateLoadData(long tableId, long receiveData) throws Exception {
+        result = forward(buildUpdateLoadDataParams(tableId, receiveData));
         waitOnReplaying();
     }
 
@@ -263,10 +263,10 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildUpdateLoadDataParams(long backendId, long receiveData) {
+    private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {
         final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
         groupCommitParams.setUpdateLoadData(true);
-        groupCommitParams.setBackendId(backendId);
+        groupCommitParams.setTableId(tableId);
         groupCommitParams.setReceiveData(receiveData);
 
         final TMasterOpRequest params = new TMasterOpRequest();
