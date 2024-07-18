@@ -22,29 +22,19 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.thrift.TFileAttributes;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
-
-import java.util.Map;
 
 public class IcebergHMSSource implements IcebergSource {
 
     private final HMSExternalTable hmsTable;
     private final TupleDescriptor desc;
-    private final Map<String, ColumnRange> columnNameToRange;
     private final org.apache.iceberg.Table icebergTable;
 
-    public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
-            Map<String, ColumnRange> columnNameToRange) {
+    public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc) {
         this.hmsTable = hmsTable;
         this.desc = desc;
-        this.columnNameToRange = columnNameToRange;
         this.icebergTable =
                 Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
                         .getIcebergTable(hmsTable.getCatalog(),
