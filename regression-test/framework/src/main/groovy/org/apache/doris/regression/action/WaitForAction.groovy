@@ -72,6 +72,6 @@ class WaitForAction implements SuiteAction {
                 return true;
             }
             return false;
-        });
+        }});
     }
 }
