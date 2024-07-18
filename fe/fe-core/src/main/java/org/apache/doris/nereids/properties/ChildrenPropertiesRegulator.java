@@ -167,7 +167,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 }
                 // if distinct without group by key, we prefer three or four stage distinct agg
                 // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
+                        && !agg.mustUseMultiDistinctAgg()) {
                     return false;
                 }
             }

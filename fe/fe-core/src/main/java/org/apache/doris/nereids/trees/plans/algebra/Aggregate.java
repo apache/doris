@@ -19,7 +19,10 @@ package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
@@ -89,5 +92,19 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
             }
         }
         return hasDistinctArguments.get();
+    }
+
+    /** mustUseMultiDistinctAgg */
+    default boolean mustUseMultiDistinctAgg() {
+        for (AggregateFunction aggregateFunction : getAggregateFunctions()) {
+            if (aggregateFunction instanceof GroupConcat || aggregateFunction instanceof MultiDistinctGroupConcat) {
+                for (Expression child : aggregateFunction.children()) {
+                    if (child instanceof OrderExpression) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

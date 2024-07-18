@@ -46,14 +46,14 @@ public class MultiDistinctCount extends AggregateFunction
     // can't change getSignatures to use type coercion rule to add a cast expr
     // because AggregateStrategies phase is after type coercion
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
+        super("multi_distinct_count", false, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs)
+        super("multi_distinct_count", false, ExpressionUtils.mergeArguments(arg0, varArgs)
                 .stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)

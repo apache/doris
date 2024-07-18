@@ -57,49 +57,27 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
                     CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX));
 
-    private final int nonOrderArguments;
-
     /**
-     * constructor with 1 argument.
+     * constructor with 1 argument with other arguments.
      */
     public MultiDistinctGroupConcat(boolean alwaysNullable, Expression arg,
-            OrderExpression... orders) {
-        super("multi_distinct_group_concat", true, alwaysNullable,
-                ExpressionUtils.mergeArguments(arg, orders));
-        this.nonOrderArguments = 1;
+            Expression... others) {
+        this(alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
     }
 
     /**
-     * constructor with 1 argument.
+     * constructor with 1 argument with other arguments.
      */
-    public MultiDistinctGroupConcat(Expression arg, OrderExpression... orders) {
-        this(false, arg, orders);
+    public MultiDistinctGroupConcat(Expression arg, Expression... others) {
+        this(false, arg, others);
     }
 
     /**
-     * constructor with 2 arguments.
+     * constructor with argument list.
      */
-    public MultiDistinctGroupConcat(boolean alwaysNullable, Expression arg0,
-            Expression arg1, OrderExpression... orders) {
-        super("multi_distinct_group_concat", true, alwaysNullable,
-                ExpressionUtils.mergeArguments(arg0, arg1, orders));
-        this.nonOrderArguments = 2;
-    }
-
-    /**
-     * constructor with 2 arguments.
-     */
-    public MultiDistinctGroupConcat(Expression arg0, Expression arg1, OrderExpression... orders) {
-        this(false, arg0, arg1, orders);
-    }
-
-    /**
-     * constructor for always nullable.
-     */
-    public MultiDistinctGroupConcat(boolean alwaysNullable, int nonOrderArguments,
-            List<Expression> args) {
-        super("multi_distinct_group_concat", true, alwaysNullable, args);
-        this.nonOrderArguments = nonOrderArguments;
+    public MultiDistinctGroupConcat(boolean alwaysNullable, List<Expression> args) {
+        super("multi_distinct_group_concat", false, alwaysNullable, args);
+        checkArguments(children);
     }
 
     @Override
@@ -110,7 +88,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public MultiDistinctGroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctGroupConcat(alwaysNullable, nonOrderArguments, children);
+        return new MultiDistinctGroupConcat(alwaysNullable, children);
     }
 
     /**
@@ -118,7 +96,22 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      */
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children().size() >= 1);
+        checkArguments(children);
+        return new MultiDistinctGroupConcat(alwaysNullable, children);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitMultiDistinctGroupConcat(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
+    }
+
+    private void checkArguments(List<Expression> children) {
+        Preconditions.checkArgument(children().size() >= 1, "children's size should >= 1");
         boolean foundOrderExpr = false;
         int firstOrderExrIndex = 0;
         for (int i = 0; i < children.size(); i++) {
@@ -133,26 +126,9 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             }
         }
 
-        List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
-        if (firstOrderExrIndex == 1) {
-            return new MultiDistinctGroupConcat(alwaysNullable, children.get(0),
-                    orders.toArray(new OrderExpression[0]));
-        } else if (firstOrderExrIndex == 2) {
-            return new MultiDistinctGroupConcat(alwaysNullable, children.get(0),
-                    children.get(1), orders.toArray(new OrderExpression[0]));
-        } else {
+        if (firstOrderExrIndex > 2) {
             throw new AnalysisException(
                     "multi_distinct_group_concat requires one or two parameters: " + children);
         }
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitMultiDistinctGroupConcat(this, context);
-    }
-
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
     }
 }

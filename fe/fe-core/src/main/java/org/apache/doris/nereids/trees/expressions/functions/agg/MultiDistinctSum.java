@@ -44,15 +44,15 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
     );
 
     public MultiDistinctSum(Expression arg0) {
-        super("multi_distinct_sum", true, false, arg0);
+        super("multi_distinct_sum", false, false, arg0);
     }
 
     public MultiDistinctSum(boolean distinct, Expression arg0) {
-        super("multi_distinct_sum", true, false, arg0);
+        super("multi_distinct_sum", false, false, arg0);
     }
 
     public MultiDistinctSum(boolean distinct, boolean alwaysNullable, Expression arg0) {
-        super("multi_distinct_sum", true, alwaysNullable, arg0);
+        super("multi_distinct_sum", false, alwaysNullable, arg0);
     }
 
     @Override

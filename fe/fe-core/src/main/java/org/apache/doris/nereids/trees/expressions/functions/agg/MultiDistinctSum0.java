@@ -45,11 +45,11 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
     );
 
     public MultiDistinctSum0(Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        super("multi_distinct_sum0", false, arg0);
     }
 
     public MultiDistinctSum0(boolean distinct, Expression arg0) {
-        super("multi_distinct_sum0", true, arg0);
+        super("multi_distinct_sum0", false, arg0);
     }
 
     @Override
