@@ -91,7 +91,7 @@ public class HMSTransaction implements Transaction {
     private final Map<SimpleTableInfo, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<SimpleTableInfo, Map<List<String>, Action<PartitionAndMore>>>
             partitionActions = new HashMap<>();
-    private final Map<DatabaseTableName, List<FieldSchema>> tableColumns = new HashMap<>();
+    private final Map<SimpleTableInfo, List<FieldSchema>> tableColumns = new HashMap<>();
 
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
@@ -239,7 +239,7 @@ public class HMSTransaction implements Transaction {
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
                                 sd.getSerdeInfo().getSerializationLib(),
-                                getTableColumns(tableInfo.getDbName(), tableInfo.getTbName())
+                                getTableColumns(tableInfo)
                         );
                         if (updateMode == TUpdateMode.OVERWRITE) {
                             dropPartition(tableInfo, hivePartition.getPartitionValues(), true);
@@ -396,7 +396,7 @@ public class HMSTransaction implements Transaction {
                         partition.getParameters(),
                         sd.getOutputFormat(),
                         sd.getSerdeInfo().getSerializationLib(),
-                        getTableColumns(tableInfo.getDbName(), tableInfo.getTbName()
+                        getTableColumns(tableInfo)
                 );
 
                 partitionActionsForTable.put(
@@ -866,9 +866,9 @@ public class HMSTransaction implements Transaction {
         throw new RuntimeException("Not Found table: " + tableInfo);
     }
 
-    public synchronized List<FieldSchema> getTableColumns(String databaseName, String tableName) {
-        return tableColumns.computeIfAbsent(new DatabaseTableName(databaseName, tableName),
-            key -> hiveOps.getClient().getSchema(dbName, tbName));
+    public synchronized List<FieldSchema> getTableColumns(SimpleTableInfo tableInfo) {
+        return tableColumns.computeIfAbsent(tableInfo,
+                key -> hiveOps.getClient().getSchema(tableInfo.getDbName(), tableInfo.getTbName()));
     }
 
     public synchronized void finishChangingExistingTable(
@@ -1226,7 +1226,7 @@ public class HMSTransaction implements Transaction {
                     Maps.newHashMap(),
                     sd.getOutputFormat(),
                     sd.getSerdeInfo().getSerializationLib(),
-                    getTableColumns(tableInfo.getDbName(), tableInfo.getTbName())
+                    getTableColumns(tableInfo)
             );
 
             HivePartitionWithStatistics partitionWithStats =
