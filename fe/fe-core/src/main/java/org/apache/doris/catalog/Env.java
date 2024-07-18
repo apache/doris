@@ -6307,6 +6307,7 @@ public class Env {
         if (Config.enable_feature_binlog) {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
+            dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
         }
 
         result.setDbMeta(dbMeta);
