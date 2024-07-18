@@ -399,29 +399,19 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            if (Config.enable_feedback_group_commit_be_select_strategy) {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setEnv(Env.getCurrentEnv());
-                ctx.setThreadLocalInfo();
-                ctx.setRemoteIP(request.getRemoteAddr());
-                // set user to ADMIN_USER, so that we can get the proper resource tag
-                ctx.setQualifiedUser(Auth.ADMIN_USER);
-                ctx.setThreadLocalInfo();
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setThreadLocalInfo();
+            ctx.setRemoteIP(request.getRemoteAddr());
+            // set user to ADMIN_USER, so that we can get the proper resource tag
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
 
-                try {
-                    backend = Env.getCurrentEnv().getGroupCommitManager()
-                            .selectBackendForGroupCommit(tableId, ctx, false);
-                } catch (DdlException e) {
-                    throw new RuntimeException(e);
-                }
-            } else {
-                for (Long backendId : backendIds) {
-                    Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);
-                    if (!candidateBe.isDecommissioned()) {
-                        backend = candidateBe;
-                        break;
-                    }
-                }
+            try {
+                backend = Env.getCurrentEnv().getGroupCommitManager()
+                        .selectBackendForGroupCommit(tableId, ctx, false);
+            } catch (DdlException e) {
+                throw new RuntimeException(e);
             }
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
