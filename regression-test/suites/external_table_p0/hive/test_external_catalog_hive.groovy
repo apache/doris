@@ -158,6 +158,7 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
             sql """switch hms;"""
             try {
                 sql """show tables;"""
+		assertTrue(false)
             } catch (Exception e) {
                 assertTrue(e.getMessage().contains("No database selected"))
             }
