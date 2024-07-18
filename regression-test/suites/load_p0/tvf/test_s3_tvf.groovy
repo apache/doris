@@ -417,7 +417,7 @@ suite("test_s3_tvf", "load_p0") {
         FROM S3 (
             "s3.access_key" = "$ak",
             "s3.secret_key" = "$sk",
-            "s3.region" = "{$s3Region}",
+            "s3.region" = "${s3Region}",
             ${prop}
         ) ${attribute.whereClause}
           ${attribute.orderByClause}
