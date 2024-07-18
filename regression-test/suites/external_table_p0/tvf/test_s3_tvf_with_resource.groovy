@@ -202,6 +202,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     // not have usage priv, can not select tvf with resource
     connect(user=user, password="${pwd}", url=url) {
         test {
+                sql """set enable_fallback_to_original_planner=false;"""
                 sql """
                     SELECT * FROM S3 (
                                         "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
