@@ -1669,7 +1669,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 2;
 
-    @VariableMgr.VarAttr(name = GROUP_COMMIT)
+    @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
