@@ -185,6 +185,7 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties() {
+        properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(mvName.getCtl(), mvName.getDb(), properties);
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
