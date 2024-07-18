@@ -228,14 +228,17 @@ public class ProfileManager {
                     ProfileElement profileElementRemoved = queryIdToProfileMap.remove(queryIdDeque.getFirst());
                     // If the Profile object is removed from manager, then related execution profile is also useless.
                     if (profileElementRemoved != null) {
+                        StringBuilder sb = new StringBuilder();
                         for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
+                            sb.append(executionProfile.getQueryId()).append(",");
                             this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                            LOG.warn("Remove expired profile {}, queryIdDeque size {}, profile count {},"
+                        }
+                        LOG.warn("Remove expired profile {}, execution profiles {},"
+                                    + " queryIdDeque size {}, profile count {},"
                                     + " execution profile count {} max_query_profile_num {}",
                                     profileElementRemoved.profile.getSummaryProfile().getProfileId(),
-                                    queryIdDeque.size(), queryIdToProfileMap.size(),
+                                    sb.toString(), queryIdDeque.size(), queryIdToProfileMap.size(),
                                     queryIdToExecutionProfiles.size(), Config.max_query_profile_num);
-                        }
                     }
                     queryIdDeque.removeFirst();
                 }
