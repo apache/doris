@@ -167,6 +167,39 @@ protected:
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 };
 
+class CompactionSubmitRegistry {
+    using TabletSet = std::unordered_set<TabletSharedPtr>;
+    using Registry = std::map<DataDir*, TabletSet>;
+
+public:
+    CompactionSubmitRegistry() = default;
+    CompactionSubmitRegistry(CompactionSubmitRegistry&& r);
+
+    CompactionSubmitRegistry create_image();
+
+    void reset(const std::vector<DataDir*>& stores);
+
+    uint32_t count_executing_compaction(DataDir* dir, CompactionType compaction_type);
+    uint32_t count_executing_cumu_and_base(DataDir* dir);
+
+    bool has_compaction_task(DataDir* dir, CompactionType compaction_type);
+
+    bool insert(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    void remove(TabletSharedPtr tablet, CompactionType compaction_type,
+                std::function<void()> wakeup_cb);
+
+    void jsonfy_compaction_status(std::string* result);
+
+private:
+    TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
+
+    std::mutex _tablet_submitted_compaction_mutex;
+    Registry _tablet_submitted_cumu_compaction;
+    Registry _tablet_submitted_base_compaction;
+    Registry _tablet_submitted_full_compaction;
+};
+
 class StorageEngine final : public BaseStorageEngine {
 public:
     StorageEngine(const EngineOptions& options);

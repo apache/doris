@@ -18,6 +18,8 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -35,7 +37,6 @@
 #include <random>
 #include <shared_mutex>
 #include <string>
-#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -45,9 +46,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
-#include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
@@ -75,9 +74,6 @@
 #include "runtime/client_cache.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
-#include "service/brpc.h"
-#include "service/point_query_executor.h"
-#include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -99,6 +95,116 @@ volatile uint32_t g_schema_change_active_threads = 0;
 
 static const uint64_t DEFAULT_SEED = 104729;
 static const uint64_t MOD_PRIME = 7652413;
+
+CompactionSubmitRegistry::CompactionSubmitRegistry(CompactionSubmitRegistry&& r) {
+    std::swap(_tablet_submitted_cumu_compaction, r._tablet_submitted_cumu_compaction);
+    std::swap(_tablet_submitted_base_compaction, r._tablet_submitted_base_compaction);
+    std::swap(_tablet_submitted_full_compaction, r._tablet_submitted_full_compaction);
+}
+
+CompactionSubmitRegistry CompactionSubmitRegistry::create_image() {
+    // full compaction is not engaged in this method
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    CompactionSubmitRegistry registry;
+    registry._tablet_submitted_base_compaction = _tablet_submitted_base_compaction;
+    registry._tablet_submitted_cumu_compaction = _tablet_submitted_cumu_compaction;
+    return registry;
+}
+
+void CompactionSubmitRegistry::reset(const std::vector<DataDir*>& stores) {
+    // full compaction is not engaged in this method
+    for (const auto& store : stores) {
+        _tablet_submitted_cumu_compaction[store] = {};
+        _tablet_submitted_base_compaction[store] = {};
+    }
+}
+
+uint32_t CompactionSubmitRegistry::count_executing_compaction(DataDir* dir,
+                                                              CompactionType compaction_type) {
+    const auto& compaction_tasks = _get_tablet_set(dir, compaction_type);
+    return std::count_if(compaction_tasks.begin(), compaction_tasks.end(), [](const auto& task) {
+        return task->compaction_stage == CompactionStage::EXECUTING;
+    });
+}
+
+uint32_t CompactionSubmitRegistry::count_executing_cumu_and_base(DataDir* dir) {
+    return count_executing_compaction(dir, CompactionType::BASE_COMPACTION) +
+           count_executing_compaction(dir, CompactionType::CUMULATIVE_COMPACTION);
+}
+
+bool CompactionSubmitRegistry::has_compaction_task(DataDir* dir, CompactionType compaction_type) {
+    return _get_tablet_set(dir, compaction_type).empty();
+}
+
+bool CompactionSubmitRegistry::insert(TabletSharedPtr tablet, CompactionType compaction_type) {
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    auto& tablet_set = _get_tablet_set(tablet->data_dir(), compaction_type);
+    bool already_exist = !(tablet_set.insert(tablet).second);
+    return already_exist;
+}
+
+void CompactionSubmitRegistry::remove(TabletSharedPtr tablet, CompactionType compaction_type,
+                                      std::function<void()> wakeup_cb) {
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    auto& tablet_set = _get_tablet_set(tablet->data_dir(), compaction_type);
+    size_t removed = tablet_set.erase(tablet);
+    if (removed == 1) {
+        wakeup_cb();
+    }
+}
+
+CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
+        DataDir* dir, CompactionType compaction_type) {
+    switch (compaction_type) {
+    case CompactionType::BASE_COMPACTION:
+        return _tablet_submitted_base_compaction[dir];
+    case CompactionType::CUMULATIVE_COMPACTION:
+        return _tablet_submitted_cumu_compaction[dir];
+    case CompactionType::FULL_COMPACTION:
+        return _tablet_submitted_full_compaction[dir];
+    default:
+        CHECK(false) << "invalid compaction type";
+    }
+}
+
+void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto add_node = [this, &root](const std::string& name, const Registry& registry) {
+        rapidjson::Value key;
+        key.SetString(name.c_str(), name.length(), root.GetAllocator());
+        rapidjson::Document path_obj;
+        path_obj.SetObject();
+        for (const auto& it : registry) {
+            const auto& dir = it.first->path();
+            rapidjson::Value path_key;
+            path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
+
+            rapidjson::Document arr;
+            arr.SetArray();
+
+            for (const auto& tablet : it.second) {
+                rapidjson::Value key;
+                const std::string& key_str = std::to_string(tablet->tablet_id());
+                key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
+                arr.PushBack(key, root.GetAllocator());
+            }
+            path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
+        }
+        root.AddMember(key, path_obj, root.GetAllocator());
+    };
+
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    add_node("BaseCompaction", _tablet_submitted_base_compaction);
+    add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
+    add_node("FullCompaction", _tablet_submitted_full_compaction);
+
+    rapidjson::StringBuffer str_buf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
+    root.Accept(writer);
+    *result = std::string(str_buf.GetString());
+}
 
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
     int32_t threads_num = config::max_cumu_compaction_threads;
