@@ -826,7 +826,12 @@ void commit_txn_immediately(
     if (err != TxnErrorCode::TXN_OK) {
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);
-        ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id << " err=" << err;
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "transaction [" << txn_id << "] not found, db_id=" << db_id;
+        } else {
+            ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
+               << " err=" << err;
+        }
         msg = ss.str();
         LOG(WARNING) << msg;
         return;
@@ -845,7 +850,7 @@ void commit_txn_immediately(
     DCHECK(txn_info.txn_id() == txn_id);
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
         code = MetaServiceCode::TXN_ALREADY_ABORTED;
-        ss << "transaction is already aborted: db_id=" << db_id << " txn_id=" << txn_id;
+        ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
         msg = ss.str();
         LOG(WARNING) << msg;
         return;
@@ -1868,7 +1873,11 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
             if (err != TxnErrorCode::TXN_OK) {
                 code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
                                                               : cast_as<ErrCategory::READ>(err);
-                ss << "failed to get db id, txn_id=" << txn_id << " err=" << err;
+                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    ss << "transaction [" << txn_id << "] not found";
+                } else {
+                    ss << "failed to get txn info, txn_id=" << txn_id << " err=" << err;
+                }
                 msg = ss.str();
                 return;
             }
@@ -1911,13 +1920,13 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
         //check state is valid.
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
-            ss << "transaction is already abort db_id=" << db_id << "txn_id=" << txn_id;
+            ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
             msg = ss.str();
             return;
         }
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
             code = MetaServiceCode::TXN_ALREADY_VISIBLE;
-            ss << "transaction is already visible db_id=" << db_id << "txn_id=" << txn_id;
+            ss << "transaction [" << txn_id << "] is already VISIBLE, db_id=" << db_id;
             msg = ss.str();
             return;
         }
