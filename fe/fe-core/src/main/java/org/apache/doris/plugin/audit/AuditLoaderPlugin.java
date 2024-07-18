@@ -204,8 +204,6 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 }
             }
         }
-
-        return;
     }
 
     private void resetBatch(long currentTime) {

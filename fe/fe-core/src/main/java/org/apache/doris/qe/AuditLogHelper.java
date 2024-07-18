@@ -59,9 +59,11 @@ public class AuditLogHelper {
 
     private static final Logger LOG = LogManager.getLogger(AuditLogHelper.class);
 
-    // Add a new method to wrap original logAuditLog to catch all exceptions. Because write audit
-    // log may write to a doris internal table, we may meet errors. We do not want this affect the
-    // query process. Ignore this error and just write warning log.
+    /**
+     * Add a new method to wrap original logAuditLog to catch all exceptions. Because write audit
+     * log may write to a doris internal table, we may meet errors. We do not want this affect the
+     * query process. Ignore this error and just write warning log.
+     */
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         try {
@@ -72,6 +74,14 @@ public class AuditLogHelper {
         }
     }
 
+    /**
+     * Truncate sql and if SQL is in the following situations, count the number of rows:
+     * <ul>
+     * <li>{@code insert into tbl values (1), (2), (3)}</li>
+     * </ul>
+     * The final SQL will be:
+     * {@code insert into tbl values (1), (2 ...}
+     */
     public static String handleStmt(String origStmt, StatementBase parsedStmt) {
         if (origStmt == null) {
             return null;
@@ -85,7 +95,7 @@ public class AuditLogHelper {
         origStmt = truncateByBytes(origStmt)
             .replace("\n", " ")
             .replace("\t", " ")
-            .replace("\r", " ") + " ...";
+            .replace("\r", " ");
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
@@ -108,9 +118,12 @@ public class AuditLogHelper {
             }
         }
         if (rowCnt > 0) {
-            return origStmt + " /* total " + rowCnt + " rows */";
+            return origStmt + " ... /* total " + rowCnt + " rows, truncated audit_plugin_max_sql_length="
+                + GlobalVariable.auditPluginMaxSqlLength + " */";
         } else {
-            return origStmt;
+            return origStmt
+                + " ... /* truncated audit_plugin_max_sql_length="
+                + GlobalVariable.auditPluginMaxSqlLength + " */";
         }
     }
 
