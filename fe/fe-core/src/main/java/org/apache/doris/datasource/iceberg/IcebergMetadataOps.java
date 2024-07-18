@@ -42,6 +42,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -74,23 +76,38 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
-        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+        return doAs(() -> catalog.tableExists(TableIdentifier.of(dbName, tblName)));
     }
 
     public boolean databaseExist(String dbName) {
-        return nsCatalog.namespaceExists(Namespace.of(dbName));
+        return doAs(() -> nsCatalog.namespaceExists(Namespace.of(dbName)));
     }
 
     public List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-                .map(e -> e.toString())
-                .collect(Collectors.toList());
+        return doAs(() -> nsCatalog.listNamespaces().stream()
+                .map(Namespace::toString)
+                .collect(Collectors.toList()));
     }
 
+    public <T> void doAsNoReturn(Runnable action) {
+        try {
+            dorisCatalog.getAuthenticator().doAsNoReturn(action);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public <T> T doAs(PrivilegedExceptionAction<T> action) {
+        try {
+            return dorisCatalog.getAuthenticator().doAs(action);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     @Override
     public List<String> listTableNames(String dbName) {
-        List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
+        List<TableIdentifier> tableIdentifiers = doAs(() -> catalog.listTables(Namespace.of(dbName)));
         return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
     }
 
@@ -107,7 +124,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
         }
-        nsCatalog.createNamespace(Namespace.of(dbName), properties);
+        doAsNoReturn(() -> nsCatalog.createNamespace(Namespace.of(dbName), properties));
         dorisCatalog.onRefresh(true);
     }
 
@@ -123,7 +140,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        nsCatalog.dropNamespace(Namespace.of(dbName));
+        doAsNoReturn(() -> nsCatalog.dropNamespace(Namespace.of(dbName)));
         dorisCatalog.onRefresh(true);
     }
 
@@ -154,7 +171,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Map<String, String> properties = stmt.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
-        catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
+        doAsNoReturn(() -> catalog.createTable(TableIdentifier.of(dbName, tableName),
+                schema, partitionSpec, properties));
         db.setUnInitialized(true);
         return false;
     }
@@ -175,7 +193,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         }
-        catalog.dropTable(TableIdentifier.of(dbName, tableName));
+        doAsNoReturn(() -> catalog.dropTable(TableIdentifier.of(dbName, tableName)));
         db.setUnInitialized(true);
     }
 

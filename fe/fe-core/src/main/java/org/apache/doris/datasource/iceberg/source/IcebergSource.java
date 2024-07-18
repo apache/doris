@@ -21,9 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.thrift.TFileAttributes;
 
 public interface IcebergSource {
 
@@ -32,8 +30,6 @@ public interface IcebergSource {
     org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException;
 
     TableIf getTargetTable();
-
-    TFileAttributes getFileAttributes() throws UserException;
 
     ExternalCatalog getCatalog();
 

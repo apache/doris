@@ -18,18 +18,26 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
+import java.io.IOException;
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
+
+    private HadoopAuthenticator authenticator;
 
     public IcebergHadoopExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                         String comment) {
@@ -50,6 +58,15 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
+    public synchronized HadoopAuthenticator getAuthenticator() {
+        if (authenticator == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+        }
+        return authenticator;
+    }
+
+    @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_HADOOP;
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
@@ -60,7 +77,32 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
+        try {
+            getAuthenticator().doAsNoReturn(() -> hadoopCatalog.initialize(icebergCatalogType, catalogProperties));
+        } catch (IOException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         catalog = hadoopCatalog;
+    }
+
+    @Override
+    public Table loadTable(TableIdentifier of) {
+        // todo
+        //        FileOperations operations = new FileOperations(
+        //            FileSystemFactory.get()),
+        //            catalog.getMetastore(),
+        //            database,
+        //            table,
+        //            location);
+        //        return new BaseTable(operations, of.toString());
+        Table tbl;
+        try {
+            tbl = getAuthenticator().doAs(() -> getCatalog().loadTable(of));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        Map<String, String> extProps = getProperties();
+        initIcebergTableFileIO(tbl, extProps);
+        return tbl;
     }
 }

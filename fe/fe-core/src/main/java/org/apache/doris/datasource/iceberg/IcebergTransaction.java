@@ -70,7 +70,7 @@ public class IcebergTransaction implements Transaction {
     public void beginInsert(SimpleTableInfo tableInfo) {
         this.tableInfo = tableInfo;
         this.table = getNativeTable(tableInfo);
-        this.transaction = table.newTransaction();
+        this.transaction = ops.doAs(() -> table.newTransaction());
     }
 
     public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
@@ -148,7 +148,7 @@ public class IcebergTransaction implements Transaction {
                         "Should have no referenced data files.");
                 Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
             }
-            appendPartitionOp.commit();
+            ops.doAsNoReturn(appendPartitionOp::commit);
         }
     }
 
@@ -170,10 +170,9 @@ public class IcebergTransaction implements Transaction {
                         "Should have no referenced data files.");
                 Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
             }
-            appendPartitionOp.commit();
+            ops.doAsNoReturn(appendPartitionOp::commit);
         }
     }
-
 
     private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
         // To be compatible with iceberg format V1.
@@ -183,7 +182,6 @@ public class IcebergTransaction implements Transaction {
                     "Should have no referenced data files for append.");
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
-        appendFiles.commit();
+        ops.doAsNoReturn(appendFiles::commit);
     }
-
 }

@@ -26,8 +26,12 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -59,7 +63,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     public Catalog getCatalog() {
         makeSureInitialized();
-        return ((IcebergMetadataOps) metadataOps).getCatalog();
+        return catalog;
     }
 
     public String getIcebergCatalogType() {
@@ -82,5 +86,26 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    }
+
+    public Table loadTable(TableIdentifier of) {
+        Table tbl = getCatalog().loadTable(of);
+        Map<String, String> extProps = getProperties();
+        initIcebergTableFileIO(tbl, extProps);
+        return tbl;
+    }
+
+    public static void initIcebergTableFileIO(Table table, Map<String, String> props) {
+        Map<String, String> ioConf = new HashMap<>();
+        table.properties().forEach((key, value) -> {
+            if (key.startsWith("io.")) {
+                ioConf.put(key, value);
+            }
+        });
+
+        // This `initialize` method will directly override the properties as a whole,
+        // so we need to merge the table's io-related properties with the doris's catalog-related properties
+        props.putAll(ioConf);
+        table.io().initialize(props);
     }
 }

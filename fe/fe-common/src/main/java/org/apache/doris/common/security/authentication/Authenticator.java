@@ -17,16 +17,17 @@
 
 package org.apache.doris.common.security.authentication;
 
-import com.google.gson.annotations.SerializedName;
-import lombok.Data;
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
-@Data
-public class SimpleAuthenticationConfig extends AuthenticationConfig {
-    @SerializedName(value = "username")
-    private String username;
+public interface Authenticator {
 
-    @Override
-    public boolean isValid() {
-        return true;
+    <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException;
+
+    default <T> void doAsNoReturn(Runnable action) throws IOException {
+        doAs(() -> {
+            action.run();
+            return null;
+        });
     }
 }

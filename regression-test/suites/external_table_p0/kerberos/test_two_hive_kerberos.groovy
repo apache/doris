@@ -1,5 +1,3 @@
-import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -98,8 +96,8 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
 
         thread1.join()
         thread2.join()
+
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""
-        // TODO: add tvf case
     }
 }

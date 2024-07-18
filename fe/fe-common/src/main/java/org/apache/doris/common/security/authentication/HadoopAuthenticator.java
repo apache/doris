@@ -22,7 +22,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 
-public interface HadoopAuthenticator {
+public interface HadoopAuthenticator extends Authenticator {
 
     UserGroupInformation getUGI() throws IOException;
 
