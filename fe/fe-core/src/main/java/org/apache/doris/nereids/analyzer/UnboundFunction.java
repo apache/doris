@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -37,23 +38,31 @@ import java.util.stream.Collectors;
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
     private final String dbName;
     private final boolean isDistinct;
+    // for create view stmt, the start and end position of the function string in original sql
+    private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(null, name, false, arguments);
+        this(null, name, false, arguments, Optional.empty());
     }
 
     public UnboundFunction(String dbName, String name, List<Expression> arguments) {
-        this(dbName, name, false, arguments);
+        this(dbName, name, false, arguments, Optional.empty());
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        this(null, name, isDistinct, arguments);
+        this(null, name, isDistinct, arguments, Optional.empty());
     }
 
     public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
+        this(dbName, name, isDistinct, arguments, Optional.empty());
+    }
+
+    public UnboundFunction(String dbName, String name, boolean isDistinct,
+            List<Expression> arguments, Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(name, arguments);
         this.dbName = dbName;
         this.isDistinct = isDistinct;
+        this.indexInSqlString = indexInSqlString;
     }
 
     @Override
@@ -97,7 +106,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(dbName, getName(), isDistinct, children);
+        return new UnboundFunction(dbName, getName(), isDistinct, children, indexInSqlString);
     }
 
     @Override
@@ -118,5 +127,13 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     @Override
     public int hashCode() {
         return Objects.hash(getName(), isDistinct);
+    }
+
+    public UnboundFunction withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundFunction(dbName, getName(), isDistinct, children, Optional.ofNullable(index));
+    }
+
+    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
+        return indexInSqlString;
     }
 }
