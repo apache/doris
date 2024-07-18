@@ -2454,7 +2454,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
-        std::vector<uint8_t> random_bytes;
+        std::vector<uint8_t, Allocator_<uint8_t>> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
@@ -2470,7 +2470,7 @@ public:
                 byte = distribution(gen);
             }
 
-            std::ostringstream oss;
+            std::basic_ostringstream<char, std::char_traits<char>, Allocator_<char>> oss;
             for (const auto& byte : random_bytes) {
                 oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
             }

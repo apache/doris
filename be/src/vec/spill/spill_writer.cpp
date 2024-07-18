@@ -122,9 +122,19 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         }
 
         {
+            auto buff_size = buff.size();
             Defer defer {[&]() {
                 if (status.ok()) {
-                    data_dir_->update_spill_data_usage(buff.size());
+                    data_dir_->update_spill_data_usage(buff_size);
+
+                    written_bytes += buff_size;
+                    max_sub_block_size_ = std::max(max_sub_block_size_, buff_size);
+
+                    meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
+                    COUNTER_UPDATE(write_bytes_counter_, buff_size);
+                    COUNTER_UPDATE(write_block_counter_, 1);
+                    total_written_bytes_ += buff_size;
+                    ++written_blocks_;
                 }
             }};
             {
@@ -134,16 +144,6 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
             }
         }
     }
-
-    auto buff_size = buff.size();
-    written_bytes += buff_size;
-    max_sub_block_size_ = std::max(max_sub_block_size_, buff_size);
-
-    meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
-    COUNTER_UPDATE(write_bytes_counter_, buff_size);
-    COUNTER_UPDATE(write_block_counter_, 1);
-    total_written_bytes_ += buff_size;
-    ++written_blocks_;
 
     return Status::OK();
 }

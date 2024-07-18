@@ -707,6 +707,8 @@ class ListNode(object):
                 http_port = CLUSTER.FE_HTTP_PORT
             elif self.node_type == CLUSTER.Node.TYPE_BE:
                 http_port = CLUSTER.BE_WEBSVR_PORT
+            elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
+                http_port = CLUSTER.MS_PORT
             else:
                 pass
             result += [

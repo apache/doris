@@ -81,6 +81,8 @@ suite("test_no_index_match", "p0") {
       create_httplogs_unique_table.call(testTable_unique)
       load_httplogs_data.call(testTable_unique, 'httplogs_unique', 'true', 'json', 'documents-1000.json')
 
+      sql """ INSERT INTO ${testTable_unique} VALUES (1, '1', '', 1, 1); """
+
       sql 'sync'
 
       try {
@@ -89,6 +91,9 @@ suite("test_no_index_match", "p0") {
           qt_sql """ select count() from ${testTable_unique} where (request match_phrase 'hm bg');  """
           qt_sql """ select count() from ${testTable_unique} where (request match_phrase_prefix 'hm b');  """
           qt_sql """ select count() from ${testTable_unique} where (request match_regexp 'la');  """
+
+          qt_sql """ select count() from ${testTable_unique} where (request match_phrase '欧冶工业品');  """
+          qt_sql """ select count() from ${testTable_unique} where (request match_phrase_prefix '欧冶工业品');  """
       } finally {
       } 
     } finally {
