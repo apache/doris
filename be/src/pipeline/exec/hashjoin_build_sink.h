@@ -203,11 +203,11 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
                                                                       *has_null_key);
-
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr, true,
+        auto null_map_data = null_map ? null_map->data() : nullptr;
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows, null_map_data, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.compute_hash(_rows, null_map ? null_map->data() : nullptr, true);
+        hash_table_ctx.compute_hash(_rows, null_map_data, true,
+                                    hash_table_ctx.hash_table->get_bucket_size());
 
         hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
                 hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
