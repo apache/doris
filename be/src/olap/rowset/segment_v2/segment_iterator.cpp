@@ -753,7 +753,6 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
-    case TExprNodeType::NULL_LITERAL:
         return true;
     default:
         return false;
@@ -1346,19 +1345,15 @@ Status SegmentIterator::_apply_inverted_index() {
     return Status::OK();
 }
 
-bool SegmentIterator::_check_all_predicates_passed_inverted_index_for_column(ColumnId cid) {
+bool SegmentIterator::_check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
+                                                                             bool default_return) {
     auto it = _column_predicate_inverted_index_status.find(cid);
     if (it != _column_predicate_inverted_index_status.end()) {
         const auto& pred_map = it->second;
-
-        bool all_true = std::all_of(pred_map.begin(), pred_map.end(),
-                                    [](const auto& pred_entry) { return pred_entry.second; });
-
-        if (all_true) {
-            return true;
-        }
+        return std::all_of(pred_map.begin(), pred_map.end(),
+                           [](const auto& pred_entry) { return pred_entry.second; });
     }
-    return false;
+    return default_return;
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
@@ -2405,9 +2400,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
 
-    DBUG_EXECUTE_IF("segment_iterator.topn_opt", {
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt execute failed: {}",
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
                                                             nrows_read_limit);
         }
     })
@@ -2838,8 +2833,12 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_values.insert(v_literal_expr->value());
-    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
-               node_type == TExprNodeType::IN_PRED) {
+    } else if (node_type == TExprNodeType::NULL_LITERAL) {
+        if (!_column_predicate_info->column_name.empty()) {
+            auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
+            _column_predicate_info->query_values.insert(v_literal_expr->value());
+        }
+    } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
         } else if (node_type == TExprNodeType::IN_PRED) {
@@ -2848,7 +2847,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             } else {
                 _column_predicate_info->query_op = "not_in";
             }
-        } else {
+        } else if (node_type != TExprNodeType::COMPOUND_PRED) {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
 
@@ -2884,19 +2883,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    std::set<uint32_t> cids;
-    for (auto* pred : _col_predicates) {
-        cids.insert(pred->column_id());
-    }
-    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
-        cids.insert(pred->column_id());
-    }
-
-    // If the key is present in expr, data needs to be read.
-    if (cids.contains(cid)) {
-        return false;
-    }
-    if (_column_pred_in_remaining_vconjunct.contains(_opts.tablet_schema->column(cid).name())) {
+    if (!_check_all_predicates_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 
@@ -2917,7 +2904,7 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_topn_reads() const {
+bool SegmentIterator::_can_opt_topn_reads() {
     if (_opts.topn_limit <= 0) {
         return false;
     }
@@ -2926,20 +2913,24 @@ bool SegmentIterator::_can_opt_topn_reads() const {
         return false;
     }
 
-    std::set<uint32_t> cids;
-    for (auto* pred : _col_predicates) {
-        cids.insert(pred->column_id());
-    }
-    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
-        cids.insert(pred->column_id());
-    }
-
-    uint32_t delete_sign_idx = _opts.tablet_schema->delete_sign_idx();
-    bool result = std::ranges::all_of(cids.begin(), cids.end(), [delete_sign_idx](auto cid) {
-        return cid == delete_sign_idx;
+    bool all_true = std::ranges::all_of(_schema->column_ids(), [this](auto cid) {
+        if (cid == _opts.tablet_schema->delete_sign_idx() ||
+            _opts.tablet_schema->column(cid).is_key()) {
+            return true;
+        }
+        if (_check_all_predicates_passed_inverted_index_for_column(cid, true)) {
+            return true;
+        }
+        return false;
     });
 
-    return result;
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_2", {
+        if (all_true) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 2 execute failed");
+        }
+    })
+
+    return all_true;
 }
 
 } // namespace segment_v2

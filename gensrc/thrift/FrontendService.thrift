@@ -1457,6 +1457,7 @@ struct TGetMetaDBMeta {
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
+    5: optional list<i64> dropped_tables
 }
 
 struct TGetMetaResult {

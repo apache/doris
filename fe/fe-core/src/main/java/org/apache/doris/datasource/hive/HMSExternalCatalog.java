@@ -24,7 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -40,7 +40,9 @@ import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
@@ -68,7 +70,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
+    @Getter
+    private HadoopAuthenticator authenticator;
 
+    @VisibleForTesting
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
     }
@@ -81,6 +86,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
+        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+        authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
     }
 
     @Override
@@ -148,9 +155,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
             hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
-            HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),

@@ -77,7 +77,7 @@ suite("agg_nullable") {
     qt_select_sum_foreach2 """select sum_foreach(kaint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select sum_foreach(kaint) from agg_nullable_test group by id;")
-        contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=true"
+        contains "colUniqueId=null, type=ARRAY<BIGINT>, nullable=false"
     }
 
     qt_select_sum_foreach_n """select sum_foreach(knaint) from agg_nullable_test;"""

@@ -43,7 +43,7 @@ size_t DataTypeNumber<T>::number_length() const {
 }
 
 template <typename T>
-void DataTypeNumber<T>::push_bumber(ColumnString::Chars& chars, const T& num) const {
+void DataTypeNumber<T>::push_number(ColumnString::Chars& chars, const T& num) const {
     if constexpr (std::is_same<T, UInt128>::value) {
         std::string hex = int128_to_string(num);
         chars.insert(hex.begin(), hex.end());

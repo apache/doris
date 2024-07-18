@@ -36,6 +36,7 @@ suite("test_cloud_mow_delete_bitmap_calc_timeout","nonConcurrent") {
         """
 
     GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
 
     try {
         sql "insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"

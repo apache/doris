@@ -1466,6 +1466,14 @@ public class Config extends ConfigBase {
     public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
+     * sets the time without read activity before sending a keepalive ping
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     */
+    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+            "The time without grpc read activity before sending a keepalive ping" })
+    public static int grpc_keep_alive_second = 10;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2898,6 +2906,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
+
+    //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
+    @ConfField(mutable = true)
+    public static int audit_event_log_queue_size = 250000;
 
     @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
             "streamload route policy in cloud mode, availale options are public-private and empty string"})

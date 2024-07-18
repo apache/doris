@@ -716,12 +716,13 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        fmt::memory_buffer buffer;
+        std::vector<char, Allocator_<char>> buffer;
         for (size_t i = 0; i < input_size; ++i) {
             buffer.clear();
             if (data[i] > 0) {
+                buffer.resize(data[i]);
                 for (size_t j = 0; j < data[i]; ++j) {
-                    buffer.push_back(' ');
+                    buffer[i] = ' ';
                 }
                 StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                             res_data, res_offsets);

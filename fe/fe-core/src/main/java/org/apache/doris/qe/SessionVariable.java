@@ -394,8 +394,6 @@ public class SessionVariable implements Serializable, Writable {
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
-    public static final String REPEAT_MAX_NUM = "repeat_max_num";
-
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
@@ -1433,9 +1431,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = false;
 
-    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
-    public int repeatMaxNum = 10000;
-
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
@@ -1669,7 +1664,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 2;
 
-    @VariableMgr.VarAttr(name = GROUP_COMMIT)
+    @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
@@ -3537,8 +3532,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
-
-        tResult.setRepeatMaxNum(repeatMaxNum);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 

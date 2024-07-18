@@ -135,6 +135,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mBool(enable_stacktrace, "true");
+
 DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
@@ -482,6 +484,8 @@ DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DEFINE_mInt32(migration_task_timeout_secs, "300");
+// timeout for try_lock migration lock
+DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -539,6 +543,8 @@ DEFINE_mInt32(stream_load_record_batch_size, "50");
 DEFINE_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
+// enable stream load commit txn on BE directly, bypassing FE. Only for cloud.
+DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
@@ -1001,6 +1007,7 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
+DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1232,6 +1239,13 @@ DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
+DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+DEFINE_mInt64(s3_get_token_per_second, "1000000000000000000");
+DEFINE_mInt64(s3_get_token_limit, "0");
+
+DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
+DEFINE_mInt64(s3_put_token_limit, "0");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
