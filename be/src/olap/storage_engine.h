@@ -21,10 +21,10 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -492,10 +492,6 @@ private:
     CompactionPermitLimiter _permit_limiter;
 
     CompactionSubmitRegistry _compaction_submit_registry;
-    std::mutex _tablet_submitted_compaction_mutex;
-    // a tablet can do base and cumulative compaction at same time
-    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_cumu_compaction;
-    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_base_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;

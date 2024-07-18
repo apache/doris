@@ -21,6 +21,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <atomic>
@@ -28,6 +29,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <cmath>
 #include <condition_variable>
+#include <cstdint>
 #include <ctime>
 #include <functional>
 #include <map>
@@ -37,6 +39,7 @@
 #include <random>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -133,7 +136,7 @@ uint32_t CompactionSubmitRegistry::count_executing_cumu_and_base(DataDir* dir) {
 }
 
 bool CompactionSubmitRegistry::has_compaction_task(DataDir* dir, CompactionType compaction_type) {
-    return _get_tablet_set(dir, compaction_type).empty();
+    return !_get_tablet_set(dir, compaction_type).empty();
 }
 
 bool CompactionSubmitRegistry::insert(TabletSharedPtr tablet, CompactionType compaction_type) {
@@ -941,6 +944,11 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
 
 bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
                                     CompactionType compaction_type, bool all_base) {
+    // We need to reserve at least one Slot for cumulative compaction.
+    // So when there is only one Slot, we have to judge whether there is a cumulative compaction
+    // in the current submitted tasks.
+    // If so, the last Slot can be assigned to Base compaction,
+    // otherwise, this Slot needs to be reserved for cumulative compaction.
     if (task_cnt_per_disk >= thread_per_disk) {
         // Return if no available slot
         return false;
@@ -989,6 +997,19 @@ int StorageEngine::_get_executing_compaction_num(
     return num;
 }
 
+int32_t disk_compaction_slot(const DataDir& data_dir) {
+    return data_dir.is_ssd_disk() ? config::compaction_task_num_per_fast_disk
+                                  : config::compaction_task_num_per_disk;
+}
+
+bool has_free_compaction_slot(CompactionSubmitRegistry* registry, DataDir* dir,
+                              CompactionType compaction_type, uint32_t executing_cnt) {
+    int32_t thread_per_disk = disk_compaction_slot(*dir);
+    return need_generate_compaction_tasks(
+            executing_cnt, thread_per_disk, compaction_type,
+            !registry->has_compaction_task(dir, CompactionType::CUMULATIVE_COMPACTION));
+}
+
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
@@ -1001,27 +1022,13 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when traversing the data dir
-    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_cumu_map;
-    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_base_map;
-    {
-        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-        copied_cumu_map = _tablet_submitted_cumu_compaction;
-        copied_base_map = _tablet_submitted_base_compaction;
-    }
+    auto compaction_registry_snapshot = _compaction_submit_registry.create_snapshot();
     for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
-        // We need to reserve at least one Slot for cumulative compaction.
-        // So when there is only one Slot, we have to judge whether there is a cumulative compaction
-        // in the current submitted tasks.
-        // If so, the last Slot can be assigned to Base compaction,
-        // otherwise, this Slot needs to be reserved for cumulative compaction.
-        int count = _get_executing_compaction_num(copied_cumu_map[data_dir]) +
-                    _get_executing_compaction_num(copied_base_map[data_dir]);
-        int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
-                                                      : config::compaction_task_num_per_disk;
-
-        need_pick_tablet = need_generate_compaction_tasks(count, thread_per_disk, compaction_type,
-                                                          copied_cumu_map[data_dir].empty());
+        uint32_t executing_task_num =
+                compaction_registry_snapshot.count_executing_cumu_and_base(data_dir);
+        need_pick_tablet = has_free_compaction_slot(&compaction_registry_snapshot, data_dir,
+                                                    compaction_type, executing_task_num);
         if (!need_pick_tablet && !check_score) {
             continue;
         }
@@ -1030,12 +1037,15 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            auto tablets = _compaction_submit_registry.pick_topn_tablets_for_compaction(
+            auto tablets = compaction_registry_snapshot.pick_topn_tablets_for_compaction(
                     _tablet_manager.get(), data_dir, compaction_type,
                     _cumulative_compaction_policies, &disk_max_score);
-            int concurrent_num = get_concurrent_per_disk(disk_max_score, thread_per_disk);
+            int concurrent_num =
+                    get_concurrent_per_disk(disk_max_score, disk_compaction_slot(*data_dir));
             need_pick_tablet = need_generate_compaction_tasks(
-                    count, concurrent_num, compaction_type, copied_cumu_map[data_dir].empty());
+                    executing_task_num, concurrent_num, compaction_type,
+                    !compaction_registry_snapshot.has_compaction_task(
+                            data_dir, CompactionType::CUMULATIVE_COMPACTION));
             for (const auto& tablet : tablets) {
                 if (tablet != nullptr) {
                     if (need_pick_tablet) {
@@ -1155,26 +1165,16 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
-        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_cumu_map;
-        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_base_map;
-        {
-            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-            copied_cumu_map = _tablet_submitted_cumu_compaction;
-            copied_base_map = _tablet_submitted_base_compaction;
-        }
+        auto compaction_registry_snapshot = _compaction_submit_registry.create_snapshot();
         auto stores = get_stores();
 
-        auto busy_pred = [&copied_cumu_map, &copied_base_map, compaction_type,
-                          this](auto* data_dir) {
-            int count = _get_executing_compaction_num(copied_base_map[data_dir]) +
-                        _get_executing_compaction_num(copied_cumu_map[data_dir]);
-            int paral = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
-                                                : config::compaction_task_num_per_disk;
-            bool all_base = copied_cumu_map[data_dir].empty();
-            return need_generate_compaction_tasks(count, paral, compaction_type, all_base);
-        };
-
-        bool is_busy = std::none_of(stores.begin(), stores.end(), busy_pred);
+        bool is_busy = std::none_of(
+                stores.begin(), stores.end(),
+                [&compaction_registry_snapshot, compaction_type](auto* data_dir) {
+                    return has_free_compaction_slot(
+                            &compaction_registry_snapshot, data_dir, compaction_type,
+                            compaction_registry_snapshot.count_executing_cumu_and_base(data_dir));
+                });
         if (is_busy) {
             LOG_EVERY_N(WARNING, 100)
                     << "Too busy to submit a compaction task, tablet=" << tablet->get_table_id();
