@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -638,5 +639,31 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col6")));
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col7")));
         Assertions.assertEquals(JobPriority.LOW, job.priority);
+    }
+
+    @Test
+    public void testAsyncDropStats() throws InterruptedException {
+        AtomicInteger count = new AtomicInteger(0);
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
+                                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+                try {
+                    Thread.sleep(1000);
+                    count.incrementAndGet();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        AnalysisManager analysisManager = new AnalysisManager();
+        for (int i = 0; i < 20; i++) {
+            System.out.println("Submit " + i);
+            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, null);
+        }
+        Thread.sleep(25000);
+        System.out.println(count.get());
+        Assertions.assertTrue(count.get() > 10);
+        Assertions.assertTrue(count.get() < 20);
     }
 }

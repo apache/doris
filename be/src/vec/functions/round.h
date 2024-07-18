@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/functions/function.h"
 #if defined(__SSE4_1__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
@@ -126,7 +127,7 @@ struct IntegerRoundingComputation {
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE T compute(T x, T scale, size_t target_scale) {
+    static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
         switch (scale_mode) {
         case ScaleMode::Zero:
         case ScaleMode::Positive:
@@ -163,21 +164,22 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            size_t scale = int_exp10(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
 
             const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
+                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
+                    *p_out = Op::compute(*p_in, scale, negative_scale);
                     ++p_in;
                     ++p_out;
                 }
             } else {
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, 1);
+                    *p_out = Op::compute(*p_in, scale, 1);
                     ++p_in;
                     ++p_out;
                 }
@@ -191,11 +193,12 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            size_t scale = int_exp10(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
             if (out_scale < 0) {
-                Op::compute(&in, scale, &out, int_exp10(-out_scale));
+                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                out = Op::compute(in, scale, negative_scale);
             } else {
-                Op::compute(&in, scale, &out, 1);
+                out = Op::compute(in, scale, 1);
             }
         } else {
             memcpy(&out, &in, sizeof(NativeType));

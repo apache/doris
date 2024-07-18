@@ -309,6 +309,7 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'env.sh' ]] ||
             [[ "${af}" == 'run-regression-test.sh' ]] ||
             [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/cmake/'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
             echo "cloud-p0 related file changed, return need" && return 0
         fi

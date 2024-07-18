@@ -26,15 +26,18 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "cpp/s3_rate_limiter.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv_error.h"
-#include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris::cloud {
+
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
 
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
@@ -186,6 +189,12 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         }
     }
     auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance);
+    if (recycler->init() != 0) {
+        LOG(WARNING) << "failed to init InstanceRecycler recycle_copy_jobs on instance "
+                     << instance_id;
+        return;
+    }
+
     std::thread worker([recycler = std::move(recycler), instance_id] {
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
