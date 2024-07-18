@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p0", "nonConcurrent"){
+suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
