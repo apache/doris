@@ -1317,14 +1317,13 @@ public class Coordinator implements CoordInterface {
                 FInstanceExecParam instanceExecParam = params.instanceExecParams.get(j);
 
                 // already set by nereids coordinator?
-                if (instanceExecParam.instanceId != null) {
-                    continue;
+                if (instanceExecParam.instanceId == null) {
+                    TUniqueId instanceId = new TUniqueId();
+                    instanceId.setHi(queryId.hi);
+                    instanceId.setLo(queryId.lo + instanceIds.size() + 1);
+                    instanceExecParam.instanceId = instanceId;
                 }
-                TUniqueId instanceId = new TUniqueId();
-                instanceId.setHi(queryId.hi);
-                instanceId.setLo(queryId.lo + instanceIds.size() + 1);
-                instanceExecParam.instanceId = instanceId;
-                instanceIds.add(instanceId);
+                instanceIds.add(instanceExecParam.instanceId);
             }
         }
 
