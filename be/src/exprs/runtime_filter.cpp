@@ -952,7 +952,7 @@ private:
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
 
-    SharedRuntimeFilterContext _context;
+    RuntimeFilterContextSPtr _context;
     uint32_t _filter_id;
 };
 
@@ -965,7 +965,7 @@ Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* poo
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
 
-SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref() {
+RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
     return _wrapper->_context;
 }
 
@@ -1033,7 +1033,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    IRuntimeFilter* _filter;
+    RuntimeFilterContextSPtr _rf_context;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
@@ -1048,7 +1048,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _filter->set_ignored();
+            _rf_context->ignored = true;
         } else {
             LOG(WARNING) << "sync filter size meet error status, filter="
                          << _filter->debug_string();
@@ -1059,8 +1059,9 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
-                    std::shared_ptr<pipeline::Dependency> dependency, IRuntimeFilter* filter)
-            : Base(req, callback), _dependency(std::move(dependency)), _filter(filter) {}
+                    std::shared_ptr<pipeline::Dependency> dependency,
+                    RuntimeFilterContextSPtr rf_context)
+            : Base(req, callback), _dependency(std::move(dependency)), _rf_context(rf_context) {}
 };
 
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
@@ -1103,7 +1104,10 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
-    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency, this);
+    // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
+    // a raw pointer in closure. Has to use the context's shared ptr.
+    auto closure =
+            SyncSizeClosure::create_unique(request, callback, _dependency, _wrapper->_context);
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
