@@ -388,7 +388,11 @@ public class StmtExecutor {
         }
         String taskState = "RUNNING";
         if (isFinished) {
-            taskState = coord.queryStatus.getErrorCode().name();
+            if (coord != null) {
+                taskState = coord.queryStatus.getErrorCode().name();
+            } else {
+                taskState = context.getState().toString();
+            }
         }
         builder.taskState(taskState);
         builder.user(context.getQualifiedUser());
