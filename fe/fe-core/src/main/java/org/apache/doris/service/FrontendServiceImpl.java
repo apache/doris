@@ -269,6 +269,7 @@ import org.apache.thrift.TException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1415,6 +1416,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (String tbl : tbNames) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
+        }
+        if (tables.size() > 1) {
+            tables.sort(Comparator.comparing(Table::getId));
         }
         // if it has multi table, use multi table and update multi table running
         // transaction table ids
