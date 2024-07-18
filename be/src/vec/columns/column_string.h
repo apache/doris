@@ -100,7 +100,6 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
-    void sanity_check() const;
     bool is_variable_length() const override { return true; }
     const char* get_family_name() const override { return "String"; }
 
@@ -547,7 +546,8 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for ColumnString");
         __builtin_unreachable();
     }
 
