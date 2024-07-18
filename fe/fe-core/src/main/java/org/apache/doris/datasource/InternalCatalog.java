@@ -1760,11 +1760,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // drop
+        Partition partition = null;
         long recycleTime = 0;
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
-            Partition partition = null;
             if (!clause.isForceDrop()) {
                 partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
@@ -1785,8 +1785,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // log
-        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop(), recycleTime);
+        long partitionId = partition == null ? -1L : partition.getId();
+        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionId, partitionName,
+                isTempPartition, clause.isForceDrop(), recycleTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",

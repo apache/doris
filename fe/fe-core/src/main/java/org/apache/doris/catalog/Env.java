@@ -5606,6 +5606,11 @@ public class Env {
             getTableMeta(olapTable, dbMeta);
         }
 
+        if (Config.enable_feature_binlog) {
+            BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
+            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
+        }
+
         result.setDbMeta(dbMeta);
         return result;
     }

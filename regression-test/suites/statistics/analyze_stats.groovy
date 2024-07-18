@@ -2818,7 +2818,7 @@ PARTITION `p599` VALUES IN (599)
 
     alter_result = sql """show column cached stats date_dim"""
     assertEquals("d_day_name", alter_result[0][0])
-    assertEquals("date_dim", alter_result[0][1])
+    assertEquals("N/A", alter_result[0][1])
     assertEquals("73049.0", alter_result[0][2])
     assertEquals("7.0", alter_result[0][3])
     assertEquals("0.0", alter_result[0][4])
