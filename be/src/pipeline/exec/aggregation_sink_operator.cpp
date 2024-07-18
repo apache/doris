@@ -813,6 +813,7 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
                 state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc(),
                 intermediate_slot_desc, output_slot_desc));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -853,7 +854,6 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
 
     for (auto& _aggregate_evaluator : _aggregate_evaluators) {
         RETURN_IF_ERROR(_aggregate_evaluator->open(state));
-        _aggregate_evaluator->set_version(state->be_exec_version());
     }
 
     return Status::OK();

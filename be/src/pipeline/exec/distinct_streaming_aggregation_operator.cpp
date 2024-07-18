@@ -399,6 +399,7 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
                 state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -430,7 +431,6 @@ Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
-        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     return Status::OK();
