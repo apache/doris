@@ -386,8 +386,11 @@ public class StmtExecutor {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
             builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
         }
-        builder.taskState(!isFinished && context.getState().getStateType().equals(MysqlStateType.OK) ? "RUNNING"
-                : context.getState().toString());
+        String taskState = "RUNNING";
+        if (isFinished) {
+            taskState = coord.queryStatus.getErrorCode().name();
+        }
+        builder.taskState(taskState);
         builder.user(context.getQualifiedUser());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
