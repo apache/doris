@@ -36,24 +36,6 @@
 namespace doris::vectorized {
 
 template <typename T>
-void ColumnStr<T>::sanity_check() const {
-    auto count = offsets.size();
-    if (chars.size() != offsets[count - 1]) {
-        LOG(FATAL) << "row count: " << count << ", chars.size(): " << chars.size() << ", offset["
-                   << count - 1 << "]: " << offsets[count - 1];
-    }
-    if (offsets[-1] != 0) {
-        LOG(FATAL) << "wrong offsets[-1]: " << offsets[-1];
-    }
-    for (size_t i = 0; i < count; ++i) {
-        if (offsets[i] < offsets[i - 1]) {
-            LOG(FATAL) << "row count: " << count << ", offsets[" << i << "]: " << offsets[i]
-                       << ", offsets[" << i - 1 << "]: " << offsets[i - 1];
-        }
-    }
-}
-
-template <typename T>
 MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
     auto res = ColumnStr<T>::create();
     if (to_size == 0) {
@@ -297,7 +279,8 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
         __builtin_unreachable();
     }
 
