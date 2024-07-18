@@ -508,17 +508,6 @@ public:
                        : 0;
     }
 
-    int repeat_max_num() const {
-#ifndef BE_TEST
-        if (!_query_options.__isset.repeat_max_num) {
-            return 10000;
-        }
-        return _query_options.repeat_max_num;
-#else
-        return 10;
-#endif
-    }
-
     int64_t external_sort_bytes_threshold() const {
         if (_query_options.__isset.external_sort_bytes_threshold) {
             return _query_options.external_sort_bytes_threshold;
