@@ -304,7 +304,7 @@ public class EditLog {
                 }
                 case OperationType.OP_RENAME_TABLE: {
                     TableInfo info = (TableInfo) journal.getData();
-                    env.replayRenameTable(info);
+                    env.replayRenameTable(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
