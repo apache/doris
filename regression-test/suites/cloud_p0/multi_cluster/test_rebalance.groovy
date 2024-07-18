@@ -29,11 +29,15 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
         'cloud_cluster_check_interval_second=1',
         'enable_cloud_warm_up_for_rebalance=false',
         'cloud_tablet_rebalancer_interval_second=1',
+        'cloud_balance_tablet_percent_per_run=0.5',
+        'cloud_pre_heating_time_limit_sec=1',
+        'sys_log_verbose_modules=org',
     ]
     options.setFeNum(3)
     options.setBeNum(1)
     options.cloudMode = true
     options.connectToFollower = true
+    options.enableDebugPoints()
 
     docker(options) {
         sql """
@@ -59,10 +63,8 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
             PARTITION p1998 VALUES [("19980101"), ("19990101")))
             DISTRIBUTED BY HASH(k1) BUCKETS 3
         """
-
-        setFeConfig('cloud_balance_tablet_percent_per_run', 0.5)
-        setFeConfig('cloud_pre_heating_time_limit_sec', 1)
-        sql """set forward_to_master=false"""
+        GetDebugPoint().enableDebugPointForAllFEs("CloudReplica.getBackendIdImpl.clusterToBackends");
+        sql """set global forward_to_master=false"""
         
         // add a be
         cluster.addBackend(1, null)
@@ -72,7 +74,6 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
             log.info("bes: {}", bes)
             bes.size() == 2
         }
-        
 
         dockerAwaitUntil(5) {
             def ret = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
@@ -80,12 +81,18 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
             ret.size() == 2
         }
 
-        def result = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table100; """
-        assertEquals(2, result.size());
+        def result = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM table100; """
+        assertEquals(2, result.size())
+        int replicaNum = 0
 
         for (def row : result) {
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 25 && Integer.valueOf((String) row[1]) >= 23)
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
+            if (replicaNum == 0) {
+                // due to debug point, observer not hash replica
+            } else {
+                assertTrue(replicaNum <= 25 && replicaNum >= 23)
+            }
         }
 
         dockerAwaitUntil(5) {
@@ -95,46 +102,64 @@ suite('test_rebalance_in_cloud', 'multi_cluster') {
         }
 
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1992) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1992) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1993) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1993) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1994) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1994) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1995) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1995) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1996) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1996) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
 
-        result = sql """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1997) """
-        assertEquals(2, result.size());
+        result = sql_return_maparray """ ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1997) """
+        assertEquals(2, result.size())
         for (def row : result) {
+            replicaNum = Integer.valueOf((String) row.ReplicaNum)
             log.info("replica distribution: ${row} ".toString())
-            assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
+            if (replicaNum != 0) {
+                assertTrue(replicaNum <= 2 && replicaNum >= 1)
+            }
         }
     }
 }

@@ -60,8 +60,8 @@ public class JournalBatch {
         entity.setData(data);
 
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
-        size += buffer.size();
         entity.write(buffer);
+        size += buffer.size();
 
         entities.add(new Entity(op, buffer));
     }

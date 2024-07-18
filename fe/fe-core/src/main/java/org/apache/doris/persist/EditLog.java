@@ -104,7 +104,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -1267,21 +1266,17 @@ public class EditLog {
     }
 
     private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
-        List<JournalBatch> batches = new ArrayList<>();
         JournalBatch batch = new JournalBatch(35);
         for (T entry : entries) {
             // the number of batch entities to less than 32 and the batch data size to less than 640KB
             if (batch.getJournalEntities().size() >= 32 || batch.getSize() >= 640 * 1024) {
-                batches.add(batch);
+                journal.write(batch);
                 batch = new JournalBatch(35);
             }
             batch.addJournal(op, entry);
         }
         if (!batch.getJournalEntities().isEmpty()) {
-            batches.add(batch);
-        }
-        for (JournalBatch b : batches) {
-            journal.write(b);
+            journal.write(batch);
         }
     }
 

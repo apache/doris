@@ -59,7 +59,7 @@ public class UpdateCloudReplicaInfo implements Writable {
     @SerializedName(value = "beIds")
     private List<Long> beIds = new ArrayList<Long>();
 
-    @SerializedName(value = "rids", alternate = {"replicaIds"})
+    @SerializedName(value = "rids")
     private List<Long> replicaIds = new ArrayList<>();
 
     public UpdateCloudReplicaInfo() {
