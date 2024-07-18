@@ -195,7 +195,7 @@ public class SlotReference extends Slot {
     public String toString() {
         if (subPath.isEmpty()) {
             // Just return name and exprId, add another method to show fully qualified name when it's necessary.
-            return name.get() + "#" + exprId + " nullable:" + nullable;
+            return name.get() + "#" + exprId;
         }
         return name.get() + "['" + String.join("']['", subPath) + "']" + "#" + exprId;
     }
