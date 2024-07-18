@@ -75,6 +75,8 @@ class SnapshotManager;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
+using CumuCompactionPolicyTable =
+        std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>;
 
 class StorageEngine;
 class CloudStorageEngine;
@@ -190,6 +192,10 @@ public:
                 std::function<void()> wakeup_cb);
 
     void jsonfy_compaction_status(std::string* result);
+
+    std::vector<TabletSharedPtr> pick_topn_tablets_for_compaction(
+            TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
+            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
 
 private:
     TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
@@ -490,7 +496,6 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_base_compaction;
-    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -506,8 +511,7 @@ private:
     std::condition_variable _compaction_producer_sleep_cv;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
-    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
-            _cumulative_compaction_policies;
+    CumuCompactionPolicyTable _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

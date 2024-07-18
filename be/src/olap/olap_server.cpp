@@ -206,6 +206,14 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
     *result = std::string(str_buf.GetString());
 }
 
+std::vector<TabletSharedPtr> CompactionSubmitRegistry::pick_topn_tablets_for_compaction(
+        TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
+        const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score) {
+    return tablet_mgr->find_best_tablets_to_compaction(compaction_type, data_dir,
+                                                       _get_tablet_set(data_dir, compaction_type),
+                                                       disk_max_score, cumu_compaction_policies);
+}
+
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
     int32_t threads_num = config::max_cumu_compaction_threads;
     if (threads_num == -1) {
@@ -1022,12 +1030,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            auto tablets = _tablet_manager->find_best_tablets_to_compaction(
-                    compaction_type, data_dir,
-                    compaction_type == CompactionType::CUMULATIVE_COMPACTION
-                            ? copied_cumu_map[data_dir]
-                            : copied_base_map[data_dir],
-                    &disk_max_score, _cumulative_compaction_policies);
+            auto tablets = _compaction_submit_registry.pick_topn_tablets_for_compaction(
+                    _tablet_manager.get(), data_dir, compaction_type,
+                    _cumulative_compaction_policies, &disk_max_score);
             int concurrent_num = get_concurrent_per_disk(disk_max_score, thread_per_disk);
             need_pick_tablet = need_generate_compaction_tasks(
                     count, concurrent_num, compaction_type, copied_cumu_map[data_dir].empty());
