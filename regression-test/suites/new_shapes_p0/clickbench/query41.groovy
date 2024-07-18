@@ -17,11 +17,7 @@
  * under the License.
  */
 
-suite("query41") {
-    if (isCloudMode()) {
-        return
-    }
-    if (isCloudMode()) {
+suite("query41") {    if (isCloudMode()) {
         return
     }
 

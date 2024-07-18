@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load") {
-    if (isCloudMode()) {
-        return
-    }
-    if (isCloudMode()) {
+suite("load") {    if (isCloudMode()) {
         return
     }
     String database = context.config.getDbNameByFile(context.file)

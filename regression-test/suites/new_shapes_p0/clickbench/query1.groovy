@@ -17,11 +17,7 @@
  * under the License.
  */
 
-suite("query1") {
-    if (isCloudMode()) {
-        return
-    }
-    if (isCloudMode()) {
+suite("query1") {    if (isCloudMode()) {
         return
     }
     sql 'set enable_nereids_planner=true'
