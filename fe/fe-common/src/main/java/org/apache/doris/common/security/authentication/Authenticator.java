@@ -15,25 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg.source;
+package org.apache.doris.common.security.authentication;
 
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.thrift.TFileAttributes;
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
-public interface IcebergSource {
+public interface Authenticator {
 
-    TupleDescriptor getDesc();
-
-    org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException;
-
-    TableIf getTargetTable();
-
-    ExternalCatalog getCatalog();
-
-    String getFileFormat() throws DdlException, MetaNotFoundException;
+    <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException;
 }

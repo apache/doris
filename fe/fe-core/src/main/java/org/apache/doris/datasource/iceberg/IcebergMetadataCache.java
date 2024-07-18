@@ -21,9 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TIcebergMetadataParams;
@@ -41,6 +40,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +60,7 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(this::loadSnapshots, null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -68,11 +68,11 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
+        this.tableCache = tableCacheFactory.buildCache(this::loadTable, null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
         if (catalog == null) {
             throw new UserException("The specified catalog does not exist:" + params.getCatalog());
         }
@@ -81,12 +81,12 @@ public class IcebergMetadataCache {
         return snapshotListCache.get(key);
     }
 
-    public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
+    public Table getIcebergTable(ExternalCatalog catalog, String dbName, String tbName) {
         IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
         return tableCache.get(key);
     }
 
-    public Table getAndCloneTable(CatalogIf catalog, String dbName, String tbName) {
+    public Table getAndCloneTable(ExternalCatalog catalog, String dbName, String tbName) {
         Table restTable;
         synchronized (this) {
             Table table = getIcebergTable(catalog, dbName, tbName);
@@ -95,7 +95,7 @@ public class IcebergMetadataCache {
         return restTable;
     }
 
-    public Table getRemoteTable(CatalogIf catalog, String dbName, String tbName) {
+    public Table getRemoteTable(ExternalCatalog catalog, String dbName, String tbName) {
         IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
         return loadTable(key);
     }
@@ -122,8 +122,14 @@ public class IcebergMetadataCache {
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(key.catalog.getId(),
-                () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
+
+        Table icebergTable;
+        try {
+            icebergTable = key.catalog.getAuthenticator().doAs(
+                    () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
         initIcebergTableFileIO(icebergTable, key.catalog.getProperties());
         return icebergTable;
     }
@@ -213,17 +219,17 @@ public class IcebergMetadataCache {
     }
 
     static class IcebergMetadataCacheKey {
-        CatalogIf catalog;
+        ExternalCatalog catalog;
         String dbName;
         String tableName;
 
-        public IcebergMetadataCacheKey(CatalogIf catalog, String dbName, String tableName) {
+        public IcebergMetadataCacheKey(ExternalCatalog catalog, String dbName, String tableName) {
             this.catalog = catalog;
             this.dbName = dbName;
             this.tableName = tableName;
         }
 
-        static IcebergMetadataCacheKey of(CatalogIf catalog, String dbName, String tableName) {
+        static IcebergMetadataCacheKey of(ExternalCatalog catalog, String dbName, String tableName) {
             return new IcebergMetadataCacheKey(catalog, dbName, tableName);
         }
 

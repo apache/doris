@@ -40,7 +40,7 @@ public class HadoopUGI {
         }
         if (config instanceof KerberosAuthenticationConfig) {
             try {
-                // TODO: remove after iceberg and hudi kerberos test case pass
+                // TODO: remove after hudi kerberos test case pass
                 try {
                     //  login hadoop with keytab and try checking TGT
                     UserGroupInformation ugi = UserGroupInformation.getCurrentUser();

@@ -70,7 +70,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
-    @Getter
+
     private HadoopAuthenticator authenticator;
 
     @VisibleForTesting
@@ -88,6 +88,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
         AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
         authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+    }
+
+    @Override
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
     }
 
     @Override

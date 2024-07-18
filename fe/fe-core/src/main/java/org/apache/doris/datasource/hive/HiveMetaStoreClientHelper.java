@@ -67,6 +67,7 @@ import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
@@ -811,11 +812,6 @@ public class HiveMetaStoreClientHelper {
             throw new RuntimeException("Cannot get hudi table schema.", e);
         }
         return hudiSchema;
-    }
-
-    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
-        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
-                action);
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {

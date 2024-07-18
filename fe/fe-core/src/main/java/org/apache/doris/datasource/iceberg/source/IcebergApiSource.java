@@ -75,11 +75,6 @@ public class IcebergApiSource implements IcebergSource {
     }
 
     @Override
-    public TFileAttributes getFileAttributes() throws UserException {
-        return new TFileAttributes();
-    }
-
-    @Override
     public ExternalCatalog getCatalog() {
         return icebergExtTable.getCatalog();
     }

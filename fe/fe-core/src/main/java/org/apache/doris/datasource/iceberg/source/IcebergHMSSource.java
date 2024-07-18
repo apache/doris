@@ -71,18 +71,6 @@ public class IcebergHMSSource implements IcebergSource {
     }
 
     @Override
-    public TFileAttributes getFileAttributes() throws UserException {
-        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
-                .getOrDefault(HiveScanNode.PROP_FIELD_DELIMITER, HiveScanNode.DEFAULT_FIELD_DELIMITER));
-        textParams.setLineDelimiter(HiveScanNode.DEFAULT_LINE_DELIMITER);
-        TFileAttributes fileAttributes = new TFileAttributes();
-        fileAttributes.setTextParams(textParams);
-        fileAttributes.setHeaderType("");
-        return fileAttributes;
-    }
-
-    @Override
     public ExternalCatalog getCatalog() {
         return hmsTable.getCatalog();
     }
