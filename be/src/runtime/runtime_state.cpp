@@ -539,10 +539,9 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
     return _query_ctx->runtime_filter_mgr();
 }
 
-Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                                      bool need_local_merge,
-                                                      doris::IRuntimeFilter** producer_filter,
-                                                      bool build_bf_exactly) {
+Status RuntimeState::register_producer_runtime_filter(
+        const TRuntimeFilterDesc& desc, bool need_local_merge,
+        std::shared_ptr<IRuntimeFilter>* producer_filter, bool build_bf_exactly) {
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_local_merge_producer_filter(
                 desc, query_options(), producer_filter, build_bf_exactly);
@@ -552,9 +551,9 @@ Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilte
     }
 }
 
-Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                                      bool need_local_merge, int node_id,
-                                                      doris::IRuntimeFilter** consumer_filter) {
+Status RuntimeState::register_consumer_runtime_filter(
+        const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
+        std::shared_ptr<IRuntimeFilter>* consumer_filter) {
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
                                                                      consumer_filter, false, true);

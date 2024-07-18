@@ -572,12 +572,12 @@ public:
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge,
-                                            doris::IRuntimeFilter** producer_filter,
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            doris::IRuntimeFilter** producer_filter);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
     bool enable_join_spill() const {

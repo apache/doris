@@ -82,7 +82,6 @@ public:
                 }
             }
         }
-        store_string_ref();
     }
 
     void update_batch(const vectorized::ColumnPtr& column, size_t start) {
@@ -143,7 +142,6 @@ public:
             if constexpr (NeedMax) {
                 _max = std::max(_max, other_minmax->_max);
             }
-            store_string_ref();
         } else {
             auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
             if constexpr (NeedMin) {
@@ -172,28 +170,9 @@ public:
         return Status::OK();
     }
 
-    void store_string_ref() {
-        if constexpr (std::is_same_v<T, StringRef>) {
-            if constexpr (NeedMin) {
-                if (_min.data != _stored_min.data()) {
-                    _stored_min = _min.to_string();
-                    _min = StringRef(_stored_min);
-                }
-            }
-            if constexpr (NeedMax) {
-                if (_max.data != _stored_max.data()) {
-                    _stored_max = _max.to_string();
-                    _max = StringRef(_stored_max);
-                }
-            }
-        }
-    }
-
 protected:
     T _max = type_limit<T>::min();
     T _min = type_limit<T>::max();
-    std::string _stored_min;
-    std::string _stored_max;
 };
 
 template <class T>

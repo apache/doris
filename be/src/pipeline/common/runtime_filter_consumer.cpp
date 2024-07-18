@@ -52,7 +52,7 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
     for (int i = 0; i < filter_size; ++i) {
-        IRuntimeFilter* runtime_filter = nullptr;
+        std::shared_ptr<IRuntimeFilter> runtime_filter;
         const auto& filter_desc = _runtime_filter_descs[i];
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(filter_desc, need_local_merge,
                                                                  _filter_id, &runtime_filter));
@@ -73,9 +73,9 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
             local_runtime_filter_dependencies;
 
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        auto runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
-                id, node_id, name, runtime_filter);
+                id, node_id, name, runtime_filter.get());
         _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
         runtime_filter_timers[i] = std::make_shared<pipeline::RuntimeFilterTimer>(
                 runtime_filter->registration_time(), runtime_filter->wait_time_ms(),
@@ -89,7 +89,7 @@ void RuntimeFilterConsumer::init_runtime_filter_dependency(
     // The gloabl runtime filter timer need set local runtime filter dependencies.
     // start to wait before the local runtime filter ready
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        auto runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         if (!runtime_filter->has_local_target()) {
             runtime_filter_timers[i]->set_local_runtime_filter_dependencies(
                     local_runtime_filter_dependencies);
@@ -105,7 +105,7 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        auto runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         if (pipeline_x) {
             runtime_filter->update_state();
             if (runtime_filter->is_ready() && !_runtime_filter_ctxs[i].apply_mark) {
