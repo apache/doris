@@ -252,7 +252,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.id) {
         tg_id = tworkload_group_info.id;
     } else {
-        return {.valid = false};
+        return {.name = "", .valid = false};
     }
 
     // 2 name
@@ -266,7 +266,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.version) {
         version = tworkload_group_info.version;
     } else {
-        return {.valid = false};
+        return {.name {}, .valid = false};
     }
 
     // 4 cpu_share

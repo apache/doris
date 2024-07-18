@@ -55,7 +55,11 @@ constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
-    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
+    io::FileReaderOptions opts {
+            .cache_base_path {},
+            .file_size = fd.file_size,
+            .mtime = fd.mtime,
+    };
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
