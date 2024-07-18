@@ -21,6 +21,9 @@ suite("query1") {
     if (isCloudMode()) {
         return
     }
+    if (isCloudMode()) {
+        return
+    }
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'

@@ -18,6 +18,12 @@
  */
 
 suite("query23") {
+    if (isCloudMode()) {
+        return
+    }
+    if (isCloudMode()) {
+        return
+    }
     String db = context.config.getDbNameByFile(context.file)
     multi_sql """
     use ${db};

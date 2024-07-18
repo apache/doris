@@ -785,13 +785,6 @@ public class Coordinator implements CoordInterface {
                     needCheckBackendState = true;
                 }
 
-                Map<TUniqueId, Boolean> fragmentInstancesMap = new HashMap<TUniqueId, Boolean>();
-                for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
-                    for (TPipelineInstanceParams instanceParam : entry.getValue().local_params) {
-                        fragmentInstancesMap.put(instanceParam.fragment_instance_id, false);
-                    }
-                }
-
                 int numBackendsWithSink = 0;
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
@@ -799,7 +792,7 @@ public class Coordinator implements CoordInterface {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     backendFragments.add(Pair.of(fragment.getFragmentId(), backendId));
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            entry.getValue(), backendId, fragmentInstancesMap, executionProfile);
+                            entry.getValue(), backendId, executionProfile);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -833,14 +826,14 @@ public class Coordinator implements CoordInterface {
                     }
                     ++backendIdx;
                 }
-                int loadStreamPerNode = 1;
-                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-                    loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
-                }
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
+                        int loadStreamPerNode = 1;
+                        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                            loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                        }
                         entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
                         entry.getValue().setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);
                         entry.getValue().setNumLocalSink(entry.getValue().getLocalParams().size());
@@ -2754,23 +2747,17 @@ public class Coordinator implements CoordInterface {
         boolean initiated;
         boolean done;
 
-        Map<TUniqueId, Boolean> fragmentInstancesMap;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
         Backend backend;
         long lastMissingHeartbeatTime = -1;
-        long profileReportProgress = 0;
         long beProcessEpoch = 0;
-        private final int numInstances;
 
         public PipelineExecContext(PlanFragmentId fragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
-                Map<TUniqueId, Boolean> fragmentInstancesMap,
                 ExecutionProfile executionProfile) {
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
-            this.numInstances = rpcParams.local_params.size();
-            this.fragmentInstancesMap = fragmentInstancesMap;
 
             this.initiated = false;
             this.done = false;

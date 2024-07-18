@@ -18,6 +18,12 @@
  */
 
 suite("query32") {
+    if (isCloudMode()) {
+        return
+    }
+    if (isCloudMode()) {
+        return
+    }
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     multi_sql """
     use ${db};

@@ -29,6 +29,9 @@ suite("load") {
     if (isCloudMode()) {
         return
     }
+    if (isCloudMode()) {
+        return
+    }
 
     sql """
         DROP TABLE IF EXISTS hits

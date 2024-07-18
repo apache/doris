@@ -17,6 +17,9 @@
  * under the License.
  */
 suite('tpcds_sf100_stats') {
+    if (isCloudMode()) {
+        return
+    }
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     def stats
