@@ -53,7 +53,8 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
+            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
+            .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
