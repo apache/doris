@@ -327,7 +327,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitForEachCombinator(ForEachCombinator combinator, C context) {
-        return visitAggregateFunction(combinator, context);
+        return visitNullableAggregateFunction(combinator, context);
     }
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {

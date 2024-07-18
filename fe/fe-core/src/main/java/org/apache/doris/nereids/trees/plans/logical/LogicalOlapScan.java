@@ -507,7 +507,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             Plan originalPlan = cache.getOriginalPlan();
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
-        } else if (getTable().getKeysType().isAggregationFamily()) {
+        } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
