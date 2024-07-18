@@ -17,21 +17,27 @@
 
 package org.apache.doris.common.security.authentication;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 
-@EqualsAndHashCode(callSuper = true)
-@Data
-public class KerberosAuthenticationConfig extends AuthenticationConfig {
-    private String kerberosPrincipal;
-    private String kerberosKeytab;
-    private Configuration conf;
-    private boolean printDebugLog;
+import java.io.IOException;
+import java.util.Objects;
+
+public class ImpersonatingHadoopAuthenticator implements HadoopAuthenticator {
+
+    private final HadoopAuthenticator delegate;
+    private final String username;
+    private UserGroupInformation ugi;
+
+    public ImpersonatingHadoopAuthenticator(HadoopAuthenticator delegate, String username) {
+        this.delegate = Objects.requireNonNull(delegate);
+        this.username = Objects.requireNonNull(username);
+    }
 
     @Override
-    public boolean isValid() {
-        return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
+    public synchronized UserGroupInformation getUGI() throws IOException {
+        if (ugi == null) {
+            ugi = UserGroupInformation.createProxyUser(username, delegate.getUGI());
+        }
+        return ugi;
     }
 }
