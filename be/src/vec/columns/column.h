@@ -234,8 +234,9 @@ public:
     virtual void insert_data(const char* pos, size_t length) = 0;
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_fix_len_data is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_fix_len_data is not supported for " + get_name());
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments
@@ -256,9 +257,9 @@ public:
     /// in one single time.
     virtual void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
                                                     const size_t num) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_continuous_binary_data is not supported for " +
-                                       get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_continuous_binary_data is not supported for " + get_name());
     }
 
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
@@ -268,8 +269,9 @@ public:
 
     virtual void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                               size_t max_length) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_strings_overflow is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_strings_overflow is not supported for " + get_name());
     }
 
     // Here `pos` points to the memory data type is the same as the data type of the column.
@@ -334,8 +336,9 @@ public:
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize_vec_with_null_map is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method serialize_vec_with_null_map is not supported for " + get_name());
         __builtin_unreachable();
     }
 
@@ -349,8 +352,9 @@ public:
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                                const uint8_t* null_map) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method deserialize_vec_with_null_map is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method deserialize_vec_with_null_map is not supported for " + get_name());
         __builtin_unreachable();
     }
 
@@ -369,15 +373,17 @@ public:
     /// do xxHash here, faster than other sip hash
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method update_hashes_with_value is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_hashes_with_value is not supported for " + get_name());
     }
 
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                           const uint8_t* __restrict null_data) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method update_xxHash_with_value is not supported for " + get_name());
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_xxHash_with_value is not supported for " + get_name());
     }
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
@@ -421,7 +427,9 @@ public:
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method filter_by_selector is not supported for {}, only column_nullable, column_dictionary and predict_column support", get_name());
+                               "Method filter_by_selector is not supported for {}, only "
+                               "column_nullable, column_dictionary and predict_column support",
+                               get_name());
         __builtin_unreachable();
     }
 
@@ -596,7 +604,7 @@ public:
     /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Column {} is not a contiguous block of memory",  get_name());
+                               "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
     }
 

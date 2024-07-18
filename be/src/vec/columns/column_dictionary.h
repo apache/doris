@@ -66,33 +66,39 @@ public:
     size_t size() const override { return _codes.size(); }
 
     [[noreturn]] StringRef get_data_at(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_data_at not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "get_data_at not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert_from not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "insert_from not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert_range_from not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "insert_range_from not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert_indices_from not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "insert_indices_from not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "update_hash_with_value not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "update_hash_with_value not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert_data not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "insert_data not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
@@ -119,7 +125,8 @@ public:
     }
 
     void insert(const Field& x) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "insert not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
@@ -134,12 +141,15 @@ public:
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "serialize_value_into_arena not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "serialize_value_into_arena not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "deserialize_and_insert_from_arena not supported in ColumnDictionary");
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "deserialize_and_insert_from_arena not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
@@ -148,45 +158,53 @@ public:
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_raw_data not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "get_raw_data not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "structure_equals not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "structure_equals not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "filter not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "filter not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "filter not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "filter not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "permute not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "permute not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "replicate not supported in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "replicate not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "append_data_by_selector is not supported in ColumnDictionary!");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "append_data_by_selector is not supported in ColumnDictionary!");
         __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
                                  size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "append_data_by_selector is not supported in ColumnDictionary!");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "append_data_by_selector is not supported in ColumnDictionary!");
         __builtin_unreachable();
     }
 
@@ -207,7 +225,8 @@ public:
     }
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "should not call replace_column_data in ColumnDictionary");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call replace_column_data in ColumnDictionary");
         __builtin_unreachable();
     }
 
