@@ -190,8 +190,10 @@ Status DeltaWriter::init() {
 
     {
         std::shared_lock base_migration_rlock(_tablet->get_migration_lock(), std::defer_lock);
-        if (!base_migration_rlock.try_lock_for(std::chrono::milliseconds(30))) {
-            return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
+        if (!base_migration_rlock.try_lock_for(
+                    std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
+            return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
+                                                  config::migration_lock_timeout_ms);
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
         RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
