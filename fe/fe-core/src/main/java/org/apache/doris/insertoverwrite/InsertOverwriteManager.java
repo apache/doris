@@ -58,7 +58,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
     @SerializedName(value = "taskLocks")
     private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
-    // <groupId, <oldPartId, newPartId>>
+    // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
 
@@ -91,7 +91,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      *
      * @return group id, like a transaction id.
      */
-    public long preRegisterTask() {
+    public long registerTaskGroup() {
         long groupId = Env.getCurrentEnv().getNextId();
         taskGroups.put(groupId, new ArrayList<Long>());
         taskLocks.put(groupId, new ReentrantLock());
@@ -107,26 +107,39 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         taskGroups.get(groupId).add(taskId);
     }
 
-    public List<Long> tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds) {
+    /**
+     * this func should in lock scope of getLock(groupId)
+     *
+     * @param groupId
+     * @param oldPartitionIds
+     * @param newIds          if have replaced, replace with new. otherwise itself.
+     * @return
+     */
+    public boolean tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds, List<Long> newIds) {
         Map<Long, Long> relations = partitionPairs.get(groupId);
-        List<Long> newIds = new ArrayList<Long>();
-        for (Long id : oldPartitionIds) {
+        boolean needReplace = false;
+        for (int i = 0; i < oldPartitionIds.size(); i++) {
+            long id = oldPartitionIds.get(i);
             if (relations.containsKey(id)) {
                 // if we replaced it. then return new one.
                 newIds.add(relations.get(id));
             } else {
-                // otherwise itself. we will deal it soon.
-                newIds.add(id);
+                newIds.add(oldPartitionIds.get(i));
+                needReplace = true;
             }
         }
-        return newIds;
+        return needReplace;
     }
 
+    // this func should in lock scope of getLock(groupId)
     public void recordPartitionPairs(long groupId, List<Long> oldIds, List<Long> newIds) {
         Map<Long, Long> relations = partitionPairs.get(groupId);
         Preconditions.checkArgument(oldIds.size() == newIds.size());
         for (int i = 0; i < oldIds.size(); i++) {
             relations.put(oldIds.get(i), newIds.get(i));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("recorded partition pairs: [" + oldIds.get(i) + ", " + newIds.get(i) + "]");
+            }
         }
     }
 
@@ -142,7 +155,22 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         cleanTaskGroup(groupId);
     }
 
-    public void taskGroupSuccess(long groupId) {
+    // here we will make all raplacement of this group visiable. if someone fails, nothing happen.
+    public void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException {
+        try {
+            Map<Long, Long> relations = partitionPairs.get(groupId);
+            ArrayList<String> oldNames = new ArrayList<>();
+            ArrayList<String> newNames = new ArrayList<>();
+            for (Entry<Long, Long> partitionPair : relations.entrySet()) {
+                oldNames.add(targetTable.getPartition(partitionPair.getKey()).getName());
+                newNames.add(targetTable.getPartition(partitionPair.getValue()).getName());
+            }
+            InsertOverwriteUtil.replacePartition(targetTable, oldNames, newNames);
+        } catch (Exception e) {
+            LOG.warn("insert overwrite task making replacement failed because " + e.getMessage()
+                    + "all new partition will not be visible and will be recycled by partition GC.");
+            throw e;
+        }
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] succeed");
         for (Long taskId : taskGroups.get(groupId)) {
             taskSuccess(taskId);
