@@ -18,29 +18,27 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <assert.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/resource.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <cassert>
+#include <cerrno> // IWYU pragma: keep
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iterator>
 #include <mutex>
-#include <new>
 #include <ostream>
-#include <random>
 #include <set>
 #include <thread>
 #include <unordered_set>
@@ -52,28 +50,21 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "olap/base_compaction.h"
 #include "olap/binlog.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_cache.h"
-#include "olap/segment_loader.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/snapshot_manager.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -83,7 +74,6 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
-#include "util/trace.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 
