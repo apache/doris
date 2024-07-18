@@ -143,6 +143,47 @@ Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_lo
     return Status::OK();
 }
 
+void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto add_node = [&root](const std::string& name, const Registry& registry) {
+        rapidjson::Value key;
+        key.SetString(name.c_str(), name.length(), root.GetAllocator());
+        rapidjson::Document path_obj;
+        path_obj.SetObject();
+        for (const auto& it : registry) {
+            const auto& dir = it.first->path();
+            rapidjson::Value path_key;
+            path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
+
+            rapidjson::Document arr;
+            arr.SetArray();
+
+            for (const auto& tablet : it.second) {
+                rapidjson::Value key;
+                const std::string& key_str = std::to_string(tablet->tablet_id());
+                key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
+                arr.PushBack(key, root.GetAllocator());
+            }
+            path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
+        }
+        root.AddMember(key, path_obj, root.GetAllocator());
+    };
+
+    {
+        std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+        add_node("BaseCompaction", _tablet_submitted_base_compaction);
+        add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
+        add_node("FullCompaction", _tablet_submitted_full_compaction);
+    }
+
+    rapidjson::StringBuffer str_buf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
+    root.Accept(writer);
+    *result = std::string(str_buf.GetString());
+}
+
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
         return Status::InternalError("store paths is empty");

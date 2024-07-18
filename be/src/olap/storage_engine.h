@@ -429,8 +429,6 @@ private:
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
-    int _get_executing_compaction_num(std::unordered_set<TabletSharedPtr>& compaction_tasks);
-
 private:
     EngineOptions _options;
     std::mutex _store_lock;

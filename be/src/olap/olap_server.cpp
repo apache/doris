@@ -170,45 +170,6 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
     }
 }
 
-void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
-    rapidjson::Document root;
-    root.SetObject();
-
-    auto add_node = [this, &root](const std::string& name, const Registry& registry) {
-        rapidjson::Value key;
-        key.SetString(name.c_str(), name.length(), root.GetAllocator());
-        rapidjson::Document path_obj;
-        path_obj.SetObject();
-        for (const auto& it : registry) {
-            const auto& dir = it.first->path();
-            rapidjson::Value path_key;
-            path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
-
-            rapidjson::Document arr;
-            arr.SetArray();
-
-            for (const auto& tablet : it.second) {
-                rapidjson::Value key;
-                const std::string& key_str = std::to_string(tablet->tablet_id());
-                key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
-                arr.PushBack(key, root.GetAllocator());
-            }
-            path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
-        }
-        root.AddMember(key, path_obj, root.GetAllocator());
-    };
-
-    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
-    add_node("BaseCompaction", _tablet_submitted_base_compaction);
-    add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
-    add_node("FullCompaction", _tablet_submitted_full_compaction);
-
-    rapidjson::StringBuffer str_buf;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
-    root.Accept(writer);
-    *result = std::string(str_buf.GetString());
-}
-
 std::vector<TabletSharedPtr> CompactionSubmitRegistry::pick_topn_tablets_for_compaction(
         TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
         const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score) {
@@ -986,25 +947,14 @@ int get_concurrent_per_disk(int max_score, int thread_per_disk) {
     return thread_per_disk;
 }
 
-int StorageEngine::_get_executing_compaction_num(
-        std::unordered_set<TabletSharedPtr>& compaction_tasks) {
-    int num = 0;
-    for (const auto& task : compaction_tasks) {
-        if (task->compaction_stage == CompactionStage::EXECUTING) {
-            num++;
-        }
-    }
-    return num;
-}
-
-int32_t disk_compaction_slot(const DataDir& data_dir) {
+int32_t disk_compaction_slot_num(const DataDir& data_dir) {
     return data_dir.is_ssd_disk() ? config::compaction_task_num_per_fast_disk
                                   : config::compaction_task_num_per_disk;
 }
 
 bool has_free_compaction_slot(CompactionSubmitRegistry* registry, DataDir* dir,
                               CompactionType compaction_type, uint32_t executing_cnt) {
-    int32_t thread_per_disk = disk_compaction_slot(*dir);
+    int32_t thread_per_disk = disk_compaction_slot_num(*dir);
     return need_generate_compaction_tasks(
             executing_cnt, thread_per_disk, compaction_type,
             !registry->has_compaction_task(dir, CompactionType::CUMULATIVE_COMPACTION));
@@ -1041,7 +991,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     _tablet_manager.get(), data_dir, compaction_type,
                     _cumulative_compaction_policies, &disk_max_score);
             int concurrent_num =
-                    get_concurrent_per_disk(disk_max_score, disk_compaction_slot(*data_dir));
+                    get_concurrent_per_disk(disk_max_score, disk_compaction_slot_num(*data_dir));
             need_pick_tablet = need_generate_compaction_tasks(
                     executing_task_num, concurrent_num, compaction_type,
                     !compaction_registry_snapshot.has_compaction_task(
