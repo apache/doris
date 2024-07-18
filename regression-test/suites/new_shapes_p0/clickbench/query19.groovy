@@ -18,6 +18,9 @@
  */
 
 suite("query19") {
+    if (isCloudMode()) {
+        return
+    }
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=true'

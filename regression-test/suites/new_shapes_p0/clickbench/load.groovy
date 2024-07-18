@@ -26,6 +26,9 @@
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
+    if (isCloudMode()) {
+        return
+    }
 
     sql """
         DROP TABLE IF EXISTS hits

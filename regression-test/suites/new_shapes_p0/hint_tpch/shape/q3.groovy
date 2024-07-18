@@ -18,6 +18,9 @@
  */
 
 suite("q3") {
+    if (isCloudMode()) {
+        return
+    }
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     // db = "tpch"
     sql "use ${db}"
@@ -26,16 +29,13 @@ suite("q3") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    sql 'set exec_mem_limit=21G' 
+    sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
     sql 'set runtime_filter_mode=OFF'
 
 
-    
-
-        
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
 
 
     qt_select """

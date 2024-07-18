@@ -16,6 +16,9 @@
 // under the License.
 
 suite("load") {
+    if (isCloudMode()) {
+        return
+    }
     String database = context.config.getDbNameByFile(context.file)
     sql "drop database if exists ${database}"
     sql "create database ${database}"
