@@ -207,12 +207,14 @@ public:
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "serialize_value_into_arena not implemented");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "serialize_value_into_arena not implemented");
         __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "deserialize_and_insert_from_arena not implemented");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "deserialize_and_insert_from_arena not implemented");
         __builtin_unreachable();
     }
 
@@ -364,7 +366,8 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
     limit = limit ? std::min(size, limit) : size;
 
     if (perm.size() < limit) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Size of permutation is less than required.");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
         __builtin_unreachable();
     }
 

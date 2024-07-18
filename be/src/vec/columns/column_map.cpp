@@ -59,12 +59,16 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "offsets_column size {} has data inconsistent with key_column {}", last_offset, keys_column->size());
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with key_column {}", last_offset,
+                    keys_column->size());
         }
         if (values_column->size() != last_offset) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "offsets_column size {} has data inconsistent with value_column {}", last_offset, values_column->size());
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with value_column {}",
+                    last_offset, values_column->size());
         }
     }
 }
@@ -107,7 +111,9 @@ Field ColumnMap::operator[](size_t n) const {
 
     if (element_size > max_array_size_as_field) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "element size {} is too large to be manipulated as single map field, maximum size {}", element_size, max_array_size_as_field);
+                               "element size {} is too large to be manipulated as single map "
+                               "field, maximum size {}",
+                               element_size, max_array_size_as_field);
     }
 
     Array k(element_size), v(element_size);
