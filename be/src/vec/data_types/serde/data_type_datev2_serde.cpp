@@ -175,26 +175,5 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,
-                                                               int rows, int* num_deserialized,
-                                                               const FormatOptions& options) const {
-    Status st = deserialize_one_cell_from_json(column, slice, options);
-    if (!st.ok()) {
-        return st;
-    }
-    DataTypeDateV2SerDe::insert_column_last_value_multiple_times(column, rows - 1);
-    *num_deserialized = rows;
-    return Status::OK();
-}
-
-void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
-                                                                  int times) const {
-    auto& col = static_cast<ColumnVector<UInt32>&>(column);
-    auto sz = col.size();
-    UInt32 val = col.get_element(sz - 1);
-
-    col.insert_many_vals(val, times);
-}
-
 } // namespace vectorized
 } // namespace doris

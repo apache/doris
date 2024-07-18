@@ -132,31 +132,6 @@ public:
         }
         return Status::OK();
     }
-
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
-                                              const FormatOptions& options) const override {
-        Status st = deserialize_one_cell_from_json(column, slice, options);
-        if (!st.ok()) {
-            return st;
-        }
-
-        DataTypeStringSerDeBase::insert_column_last_value_multiple_times(column, rows - 1);
-        *num_deserialized = rows;
-        return Status::OK();
-    }
-
-    void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
-        auto& col = static_cast<ColumnString&>(column);
-        auto sz = col.size();
-
-        StringRef ref = col.get_data_at(sz - 1);
-        String str(ref.data, ref.size);
-        std::vector<StringRef> refs(times, {str.data(), str.size()});
-
-        col.insert_many_strings(refs.data(), refs.size());
-    }
-
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         auto& column_dest = assert_cast<ColumnType&>(column);
         column_dest.reserve(column_dest.size() + arg.string_value_size());

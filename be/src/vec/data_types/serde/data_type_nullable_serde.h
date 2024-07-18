@@ -47,9 +47,6 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
-                                              const FormatOptions& options) const override;
     Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;

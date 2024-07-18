@@ -464,6 +464,7 @@ hintStatement
 
 hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    | constant
     ;
     
 updateAssignment
