@@ -17,7 +17,8 @@
  * under the License.
  */
 
-suite("query5") {    if (isCloudMode()) {
+suite("query5") {
+    if (isCloudMode()) {
         return
     }
     sql 'set enable_nereids_planner=true'

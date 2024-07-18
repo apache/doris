@@ -17,7 +17,8 @@
  * under the License.
  */
 
-suite("query31") {    if (isCloudMode()) {
+suite("query31") {
+    if (isCloudMode()) {
         return
     }
     String db = context.config.getDbNameByFile(new File(context.file.parent))
