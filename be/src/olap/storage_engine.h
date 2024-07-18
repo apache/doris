@@ -177,7 +177,7 @@ public:
     CompactionSubmitRegistry() = default;
     CompactionSubmitRegistry(CompactionSubmitRegistry&& r);
 
-    CompactionSubmitRegistry create_image();
+    CompactionSubmitRegistry create_snapshot();
 
     void reset(const std::vector<DataDir*>& stores);
 

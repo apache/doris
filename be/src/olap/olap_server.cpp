@@ -102,7 +102,7 @@ CompactionSubmitRegistry::CompactionSubmitRegistry(CompactionSubmitRegistry&& r)
     std::swap(_tablet_submitted_full_compaction, r._tablet_submitted_full_compaction);
 }
 
-CompactionSubmitRegistry CompactionSubmitRegistry::create_image() {
+CompactionSubmitRegistry CompactionSubmitRegistry::create_snapshot() {
     // full compaction is not engaged in this method
     std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
     CompactionSubmitRegistry registry;
