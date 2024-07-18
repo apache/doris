@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_map.h"
 #include "vec/core/materialize_block.h"
+#include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 
@@ -106,6 +107,13 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         _file_format_transformer.reset(
                 new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
                                     _write_column_names, false, _hive_compress_type));
+        return _file_format_transformer->open();
+    }
+    case TFileFormatType::FORMAT_CSV_PLAIN: {
+        // TODO : support args from hive
+        _file_format_transformer.reset(new VCSVTransformer(state, _file_writer.get(),
+                                                           _write_output_expr_ctxs, false, "csv",
+                                                           "", ",", "\n", false));
         return _file_format_transformer->open();
     }
     default: {
