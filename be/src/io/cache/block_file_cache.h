@@ -86,7 +86,7 @@ public:
          * it is guaranteed that these file blocks are not removed from cache.
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
-                                const CacheContext& context);
+                                CacheContext& context);
 
     /**
      * Clear all cached data for this cache instance async
