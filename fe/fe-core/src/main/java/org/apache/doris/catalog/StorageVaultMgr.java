@@ -58,9 +58,6 @@ public class StorageVaultMgr {
         this.systemInfoService = systemInfoService;
     }
 
-    // TODO(ByteYue): The CreateStorageVault should only be handled by master
-    // which indicates we can maintains one <VaultName, VaultId> map in FE master
-
     public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
         switch (stmt.getStorageVaultType()) {
             case HDFS:
