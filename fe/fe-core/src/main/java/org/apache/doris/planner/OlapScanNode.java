@@ -1750,6 +1750,17 @@ public class OlapScanNode extends ScanNode {
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
+    Set<String> getDistributionColumnNames() {
+        return olapTable != null
+                ? olapTable.getDistributionColumnNames()
+                : Sets.newTreeSet();
+    }
+
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();
@@ -1758,12 +1769,6 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
-    }
-
-    Set<String> getDistributionColumnNames() {
-        return olapTable != null
-                ? olapTable.getDistributionColumnNames()
-                : Sets.newTreeSet();
     }
 
     @Override
