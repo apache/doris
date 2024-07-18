@@ -1990,6 +1990,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     }
                     requiredSlotIdSet.add(lastSlot.getId());
                 }
+                ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, slotIdsByOrder, context);

@@ -31,6 +31,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
@@ -63,6 +64,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
@@ -1736,14 +1738,6 @@ public class OlapScanNode extends ScanNode {
         computeStatsForNereids();
         // NOTICE: must call here to get selected tablet row count to let block rules work well.
         mockRowCountInStatistic();
-
-        outputColumnUniqueIds.clear();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-            outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-        }
     }
 
     private void computeStatsForNereids() {
@@ -1754,6 +1748,16 @@ public class OlapScanNode extends ScanNode {
         // when node scan has no data, cardinality should be 0 instead of a invalid
         // value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
+    }
+
+    public void updateRequiredSlots(PlanTranslatorContext context,
+            Set<SlotId> requiredByProjectSlotIdSet) {
+        outputColumnUniqueIds.clear();
+        for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
+                outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+            }
+        }
     }
 
     Set<String> getDistributionColumnNames() {
