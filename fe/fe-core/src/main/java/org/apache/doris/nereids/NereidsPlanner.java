@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -70,6 +69,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -610,8 +610,8 @@ public class NereidsPlanner extends Planner {
         }
 
         if (physicalPlan instanceof PhysicalResultSink
-                && physicalPlan.child(0) instanceof PhysicalHashAggregate && !getScanNodes().isEmpty()
-                && getScanNodes().get(0) instanceof IcebergScanNode) {
+                && !getScanNodes().isEmpty() && getScanNodes().get(0) instanceof IcebergScanNode
+                && getScanNodes().get(0).getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT)) {
             List<Column> columns = Lists.newArrayList();
             NamedExpression output = physicalPlan.getOutput().get(0);
             columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
