@@ -367,10 +367,9 @@ class StreamLoadAction implements SuiteAction {
             if (time > 0) {
                 long elapsed = endTime - startTime
                 if (elapsed > time) {
-                    logger.info("Stream load consums more time than expected, elapsed ${elapsed} ms, "
-                                + "expect ${time} ms")
+                    log.info("Stream load consums more time than expected, elapsed ${elapsed} ms, expect ${time} ms")
                 } else {
-                    logger.info("Stream load consums time elapsed ${elapsed} ms, expect ${time} ms")
+                    log.info("Stream load consums time elapsed ${elapsed} ms, expect ${time} ms")
                 }
             }
         }
