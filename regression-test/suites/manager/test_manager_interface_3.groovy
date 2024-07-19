@@ -84,6 +84,14 @@ suite('test_manager_interface_3',"p0") {
 
         sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}' default role '${role1}' """
         sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'  """
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
+        }
 
         connect(user=user1, password="${pwd}", url=url) {
             test {
@@ -399,6 +407,13 @@ suite('test_manager_interface_3',"p0") {
         sql """grant  USAGE_PRIV on RESOURCE  ${resource_name} TO ROLE '${role}' """
 
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}' default role '${role}' """
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        }
         
         List<List<Object>> result = sql  """ show resources """
 
@@ -589,6 +604,13 @@ suite('test_manager_interface_3',"p0") {
         sql """drop user if exists ${user}"""
 
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        }
         
         connect(user=user, password="${pwd}", url=url) { 
             List<List<Object>> result = sql """ show property like  "max_query_instances" """
