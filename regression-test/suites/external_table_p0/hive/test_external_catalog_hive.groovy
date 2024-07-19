@@ -154,13 +154,11 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
         sql """GRANT SELECT_PRIV on *.*.* to '${user}'"""
-        def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             sql """switch hms;"""
-            try {
-                sql """show tables;"""
-		assertTrue(false)
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("No database selected"))
+            test {
+                sql "show tables"
+                exception "errCode = 2, detailMessage = No database selected"
             }
         }
 
