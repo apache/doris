@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.stream.Collectors
+
 suite("eliminate_outer_join") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
@@ -37,6 +39,12 @@ suite("eliminate_outer_join") {
       "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
 
     qt_left_outer """
         explain shape plan select * from t t1 left outer join t t2 on t1.id = t2.id where t2.score > 10;
