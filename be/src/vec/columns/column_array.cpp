@@ -45,7 +45,6 @@ class SipHash;
 
 namespace doris::vectorized {
 
-<<<<<<< HEAD
 namespace ErrorCodes {
 extern const int NOT_IMPLEMENTED;
 extern const int BAD_ARGUMENTS;
