@@ -52,7 +52,6 @@ suite("test_expand_star_mtmv","mtmv") {
 
     order_qt_query "SELECT QuerySql FROM mv_infos('database'='${dbName}') where Name = '${mvName}'"
 
-    sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
     def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
@@ -75,7 +74,7 @@ suite("test_expand_star_mtmv","mtmv") {
         'version_info'='3'
         )
         AS
-        SELECT ${functionName} ('2011-01-01','2011-01-03') as k1;
+        SELECT ${functionName} ('2011-01-01','2011-01-03') as k1 from ${tableName};
         """
     order_qt_udf "SELECT QuerySql FROM mv_infos('database'='${dbName}') where Name = '${mvName}'"
     sql "drop function if exists ${functionName}(date, date)"
