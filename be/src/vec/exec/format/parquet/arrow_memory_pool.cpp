@@ -32,7 +32,7 @@ arrow::Status ArrowAllocator::allocate_aligned(int64_t size, int64_t alignment, 
         return arrow::Status::OK();
     }
     *out = reinterpret_cast<uint8_t*>(_allocator.alloc(size, alignment));
-    if (*out == NULL) {
+    if (*out == nullptr) {
         return arrow::Status::OutOfMemory("malloc of size ", size, " failed");
     }
     return arrow::Status::OK();
@@ -52,7 +52,7 @@ arrow::Status ArrowAllocator::reallocate_aligned(int64_t old_size, int64_t new_s
     }
     *ptr = reinterpret_cast<uint8_t*>(_allocator.realloc(*ptr, static_cast<size_t>(old_size),
                                                          static_cast<size_t>(new_size), alignment));
-    if (*ptr == NULL) {
+    if (*ptr == nullptr) {
         *ptr = previous_ptr;
         return arrow::Status::OutOfMemory("realloc of size ", new_size, " failed");
     }

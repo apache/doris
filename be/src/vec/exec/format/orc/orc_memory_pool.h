@@ -47,7 +47,7 @@ public:
     ~ORCMemoryPool() override = default;
 
 private:
-    Allocator<true, false, false, ORC_MEMORY_ALLOCATOR> _allocator;
+    Allocator<false, false, false, ORC_MEMORY_ALLOCATOR> _allocator;
 };
 
 } // namespace doris::vectorized

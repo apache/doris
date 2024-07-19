@@ -77,11 +77,6 @@ public:
 
     static constexpr bool need_record_actual_size() { return false; }
 
-    /*static size_t allocated_size(void* ptr) {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }*/
-
     static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
         return ::posix_memalign(ptr, alignment, size);
     }
@@ -95,6 +90,9 @@ public:
 private:
 };
 
+/** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
+  * But currently allocators use templates in .cpp instead of all in .h, so they can only be placed here.
+  */
 class ORCMemoryAllocator {
 public:
     static void* malloc(size_t size) __THROW { return reinterpret_cast<char*>(std::malloc(size)); }
@@ -186,15 +184,6 @@ private:
 
 #if defined(USE_JEMALLOC)
 #include <jemalloc/jemalloc.h>
-/*extern "C" {
-void* je_arrow_malloc(size_t size) __THROW;
-void* je_arrow_calloc(size_t n, size_t size) __THROW;
-int je_arrow_posix_memalign(void** ptr, size_t alignment, size_t size) __THROW;
-void* je_arrow_realloc(void* p, size_t size) __THROW;
-void je_arrow_free(void* p) __THROW;
-size_t je_arrow_malloc_usable_size(void* ptr) __THROW;
-int je_arrow_mallctl(const char* name, void* oldp, size_t* oldlenp, void* newp, size_t newlen);
-}*/
 class ArrowJemallocMemoryAllocator {
 public:
     static void* malloc(size_t size) __THROW { return je_malloc(size); }
@@ -202,11 +191,6 @@ public:
     static void* calloc(size_t n, size_t size) __THROW { return je_calloc(n, size); }
 
     static constexpr bool need_record_actual_size() { return false; }
-
-    /*static size_t allocated_size(void* ptr) {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }*/
 
     static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
         return je_posix_memalign(ptr, alignment, size);
@@ -281,8 +265,7 @@ public:
 
                 if (nullptr == buf) {
                     release_memory(size);
-                    throw_bad_alloc(
-                            fmt::format("Allocator: Cannot malloc {}.", size)); // overcommit = 1
+                    throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
                 if constexpr (MemoryAllocator::need_record_actual_size()) {
                     record_size = MemoryAllocator::allocated_size(buf);

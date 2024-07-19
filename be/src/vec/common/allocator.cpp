@@ -227,6 +227,10 @@ template class Allocator<false, true, true, DefaultMemoryAllocator>;
 template class Allocator<false, true, false, DefaultMemoryAllocator>;
 template class Allocator<false, false, true, DefaultMemoryAllocator>;
 template class Allocator<false, false, false, DefaultMemoryAllocator>;
+
+/** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
+  * But currently allocators use templates in .cpp instead of all in .h, so they can only be placed here.
+  */
 template class Allocator<true, true, false, ORCMemoryAllocator>;
 template class Allocator<true, false, true, ORCMemoryAllocator>;
 template class Allocator<true, false, false, ORCMemoryAllocator>;
