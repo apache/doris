@@ -189,7 +189,7 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
         aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
 #endif
     }
 
