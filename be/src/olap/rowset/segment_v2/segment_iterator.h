@@ -387,10 +387,11 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads() const;
+    bool _can_opt_topn_reads();
 
     void _initialize_predicate_results();
-    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
+                                                                bool default_return = false);
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;

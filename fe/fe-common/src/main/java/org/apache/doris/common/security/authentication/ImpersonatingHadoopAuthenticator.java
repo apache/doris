@@ -15,30 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.common.security.authentication;
 
-public class HiveCommonStatistics {
-    public static final HiveCommonStatistics EMPTY = new HiveCommonStatistics(0L, 0L, 0L);
+import org.apache.hadoop.security.UserGroupInformation;
 
-    private final long rowCount;
-    private final long fileCount;
-    private final long totalFileBytes;
+import java.io.IOException;
+import java.util.Objects;
 
-    public HiveCommonStatistics(long rowCount, long fileCount, long totalFileBytes) {
-        this.fileCount = fileCount;
-        this.rowCount = rowCount;
-        this.totalFileBytes = totalFileBytes;
+public class ImpersonatingHadoopAuthenticator implements HadoopAuthenticator {
+
+    private final HadoopAuthenticator delegate;
+    private final String username;
+    private UserGroupInformation ugi;
+
+    public ImpersonatingHadoopAuthenticator(HadoopAuthenticator delegate, String username) {
+        this.delegate = Objects.requireNonNull(delegate);
+        this.username = Objects.requireNonNull(username);
     }
 
-    public long getRowCount() {
-        return rowCount;
-    }
-
-    public long getFileCount() {
-        return fileCount;
-    }
-
-    public long getTotalFileBytes() {
-        return totalFileBytes;
+    @Override
+    public synchronized UserGroupInformation getUGI() throws IOException {
+        if (ugi == null) {
+            ugi = UserGroupInformation.createProxyUser(username, delegate.getUGI());
+        }
+        return ugi;
     }
 }

@@ -130,7 +130,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         long version = partition.getVisibleVersion();
 
         final String storageVaultName = tbl.getStorageVaultName();
-        boolean storageVaultIdSet = false;
+        boolean storageVaultIdSet = tbl.getStorageVaultId().isEmpty();
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {

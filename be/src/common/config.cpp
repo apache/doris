@@ -484,6 +484,8 @@ DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DEFINE_mInt32(migration_task_timeout_secs, "300");
+// timeout for try_lock migration lock
+DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -1340,6 +1342,8 @@ DEFINE_mBool(enable_parquet_page_index, "true");
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");
+
+DEFINE_mInt16(topn_agg_limit_multiplier, "2");
 
 // clang-format off
 #ifdef BE_TEST

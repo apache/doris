@@ -534,6 +534,8 @@ DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
+// timeout for try_lock migration lock
+DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
@@ -1432,6 +1434,10 @@ DECLARE_mBool(enable_parquet_page_index);
 DECLARE_mBool(ignore_not_found_file_in_external_table);
 
 DECLARE_mBool(enable_hdfs_mem_limiter);
+
+// Define how many percent data in hashtable bigger than limit
+// we should do agg limit opt
+DECLARE_mInt16(topn_agg_limit_multiplier);
 
 #ifdef BE_TEST
 // test s3

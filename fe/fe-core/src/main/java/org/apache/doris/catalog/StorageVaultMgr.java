@@ -35,6 +35,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -46,6 +48,8 @@ public class StorageVaultMgr {
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
 
+    private Map<String, String> vaultNameToVaultId = new HashMap<>();
+
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
     private static final ExecutorService ALTER_BE_SYNC_THREAD_POOL = Executors.newFixedThreadPool(1);
@@ -55,9 +59,6 @@ public class StorageVaultMgr {
     public StorageVaultMgr(SystemInfoService systemInfoService) {
         this.systemInfoService = systemInfoService;
     }
-
-    // TODO(ByteYue): The CreateStorageVault should only be handled by master
-    // which indicates we can maintains one <VaultName, VaultId> map in FE master
 
     public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
         switch (stmt.getStorageVaultType()) {
@@ -73,6 +74,20 @@ public class StorageVaultMgr {
         }
         // Make BE eagerly fetch the storage vault info from Meta Service
         ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
+    }
+
+    public void refreshVaultMap(Map<String, String> vaultMap) {
+        rwLock.writeLock().lock();
+        vaultNameToVaultId = vaultMap;
+        rwLock.writeLock().unlock();
+    }
+
+    public String getVaultIdByName(String name) {
+        String vaultId;
+        rwLock.readLock().lock();
+        vaultId = vaultNameToVaultId.getOrDefault(name, "");
+        rwLock.readLock().unlock();
+        return vaultId;
     }
 
     @VisibleForTesting
@@ -166,6 +181,9 @@ public class StorageVaultMgr {
                         hdfsStorageVault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            rwLock.writeLock().lock();
+            vaultNameToVaultId.put(hdfsStorageVault.getName(), response.getStorageVaultId());
+            rwLock.writeLock().unlock();
             LOG.info("Succeed to create hdfs vault {}, id {}, origin default vault replaced {}",
                     hdfsStorageVault.getName(), response.getStorageVaultId(),
                             response.getDefaultStorageVaultReplaced());
@@ -209,6 +227,9 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            rwLock.writeLock().lock();
+            vaultNameToVaultId.put(s3StorageVault.getName(), response.getStorageVaultId());
+            rwLock.writeLock().unlock();
             LOG.info("Succeed to create s3 vault {}, id {}, origin default vault replaced {}",
                     s3StorageVault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
