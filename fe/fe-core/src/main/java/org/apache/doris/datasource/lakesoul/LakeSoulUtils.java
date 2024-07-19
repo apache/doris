@@ -17,13 +17,8 @@
 
 package org.apache.doris.datasource.lakesoul;
 
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.*;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TExprOpcode;
@@ -39,12 +34,17 @@ import io.substrait.expression.Expression;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
+import org.apache.iceberg.expressions.Expressions;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
@@ -65,6 +65,14 @@ public class LakeSoulUtils {
     public static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     public static final String FS_S3A_REGION = "fs.s3a.endpoint.region";
     public static final String FS_S3A_PATH_STYLE_ACCESS = "fs.s3a.path.style.access";
+
+    private static final OffsetDateTime EPOCH;
+    private static final LocalDate EPOCH_DAY;
+
+    static {
+        EPOCH = Instant.ofEpochSecond(0L).atOffset(ZoneOffset.UTC);
+        EPOCH_DAY = EPOCH.toLocalDate();
+    }
 
     public static List<PartitionInfo> applyPartitionFilters(
             List<PartitionInfo> allPartitionInfo,
@@ -243,29 +251,83 @@ public class LakeSoulUtils {
         return literalExpr;
     }
 
-    private static Expression convertToSubstraitExpr(Expr predicate, Schema tableSchema) throws IOException {
+    public static Expression convertToSubstraitExpr(Expr predicate, Schema tableSchema) throws IOException {
         if (predicate == null) {
             return null;
         }
-        if (predicate instanceof CompoundPredicate) {
+        if (predicate instanceof BoolLiteral) {
+            BoolLiteral boolLiteral = (BoolLiteral) predicate;
+            boolean value = boolLiteral.getValue();
+            if (value) {
+                return SubstraitUtil.CONST_TRUE;
+            } else {
+                return SubstraitUtil.CONST_FALSE;
+            }
+        } if (predicate instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) predicate;
-            Expression left = convertToSubstraitExpr(compoundPredicate.getChild(0), tableSchema);
-            Expression right = convertToSubstraitExpr(compoundPredicate.getChild(1), tableSchema);
             switch (compoundPredicate.getOp()) {
                 case AND: {
+                    Expression left = convertToSubstraitExpr(compoundPredicate.getChild(0), tableSchema);
+                    Expression right = convertToSubstraitExpr(compoundPredicate.getChild(1), tableSchema);
                     if (left != null && right != null) {
                         return SubstraitUtil.and(left, right);
-                    }
-                    return null;
+                    } else if (left != null) {
+                        return left;
+                    } else return right;
                 }
                 case OR: {
+                    Expression left = convertToSubstraitExpr(compoundPredicate.getChild(0), tableSchema);
+                    Expression right = convertToSubstraitExpr(compoundPredicate.getChild(1), tableSchema);
                     if (left != null && right != null) {
                         return SubstraitUtil.or(left, right);
                     }
                     return null;
                 }
+                case NOT: {
+                    Expression child = convertToSubstraitExpr(compoundPredicate.getChild(0), tableSchema);
+                    if (child != null) {
+                        return SubstraitUtil.not(child);
+                    }
+                    return null;
+                }
                 default:
                     return null;
+            }
+        } else if (predicate instanceof InPredicate) {
+            InPredicate inExpr = (InPredicate) predicate;
+            if (inExpr.contains(Subquery.class)) {
+                return null;
+            }
+            SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
+            if (slotRef == null) {
+                return null;
+            }
+            String colName = slotRef.getColumnName();
+            Field field = tableSchema.findField(colName);
+            Expression fieldRef = SubstraitUtil.arrowFieldToSubstraitField(field);
+
+            colName = field.getName();
+            Type type = field.getType().accept(
+                new SubstraitUtil.ArrowTypeToSubstraitTypeConverter(field.isNullable())
+            );
+            List<Expression.Literal> valueList = new ArrayList<>();
+            for (int i = 1; i < inExpr.getChildren().size(); ++i) {
+                if (!(inExpr.getChild(i) instanceof LiteralExpr)) {
+                    return null;
+                }
+                LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
+                Object value = extractDorisLiteral(type, literalExpr);
+                if (value == null) {
+                    return null;
+                }
+                valueList.add(SubstraitUtil.anyToSubstraitLiteral(type, value));
+            }
+            if (inExpr.isNotIn()) {
+                // not in
+                return SubstraitUtil.notIn(fieldRef, valueList);
+            } else {
+                // in
+                return SubstraitUtil.in(fieldRef, valueList);
             }
         }
         return convertBinaryExpr(predicate, tableSchema);
@@ -286,9 +348,17 @@ public class LakeSoulUtils {
         Type type = field.getType().accept(
             new SubstraitUtil.ArrowTypeToSubstraitTypeConverter(field.isNullable())
         );
+        Object value = extractDorisLiteral(type, literalExpr);
+        if (value == null) {
+            if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
+                return SubstraitUtil.makeUnary(fieldRef, DefaultExtensionCatalog.FUNCTIONS_COMPARISON,"is_null:any", TypeCreator.NULLABLE.BOOLEAN);
+            } else {
+                return null;
+            }
+        }
         Expression literal = SubstraitUtil.anyToSubstraitLiteral(
                 type,
-                literalExpr.getRealValue()
+                value
         );
 
         String namespace;
@@ -347,6 +417,79 @@ public class LakeSoulUtils {
                 return null;
         }
         return SubstraitUtil.makeBinary(fieldRef, literal, namespace, func, TypeCreator.NULLABLE.BOOLEAN);
+    }
+
+    public static Object extractDorisLiteral(Type type, LiteralExpr expr) {
+
+        if (expr instanceof BoolLiteral) {
+            if (type instanceof Type.Bool) return ((BoolLiteral) expr).getValue();
+            if (type instanceof Type.Str) return expr.getStringValue();
+        } else if (expr instanceof DateLiteral) {
+            DateLiteral dateLiteral = (DateLiteral) expr;
+            if (type instanceof Type.Date){
+                if (dateLiteral.getType().isDatetimeV2() || dateLiteral.getType().isDatetime()) return null;
+                return dateLiteral.getLongValue();
+            }
+            if (type instanceof Type.TimestampTZ || type instanceof Type.Timestamp) {
+                return dateLiteral.getLongValue();
+            }
+            if (type instanceof Type.Str) return expr.getStringValue();
+        } else if (expr instanceof DecimalLiteral) {
+            DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
+            if (type instanceof Type.Decimal) {
+                return decimalLiteral.getValue();
+            } else if (type instanceof Type.FP64) {
+                return decimalLiteral.getDoubleValue();
+            }
+            if (type instanceof Type.Str) return expr.getStringValue();
+        } else if (expr instanceof FloatLiteral) {
+            FloatLiteral floatLiteral = (FloatLiteral) expr;
+
+            if (floatLiteral.getType() == org.apache.doris.catalog.Type.FLOAT) {
+                return type instanceof Type.FP32
+                    || type instanceof Type.FP64
+                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue(): null;
+            } else {
+                return type instanceof Type.FP64
+                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue(): null;
+            }
+        } else if (expr instanceof IntLiteral) {
+            if (type instanceof Type.I8
+                || type instanceof Type.I16
+                || type instanceof Type.I32
+                || type instanceof Type.I64
+                || type instanceof Type.FP32
+                || type instanceof Type.FP64
+                || type instanceof Type.Decimal
+                || type instanceof Type.Date
+            ) {
+                return expr.getRealValue();
+            }
+            if (!expr.getType().isInteger32Type()) {
+                if (type instanceof Type.Time || type instanceof Type.Timestamp || type instanceof Type.TimestampTZ) {
+                    return expr.getLongValue();
+                }
+            }
+
+        } else if (expr instanceof StringLiteral) {
+            String value = expr.getStringValue();
+            if (type instanceof Type.Str) return value;
+            if (type instanceof Type.Date) {
+                try {
+                    return (int) ChronoUnit.DAYS.between(EPOCH_DAY, LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE));
+                } catch (DateTimeParseException e) {
+                    return null;
+                }
+            }
+            if (type instanceof Type.Timestamp || type instanceof Type.TimestampTZ ) {
+                try {
+                    return ChronoUnit.MICROS.between(EPOCH, OffsetDateTime.parse(value, DateTimeFormatter.ISO_DATE_TIME));
+                } catch (DateTimeParseException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
 }

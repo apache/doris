@@ -148,7 +148,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     @SneakyThrows
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
-        LOG.info("{}", rangeDesc);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{}", rangeDesc);
+        }
         if (split instanceof LakeSoulSplit) {
             setLakeSoulParams(rangeDesc, (LakeSoulSplit) split);
         }
@@ -189,7 +191,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             options.put(LakeSoulUtils.SUBSTRAIT_PREDICATE, SubstraitUtil.encodeBase64String(predicate));
         }
         Map<String, String> catalogProps = getCatalog().getProperties();
-        LOG.info("{}", catalogProps);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{}", catalogProps);
+        }
 
         if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
@@ -215,12 +219,16 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     }
 
     public List<Split> getSplits() throws UserException {
-        LOG.info("getSplits with columnFilters={}", columnFilters);
-        LOG.info("getSplits with columnNameToRange={}", columnNameToRange);
-        LOG.info("getSplits with conjuncts={}", conjuncts);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getSplits with columnFilters={}", columnFilters);
+            LOG.debug("getSplits with columnNameToRange={}", columnNameToRange);
+            LOG.debug("getSplits with conjuncts={}", conjuncts);
+        }
 
         List<PartitionInfo> allPartitionInfo = lakeSoulExternalTable.listPartitionInfo();
-        LOG.info("allPartitionInfo={}", allPartitionInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("allPartitionInfo={}", allPartitionInfo);
+        }
         List<PartitionInfo> filteredPartitionInfo = allPartitionInfo;
         try {
             filteredPartitionInfo =
@@ -233,7 +241,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         } catch (IOException e) {
             throw new UserException(e);
         }
-        LOG.info("filteredPartitionInfo={}", filteredPartitionInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filteredPartitionInfo={}", filteredPartitionInfo);
+        }
         DataFileInfo[] dataFileInfos = DataOperation.getTableDataInfo(filteredPartitionInfo);
 
         List<Split> splits = new ArrayList<>();

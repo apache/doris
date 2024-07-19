@@ -65,7 +65,9 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         withAllocator(nativeIOReader.getAllocator());
         nativeIOReader.setBatchSize(batchSize);
 
-        LOG.info("opening LakeSoulJniScanner with params={}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("opening LakeSoulJniScanner with params={}", params);
+        }
         // add files
         for (String file : params.get(LakeSoulUtils.FILE_NAMES).split(LakeSoulUtils.LIST_DELIM)) {
             nativeIOReader.addFile(file);
@@ -85,7 +87,9 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         String base64Predicate = optionsMap.get(LakeSoulUtils.SUBSTRAIT_PREDICATE);
         if (base64Predicate != null) {
             Plan predicate = SubstraitUtil.decodeBase64String(base64Predicate);
-            LOG.info("push predicate={}", predicate);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("push predicate={}", predicate);
+            }
             nativeIOReader.addFilterProto(predicate);
         }
 
