@@ -37,6 +37,7 @@ class S3RateLimiterHolder;
 enum class S3RateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
+class SimpleThreadPool;
 
 namespace s3_bvar {
 extern bvar::LatencyRecorder s3_get_latency;
