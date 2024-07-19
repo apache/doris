@@ -115,6 +115,11 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    void pop_back(size_t n) override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "pop_back not supported in ColumnDictionary");
+    }
+
     void reserve(size_t n) override { _codes.reserve(n); }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
