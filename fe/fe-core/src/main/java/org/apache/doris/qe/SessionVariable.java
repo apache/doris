@@ -633,6 +633,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     // CLOUD_VARIABLES_BEGIN
 
+    public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
+    public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2035,6 +2038,20 @@ public class SessionVariable implements Serializable, Writable {
         "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
     })
     public boolean enableESParallelScroll = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATCH_WITHOUT_INVERTED_INDEX, description = {
+        "开启无索引match查询功能，建议正式环境保持开启",
+        "Enable no-index match query functionality."
+                + " it is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableMatchWithoutInvertedIndex = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = {
+        "开启后在没有找到索引的情况下直接查询报错，建议正式环境保持开启",
+        "After enabling, it will directly query and report an error if no index is found."
+                + " It is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableFallbackOnMissingInvertedIndex = true;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3606,6 +3623,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
+
+        tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
+        tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
+
         tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }

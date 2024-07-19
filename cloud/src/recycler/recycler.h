@@ -40,6 +40,24 @@ class TxnKv;
 class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
+class SimpleThreadPool;
+struct RecyclerThreadPoolGroup {
+    RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
+                            std::shared_ptr<SimpleThreadPool> recycle_tablet_pool,
+                            std::shared_ptr<SimpleThreadPool> group_recycle_function_pool)
+            : s3_producer_pool(std::move(s3_producer_pool)),
+              recycle_tablet_pool(std::move(recycle_tablet_pool)),
+              group_recycle_function_pool(std::move(group_recycle_function_pool)) {}
+    ~RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(const RecyclerThreadPoolGroup&) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup& other) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup&& other) = default;
+    RecyclerThreadPoolGroup(RecyclerThreadPoolGroup&&) = default;
+    std::shared_ptr<SimpleThreadPool> s3_producer_pool;
+    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
+    std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
+};
 
 class Recycler {
 public:
@@ -83,11 +101,13 @@ private:
 
     WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
+    RecyclerThreadPoolGroup _thread_pool_group;
 };
 
 class InstanceRecycler {
 public:
-    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
+    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                              RecyclerThreadPoolGroup thread_pool_group);
     ~InstanceRecycler();
 
     // returns 0 for success otherwise error
@@ -217,6 +237,7 @@ private:
     std::mutex recycle_tasks_mutex;
     // <task_name, start_time>>
     std::map<std::string, int64_t> running_recycle_tasks;
+    RecyclerThreadPoolGroup _thread_pool_group;
 };
 
 } // namespace doris::cloud
