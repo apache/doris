@@ -419,7 +419,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            LOG(FATAL) << "Invalid function type!";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "adapt_decimal_constant_constant Invalid function type!");
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
@@ -449,7 +450,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            LOG(FATAL) << "Invalid function type!";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "adapt_decimal_vector_constant Invalid function type!");
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
@@ -479,7 +481,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            LOG(FATAL) << "Invalid function type!";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "adapt_decimal_constant_vector Invalid function type!");
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
@@ -511,7 +514,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            LOG(FATAL) << "Invalid function type!";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "adapt_decimal_vector_vector Invalid function type!");
             return column_result;
         } else if constexpr (is_to_null_type) {
             // function divide, modulo and pmod

@@ -35,8 +35,9 @@ public:
 
     DataTypes transform_arguments(const DataTypes& arguments) const override {
         if (arguments.empty()) {
-            LOG(FATAL)
-                    << "Incorrect number of arguments for aggregate function with Distinct suffix";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Incorrect number of arguments for aggregate function with Distinct suffix");
         }
         return arguments;
     }

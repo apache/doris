@@ -123,7 +123,8 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", rounding_mode);
         __builtin_unreachable();
     }
 
@@ -135,7 +136,8 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", scale_mode);
         __builtin_unreachable();
     }
 
@@ -223,8 +225,7 @@ inline float roundWithMode(float x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return truncf(x);
     }
-
-    LOG(FATAL) << "__builtin_unreachable";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
     __builtin_unreachable();
 }
 
@@ -245,8 +246,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return trunc(x);
     }
-
-    LOG(FATAL) << "__builtin_unreachable";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
     __builtin_unreachable();
 }
 
@@ -415,7 +415,8 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
-            LOG(FATAL) << "__builtin_unreachable";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "IntegerRoundingImpl __builtin_unreachable ", scale);
             __builtin_unreachable();
         }
     }
@@ -499,7 +500,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_const __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -576,7 +580,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_vec __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -658,7 +665,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_const_vec __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -683,8 +693,10 @@ public:
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if ((arguments.empty()) || (arguments.size() > 2)) {
-            LOG(FATAL) << "Number of arguments for function " + get_name() +
-                                  " doesn't match: should be 1 or 2. ";
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Number of arguments for function {}, doesn't match: should be 1 or 2. ",
+                    get_name());
         }
 
         return arguments[0];

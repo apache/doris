@@ -286,12 +286,14 @@ public:
                       nested_function_, arguments),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
-            LOG(FATAL)
-                    << "Logical error: single argument is passed to AggregateFunctionNullVariadic";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Logical error: single argument is passed to AggregateFunctionNullVariadic");
         }
 
         if (number_of_arguments > MAX_ARGS) {
-            LOG(FATAL) << fmt::format(
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
                     "Maximum number of arguments for aggregate function with Nullable types is {}",
                     size_t(MAX_ARGS));
         }
