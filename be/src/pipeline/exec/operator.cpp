@@ -75,6 +75,7 @@
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -334,15 +335,21 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::
     return get_block(state, block, eos);
 }
 
-bool PipelineXLocalStateBase::reached_limit() const {
-    return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
-}
-
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
     }
+
+    DBUG_EXECUTE_IF("Pipeline::reached_limit_early", {
+        auto op_name = to_lower(_parent->_op_name);
+        auto arg_op_name = dp->param<std::string>("op_name");
+        arg_op_name = to_lower(arg_op_name);
+
+        if (op_name == arg_op_name) {
+            *eos = true;
+        }
+    });
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
