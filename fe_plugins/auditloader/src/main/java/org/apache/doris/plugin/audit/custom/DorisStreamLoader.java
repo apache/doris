@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.custom;
 
 import org.apache.doris.catalog.InternalSchema;
 

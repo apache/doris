@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.custom;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
@@ -26,6 +26,7 @@ import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
 
 import com.google.common.collect.Queues;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
