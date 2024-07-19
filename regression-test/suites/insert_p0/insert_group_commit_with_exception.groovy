@@ -20,9 +20,8 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.sql.PreparedStatement
 
-suite("insert_group_commit_with_exception") {
+suite("insert_group_commit_with_exception", "nonConcurrent") {
     def table = "insert_group_commit_with_exception"
-
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {
@@ -37,21 +36,13 @@ suite("insert_group_commit_with_exception") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(2000)
-            def state = sql "show alter table column where tablename = '${table}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            if (state.size()> 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 10) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${table}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
+
     for (item in ["legacy", "nereids"]) {
         try {
             // create table
@@ -75,8 +66,10 @@ suite("insert_group_commit_with_exception") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
                 sql """ set enable_fallback_to_original_planner=false; """
+                sql "set global enable_server_side_prepared_statement = true"
             } else {
                 sql """ set enable_nereids_dml = false; """
+                sql "set global enable_server_side_prepared_statement = false"
             }
 
             // insert into without column
@@ -137,8 +130,10 @@ suite("insert_group_commit_with_exception") {
                     statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");
                     statement.execute("set enable_fallback_to_original_planner=false;");
+                    sql "set global enable_server_side_prepared_statement = true"
                 } else {
                     statement.execute("set enable_nereids_dml = false;");
+                    sql "set global enable_server_side_prepared_statement = false"
                 }
                 // without column
                 try (PreparedStatement ps = connection.prepareStatement("insert into ${table} values(?, ?, ?, ?)")) {
@@ -262,7 +257,13 @@ suite("insert_group_commit_with_exception") {
                         result = ps.executeBatch()
                         assertTrue(false)
                     } catch (Exception e) {
-                        assertTrue(e.getMessage().contains("Column count doesn't match value count"))
+                        logger.info("exception : " + e)
+                        if (item == "legacy") {
+                           assertTrue(e.getMessage().contains("Column count doesn't match value count"))
+                        }
+                        if (item == "nereids") {
+                           assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
+                        }
                     }
                 }
                 getRowCount(14)
@@ -292,4 +293,5 @@ suite("insert_group_commit_with_exception") {
             // try_sql("DROP TABLE ${table}")
         }
     }
+    sql "set global enable_server_side_prepared_statement = true"
 }

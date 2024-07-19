@@ -47,6 +47,19 @@ bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeDateV2::number_length() const {
+    //2024-01-01
+    return 10;
+}
+void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
+
+    char buf[64];
+    char* pos = val.to_string(buf);
+    // DateTime to_string the end is /0
+    chars.insert(buf, pos - 1);
+}
+
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -152,6 +165,18 @@ std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
     char buf[64];
     val.to_string(buf, _scale);
     return buf; // DateTime to_string the end is /0
+}
+
+size_t DataTypeDateTimeV2::number_length() const {
+    //2024-01-01 00:00:00-000000
+    return 32;
+}
+void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
+    char buf[64];
+    char* pos = val.to_string(buf, _scale);
+    chars.insert(buf, pos - 1);
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,

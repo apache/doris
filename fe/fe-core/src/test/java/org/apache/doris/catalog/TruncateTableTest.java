@@ -23,11 +23,18 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -35,6 +42,8 @@ import org.junit.Test;
 
 import java.io.File;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class TruncateTableTest {
@@ -44,6 +53,8 @@ public class TruncateTableTest {
 
     @BeforeClass
     public static void setup() throws Exception {
+        Config.disable_balance = true;
+        Config.enable_debug_points = true;
         UtFrameUtils.createDorisCluster(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
@@ -163,6 +174,51 @@ public class TruncateTableTest {
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
+    }
+
+    @Test
+    public void testTruncateTableFailed() throws Exception {
+        String createTableStr = "create table test.tbl2(d1 date, k1 int, k2 bigint)"
+                + "duplicate key(d1, k1) "
+                + "PARTITION BY RANGE(d1)"
+                + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
+                + "distributed by hash(k1) buckets 2 "
+                + "properties('replication_num' = '1');";
+        createTable(createTableStr);
+        String partitionName = "p20210901";
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
+        OlapTable tbl2 = db.getOlapTableOrDdlException("tbl2");
+        Assert.assertNotNull(tbl2);
+        Partition p20210901 = tbl2.getPartition(partitionName);
+        Assert.assertNotNull(p20210901);
+        long partitionId = p20210901.getId();
+        p20210901.setVisibleVersionAndTime(2L, System.currentTimeMillis());
+
+        try {
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds();
+            Map<Long, Set<Long>> oldBackendTablets = Maps.newHashMap();
+            for (long backendId : backendIds) {
+                Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
+                oldBackendTablets.put(backendId, tablets);
+            }
+
+            DebugPointUtil.addDebugPoint("InternalCatalog.truncateTable.metaChanged", new DebugPoint());
+
+            String truncateStr = "truncate table test.tbl2 partition (" + partitionName + ");";
+            TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                    truncateStr, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                    "Table[tbl2]'s meta has been changed. try again",
+                    () -> Env.getCurrentEnv().truncateTable(truncateTableStmt));
+
+            Assert.assertEquals(partitionId, tbl2.getPartition(partitionName).getId());
+            for (long backendId : backendIds) {
+                Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
+                Assert.assertEquals(oldBackendTablets.get(backendId), tablets);
+            }
+        } finally {
+            DebugPointUtil.removeDebugPoint("InternalCatalog.truncateTable.metaChanged");
+        }
     }
 
     private static void createDb(String sql) throws Exception {

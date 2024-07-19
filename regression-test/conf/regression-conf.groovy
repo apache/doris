@@ -200,7 +200,7 @@ s3Region = "ap-hongkong"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 9090
+extArrowFlightSqlPort = 8080
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
@@ -220,3 +220,7 @@ externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+enableKerberosTest=false
+kerberosHmsPort=9883
+kerberosHdfsPort=8820

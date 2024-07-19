@@ -46,6 +46,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -62,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -325,7 +327,7 @@ public class AnalysisManagerTest {
             3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
         analysisManager.analysisJobInfoMap.put(
             4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.showAnalysisJob(stmt);
+        List<AnalysisInfo> analysisInfos = analysisManager.findAnalysisJobs(stmt);
         Assertions.assertEquals(3, analysisInfos.size());
         Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
         Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
@@ -379,11 +381,11 @@ public class AnalysisManagerTest {
         };
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, Optional.empty(), null);
+                new ArrayList<>(), table, column1, Optional.empty(), ImmutableList.of());
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, Optional.empty(), null);
+                new ArrayList<>(), table, column2, Optional.empty(), ImmutableList.of());
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, Optional.empty(), null);
+                new ArrayList<>(), table, column3, Optional.empty(), ImmutableList.of());
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);
@@ -637,5 +639,31 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col6")));
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col7")));
         Assertions.assertEquals(JobPriority.LOW, job.priority);
+    }
+
+    @Test
+    public void testAsyncDropStats() throws InterruptedException {
+        AtomicInteger count = new AtomicInteger(0);
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
+                                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+                try {
+                    Thread.sleep(1000);
+                    count.incrementAndGet();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        AnalysisManager analysisManager = new AnalysisManager();
+        for (int i = 0; i < 20; i++) {
+            System.out.println("Submit " + i);
+            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, null);
+        }
+        Thread.sleep(25000);
+        System.out.println(count.get());
+        Assertions.assertTrue(count.get() > 10);
+        Assertions.assertTrue(count.get() < 20);
     }
 }

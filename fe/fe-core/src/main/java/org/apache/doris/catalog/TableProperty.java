@@ -24,15 +24,18 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -41,7 +44,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,7 +55,7 @@ import java.util.Map;
  * Different properties is recognized by prefix such as dynamic_partition
  * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
-public class TableProperty implements Writable {
+public class TableProperty implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
 
     @SerializedName(value = "properties")
@@ -70,6 +75,9 @@ public class TableProperty implements Writable {
 
     private TStorageMedium storageMedium = null;
 
+    // which columns stored in RowStore column
+    private List<String> rowStoreColumns;
+
     /*
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
@@ -80,7 +88,7 @@ public class TableProperty implements Writable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
@@ -93,6 +101,8 @@ public class TableProperty implements Writable {
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
+
+    private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
 
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
@@ -240,18 +250,34 @@ public class TableProperty implements Writable {
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
-        // Remove deprecated prefix and try again
-        String deprecatedPrefix = "deprecated_";
-        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
-            storeRowColumn = Boolean.parseBoolean(
-                properties.getOrDefault(
-                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        return this;
+    }
+
+    public TableProperty buildRowStoreColumns() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS);
+        // set empty row store columns by default
+        if (null == value) {
+            return this;
         }
+        String[] rsColumnArr = value.split(PropertyAnalyzer.COMMA_SEPARATOR);
+        rowStoreColumns = Lists.newArrayList();
+        rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
         return this;
     }
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildRowStorePageSize() {
+        rowStorePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowStorePageSize() {
+        return rowStorePageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -387,6 +413,13 @@ public class TableProperty implements Writable {
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
+    public List<String> getCopiedRowStoreColumns() {
+        if (rowStoreColumns == null) {
+            return null;
+        }
+        return Lists.newArrayList(rowStoreColumns);
+    }
+
     public TableProperty buildBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
@@ -450,10 +483,10 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildInvertedIndexStorageFormat() {
-        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+    public TableProperty buildInvertedIndexFileStorageFormat() {
+        invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.valueOf(properties.getOrDefault(
                 PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                TInvertedIndexStorageFormat.DEFAULT.name()));
+                TInvertedIndexFileStorageFormat.DEFAULT.name()));
         return this;
     }
 
@@ -520,8 +553,8 @@ public class TableProperty implements Writable {
         return storageFormat;
     }
 
-    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
-        return invertedIndexStorageFormat;
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
+        return invertedIndexFileStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -546,6 +579,16 @@ public class TableProperty implements Writable {
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+    }
+
+    public void setEnableMowLightDelete(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -578,6 +621,16 @@ public class TableProperty implements Writable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setRowStoreColumns(List<String> rowStoreColumns) {
+        if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
+            modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
+            buildStoreRowColumn();
+            modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS,
+                    Joiner.on(",").join(rowStoreColumns));
+            buildRowStoreColumns();
+        }
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
@@ -598,45 +651,50 @@ public class TableProperty implements Writable {
     }
 
     public static TableProperty read(DataInput in) throws IOException {
-        TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
-                .executeBuildDynamicProperty()
-                .buildInMemory()
-                .buildMinLoadReplicaNum()
-                .buildStorageMedium()
-                .buildStorageFormat()
-                .buildInvertedIndexStorageFormat()
-                .buildDataSortInfo()
-                .buildCompressionType()
-                .buildStoragePolicy()
-                .buildIsBeingSynced()
-                .buildBinlogConfig()
-                .buildEnableLightSchemaChange()
-                .buildStoreRowColumn()
-                .buildSkipWriteIndexOnLoad()
-                .buildCompactionPolicy()
-                .buildTimeSeriesCompactionGoalSizeMbytes()
-                .buildTimeSeriesCompactionFileCountThreshold()
-                .buildTimeSeriesCompactionTimeThresholdSeconds()
-                .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
-                .buildTimeSeriesCompactionLevelThreshold()
-                .buildTTLSeconds();
+        TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class);
+        return tableProperty;
+    }
+
+    public void gsonPostProcess() throws IOException {
+        executeBuildDynamicProperty();
+        buildInMemory();
+        buildMinLoadReplicaNum();
+        buildStorageMedium();
+        buildStorageFormat();
+        buildInvertedIndexFileStorageFormat();
+        buildDataSortInfo();
+        buildCompressionType();
+        buildStoragePolicy();
+        buildIsBeingSynced();
+        buildBinlogConfig();
+        buildEnableLightSchemaChange();
+        buildStoreRowColumn();
+        buildRowStoreColumns();
+        buildSkipWriteIndexOnLoad();
+        buildCompactionPolicy();
+        buildTimeSeriesCompactionGoalSizeMbytes();
+        buildTimeSeriesCompactionFileCountThreshold();
+        buildTimeSeriesCompactionTimeThresholdSeconds();
+        buildDisableAutoCompaction();
+        buildEnableSingleReplicaCompaction();
+        buildTimeSeriesCompactionEmptyRowsetsThreshold();
+        buildTimeSeriesCompactionLevelThreshold();
+        buildTTLSeconds();
+
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
-            String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
+            String repNum = properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
             if (!Strings.isNullOrEmpty(repNum)) {
                 ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(repNum));
-                tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                         replicaAlloc.toCreateStmt());
             } else {
-                tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
             }
         }
-        tableProperty.removeDuplicateReplicaNumProperty();
-        tableProperty.buildReplicaAllocation();
-        return tableProperty;
+        removeDuplicateReplicaNumProperty();
+        buildReplicaAllocation();
     }
 
     // For some historical reason,

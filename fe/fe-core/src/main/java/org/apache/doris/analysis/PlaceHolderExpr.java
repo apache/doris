@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 
@@ -56,6 +57,20 @@ public class PlaceHolderExpr extends LiteralExpr {
     public void setLiteral(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
+    }
+
+    public LiteralExpr getLiteral() {
+        return lExpr;
+    }
+
+    @Override
+    protected void analysisDone() {
+        if (lExpr != null && !lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            super.analysisDone();
+        }
     }
 
     public LiteralExpr createLiteralFromType() throws AnalysisException {
@@ -134,11 +149,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "?";
     }
 
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return this.lExpr.uncheckedCastTo(targetType);
-    }
-
     // Swaps the sign of numeric literals.
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
@@ -181,8 +191,8 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {

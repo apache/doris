@@ -91,7 +91,7 @@ public class CloneTask extends AgentTask {
             request.setDestPathHash(destPathHash);
         }
         request.setTimeoutS(timeoutS);
-
+        request.setTableId(tableId);
         return request;
     }
 

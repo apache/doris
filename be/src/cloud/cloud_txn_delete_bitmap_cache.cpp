@@ -24,15 +24,15 @@
 #include <shared_mutex>
 
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
 
 CloudTxnDeleteBitmapCache::CloudTxnDeleteBitmapCache(size_t size_in_bytes)
-        : LRUCachePolicy(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE, size_in_bytes,
-                         LRUCacheType::SIZE, 86400, 4),
+        : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE,
+                                       size_in_bytes, LRUCacheType::SIZE, 86400, 4),
           _stop_latch(1) {}
 
 CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {

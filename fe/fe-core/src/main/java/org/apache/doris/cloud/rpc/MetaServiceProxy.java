@@ -100,6 +100,11 @@ public class MetaServiceProxy {
     }
 
     private MetaServiceClient getProxy() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.error("Should not use RPC in check compatibility mode");
+            throw new RuntimeException("use RPC in the check compatibility mode");
+        }
+
         String address = Config.meta_service_endpoint;
         MetaServiceClient service = serviceMap.get(address);
         if (service != null && service.isNormalState()) {
@@ -308,6 +313,15 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.commitIndex(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.checkKv(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

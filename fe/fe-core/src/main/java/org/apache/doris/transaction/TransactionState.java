@@ -57,7 +57,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -79,6 +78,7 @@ public class TransactionState implements Writable {
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
 
+        @SerializedName("f")
         private final int flag;
 
         private LoadJobSourceType(int flag) {
@@ -232,7 +232,7 @@ public class TransactionState implements Writable {
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
-    // this state need not be serialized
+    // this state need not be serialized. the map key is backend_id
     private Map<Long, List<PublishVersionTask>> publishVersionTasks;
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
@@ -309,8 +309,6 @@ public class TransactionState implements Writable {
     // table id -> schema info
     private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
-    @Getter
-    private List<SubTransactionState> subTransactionStates;
     @Getter
     @SerializedName(value = "sti")
     private List<Long> subTxnIds;
@@ -391,7 +389,7 @@ public class TransactionState implements Writable {
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
-        if (this.subTxnIdToTableCommitInfo.isEmpty()) {
+        if (this.subTxnIds == null) {
             this.publishVersionTasks.put(backendId, Lists.newArrayList(task));
         } else {
             this.publishVersionTasks.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(task);
@@ -709,8 +707,14 @@ public class TransactionState implements Writable {
         if (txnCommitAttachment != null) {
             sb.append(", attachment: ").append(txnCommitAttachment);
         }
-        if (subTransactionStates != null) {
-            sb.append(", sub txn states: ").append(subTransactionStates);
+        if (idToTableCommitInfos != null && !idToTableCommitInfos.isEmpty()) {
+            sb.append(", table commit info: ").append(idToTableCommitInfos);
+        }
+        if (subTxnIds != null) {
+            sb.append(", sub txn ids: ").append(subTxnIds);
+        }
+        if (!subTxnIdToTableCommitInfo.isEmpty()) {
+            sb.append(", sub txn table commit info: ").append(subTxnIdToTableCommitInfo);
         }
         return sb.toString();
     }
@@ -818,7 +822,7 @@ public class TransactionState implements Writable {
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
-        // TODO if subTransactionStates can be cleared?
+        involvedBackends.clear();
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
@@ -864,17 +868,8 @@ public class TransactionState implements Writable {
         return true;
     }
 
-    public void resetSubTransactionStates() {
-        this.subTransactionStates = new ArrayList<>();
-    }
-
-    public void setSubTransactionStates(List<SubTransactionState> subTransactionStates) {
-        this.subTransactionStates = subTransactionStates;
-    }
-
-    public void resetSubTxnIds() {
-        this.subTxnIds = subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
-                .collect(Collectors.toList());
+    public void setSubTxnIds(List<Long> subTxnIds) {
+        this.subTxnIds = subTxnIds;
     }
 
     public TableCommitInfo getTableCommitInfoBySubTxnId(long subTxnId) {

@@ -80,7 +80,11 @@ ScannerContext::ScannerContext(
                                                       : state->query_parallel_instance_num());
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
-
+    // 1. Calculate max concurrency
+    // For select * from table limit 10; should just use one thread.
+    if (_local_state && _local_state->should_run_serial()) {
+        _max_thread_num = 1;
+    }
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
     // you can refer https://github.com/apache/doris/issues/35340 for details.
@@ -215,7 +219,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                                             bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
-        return Status::Cancelled("Query cancelled in ScannerContext");
+        return state->cancel_reason();
     }
     std::unique_lock l(_transfer_lock);
 

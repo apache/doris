@@ -34,13 +34,22 @@ class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<Basi
 
 public:
     GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _filter_bitmap(1024) {}
+            : Base(parent, state), _filter_bitmap(1024) {
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+    }
 
     ~GroupCommitBlockSinkLocalState() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    std::vector<Dependency*> dependencies() const override {
+        return {_create_plan_dependency.get(), _put_block_dependency.get()};
+    }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class GroupCommitBlockSinkOperatorX;
@@ -48,12 +57,13 @@ private:
     Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
     size_t _calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data);
     void _remove_estimated_wal_bytes();
+    Status _initialize_load_queue();
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor;
 
-    std::shared_ptr<LoadBlockQueue> _load_block_queue;
+    std::shared_ptr<LoadBlockQueue> _load_block_queue = nullptr;
     // used to calculate if meet the max filter ratio
     std::vector<std::shared_ptr<vectorized::Block>> _blocks;
     bool _is_block_appended = false;
@@ -66,6 +76,9 @@ private:
     TGroupCommitMode::type _group_commit_mode;
     Bitmap _filter_bitmap;
     int64_t _table_id;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _create_plan_dependency = nullptr;
+    std::shared_ptr<Dependency> _put_block_dependency = nullptr;
 };
 
 class GroupCommitBlockSinkOperatorX final

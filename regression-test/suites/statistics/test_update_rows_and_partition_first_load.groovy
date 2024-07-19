@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_update_rows_and_partition_first_load", "p2") {
-
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     String ak = getS3AK()
     String sk = getS3SK()
     String enabled = context.config.otherConfigs.get("enableBrokerLoad")
@@ -88,24 +90,25 @@ suite("test_update_rows_and_partition_first_load", "p2") {
         def label = "part_" + UUID.randomUUID().toString().replace("-", "0")
         sql """
                 LOAD LABEL ${label} (
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/update_rows_1.csv")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/update_rows_1.csv")
                     INTO TABLE update_rows_test1
                     COLUMNS TERMINATED BY ",",
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/update_rows_2.csv")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/update_rows_2.csv")
                     INTO TABLE update_rows_test2
                     COLUMNS TERMINATED BY ",",
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/update_rows_1.csv")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/update_rows_1.csv")
                     INTO TABLE partition_test1
                     COLUMNS TERMINATED BY ",",
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/update_rows_2.csv")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/update_rows_2.csv")
                     INTO TABLE partition_test2
                     COLUMNS TERMINATED BY ","
                 )
                 WITH S3 (
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
-                    "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                    "AWS_REGION" = "ap-beijing"
+                    "AWS_ENDPOINT" = "${s3Endpoint}",
+                    "AWS_REGION" = "${s3Region}",
+                    "provider" = "${getS3Provider()}"
                 );
         """
 

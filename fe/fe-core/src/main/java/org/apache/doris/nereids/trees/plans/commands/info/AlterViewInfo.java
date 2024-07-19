@@ -33,12 +33,10 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -50,12 +48,9 @@ import java.util.Set;
 /** AlterViewInfo */
 public class AlterViewInfo extends BaseViewInfo {
     /** constructor*/
-    public AlterViewInfo(TableNameInfo viewName, LogicalPlan logicalQuery,
+    public AlterViewInfo(TableNameInfo viewName,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
-        super(viewName, logicalQuery, querySql, simpleColumnDefinitions);
-        if (logicalQuery instanceof LogicalFileSink) {
-            throw new AnalysisException("Not support OUTFILE clause in ALTER VIEW statement");
-        }
+        super(viewName, querySql, simpleColumnDefinitions);
     }
 
     /** init */
@@ -81,9 +76,9 @@ public class AlterViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
-        analyzedPlan = analyzeAndFillRewriteSqlMap(querySql, ctx);
-        OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
-        analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext = new PlanUtils.OutermostPlanFinderContext();
+        analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
         createFinalCols(outputs);
     }
@@ -109,7 +104,7 @@ public class AlterViewInfo extends BaseViewInfo {
         AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
                 null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
 
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);

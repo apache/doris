@@ -36,6 +36,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/integral_types.h"
 #include "udf/udf.h"
@@ -315,9 +316,9 @@ public:
      */
     uint64_t cardinality() const {
         if (isFull()) {
-            throw std::length_error(
-                    "bitmap is full, cardinality is 2^64, "
-                    "unable to represent in a 64-bit integer");
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "bitmap is full, cardinality is 2^64, "
+                                   "unable to represent in a 64-bit integer");
         }
         return std::accumulate(roarings.cbegin(), roarings.cend(), (uint64_t)0,
                                [](uint64_t previous,
@@ -1251,8 +1252,7 @@ public:
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
         std::vector<const SetContainer<uint64_t>*> sets;
-        for (int i = 0; i < values.size(); ++i) {
-            auto* value = values[i];
+        for (const auto* value : values) {
             switch (value->_type) {
             case EMPTY:
                 break;
@@ -1279,7 +1279,9 @@ public:
                 _bitmap->add(_sv);
                 break;
             case BITMAP:
-                *_bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                for (const auto* bitmap : bitmaps) {
+                    *_bitmap |= *bitmap;
+                }
                 break;
             case SET: {
                 *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
@@ -1306,7 +1308,6 @@ public:
             case SINGLE: {
                 _set.insert(_sv);
                 _type = SET;
-                _convert_to_bitmap_if_need();
                 break;
             }
             case BITMAP:
@@ -1315,11 +1316,14 @@ public:
                     _bitmap->add(v);
                 }
                 _type = BITMAP;
+                _set.clear();
                 break;
             case SET: {
-                _convert_to_bitmap_if_need();
                 break;
             }
+            }
+            if (_type == SET) {
+                _convert_to_bitmap_if_need();
             }
         }
 

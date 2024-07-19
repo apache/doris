@@ -106,15 +106,16 @@ public class StructInfo {
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap;
     // this recorde the predicates which can pull up, not shuttled
-    private Predicates predicates;
+    private final Predicates predicates;
     // split predicates is shuttled
-    private final SplitPredicate splitPredicate;
-    private final EquivalenceClass equivalenceClass;
+    private SplitPredicate splitPredicate;
+    private EquivalenceClass equivalenceClass;
     // Key is the expression shuttled and the value is the origin expression
     // this is for building LogicalCompatibilityContext later.
     private final Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap;
     // Record the exprId and the corresponding expr map, this is used by expression shuttled
     private final Map<ExprId, Expression> namedExprIdAndExprMapping;
+    private final List<? extends Expression> planOutputShuttledExpressions;
 
     /**
      * The construct method for StructInfo
@@ -125,30 +126,25 @@ public class StructInfo {
             @Nullable Predicates predicates,
             Map<ExpressionPosition, Map<Expression, Expression>> shuttledExpressionsToExpressionsMap,
             Map<ExprId, Expression> namedExprIdAndExprMapping,
-            BitSet tableIdSet) {
+            BitSet tableIdSet,
+            SplitPredicate splitPredicate,
+            EquivalenceClass equivalenceClass,
+            List<? extends Expression> planOutputShuttledExpressions) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
-        this.valid = valid
-                && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
+        this.valid = valid;
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
         this.relations = relations;
         this.tableBitSet = tableIdSet;
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
-        if (predicates == null) {
-            // collect predicate from top plan which not in hyper graph
-            Set<Expression> topPlanPredicates = new LinkedHashSet<>();
-            topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
-            this.predicates = Predicates.of(topPlanPredicates);
-        }
-        Pair<SplitPredicate, EquivalenceClass> derivedPredicates =
-                predicatesDerive(this.predicates, topPlan, tableBitSet);
-        this.splitPredicate = derivedPredicates.key();
-        this.equivalenceClass = derivedPredicates.value();
+        this.splitPredicate = splitPredicate;
+        this.equivalenceClass = equivalenceClass;
         this.shuttledExpressionsToExpressionsMap = shuttledExpressionsToExpressionsMap;
         this.namedExprIdAndExprMapping = namedExprIdAndExprMapping;
+        this.planOutputShuttledExpressions = planOutputShuttledExpressions;
     }
 
     /**
@@ -157,7 +153,8 @@ public class StructInfo {
     public StructInfo withPredicates(Predicates predicates) {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates,
-                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping, this.tableBitSet);
+                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping, this.tableBitSet,
+                null, null, this.planOutputShuttledExpressions);
     }
 
     /**
@@ -166,7 +163,8 @@ public class StructInfo {
     public StructInfo withTableBitSet(BitSet tableBitSet) {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, this.predicates,
-                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping, tableBitSet);
+                this.shuttledExpressionsToExpressionsMap, this.namedExprIdAndExprMapping, tableBitSet,
+                this.splitPredicate, this.equivalenceClass, this.planOutputShuttledExpressions);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
@@ -252,11 +250,10 @@ public class StructInfo {
     }
 
     // derive some useful predicate by predicates
-    private Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan,
-            BitSet tableBitSet) {
+    private static Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan) {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan, tableBitSet).stream()
+                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan, new BitSet()).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
@@ -328,9 +325,19 @@ public class StructInfo {
                 relationIdStructInfoNodeMap,
                 tableBitSet,
                 cascadesContext);
+        valid = valid
+                && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
+        // collect predicate from top plan which not in hyper graph
+        Set<Expression> topPlanPredicates = new LinkedHashSet<>();
+        topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
+        Predicates predicates = Predicates.of(topPlanPredicates);
+        // this should use the output of originalPlan to make sure the output right order
+        List<? extends Expression> planOutputShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(originalPlan.getOutput(), originalPlan, new BitSet());
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
-                relationList, relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
-                namedExprIdAndExprMapping, tableBitSet);
+                relationList, relationIdStructInfoNodeMap, predicates, shuttledHashConjunctsToConjunctsMap,
+                namedExprIdAndExprMapping, tableBitSet, null, null,
+                planOutputShuttledExpressions);
     }
 
     /**
@@ -350,10 +357,6 @@ public class StructInfo {
         return predicates;
     }
 
-    public EquivalenceClass getEquivalenceClass() {
-        return equivalenceClass;
-    }
-
     public Plan getOriginalPlan() {
         return originalPlan;
     }
@@ -362,8 +365,28 @@ public class StructInfo {
         return hyperGraph;
     }
 
+    /**
+     * lazy init for performance
+     */
     public SplitPredicate getSplitPredicate() {
-        return splitPredicate;
+        if (this.splitPredicate == null && this.predicates != null) {
+            Pair<SplitPredicate, EquivalenceClass> derivedPredicates = predicatesDerive(this.predicates, topPlan);
+            this.splitPredicate = derivedPredicates.key();
+            this.equivalenceClass = derivedPredicates.value();
+        }
+        return this.splitPredicate;
+    }
+
+    /**
+     * lazy init for performance
+     */
+    public EquivalenceClass getEquivalenceClass() {
+        if (this.equivalenceClass == null && this.predicates != null) {
+            Pair<SplitPredicate, EquivalenceClass> derivedPredicates = predicatesDerive(this.predicates, topPlan);
+            this.splitPredicate = derivedPredicates.key();
+            this.equivalenceClass = derivedPredicates.value();
+        }
+        return this.equivalenceClass;
     }
 
     public boolean isValid() {
@@ -414,6 +437,10 @@ public class StructInfo {
 
     public BitSet getTableBitSet() {
         return tableBitSet;
+    }
+
+    public List<? extends Expression> getPlanOutputShuttledExpressions() {
+        return planOutputShuttledExpressions;
     }
 
     /**
@@ -728,26 +755,32 @@ public class StructInfo {
 
     /**
      * Add filter on table scan according to table filter map
+     *
+     * @return Pair(Plan, Boolean) first is the added filter plan, value is the identifier that represent whether
+     *         need to add filter.
+     *         return null if add filter fail.
      */
-    public static Plan addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo, Set<String>> partitionOnOriginPlan,
-            String partitionColumn,
-            CascadesContext parentCascadesContext) {
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
+            Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
         PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
                 predicateAddContext);
-        if (!predicateAddContext.isAddSuccess()) {
+        if (!predicateAddContext.isHandleSuccess()) {
             return null;
+        }
+        if (!predicateAddContext.isNeedAddFilter()) {
+            return Pair.of(queryPlan, false);
         }
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
         // exec by mistake
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        return MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
+        return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan);
+        }, queryPlanWithUnionFilter, queryPlan), true);
     }
 
     /**

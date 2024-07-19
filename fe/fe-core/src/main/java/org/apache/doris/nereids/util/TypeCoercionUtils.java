@@ -341,7 +341,8 @@ public class TypeCoercionUtils {
     public static DataType replaceSpecifiedType(DataType dataType,
             Class<? extends DataType> specifiedType, DataType newType) {
         if (dataType instanceof ArrayType) {
-            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
+            return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType),
+                    ((ArrayType) dataType).containsNull());
         } else if (dataType instanceof MapType) {
             return MapType.of(replaceSpecifiedType(((MapType) dataType).getKeyType(), specifiedType, newType),
                     replaceSpecifiedType(((MapType) dataType).getValueType(), specifiedType, newType));
@@ -503,10 +504,6 @@ public class TypeCoercionUtils {
     public static <T extends BinaryOperator> T processCharacterLiteralInBinaryOperator(
             T op, Expression left, Expression right) {
         if (!(left instanceof Literal) && !(right instanceof Literal)) {
-            return (T) op.withChildren(left, right);
-        }
-        if (left instanceof Literal && right instanceof Literal) {
-            // process by constant folding
             return (T) op.withChildren(left, right);
         }
         if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()

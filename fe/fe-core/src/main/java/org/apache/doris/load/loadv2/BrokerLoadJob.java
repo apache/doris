@@ -87,6 +87,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected boolean enableProfile = false;
 
     private boolean enableMemTableOnSinkNode = false;
+    private int batchSize = 0;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -105,6 +106,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
         }
     }
 
@@ -216,14 +218,14 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
-            throws UserException {
+            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
+            BrokerPendingTaskAttachment attachment) throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -240,8 +242,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
             this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    false);
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")));
             // profile is registered in ProfileManager, so that we can get realtime profile
             jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
         }
@@ -255,11 +256,11 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                        ? this.enableMemTableOnSinkNode : false;
+                boolean isEnableMemtableOnSinkNode =
+                        table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
-                        isEnableMemtableOnSinkNode, aggKey, attachment);
+                        isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.

@@ -185,10 +185,11 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    virtual Status eval_inverted_index(FunctionContext* context,
-                                       const vectorized::NameAndTypePair& data_type_with_name,
-                                       segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                                       roaring::Roaring* bitmap) const {
+    virtual Status eval_inverted_index(
+            FunctionContext* context,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            roaring::Roaring* bitmap) const {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
     }
@@ -411,7 +412,7 @@ public:
 
     // here are lots of function not extends eval_inverted_index.
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
@@ -453,7 +454,7 @@ protected:
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
@@ -520,11 +521,11 @@ public:
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
                function_name == "gt" || function_name == "le" || function_name == "ge" ||
-               function_name == "in";
+               function_name == "in" || function_name == "not_in";
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);

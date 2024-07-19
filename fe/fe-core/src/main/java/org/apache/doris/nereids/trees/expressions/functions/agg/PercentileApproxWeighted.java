@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
@@ -33,8 +32,8 @@ import java.util.List;
 /**
  * AggregateFunction 'percentile_approx_weighted'.
  */
-public class PercentileApproxWeighted extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+public class PercentileApproxWeighted extends NullableAggregateFunction
+        implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
 
@@ -48,29 +47,39 @@ public class PercentileApproxWeighted extends AggregateFunction
      * constructor with 3 arguments.
      */
     public PercentileApproxWeighted(Expression arg0, Expression arg1, Expression arg2) {
-        super("percentile_approx_weighted", arg0, arg1, arg2);
+        this(false, arg0, arg1, arg2);
     }
 
     /**
      * constructor with 3 arguments.
      */
     public PercentileApproxWeighted(boolean distinct, Expression arg0, Expression arg1, Expression arg2) {
-        super("percentile_approx_weighted", distinct, arg0, arg1, arg2);
+        this(distinct, false, arg0, arg1, arg2);
+    }
+
+    public PercentileApproxWeighted(boolean distinct, boolean alwaysNullable, Expression arg0,
+            Expression arg1, Expression arg2) {
+        super("percentile_approx_weighted", distinct, alwaysNullable, arg0, arg1, arg2);
     }
 
     /**
      * constructor with 4 arguments.
      */
     public PercentileApproxWeighted(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
-        super("percentile_approx_weighted", arg0, arg1, arg2, arg3);
+        this(false, arg0, arg1, arg2, arg3);
     }
 
     /**
-     * constructor with 5 arguments.
+     * constructor with 4 arguments.
      */
     public PercentileApproxWeighted(boolean distinct, Expression arg0, Expression arg1, Expression arg2,
             Expression arg3) {
-        super("percentile_approx_weighted", distinct, arg0, arg1, arg2, arg3);
+        this(distinct, false, arg0, arg1, arg2, arg3);
+    }
+
+    public PercentileApproxWeighted(boolean distinct, boolean alwaysNullable, Expression arg0,
+            Expression arg1, Expression arg2, Expression arg3) {
+        super("percentile_approx_weighted", distinct, alwaysNullable, arg0, arg1, arg2, arg3);
     }
 
     @Override
@@ -92,14 +101,26 @@ public class PercentileApproxWeighted extends AggregateFunction
      * withDistinctAndChildren.
      */
     @Override
-    public PercentileApproxWeighted withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3
-                || children.size() == 4);
+    public PercentileApproxWeighted withDistinctAndChildren(boolean distinct,
+            List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
         if (children.size() == 3) {
-            return new PercentileApproxWeighted(distinct, children.get(0), children.get(1), children.get(2));
+            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
+                    children.get(1), children.get(2));
         } else {
-            return new PercentileApproxWeighted(distinct, children.get(0), children.get(1), children.get(2),
-                    children.get(3));
+            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
+                    children.get(1), children.get(2), children.get(3));
+        }
+    }
+
+    @Override
+    public PercentileApproxWeighted withAlwaysNullable(boolean alwaysNullable) {
+        if (children.size() == 3) {
+            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
+                    children.get(1), children.get(2));
+        } else {
+            return new PercentileApproxWeighted(distinct, alwaysNullable, children.get(0),
+                    children.get(1), children.get(2), children.get(3));
         }
     }
 

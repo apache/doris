@@ -485,25 +485,29 @@ struct NameLTrim {
 struct NameRTrim {
     static constexpr auto name = "rtrim";
 };
-template <bool is_ltrim, bool is_rtrim>
+template <bool is_ltrim, bool is_rtrim, bool trim_single>
 struct TrimUtil {
     static Status vector(const ColumnString::Chars& str_data,
-                         const ColumnString::Offsets& str_offsets, const StringRef& rhs,
+                         const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        size_t offset_size = str_offsets.size();
-        res_offsets.resize(str_offsets.size());
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offsets[i - 1]]);
-            ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
-            StringRef str(raw_str, size);
+            const auto* str_begin = str_data.data() + str_offsets[i - 1];
+            const auto* str_end = str_data.data() + str_offsets[i];
+
             if constexpr (is_ltrim) {
-                str = simd::VStringFunctions::ltrim(str, rhs);
+                str_begin =
+                        simd::VStringFunctions::ltrim<trim_single>(str_begin, str_end, remove_str);
             }
             if constexpr (is_rtrim) {
-                str = simd::VStringFunctions::rtrim(str, rhs);
+                str_end =
+                        simd::VStringFunctions::rtrim<trim_single>(str_begin, str_end, remove_str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
-                                        res_offsets);
+
+            res_data.insert_assume_reserved(str_begin, str_end);
+            res_offsets[i] = res_data.size();
         }
         return Status::OK();
     }
@@ -521,9 +525,9 @@ struct Trim1Impl {
         if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
-            StringRef rhs(blank, 1);
-            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                    col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
+            const StringRef remove_str(blank, 1);
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                    col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
                     col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
@@ -550,15 +554,21 @@ struct Trim2Impl {
         const auto& rcol =
                 assert_cast<const ColumnConst*>(block.get_by_position(arguments[1]).column.get())
                         ->get_data_column_ptr();
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
-            if (auto col_right = assert_cast<const ColumnString*>(rcol.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
+            if (const auto* col_right = assert_cast<const ColumnString*>(rcol.get())) {
                 auto col_res = ColumnString::create();
-                const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
-                ColumnString::Offset rhs_size = col_right->get_offsets()[0];
-                StringRef rhs(raw_rhs, rhs_size);
-                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                        col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                        col_res->get_offsets())));
+                const auto* remove_str_raw = col_right->get_chars().data();
+                const ColumnString::Offset remove_str_size = col_right->get_offsets()[0];
+                const StringRef remove_str(remove_str_raw, remove_str_size);
+                if (remove_str.size == 1) {
+                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
+                            col_res->get_offsets())));
+                } else {
+                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, false>::vector(
+                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
+                            col_res->get_offsets())));
+                }
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -706,12 +716,13 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        fmt::memory_buffer buffer;
+        std::vector<char, Allocator_<char>> buffer;
         for (size_t i = 0; i < input_size; ++i) {
             buffer.clear();
             if (data[i] > 0) {
+                buffer.resize(data[i]);
                 for (size_t j = 0; j < data[i]; ++j) {
-                    buffer.push_back(' ');
+                    buffer[i] = ' ';
                 }
                 StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                             res_data, res_offsets);
@@ -1017,12 +1028,14 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
-    factory.register_function<FunctionReplace>();
+    factory.register_function<FunctionReplace<ReplaceImpl, true>>();
+    factory.register_function<FunctionReplace<ReplaceEmptyImpl, false>>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
+    factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
 
     factory.register_alias(FunctionLeft::name, "strleft");

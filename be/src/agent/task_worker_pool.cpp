@@ -83,6 +83,7 @@
 #include "service/backend_options.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -539,26 +540,20 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_count,
+        const std::string& name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
-                      .set_min_threads(normal_worker_count)
-                      .set_max_threads(normal_worker_count)
-                      .build(&_normal_pool);
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < normal_worker_count; ++i) {
+        auto st = Thread::create(
+                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 
-    st = _normal_pool->submit_func([this] { normal_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_count)
-                 .set_max_threads(high_prior_worker_count)
-                 .build(&_high_prior_pool);
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = _high_prior_pool->submit_func([this] { high_prior_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < high_prior_worker_count; ++i) {
+        auto st = Thread::create(
+                "HighPrior", name, [this] { high_prior_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 }
 
 PriorTaskWorkerPool::~PriorTaskWorkerPool() {
@@ -577,12 +572,10 @@ void PriorTaskWorkerPool::stop() {
     _normal_condv.notify_all();
     _high_prior_condv.notify_all();
 
-    if (_normal_pool) {
-        _normal_pool->shutdown();
-    }
-
-    if (_high_prior_pool) {
-        _high_prior_pool->shutdown();
+    for (auto&& w : _workers) {
+        if (w) {
+            w->join();
+        }
     }
 }
 
@@ -2058,6 +2051,13 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     static_cast<void>(engine.start_trash_sweep(nullptr, true));
     static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
     LOG(INFO) << "clean trash finish";
+}
+
+void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+    static_cast<void>(
+            JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
+    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
 }
 
 } // namespace doris

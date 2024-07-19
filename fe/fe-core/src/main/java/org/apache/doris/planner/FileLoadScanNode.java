@@ -206,7 +206,7 @@ public class FileLoadScanNode extends FileScanNode {
             LoadScanProvider scanProvider = scanProviders.get(i);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider, localBackendPolicy);
-            this.inputSplitsNum += scanProvider.getInputSplitNum();
+            this.selectedSplitNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
     }
@@ -281,9 +281,11 @@ public class FileLoadScanNode extends FileScanNode {
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
                 if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH) && !fn.getFnName()
-                        .getFunction().equalsIgnoreCase("hll_empty")) {
+                        .getFunction().equalsIgnoreCase("hll_empty")
+                        && !fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
                     throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
                         + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx) or "
+                        + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
                         + destSlotDesc.getColumn().getName() + "=hll_empty()");
                 }
                 expr.setType(org.apache.doris.catalog.Type.HLL);

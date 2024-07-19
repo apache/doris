@@ -76,6 +76,10 @@ void _close_task(PipelineTask* task, Status exec_status) {
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
+    if (task->is_finalized()) {
+        task->set_running(false);
+        return;
+    }
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
     auto lock_for_context = task->fragment_context()->shared_from_this();

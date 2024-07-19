@@ -41,6 +41,8 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -192,6 +194,11 @@ public:
                _query_options.mysql_row_binary_format;
     }
 
+    bool enable_short_circuit_query_access_column_store() const {
+        return _query_options.__isset.enable_short_circuit_query_access_column_store &&
+               _query_options.enable_short_circuit_query_access_column_store;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
@@ -256,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    const std::string get_error_log_file_path() const { return _error_log_file_path; }
+    std::string get_error_log_file_path() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -484,6 +491,11 @@ public:
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
 
+    bool is_read_csv_empty_line_as_null() const {
+        return _query_options.__isset.read_csv_empty_line_as_null &&
+               _query_options.read_csv_empty_line_as_null;
+    }
+
     int parallel_scan_max_scanners_count() const {
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count
@@ -605,6 +617,10 @@ public:
 
     void set_task_id(int id) { _task_id = id; }
 
+    void set_task(pipeline::PipelineTask* task) { _task = task; }
+
+    pipeline::PipelineTask* get_task() const { return _task; }
+
     int task_id() const { return _task_id; }
 
     void set_task_num(int task_num) { _task_num = task_num; }
@@ -709,6 +725,7 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
+    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
@@ -733,6 +750,11 @@ private:
     RuntimeState(const RuntimeState&);
 
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
+
+    // save error log to s3
+    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
+    std::string _s3_error_log_file_path;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

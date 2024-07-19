@@ -19,6 +19,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
@@ -30,21 +31,35 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+// NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
+// this may cause in some corner case missing statistics update,for example:
+// time1: clear logic judge query 1 is timeout
+// time2: query 1 is update by report
+// time3: clear logic remove query 1
+// in this case, lost query stats is allowed. because query report time out is 60s by default,
+// when this case happens, we should find why be not report for so long first.
 public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
-    private Map<Long, Map<String, TQueryStatistics>> beToQueryStatsMap = Maps.newConcurrentMap();
-    private Map<Long, Long> beLastReportTime = Maps.newConcurrentMap();
-    private Map<String, Long> queryLastReportTime = Maps.newConcurrentMap();
+    private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
     private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+
+    private class BeReportInfo {
+        volatile long beLastReportTime;
+
+        BeReportInfo(long beLastReportTime) {
+            this.beLastReportTime = beLastReportTime;
+        }
+
+        Map<String, Pair<Long, TQueryStatistics>> queryStatsMap = Maps.newConcurrentMap();
+    }
 
     public WorkloadRuntimeStatusMgr() {
         super("workload-runtime-stats-thread", Config.workload_runtime_status_thread_interval_ms);
@@ -56,20 +71,35 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
 
         // 2 log query audit
-        List<AuditEvent> auditEventList = getQueryNeedAudit();
-        for (AuditEvent auditEvent : auditEventList) {
-            TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-            if (queryStats != null) {
-                auditEvent.scanRows = queryStats.scan_rows;
-                auditEvent.scanBytes = queryStats.scan_bytes;
-                auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
-                auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
-                auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+        try {
+            List<AuditEvent> auditEventList = getQueryNeedAudit();
+            int missedLogCount = 0;
+            int succLogCount = 0;
+            for (AuditEvent auditEvent : auditEventList) {
+                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                if (queryStats != null) {
+                    auditEvent.scanRows = queryStats.scan_rows;
+                    auditEvent.scanBytes = queryStats.scan_bytes;
+                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
+                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                }
+                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
+                if (!ret) {
+                    missedLogCount++;
+                } else {
+                    succLogCount++;
+                }
             }
-            Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+            if (missedLogCount > 0) {
+                LOG.warn("discard audit event because of log queue is full, discard num : {}, succ num : {}",
+                        missedLogCount, succLogCount);
+            }
+        } catch (Throwable t) {
+            LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
         // 3 clear beToQueryStatsMap when be report timeout
@@ -79,6 +109,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
+            if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
+                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
+                        queryAuditEventList.size());
+                return;
+            }
             event.pushToAuditLogQueueTime = System.currentTimeMillis();
             queryAuditEventList.add(event);
         } finally {
@@ -118,45 +154,65 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             return;
         }
         long beId = params.backend_id;
-        Map<String, TQueryStatistics> queryIdMap = beToQueryStatsMap.get(beId);
-        beLastReportTime.put(beId, System.currentTimeMillis());
-        if (queryIdMap == null) {
-            queryIdMap = Maps.newConcurrentMap();
-            queryIdMap.putAll(params.query_statistics_map);
-            beToQueryStatsMap.put(beId, queryIdMap);
+        // NOTE(wb) one be sends update request one by one,
+        // so there is no need a global lock for beToQueryStatsMap here,
+        // just keep one be's put/remove/get is atomic operation is enough
+        long currentTime = System.currentTimeMillis();
+        BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+        if (beReportInfo == null) {
+            beReportInfo = new BeReportInfo(currentTime);
+            beToQueryStatsMap.put(beId, beReportInfo);
         } else {
-            long currentTime = System.currentTimeMillis();
-            for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
-                queryIdMap.put(entry.getKey(), entry.getValue());
-                queryLastReportTime.put(entry.getKey(), currentTime);
+            beReportInfo.beLastReportTime = currentTime;
+        }
+        for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
+            beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, (TQueryStatistics) entry.getValue()));
+        }
+    }
+
+    void clearReportTimeoutBeStatistics() {
+        // 1 clear report timeout be
+        Set<Long> currentBeIdSet = beToQueryStatsMap.keySet();
+        Long currentTime = System.currentTimeMillis();
+        for (Long beId : currentBeIdSet) {
+            BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+            if (currentTime - beReportInfo.beLastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                beToQueryStatsMap.remove(beId);
+                continue;
+            }
+            Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
+            for (String queryId : queryIdSet) {
+                Pair<Long, TQueryStatistics> pair = beReportInfo.queryStatsMap.get(queryId);
+                long queryLastReportTime = pair.first;
+                if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                    beReportInfo.queryStatsMap.remove(queryId);
+                }
             }
         }
     }
 
+    // NOTE: currently getQueryStatisticsMap must be called before clear beToQueryStatsMap
+    // so there is no need lock or null check when visit beToQueryStatsMap
     public Map<String, TQueryStatistics> getQueryStatisticsMap() {
         // 1 merge query stats in all be
         Set<Long> beIdSet = beToQueryStatsMap.keySet();
-        Map<String, TQueryStatistics> retQueryMap = Maps.newHashMap();
+        Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
         for (Long beId : beIdSet) {
-            Map<String, TQueryStatistics> currentQueryMap = beToQueryStatsMap.get(beId);
-            Set<String> queryIdSet = currentQueryMap.keySet();
+            BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+            Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                TQueryStatistics retQuery = retQueryMap.get(queryId);
+                TQueryStatistics curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+
+                TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
                     retQuery = new TQueryStatistics();
-                    retQueryMap.put(queryId, retQuery);
+                    resultQueryMap.put(queryId, retQuery);
                 }
-
-                TQueryStatistics curQueryStats = currentQueryMap.get(queryId);
                 mergeQueryStatistics(retQuery, curQueryStats);
             }
         }
 
-        return retQueryMap;
-    }
-
-    public Map<Long, Map<String, TQueryStatistics>> getBeQueryStatsMap() {
-        return beToQueryStatsMap;
+        return resultQueryMap;
     }
 
     private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {
@@ -169,44 +225,6 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         dst.shuffle_send_rows += src.shuffle_send_rows;
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
-        }
-    }
-
-    void clearReportTimeoutBeStatistics() {
-        // 1 clear report timeout be
-        Set<Long> beNeedToRemove = new HashSet<>();
-        Set<Long> currentBeIdSet = beToQueryStatsMap.keySet();
-        Long currentTime = System.currentTimeMillis();
-        for (Long beId : currentBeIdSet) {
-            Long lastReportTime = beLastReportTime.get(beId);
-            if (lastReportTime != null
-                    && currentTime - lastReportTime > Config.be_report_query_statistics_timeout_ms) {
-                beNeedToRemove.add(beId);
-            }
-        }
-        for (Long beId : beNeedToRemove) {
-            beToQueryStatsMap.remove(beId);
-            beLastReportTime.remove(beId);
-        }
-
-        // 2 clear report timeout query
-        Set<String> queryNeedToClear = new HashSet<>();
-        Long newCurrentTime = System.currentTimeMillis();
-        Set<String> queryLastReportTimeKeySet = queryLastReportTime.keySet();
-        for (String queryId : queryLastReportTimeKeySet) {
-            Long lastReportTime = queryLastReportTime.get(queryId);
-            if (lastReportTime != null
-                    && newCurrentTime - lastReportTime > Config.be_report_query_statistics_timeout_ms) {
-                queryNeedToClear.add(queryId);
-            }
-        }
-
-        Set<Long> beIdSet = beToQueryStatsMap.keySet();
-        for (String queryId : queryNeedToClear) {
-            for (Long beId : beIdSet) {
-                beToQueryStatsMap.get(beId).remove(queryId);
-            }
-            queryLastReportTime.remove(queryId);
         }
     }
 

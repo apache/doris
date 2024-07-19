@@ -317,30 +317,31 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            SplitAssignment splitAssignment = new SplitAssignment(backendPolicy, this);
+            splitAssignment = new SplitAssignment(
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getCurrentAssignment().isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (splitAssignment.getSampleSplit() == null && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }
-            inputSplitsNum = splitAssignment.numApproximateSplits();
+            selectedSplitNum = numApproximateSplits();
 
             TFileType locationType;
-            FileSplit fileSplit = (FileSplit) splitAssignment.getCurrentAssignment().values().iterator().next();
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             if (fileSplit instanceof IcebergSplit
                     && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
                 locationType = TFileType.FILE_BROKER;
             } else {
                 locationType = getLocationType(fileSplit.getPath().toString());
             }
-            totalFileSize = fileSplit.getLength() * inputSplitsNum;
+            totalFileSize = fileSplit.getLength() * selectedSplitNum;
+            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = splitAssignment.numApproximateSplits() / backendPolicy.numBackends();
+            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(
-                        this::splitToScanRange, backend, locationProperties, splitAssignment, pathPartitionKeys);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
@@ -363,7 +364,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            inputSplitsNum = inputSplits.size();
+            selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }
@@ -557,7 +558,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public int getNumInstances() {
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
@@ -583,4 +583,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
+
+    @Override
+    public void stop() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+            for (Long sourceId : splitAssignment.getSources()) {
+                manager.removeSplitSource(sourceId);
+            }
+        }
+    }
 }

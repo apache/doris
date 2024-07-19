@@ -306,8 +306,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
 
         ParallelScannerBuilder scanner_builder(this, tablets, _scanner_profile, key_ranges, state(),
-                                               p._limit_per_scanner, true,
-                                               p._olap_scan_node.is_preaggregation);
+                                               p._limit, true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -345,7 +344,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                               std::move(tablet),
                               version,
                               {},
-                              p._limit_per_scanner,
+                              p._limit,
                               p._olap_scan_node.is_preaggregation,
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
@@ -574,8 +573,8 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
                                                      TUnit::UNIT, "RuntimeFilterInfo", 1);
     auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
                                                         TUnit::UNIT, "RuntimeFilterInfo", 1);
-    COUNTER_UPDATE(input_count, info.input_row);
-    COUNTER_UPDATE(filtered_count, info.filtered_row);
+    COUNTER_SET(input_count, (int64_t)info.input_row);
+    COUNTER_SET(filtered_count, (int64_t)info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,

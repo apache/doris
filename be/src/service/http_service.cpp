@@ -30,10 +30,12 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
+#include "http/action/clear_cache_action.h"
 #include "http/action/clear_file_cache_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
@@ -155,6 +157,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Dump all running pipeline tasks
+    ClearDataCacheAction* clear_data_cache_action = _pool.add(new ClearDataCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_data_cache",
+                                      clear_data_cache_action);
+
+    // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
@@ -168,6 +175,11 @@ Status HttpService::start() {
     QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
+
+    // Dump all be process thread num
+    BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
+                                      be_proc_thread_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
@@ -385,7 +397,7 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       run_status_compaction_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
     ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());

@@ -83,6 +83,14 @@ suite("test_build_mtmv") {
         SELECT id, username FROM ${tableName};
         """
 
+    // not support show create table
+    test {
+          sql """
+              show create table ${mvName};
+          """
+          exception "not support"
+      }
+
     // desc
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())

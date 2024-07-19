@@ -71,8 +71,7 @@ public:
 
     class CacheValueWithKey : public LRUCacheValueBase {
     public:
-        CacheValueWithKey(int key, void* value)
-                : LRUCacheValueBase(CachePolicy::CacheType::FOR_UT), key(key), value(value) {}
+        CacheValueWithKey(int key, void* value) : key(key), value(value) {}
         ~CacheValueWithKey() override {
             _s_current->_deleted_keys.push_back(key);
             _s_current->_deleted_values.push_back(DecodeValue(value));
@@ -84,17 +83,16 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue(void* value) : LRUCacheValueBase(CachePolicy::CacheType::FOR_UT), value(value) {}
-        ~CacheValue() override = default;
+        CacheValue(void* value) : value(value) {}
 
         void* value;
     };
 
-    class CacheTestPolicy : public LRUCachePolicy {
+    class CacheTestPolicy : public LRUCachePolicyTrackingManual {
     public:
         CacheTestPolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::FOR_UT, capacity, LRUCacheType::SIZE, -1) {
-        }
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::FOR_UT, capacity,
+                                               LRUCacheType::SIZE, -1) {}
     };
 
     // there is 16 shards in ShardedLRUCache

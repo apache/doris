@@ -6,7 +6,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/common")
 
 set(COMMON_FILES
     configbase.cpp
-    sync_point.cpp
     util.cpp
     logging.cpp
     bvars.cpp
@@ -16,7 +15,7 @@ set(COMMON_FILES
     network_util.cpp
 )
 
-if (USE_JEMALLOC AND USE_MEM_TRACKER AND USE_JEMALLOC_HOOK)
+if (USE_JEMALLOC)
     set(COMMON_FILES ${COMMON_FILES}
         jemalloc_hook.cpp
         )

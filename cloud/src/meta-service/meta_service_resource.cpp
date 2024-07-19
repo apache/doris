@@ -31,7 +31,7 @@
 #include "common/logging.h"
 #include "common/network_util.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -72,11 +72,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
     std::string key;
     int64_t key_id;
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
-    {
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_ret", &ret);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &key);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_id", &key_id);
-    }
+    TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
         msg = "failed to get encryption key";
         code = MetaServiceCode::ERR_ENCRYPT;
@@ -323,26 +319,6 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
 
 namespace detail {
 
-// Removes any trailing `c` in `str`
-void strip_trailing(std::string& str, char c) {
-    size_t end = str.find_last_not_of(c);
-    if (end == std::string::npos) {
-        str = "";
-    } else {
-        str.resize(end + 1);
-    }
-}
-
-// Removes any leading `c` in `str`
-void strip_leading(std::string& str, char c) {
-    size_t start = str.find_first_not_of(c);
-    if (start == std::string::npos) {
-        str = "";
-    } else if (start > 0) {
-        str = str.substr(start);
-    }
-}
-
 // Validate and normalize hdfs prefix. Return true if prefix is valid.
 bool normalize_hdfs_prefix(std::string& prefix) {
     if (prefix.empty()) {
@@ -354,9 +330,7 @@ bool normalize_hdfs_prefix(std::string& prefix) {
         return false;
     }
 
-    strip_trailing(prefix, ' ');
-    strip_leading(prefix, ' ');
-    strip_trailing(prefix, '/');
+    trim(prefix);
     return true;
 }
 
@@ -367,10 +341,7 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
     }
 
     // Should check scheme existence?
-
-    strip_trailing(fs_name, ' ');
-    strip_leading(fs_name, ' ');
-    strip_trailing(fs_name, '/');
+    trim(fs_name);
     return !fs_name.empty();
 }
 
@@ -431,7 +402,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string bucket = obj->has_bucket() ? obj->bucket() : "";
     std::string prefix = obj->has_prefix() ? obj->prefix() : "";
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-    prefix = trim(prefix);
+    trim(prefix);
     std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
@@ -447,10 +418,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     AkSkPair cipher_ak_sk_pair;
     auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
                                     msg);
-    {
-        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ak_sk_ret);
-    }
+    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
     if (ret != 0) {
         return;
     }
@@ -573,10 +541,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 
         auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
                                         code, msg);
-        {
-            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
-        }
         if (ret != 0) {
             return;
         }
@@ -763,7 +727,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.mutable_encryption_info()->CopyFrom(encryption_info);
         last_item.set_bucket(bucket);
         // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-        prefix = trim(prefix);
+        trim(prefix);
         last_item.set_prefix(prefix);
         last_item.set_endpoint(endpoint);
         last_item.set_external_endpoint(external_endpoint);

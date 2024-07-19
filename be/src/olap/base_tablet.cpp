@@ -61,7 +61,7 @@ Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                             const PartialUpdateReadPlan& read_plan,
                             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                             vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index) {
-    bool has_row_column = tablet_schema->store_row_column();
+    bool has_row_column = tablet_schema->has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
     for (auto rs_it : read_plan) {
@@ -449,7 +449,6 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
     const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-    CHECK(tablet_schema->store_row_column());
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
@@ -830,29 +829,27 @@ Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& ou
     vectorized::MutableBlock mutable_output_block =
             vectorized::MutableBlock::build_mutable_block(&output_block);
 
-    std::vector<RowInBlock*> _row_in_blocks;
-    _row_in_blocks.reserve(in_block.rows());
-
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
+            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_in_blocks.reserve(in_block.rows());
     for (size_t i = 0; i < in_block.rows(); ++i) {
-        row_in_blocks.emplace_back(new RowInBlock {i});
+        row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
-              [&](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*vec_row_comparator)(l, r);
+              [&](const std::unique_ptr<RowInBlock>& l,
+                  const std::unique_ptr<RowInBlock>& r) -> bool {
+                  auto value = (*vec_row_comparator)(l.get(), r.get());
                   DCHECK(value != 0) << "value equel when sort block, l_pos: " << l->_row_pos
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
-    for (auto* block : row_in_blocks) {
+    for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
     return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
@@ -874,7 +871,7 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
-    CHECK(tablet_schema.store_row_column());
+    CHECK(tablet_schema.has_row_store_for_all_columns());
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
@@ -900,7 +897,7 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
         serdes[i] = type->get_serde();
     }
     vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
-                                                   default_values);
+                                                   default_values, {});
     return Status::OK();
 }
 
@@ -1340,7 +1337,9 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        missed_rows->insert(src);
+                        if (missed_rows) {
+                            missed_rows->insert(src);
+                        }
                         continue;
                     }
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
@@ -1348,7 +1347,9 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
                                << "|" << src.row_id << " start version: " << start_version
                                << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
+                    if (location_map) {
+                        (*location_map)[rowset].emplace_back(src, dst);
+                    }
                     output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
                                                      dst.row_id);
                 }

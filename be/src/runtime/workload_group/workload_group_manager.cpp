@@ -17,6 +17,7 @@
 
 #include "workload_group_manager.h"
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -177,30 +178,24 @@ void WorkloadGroupMgr::refresh_wg_memory_info() {
         wgs_mem_info[wg_id] = {wg_total_mem_used};
     }
 
-    // *TODO*, modify to use doris::GlobalMemoryArbitrator::process_memory_usage().
-    auto proc_vm_rss = PerfCounters::get_vm_rss();
+    auto process_memory_usage = GlobalMemoryArbitrator::process_memory_usage();
     if (all_queries_mem_used <= 0) {
         return;
     }
 
-    if (proc_vm_rss < all_queries_mem_used) {
-        all_queries_mem_used = proc_vm_rss;
-    }
+    all_queries_mem_used = std::min(process_memory_usage, all_queries_mem_used);
 
     // process memory used is actually bigger than all_queries_mem_used,
     // because memory of page cache, allocator cache, segment cache etc. are included
     // in proc_vm_rss.
     // we count these cache memories equally on workload groups.
-    double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
+    double ratio = (double)process_memory_usage / (double)all_queries_mem_used;
     if (ratio <= 1.25) {
-        std::string debug_msg = fmt::format(
-                "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
-                "{}, all quries mem: {}",
-                PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-                PrettyPrinter::print(doris::GlobalMemoryArbitrator::process_memory_usage(),
-                                     TUnit::BYTES),
-                doris::MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
+        std::string debug_msg =
+                fmt::format("\nProcess Memory Summary: {}, {}, all quries mem: {}",
+                            doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
+                            doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
+                            PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
         LOG_EVERY_T(INFO, 10) << debug_msg;
     }
 

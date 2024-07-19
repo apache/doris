@@ -62,6 +62,8 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
+    const S3ClientConf& s3_client_conf() { return _conf; }
+
 private:
     mutable std::shared_mutex _mtx;
     std::shared_ptr<ObjStorageClient> _client;
@@ -87,6 +89,9 @@ public:
 
     const std::string& bucket() const { return _bucket; }
     const std::string& prefix() const { return _prefix; }
+
+    std::string generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                       bool is_public_endpoint) const;
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,

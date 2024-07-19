@@ -314,8 +314,8 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     }
     RETURN_IF_ERROR(_download_files(tablet()->data_dir(), remote_url_prefix, local_path));
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
-            local_path, _tablet->tablet_id(), tablet()->replica_id(), _tablet->partition_id(),
-            _tablet->schema_hash()));
+            local_path, _tablet->tablet_id(), tablet()->replica_id(), _tablet->table_id(),
+            _tablet->partition_id(), _tablet->schema_hash()));
     // 4: finish_clone: create output_rowset and link file
     return _finish_clone(local_data_path, rowset_version);
 }
@@ -582,7 +582,12 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     }
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
-    std::filesystem::remove_all(clone_dir_path);
+    std::error_code ec;
+    std::filesystem::remove_all(clone_dir_path, ec);
+    if (ec) {
+        LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
+        return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
+    }
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;

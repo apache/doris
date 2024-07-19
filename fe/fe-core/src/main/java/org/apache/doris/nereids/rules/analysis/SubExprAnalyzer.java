@@ -75,6 +75,11 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitExistsSubquery(Exists exists, T context) {
+        LogicalPlan queryPlan = exists.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            exists = exists.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -89,6 +94,11 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitInSubquery(InSubquery expr, T context) {
+        LogicalPlan queryPlan = expr.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            expr = expr.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -173,6 +183,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
+        if (cascadesContext == null) {
+            throw new IllegalStateException("Missing CascadesContext");
+        }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                 cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);

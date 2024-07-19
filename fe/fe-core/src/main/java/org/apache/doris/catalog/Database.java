@@ -35,8 +35,8 @@ import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -76,7 +77,7 @@ import java.util.stream.Collectors;
  * if the table has never been loaded * if the table loading failed on the
  * previous attempt
  */
-public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
+public class Database extends MetaObject implements Writable, DatabaseIf<Table>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
@@ -90,8 +91,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     // table family group map
     private final Map<Long, Table> idToTable;
-    @SerializedName(value = "nameToTable")
-    private Map<String, Table> nameToTable;
+    private ConcurrentMap<String, Table> nameToTable;
     // table name lower cast -> table name
     private final Map<String, String> lowerCaseToTableName;
 
@@ -108,6 +108,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
+    // from dbProperties;
     private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
@@ -124,6 +125,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
+    // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
@@ -587,9 +589,76 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public static Database read(DataInput in) throws IOException {
-        Database db = new Database();
-        db.readFields(in);
-        return db;
+        LOG.info("read db from journal {}", in);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            Database db = new Database();
+            db.readFields(in);
+            return db;
+        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        } else {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        }
+    }
+
+    private void writeTables(DataOutput out) throws IOException {
+        out.writeInt(nameToTable.size());
+        for (Table table : nameToTable.values()) {
+            Text.writeString(out, GsonUtils.GSON.toJson(table));
+        }
+    }
+
+    private void readTables(DataInput in) throws IOException {
+        nameToTable = Maps.newConcurrentMap();
+        int numTables = in.readInt();
+        for (int i = 0; i < numTables; ++i) {
+            Table table = Table.read(in);
+            table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+            }
+            String tableName = table.getName();
+            nameToTable.put(tableName, table);
+            idToTable.put(table.getId(), table);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
+                                 "nameToTable should be ConcurrentMap");
+        nameToTable.forEach((tn, tb) -> {
+            tb.setQualifiedDbName(fullQualifiedName);
+            if (tb instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id);
+            }
+            idToTable.put(tb.getId(), tb);
+            lowerCaseToTableName.put(tn.toLowerCase(), tn);
+        });
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
+            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                    String.valueOf(Config.max_running_txn_num_per_db));
+            transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
+        } else {
+            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
+                    ? Config.max_running_txn_num_per_db
+                    : Config.default_db_max_running_txn_num;
+        }
+
+        for (ImmutableList<Function> functions : name2Function.values()) {
+            for (Function function : functions) {
+                try {
+                    FunctionUtil.translateToNereids(this.getFullName(), function);
+                } catch (Exception e) {
+                    LOG.warn("Nereids add function failed", e);
+                }
+            }
+        }
     }
 
     @Override
@@ -605,32 +674,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
-        // write tables
         discardHudiTable();
-        int numTables = nameToTable.size();
-        out.writeInt(numTables);
-        for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
-            entry.getValue().write(out);
-        }
-
-        out.writeLong(dataQuotaBytes);
-        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
-        Text.writeString(out, dbState.name());
-        Text.writeString(out, attachDbName);
-
-        // write functions
-        FunctionUtil.write(out, name2Function);
-
-        // write encryptKeys
-        dbEncryptKey.write(out);
-
-        out.writeLong(replicaQuotaSize);
-        dbProperties.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        writeTables(out);
     }
+
 
     private void discardHudiTable() {
         Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
@@ -650,6 +698,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

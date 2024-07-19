@@ -75,7 +75,6 @@ option(USE_LIBCPP "Use libc++" OFF)
 option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
-option(USE_JEMALLOC_HOOK "Use jemalloc hook" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -91,7 +90,6 @@ message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
-message(STATUS "USE_JEMALLOC_HOOK is ${USE_JEMALLOC_HOOK}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 
@@ -120,6 +118,7 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -350,9 +349,6 @@ endif()
 if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
 endif()
-if (USE_JEMALLOC_HOOK)
-    add_definitions(-DUSE_JEMALLOC_HOOK)
-endif()
 
 # Compile with libunwind
 if (USE_UNWIND)
@@ -360,10 +356,6 @@ if (USE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
-endif()
-
-if (ENABLE_STACKTRACE)
-    add_definitions(-DENABLE_STACKTRACE)
 endif()
 
 if (USE_DWARF)
@@ -441,6 +433,7 @@ include_directories(
 
 include_directories(
     SYSTEM
+    ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
@@ -505,6 +498,7 @@ set(DORIS_LINK_LIBS
     Pipeline
     Cloud
     ${WL_END_GROUP}
+    CommonCPP
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -769,6 +763,8 @@ add_subdirectory(${SRC_DIR}/pipeline)
 if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 # Install be
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

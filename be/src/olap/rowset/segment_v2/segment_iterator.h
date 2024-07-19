@@ -164,7 +164,6 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
-
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -207,7 +206,7 @@ private:
     // TODO: Fix Me
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id();
+    void _vec_init_char_column_id(vectorized::Block* block);
     bool _has_char_type(const Field& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -222,7 +221,8 @@ private:
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
-                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
+                               uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
@@ -389,6 +389,9 @@ private:
 
     bool _can_opt_topn_reads() const;
 
+    void _initialize_predicate_results();
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -396,7 +399,7 @@ private:
     // read schema from scanner
     SchemaSPtr _schema;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
-    std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
+    std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
@@ -498,6 +501,9 @@ private:
     std::unique_ptr<HierarchicalDataReader> _path_reader;
 
     std::vector<uint8_t> _ret_flags;
+
+    std::unordered_map<int, std::unordered_map<std::string, bool>>
+            _column_predicate_inverted_index_status;
 };
 
 } // namespace segment_v2
