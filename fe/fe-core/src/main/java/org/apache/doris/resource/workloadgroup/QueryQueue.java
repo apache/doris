@@ -58,7 +58,7 @@ public class QueryQueue {
         // the lock shouldn't be hold for too long
         // we should catch the case when it happens
         if (!queueLock.tryLock(5, TimeUnit.SECONDS)) {
-            return new QueueOfferToken(false, "query lock 5s timeout");
+            return new QueueOfferToken(false, "workload group queue lock 5s timeout");
         }
         try {
             if (LOG.isDebugEnabled()) {
@@ -116,7 +116,7 @@ public class QueryQueue {
     public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout) {
         try {
             if (!queueLock.tryLock(5, TimeUnit.SECONDS)) {
-                throw new InterruptedException("queue lock 5s timeout");
+                throw new InterruptedException("workload group queue lock 5s timeout");
             }
             try {
                 this.maxConcurrency = maxConcurrency;
