@@ -126,6 +126,7 @@ public:
             options.connection_group = connection_group;
         }
         options.connect_timeout_ms = 2000;
+        options.timeout_ms = 2000;
         options.max_retry = 10;
 
         std::unique_ptr<brpc::Channel> channel(new brpc::Channel());

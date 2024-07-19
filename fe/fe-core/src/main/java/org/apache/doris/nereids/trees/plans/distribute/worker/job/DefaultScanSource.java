@@ -38,6 +38,10 @@ public class DefaultScanSource extends ScanSource {
         this.scanNodeToScanRanges = scanNodeToScanRanges;
     }
 
+    public static DefaultScanSource empty() {
+        return new DefaultScanSource(ImmutableMap.of());
+    }
+
     @Override
     public int maxParallel(List<ScanNode> scanNodes) {
         if (scanNodes.size() == 1) {
