@@ -206,6 +206,36 @@ public class GroupCommitManager {
 
     public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
             throws LoadException, DdlException {
+        // Understanding Group Commit and Backend Selection Logic
+        //
+        // Group commit is a server-side technique used for batching data imports.
+        // The primary purpose of group commit is to enhance import performance by
+        // reducing the number of versions created for high-frequency, small-batch imports.
+        // Without batching, each import operation creates a separate version, similar to a rowset in an LSM Tree,
+        // which can consume significant compaction resources and degrade system performance.
+        // By batching data, fewer versions are generated from the same amount of data,
+        // thus minimizing compaction and improving performance. For detailed usage,
+        // you can refer to the Group Commit Manual
+        // (https://doris.incubator.apache.org/docs/data-operate/import/group-commit-manual/) .
+        //
+        // The specific backend (BE) selection logic for group commits aims to
+        // direct data belonging to the same table to the same BE for batching.
+        // This is because group commit batches data imported to the same table
+        // on the same BE into a single version, which is then flushed periodically.
+        // For example, if data for the same table is distributed across three BEs,
+        // it will result in three versions.
+        // Conversely, if data for four different tables is directed to the same BE,
+        // it will create four versions. However,
+        // directing all data for the same table to a single BE will only produce one version.
+        //
+        // To optimize performance and avoid overloading a single BE, the strategy for selecting a BE works as follows:
+        //
+        // If a BE is already handling imports for table A and is not under significant load,
+        // the data is sent to this BE.
+        // If the BE is overloaded or if there is no existing record of a BE handling imports for table A,
+        // a BE is chosen at random. This BE is then recorded along with the mapping of table A and its load level.
+        // This approach ensures that group commits can effectively batch data together
+        // while managing the load on each BE efficiently.
         return isCloud ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
                 : selectBackendForLocalGroupCommitInternal(tableId);
     }

@@ -47,12 +47,6 @@ public class CloudGroupCommitPlanner extends GroupCommitPlanner {
         try {
             backend = Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommit(this.table.getId(), ctx, true);
-            if (backend != null && backend.isAlive() && !backend.isDecommissioned()
-                    && backend.getCloudClusterName().equals(ctx.getCloudCluster())) {
-                LOG.info("Group commit cloud select be {}, label is {}", backend.getId(), loadId.toString());
-            } else {
-                throw new DdlException("No suitable backend");
-            }
         } catch (LoadException e) {
             throw new DdlException("No suitable backend");
         }
