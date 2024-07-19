@@ -206,7 +206,6 @@ public class GroupCommitManager {
 
     public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
             throws LoadException, DdlException {
-        // 
         return isCloud ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
                 : selectBackendForLocalGroupCommitInternal(tableId);
     }
