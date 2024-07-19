@@ -19,11 +19,12 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     def tableName = "test_single_compaction"
-  
+
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
     def set_be_config = { key, value ->
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
@@ -123,26 +124,6 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
         return tabletStatus
     }
 
-    String backend_id;
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-    backend_id = backendId_to_backendIP.keySet()[0]
-    set_be_config.call("update_replica_infos_interval_seconds", "5")
-
-    // find the master be for single compaction
-    Boolean found = false
-    String master_backend_id
-    List<String> follower_backend_id = new ArrayList<>()
-    String tablet_id
-    def tablets
-    String backend_id;
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-    backend_id = backendId_to_backendIP.keySet()[0]
     set_be_config.call("update_replica_infos_interval_seconds", "5")
 
     // find the master be for single compaction
@@ -163,7 +144,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "disable_auto_compaction" = "true" );
+            PROPERTIES ( "replication_num" = "1", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "disable_auto_compaction" = "true" );
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
