@@ -233,6 +233,7 @@ private:
     int _partition_exprs_num = 0;
     std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
 
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;

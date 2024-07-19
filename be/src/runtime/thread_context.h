@@ -289,7 +289,7 @@ public:
     }
 };
 
-// must call create_thread_local_if_not_exits() before using thread_context().
+// must call create_thread_local_if_not_exits() before use thread_context().
 static ThreadContext* thread_context() {
     if (pthread_context_ptr_init) {
         // in pthread
