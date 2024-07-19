@@ -19,9 +19,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_month_seq <= 1223) and (date_dim.d_month_seq >= 1212))
@@ -35,9 +35,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
+------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 ----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_month_seq <= 1223) and (date_dim.d_month_seq >= 1212))
