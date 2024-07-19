@@ -17,6 +17,8 @@
 
 package org.apache.doris.regression.suite
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 import groovy.json.JsonOutput
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
@@ -258,6 +260,15 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+            {
+                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+            }
+        )
     }
 
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
