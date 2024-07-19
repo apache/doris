@@ -889,9 +889,8 @@ public class StmtExecutor {
                 syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
-                parsedStmt.checkPriv();
             }
-
+            parsedStmt.checkPriv();
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
                 handlePrepareStmt();
                 return;
