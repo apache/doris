@@ -32,7 +32,10 @@ suite("test_create_mv_and_mtmt") {
               distributed BY hash(time) 
               properties("replication_num" = "1");
     """
-    sql """
+    sql """ insert into ${tableName} values("2024-07-02",'a', "2024-07-02", 'a',1); """
+    sql """ insert into ${tableName} values("2024-07-03",'b', "2024-07-03", 'b',1); """
+
+    createMV("""
         CREATE materialized VIEW ${mvName} AS
         SELECT advertiser,
                channel,
@@ -43,30 +46,7 @@ suite("test_create_mv_and_mtmt") {
                  channel,
                  dt;
 
-    """
-    sql """ insert into ${tableName} values("2024-07-02",'a', "2024-07-02", 'a',1); """
-    sql """ insert into ${tableName} values("2024-07-03",'b', "2024-07-03", 'b',1); """
-
-    var tryTimes = 0
-    def maxTryTime = 10
-    def created = false
-    while (true) {
-        Thread.sleep(2000)
-        def result = sql """ desc ${tableName} all; """
-        for (row in result) {
-            if (row[0] == "${mvName}") {
-                logger.info( "mv ${row[0]} created")
-                created = true
-                break
-            }
-        }
-        if (created || ++tryTimes > maxTryTime) {
-            break
-        }
-    }
-    if(!created) {
-        throw new IllegalAccessException("Wait mv timeout")
-    }
+    """)
     // Hit sync mv when setting enable_sync_mv_cost_based_rewrite as false
     sql "set enable_sync_mv_cost_based_rewrite=false;"
     explain {
