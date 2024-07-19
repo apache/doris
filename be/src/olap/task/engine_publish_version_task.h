@@ -90,7 +90,9 @@ class EnginePublishVersionTask final : public EngineTask {
 public:
     EnginePublishVersionTask(
             StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
-            std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
+            std::set<TTabletId>* error_tablet_ids,
+            std::unordered_map<TTabletId, Status>* error_tablet_id_to_status,
+            std::map<TTabletId, TVersion>* succ_tablets,
             std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
             std::map<TTableId, std::map<TTabletId, int64_t>>*
                     table_id_to_tablet_id_to_num_delta_rows);
@@ -98,7 +100,7 @@ public:
 
     Status execute() override;
 
-    void add_error_tablet_id(int64_t tablet_id);
+    void add_error_tablet_id(int64_t tablet_id, Status st);
 
 private:
     void _calculate_tbl_num_delta_rows(
@@ -108,6 +110,7 @@ private:
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
     std::set<TTabletId>* _error_tablet_ids = nullptr;
+    std::unordered_map<TTabletId, Status>* _error_tablet_id_to_status;
     std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
     std::map<TTableId, std::map<TTabletId, int64_t>>* _table_id_to_tablet_id_to_num_delta_rows =

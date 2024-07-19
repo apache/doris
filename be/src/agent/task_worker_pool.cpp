@@ -1705,6 +1705,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     VLOG_NOTICE << "get publish version task. signature=" << req.signature;
 
     std::set<TTabletId> error_tablet_ids;
+    std::unordered_map<TTabletId, Status> error_tablet_id_to_status;
     std::map<TTabletId, TVersion> succ_tablets;
     // partition_id, tablet_id, publish_version
     std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
@@ -1717,7 +1718,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         error_tablet_ids.clear();
         table_id_to_tablet_id_to_num_delta_rows.clear();
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
-                                             &succ_tablets, &discontinuous_version_tablets,
+                                             &error_tablet_id_to_status, &succ_tablets,
+                                             &discontinuous_version_tablets,
                                              &table_id_to_tablet_id_to_num_delta_rows);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
@@ -1819,8 +1821,14 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_report_version(s_report_version);
     finish_task_request.__set_succ_tablets(succ_tablets);
-    finish_task_request.__set_error_tablet_ids(
-            std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
+    auto error_tablets = std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end());
+    finish_task_request.__set_error_tablet_ids(error_tablets);
+    std::vector<TStatus> error_statuses;
+    error_statuses.reserve(error_tablets.size());
+    for (const auto& tablet_id : error_tablets) {
+        error_statuses.emplace_back(error_tablet_id_to_status[tablet_id].to_thrift());
+    }
+    finish_task_request.__set_error_statuses(error_statuses);
     finish_task_request.__set_table_id_to_tablet_id_to_delta_num_rows(
             table_id_to_tablet_id_to_num_delta_rows);
     finish_task(finish_task_request);

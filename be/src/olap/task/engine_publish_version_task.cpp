@@ -73,12 +73,15 @@ void TabletPublishStatistics::record_in_bvar() {
 
 EnginePublishVersionTask::EnginePublishVersionTask(
         StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
-        std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
+        std::set<TTabletId>* error_tablet_ids,
+        std::unordered_map<TTabletId, Status>* error_tablet_id_to_status,
+        std::map<TTabletId, TVersion>* succ_tablets,
         std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets,
         std::map<TTableId, std::map<TTabletId, int64_t>>* table_id_to_tablet_id_to_num_delta_rows)
         : _engine(engine),
           _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
+          _error_tablet_id_to_status(error_tablet_id_to_status),
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
           _table_id_to_tablet_id_to_num_delta_rows(table_id_to_tablet_id_to_num_delta_rows) {
@@ -86,9 +89,10 @@ EnginePublishVersionTask::EnginePublishVersionTask(
                                                     "TabletPublishTxnTask");
 }
 
-void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
+void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id, Status st) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
     _error_tablet_ids->insert(tablet_id);
+    _error_tablet_id_to_status->emplace(tablet_id, std::move(st));
 }
 
 Status EnginePublishVersionTask::execute() {
@@ -158,19 +162,19 @@ Status EnginePublishVersionTask::execute() {
             // and receive fe's publish version task
             // this be must return as an error tablet
             if (rowset == nullptr) {
-                add_error_tablet_id(tablet_info.tablet_id);
                 res = Status::Error<PUSH_ROWSET_NOT_FOUND>(
                         "could not find related rowset for tablet {}, txn id {}",
                         tablet_info.tablet_id, transaction_id);
+                add_error_tablet_id(tablet_info.tablet_id, res);
                 continue;
             }
             TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id,
                                                                           tablet_info.tablet_uid);
             if (tablet == nullptr) {
-                add_error_tablet_id(tablet_info.tablet_id);
                 res = Status::Error<PUSH_TABLE_NOT_EXIST>(
                         "can't get tablet when publish version. tablet_id={}",
                         tablet_info.tablet_id);
+                add_error_tablet_id(tablet_info.tablet_id, res);
                 continue;
             }
             // in uniq key model with merge-on-write, we should see all
@@ -197,7 +201,6 @@ Status EnginePublishVersionTask::execute() {
                         continue;
                     }
                     auto handle_version_not_continuous = [&]() {
-                        add_error_tablet_id(tablet_info.tablet_id);
                         // When there are too many missing versions, do not directly retry the
                         // publish and handle it through async publish.
                         if (max_version + config::mow_publish_max_discontinuous_version_num <
@@ -209,10 +212,6 @@ Status EnginePublishVersionTask::execute() {
                             _discontinuous_version_tablets->emplace_back(
                                     partition_id, tablet_info.tablet_id, version.first);
                         }
-                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
-                                "version not continuous for mow, tablet_id={}, "
-                                "tablet_max_version={}, txn_version={}",
-                                tablet_info.tablet_id, max_version, version.first);
                         int64_t missed_version = max_version + 1;
                         int64_t missed_txn_id = _engine.txn_manager()->get_txn_by_tablet_version(
                                 tablet->tablet_id(), missed_version);
@@ -222,11 +221,16 @@ Status EnginePublishVersionTask::execute() {
                                 "version={}, tablet_id={}, transaction_id={}",
                                 missed_version, missed_txn_id, version.second, tablet->tablet_id(),
                                 _publish_version_req.transaction_id);
+                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
+                                "version not continuous for mow, tablet_id={}, "
+                                "tablet_max_version={}, txn_version={}",
+                                tablet_info.tablet_id, max_version, version.first);
                         if (first_time_update) {
                             LOG(INFO) << msg;
                         } else {
                             LOG_EVERY_SECOND(INFO) << msg;
                         }
+                        add_error_tablet_id(tablet_info.tablet_id, res);
                     };
                     // The versions during the schema change period need to be also continuous
                     if (tablet_state == TabletState::TABLET_NOTREADY) {
@@ -290,7 +294,10 @@ Status EnginePublishVersionTask::execute() {
             TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id);
             auto tablet_id = tablet_info.tablet_id;
             if (tablet == nullptr) {
-                add_error_tablet_id(tablet_id);
+                Status st = Status::Error<PUSH_TABLE_NOT_EXIST>(
+                        "can't get tablet when publish version. tablet_id={}",
+                        tablet_info.tablet_id);
+                add_error_tablet_id(tablet_id, st);
                 _succ_tablets->erase(tablet_id);
                 LOG(WARNING) << "publish version failed on transaction, not found tablet. "
                              << "transaction_id=" << transaction_id << ", tablet_id=" << tablet_id
@@ -304,7 +311,11 @@ Status EnginePublishVersionTask::execute() {
                         // current just report 0
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
-                        add_error_tablet_id(tablet_id);
+                        Status st = Status::Error<VERSION_NOT_EXIST>(
+                                "check_version_exist failed when publish version. tablet_id={}, "
+                                "version={}",
+                                tablet_info.tablet_id, version);
+                        add_error_tablet_id(tablet_id, st);
                         if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                             LOG(WARNING)
                                     << "publish version failed on transaction, tablet version not "
@@ -387,7 +398,7 @@ void TabletPublishTxnTask::handle() {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << _result;
-        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id, _result);
         return;
     }
 
@@ -401,7 +412,7 @@ void TabletPublishTxnTask::handle() {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << _result;
-        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id, _result);
         return;
     }
     int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
