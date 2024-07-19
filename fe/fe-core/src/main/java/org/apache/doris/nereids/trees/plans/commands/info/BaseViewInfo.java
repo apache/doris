@@ -111,7 +111,7 @@ public class BaseViewInfo {
      * rewriteSql
      * @param indexStringSqlMap indexStringSqlMap
      * @param querySql querySql
-     * @return
+     * @return rewriteSql
      */
     public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
@@ -251,6 +251,9 @@ public class BaseViewInfo {
         }
     }
 
+    /**
+     * PlanSlotFinder
+     */
     public static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
         public static PlanSlotFinder INSTANCE = new PlanSlotFinder();
 
