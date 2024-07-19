@@ -144,7 +144,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "disable_auto_compaction" = "true" );
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "disable_auto_compaction" = "true" );
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
