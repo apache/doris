@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -298,11 +297,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             // null or null
             return new NullLiteral(BooleanType.INSTANCE);
         }
-    }
-
-    @Override
-    public Expression visitLike(Like like, ExpressionRewriteContext context) {
-        return like;
     }
 
     @Override

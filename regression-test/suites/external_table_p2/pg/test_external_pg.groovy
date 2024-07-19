@@ -42,7 +42,7 @@ suite("test_external_pg", "p2") {
                 "user"="${extPgUser}",
                 "password"="${extPgPassword}",
                 "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/ssb?currentSchema=ssb&useCursorFetch=true",
-                "driver_url"="https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/jdbc_drivers/postgresql-42.5.0.jar",
+                "driver_url"="https://${getS3BucketName()}.${getS3Endpoint()}/jdbc_drivers/postgresql-42.5.0.jar",
                 "driver_class"="org.postgresql.Driver"
             );
             """

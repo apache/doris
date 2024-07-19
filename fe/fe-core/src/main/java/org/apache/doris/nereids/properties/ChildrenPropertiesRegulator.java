@@ -249,7 +249,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();
 
-        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
             // check colocate join with scan
             return true;
         } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
