@@ -15,30 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
-public class HiveCommonStatistics {
-    public static final HiveCommonStatistics EMPTY = new HiveCommonStatistics(0L, 0L, 0L);
-
-    private final long rowCount;
-    private final long fileCount;
-    private final long totalFileBytes;
-
-    public HiveCommonStatistics(long rowCount, long fileCount, long totalFileBytes) {
-        this.fileCount = fileCount;
-        this.rowCount = rowCount;
-        this.totalFileBytes = totalFileBytes;
-    }
-
-    public long getRowCount() {
-        return rowCount;
-    }
-
-    public long getFileCount() {
-        return fileCount;
-    }
-
-    public long getTotalFileBytes() {
-        return totalFileBytes;
-    }
+/**
+ * For iceberg External Table
+ */
+public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandContext {
 }
