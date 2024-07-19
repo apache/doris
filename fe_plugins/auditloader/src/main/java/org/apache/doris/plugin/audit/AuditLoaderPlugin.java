@@ -163,7 +163,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
         logBuffer.append(event.ctl).append("\t");
-	logBuffer.append(event.db).append("\t");
+        logBuffer.append(event.db).append("\t");
         logBuffer.append(event.state).append("\t");
         logBuffer.append(event.errorCode).append("\t");
         logBuffer.append(event.errorMessage).append("\t");
@@ -179,12 +179,15 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.sqlHash).append("\t");
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
+        logBuffer.append(event.workloadGroup).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
         String stmt = truncateByBytes(event.stmt).replace("\n", " ")
-                                                    .replace("\t", " ")
-                                                    .replace("\r", " ");
-        LOG.debug("receive audit event with stmt: {}", stmt);
+            .replace("\t", " ")
+            .replace("\r", " ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive audit event with stmt: {}", stmt);
+        }
         logBuffer.append(stmt).append("\n");
     }
 

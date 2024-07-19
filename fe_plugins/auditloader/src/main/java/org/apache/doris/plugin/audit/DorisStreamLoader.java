@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.InternalSchema;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,10 +73,8 @@ public class DorisStreamLoader {
 
         conn.addRequestProperty("label", label);
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, catalog, db, state, error_code, error_message, " +
-                "query_time, scan_bytes, scan_rows, return_rows, stmt_id, stmt_type, is_query, frontend_ip, cpu_time_ms, sql_hash, " +
-                "sql_digest, peak_memory_bytes, stmt");
-
+        conn.addRequestProperty("columns",
+            InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(Collectors.joining(",")));
         conn.setDoOutput(true);
         conn.setDoInput(true);
 
@@ -88,9 +88,9 @@ public class DorisStreamLoader {
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
-        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, catalog, db, state, error_code, " +
-                "error_message, query_time, scan_bytes, scan_rows, return_rows, stmt_id, stmt_type, is_query, frontend_ip, " +
-                "cpu_time_ms, sql_hash, sql_digest, peak_memory_bytes, stmt\" \\\n  ");
+        sb.append("-H \"").append("columns\":")
+            .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
+            Collectors.joining(",")) + "\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }
