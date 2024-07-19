@@ -174,6 +174,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
+            .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
@@ -532,6 +533,7 @@ Status BetaRowset::check_current_rowset_segment() {
                 .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                         : io::FileCachePolicy::NO_CACHE,
                 .is_doris_table = true,
+                .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
         };
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
@@ -634,54 +636,51 @@ Status BetaRowset::add_to_binlog() {
     return Status::OK();
 }
 
-Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count) {
-    if (!is_local()) {
-        DCHECK(false) << _rowset_meta->tablet_id() << ' ' << rowset_id();
-        return Status::OK();
-    }
-
+Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
+    const auto& fs = _rowset_meta->fs();
+    DBUG_EXECUTE_IF("fault_inject::BetaRowset::calc_file_crc",
+                    { return Status::Error<OS_ERROR>("fault_inject calc_file_crc error"); });
     if (num_segments() < 1) {
         *crc_value = 0x92a8fc17; // magic code from crc32c table
         return Status::OK();
     }
 
     // 1. pick up all the files including dat file and idx file
-    std::vector<io::Path> local_paths;
-    for (int i = 0; i < num_segments(); ++i) {
-        auto local_seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
-        local_paths.emplace_back(local_seg_path);
+    std::vector<io::Path> file_paths;
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = DORIS_TRY(segment_path(seg_id));
+        file_paths.emplace_back(seg_path);
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
                 const TabletIndex* index_meta = _schema->get_inverted_index(*column);
                 if (index_meta) {
-                    std::string local_inverted_index_file =
+                    std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
-                                    InvertedIndexDescriptor::get_index_file_path_prefix(
-                                            local_seg_path),
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
-                    local_paths.emplace_back(std::move(local_inverted_index_file));
+                    file_paths.emplace_back(std::move(inverted_index_file));
                 }
             }
         } else {
             if (_schema->has_inverted_index()) {
-                std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(
-                                        local_seg_path));
-                local_paths.emplace_back(std::move(local_inverted_index_file));
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
+                file_paths.emplace_back(std::move(inverted_index_file));
             }
         }
+    }
+    *crc_value = 0;
+    *file_count = file_paths.size();
+    if (!is_local()) {
+        return Status::OK();
     }
 
     // 2. calculate the md5sum of each file
     const auto& local_fs = io::global_local_filesystem();
-    DCHECK(!local_paths.empty());
+    DCHECK(!file_paths.empty());
     std::vector<std::string> all_file_md5;
-    all_file_md5.reserve(local_paths.size());
-    for (const auto& file_path : local_paths) {
-        DBUG_EXECUTE_IF("fault_inject::BetaRowset::calc_local_file_crc", {
-            return Status::Error<OS_ERROR>("fault_inject calc_local_file_crc error");
-        });
+    all_file_md5.reserve(file_paths.size());
+    for (const auto& file_path : file_paths) {
         std::string file_md5sum;
         auto status = local_fs->md5sum(file_path, &file_md5sum);
         if (!status.ok()) {
@@ -694,9 +693,7 @@ Status BetaRowset::calc_local_file_crc(uint32_t* crc_value, int64_t* file_count)
     std::sort(all_file_md5.begin(), all_file_md5.end());
 
     // 3. calculate the crc_value based on all_file_md5
-    DCHECK(local_paths.size() == all_file_md5.size());
-    *crc_value = 0;
-    *file_count = local_paths.size();
+    DCHECK(file_paths.size() == all_file_md5.size());
     for (auto& i : all_file_md5) {
         *crc_value = crc32c::Extend(*crc_value, i.data(), i.size());
     }

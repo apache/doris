@@ -1436,12 +1436,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public long getRowCountForIndex(long indexId) {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            MaterializedIndex index = entry.getValue().getIndex(indexId);
-            rowCount += index == null ? 0 : index.getRowCount();
+        Map<Long, Long> indexesRowCount = statistics.getIndexesRowCount();
+        if (indexesRowCount == null || !indexesRowCount.containsKey(indexId)) {
+            return -1;
         }
-        return rowCount;
+        return indexesRowCount.get(indexId);
     }
 
     @Override
@@ -2505,6 +2504,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildCompressionType();
     }
 
+    public void setRowStorePageSize(long pageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                Long.valueOf(pageSize).toString());
+        tableProperty.buildRowStorePageSize();
+    }
+
+    public long rowStorePageSize() {
+        if (tableProperty != null) {
+            return tableProperty.rowStorePageSize();
+        }
+        return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
@@ -2982,6 +2995,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long segmentCount;
 
+        @Getter
+        private Map<Long, Long> indexesRowCount;
+
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3002,7 +3018,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         public Statistics(String dbName, String tableName,
                 Long dataSize, Long totalReplicaDataSize,
                 Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount) {
+                Long rowsetCount, Long segmentCount, Map<Long, Long> indexesRowCount) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3017,6 +3033,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = rowCount;
             this.rowsetCount = rowsetCount;
             this.segmentCount = segmentCount;
+            this.indexesRowCount = indexesRowCount;
         }
     }
 

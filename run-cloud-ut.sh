@@ -48,24 +48,25 @@ Usage: $0 <options>
      --clean            clean and build ut
      --run              build and run all ut
      --coverage         coverage after run ut
-     --run --filter=xx  build and run specified ut
+     --run --filter=x   build and run specified ut, filter x format is <binary_name>:<gtest_filter>,
+                        a <binary_name> is the name of a cpp file without '.cpp' suffix.
+                        e.g. binary_name of xxx_test.cpp is xxx_test
      --fdb              run with a specific fdb connection string, e.g fdb_cluster0:cluster0@192.168.1.100:4500
      -j                 build parallel
      -h                 print this help message
 
   Eg.
-    $0                                                              build tests
-    $0 --run                                                        build and run all tests
-    $0 --run --filter=*                                             also runs everything
-    $0 --run --filter=FooTest.*                                     runs everything in test suite FooTest
-    $0 --run --filter=*Null*:*Constructor*                          runs any test whose full name contains either 'Null' or 'Constructor'
-    $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
-    $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
-    $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
-    $0 --run --fdb=fdb_cluster0:cluster0@192.168.1.100:4500         run with specific fdb
-    $0 --run --coverage                                             run with coverage report
-    $0 --clean                                                      clean and build tests
-    $0 --clean --run                                                clean, build and run all tests
+    $0                                                                          build tests
+    $0 --run                                                                    build and run all tests
+    $0 --run --filter=recycler_test:FooTest.*                                   runs everying of test suite FooTest in recycler_test.cpp
+    $0 --run --filter=recycler_test:*Null*:*Constructor*                        runs any test whose full name contains either 'Null' or 'Constructor' in recycler_test.cpp
+    $0 --run --filter=recycler_test:-*DeathTest.*                               runs all non-death tests in recycler_test.cpp
+    $0 --run --filter=recycler_test:FooTest.*-FooTest.Bar                       runs everything in test suite FooTest except FooTest.Bar in recycler_test.cpp
+    $0 --run --filter=recycler_test:FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo in recycler_test.cpp
+    $0 --run --fdb=fdb_cluster0:cluster0@192.168.1.100:4500                     run with specific fdb
+    $0 --run --coverage                                                         run with coverage report
+    $0 --clean                                                                  clean and build tests
+    $0 --clean --run                                                            clean, build and run all tests
     "
     exit 1
 }

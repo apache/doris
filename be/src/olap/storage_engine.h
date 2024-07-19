@@ -256,7 +256,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force);
+                                  bool force, bool eager = true);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 

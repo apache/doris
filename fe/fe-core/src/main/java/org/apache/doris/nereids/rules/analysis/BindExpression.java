@@ -591,9 +591,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
                 UnboundStar unboundStar = (UnboundStar) expression;
-                unboundStar.getIndexInSqlString().ifPresent(pair ->
-                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
-                );
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
             }
         }
         return project.withProjects(boundProjections.build());

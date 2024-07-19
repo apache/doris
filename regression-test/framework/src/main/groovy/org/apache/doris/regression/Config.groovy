@@ -253,6 +253,17 @@ class Config {
         this.cloudVersion = cloudVersion
     }
 
+    static String removeDirectoryPrefix(String str) {
+        def prefixes = ["./regression-test/suites/", "regression-test/suites/"]
+
+        def prefix = prefixes.find { str.startsWith(it) }
+        if (prefix) {
+            return str.substring(prefix.length())
+        }
+
+        return str
+    }
+
     static Config fromCommandLine(CommandLine cmd) {
         String confFilePath = cmd.getOptionValue(confFileOpt, "")
         File confFile = new File(confFilePath)
@@ -295,7 +306,9 @@ class Config {
                 .toSet()
         config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
                 .split(",")
-                .collect({d -> d.trim()})
+                .collect({d -> 
+                    d.trim()
+                    removeDirectoryPrefix(d)})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
         config.excludeSuiteWildcard = cmd.getOptionValue(excludeSuiteOpt, config.excludeSuites)

@@ -394,8 +394,6 @@ public class SessionVariable implements Serializable, Writable {
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
-    public static final String REPEAT_MAX_NUM = "repeat_max_num";
-
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
@@ -585,6 +583,8 @@ public class SessionVariable implements Serializable, Writable {
             = "create_table_partition_max_num";
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
 
@@ -1299,7 +1299,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastRightTableScaleFactor = 0.0;
 
     @VariableMgr.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
-    private double leftSemiOrAntiProbeFactor = 0.1;
+    private double leftSemiOrAntiProbeFactor = 0.05;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
@@ -1432,9 +1432,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = false;
-
-    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
-    public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
@@ -1669,7 +1666,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 2;
 
-    @VariableMgr.VarAttr(name = GROUP_COMMIT)
+    @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
@@ -1853,6 +1850,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"建表时创建分区的最大数量",
                     "The maximum number of partitions created during table creation"})
     public int createTablePartitionMaxNum = 10000;
+
+
+    @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
+            description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
+                    "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
+    public boolean keepCarriageReturn = false;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -3314,6 +3317,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
 
+    public boolean isKeepCarriageReturn() {
+        return keepCarriageReturn;
+    }
+
+    public void setKeepCarriageReturn(boolean keepCarriageReturn) {
+        this.keepCarriageReturn = keepCarriageReturn;
+    }
+
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
     }
@@ -3538,8 +3549,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
-        tResult.setRepeatMaxNum(repeatMaxNum);
-
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setExternalAggBytesThreshold(0); // disable for now
@@ -3597,6 +3606,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
+        tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }
 

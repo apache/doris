@@ -269,6 +269,7 @@ import org.apache.thrift.TException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1415,6 +1416,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (String tbl : tbNames) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
+        }
+        if (tables.size() > 1) {
+            tables.sort(Comparator.comparing(Table::getId));
         }
         // if it has multi table, use multi table and update multi table running
         // transaction table ids
@@ -3264,8 +3268,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
-        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
-                target.columns, tableStats, partitionNames);
+        if (target.isTruncate) {
+            analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
+                    target.tableId, tableStats, partitionNames);
+        } else {
+            analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
+                    target.columns, tableStats, partitionNames);
+        }
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3357,7 +3366,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(

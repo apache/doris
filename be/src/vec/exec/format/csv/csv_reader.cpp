@@ -368,17 +368,21 @@ Status CsvReader::init_reader(bool is_load) {
     _options.converted_from_string = _trim_double_quotes;
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
+    if (_state != nullptr) {
+        _keep_cr = _state->query_options().keep_carriage_return;
+    }
+
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
     if (_enclose == 0) {
-        text_line_reader_ctx =
-                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
+        text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
+                _line_delimiter, _line_delimiter_length, _keep_cr);
 
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape);
+                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, !_not_trim_enclose,
@@ -881,20 +885,24 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
 
+    if (_state != nullptr) {
+        _keep_cr = _state->query_options().keep_carriage_return;
+    }
+
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
     if (_enclose == 0) {
-        text_line_reader_ctx =
-                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
+        text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
+                _line_delimiter, _line_delimiter_length, _keep_cr);
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
                 _trim_tailing_spaces, _trim_double_quotes, _value_separator,
                 _value_separator_length);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape);
+                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
                 std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
