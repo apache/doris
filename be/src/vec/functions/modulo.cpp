@@ -37,12 +37,13 @@ template <typename A, typename B>
 inline void throw_if_division_leads_to_FPE(A a, B b) {
     // http://avva.livejournal.com/2548306.html
     // (-9223372036854775808 % -1) will cause coredump directly, so check this case to throw exception, or maybe could return 0 as result
-    if (UNLIKELY(std::is_signed_v<A> && std::is_signed_v<B> && a == std::numeric_limits<A>::min() &&
-                 b == -1)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Division of minimal signed number by minus one is an undefined "
-                        "behavior, {} % {}. ",
-                        a, b);
+    if constexpr (std::is_signed_v<A> && std::is_signed_v<B>) {
+        if (b == -1 && a == std::numeric_limits<A>::min()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Division of minimal signed number by minus one is an undefined "
+                            "behavior, {} % {}. ",
+                            a, b);
+        }
     }
 }
 
