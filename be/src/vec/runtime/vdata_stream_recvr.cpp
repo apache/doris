@@ -503,7 +503,7 @@ void VDataStreamRecvr::close() {
     }
     _is_closed = true;
     for (auto& it : _sender_to_local_channel_dependency) {
-        it->set_ready();
+        it->set_always_ready();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
