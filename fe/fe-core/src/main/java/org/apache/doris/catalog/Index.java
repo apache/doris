@@ -29,6 +29,8 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
@@ -68,9 +70,9 @@ public class Index implements Writable {
             IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
         this.indexId = indexId;
         this.indexName = indexName;
-        this.columns = columns;
+        this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
-        this.properties = properties;
+        this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
