@@ -75,7 +75,7 @@ public class InternalSchemaAlterTest extends TestWithFeService {
     @Test
     public void testCheckAuditLogTable() throws AnalysisException {
         Database db = Env.getCurrentEnv().getCatalogMgr()
-            .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
+                .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         Assertions.assertNotNull(db);
         OlapTable table = db.getOlapTableOrAnalysisException(AuditLoaderPlugin.AUDIT_LOG_TABLE);
         Assertions.assertNotNull(table);

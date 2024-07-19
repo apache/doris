@@ -380,11 +380,11 @@ public class QueryStmtTest {
         Assert.assertEquals(stmt.stmtType(), StmtType.SELECT);
 
         sql = "drop table a";
-        stmt = UtFrameUtils.onlyParse(sql, ctx);;
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
         Assertions.assertEquals(stmt.stmtType(), StmtType.DROP);
 
         sql = "use a";
-        stmt = UtFrameUtils.onlyParse(sql, ctx);;
+        stmt = UtFrameUtils.onlyParse(sql, ctx);
         Assertions.assertEquals(stmt.stmtType(), StmtType.USE);
 
         sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";

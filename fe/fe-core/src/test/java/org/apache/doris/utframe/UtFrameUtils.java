@@ -145,8 +145,7 @@ public class UtFrameUtils {
         return statementBases;
     }
 
-    public static StatementBase onlyParse(String originStmt, ConnectContext ctx)
-        throws Exception {
+    public static StatementBase onlyParse(String originStmt, ConnectContext ctx) throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
