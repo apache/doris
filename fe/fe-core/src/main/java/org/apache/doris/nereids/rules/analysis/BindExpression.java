@@ -110,6 +110,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -622,6 +623,14 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
+        if (boundAggOutput.size() == 1 && boundAggOutput.get(0) instanceof BoundStar) {
+            // select * from t group by 1
+            // the aggregate node's output is BoundStar and need to be replaced with real slots
+            BoundStar boundStar = (BoundStar) boundAggOutput.get(0);
+            List<NamedExpression> boundProjections = new ArrayList<>();
+            boundProjections.addAll(boundStar.getSlots());
+            boundAggOutput = boundProjections;
+        }
         Supplier<Scope> aggOutputScopeWithoutAggFun = buildAggOutputScopeWithoutAggFun(boundAggOutput, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
                  agg, agg.getGroupByExpressions(), boundAggOutput, aggOutputScopeWithoutAggFun, cascadesContext);
