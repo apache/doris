@@ -223,11 +223,12 @@ private:
         }
         std::lock_guard<bthread::Mutex> lock(_cancel_mutex);
         return Status::Cancelled("load_id={}, reason: {}", print_id(_load_id),
-                                 _cancel_reason.to_string_no_stack());
+                                 _cancel_st.to_string_no_stack());
     }
 
 protected:
     std::atomic<bool> _is_init;
+    std::atomic<bool> _is_closing;
     std::atomic<bool> _is_closed;
     std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
@@ -236,7 +237,9 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    Status _cancel_reason;
+    Status _init_st;
+    Status _close_st;
+    Status _cancel_st;
 
     bthread::Mutex _open_mutex;
     bthread::Mutex _close_mutex;

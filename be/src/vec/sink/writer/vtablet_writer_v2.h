@@ -149,7 +149,7 @@ private:
 
     Status _close_wait(bool incremental);
 
-    Status _cancel(Status status);
+    void _cancel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
