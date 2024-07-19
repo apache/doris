@@ -509,7 +509,8 @@ TEST(MathFunctionTest, money_format_test) {
         InputTypeSet input_types = {TypeIndex::Float64};
         DataSet data_set = {{{Null()}, Null()},
                             {{DOUBLE(17014116.67)}, VARCHAR("17,014,116.67")},
-                            {{DOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")}};
+                            {{DOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")},
+                            {{DOUBLE(-123.45)}, VARCHAR("-123.45")}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
