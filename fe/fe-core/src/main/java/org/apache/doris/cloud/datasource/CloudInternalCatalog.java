@@ -939,7 +939,12 @@ public class CloudInternalCatalog extends InternalCatalog {
                 List<Long> tabletIds = info.getTabletIds();
                 for (int i = 0; i < tabletIds.size(); ++i) {
                     Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
-                    Replica replica = tablet.getReplicas().get(0);
+                    Replica replica;
+                    if (info.getReplicaIds().isEmpty()) {
+                        replica = tablet.getReplicas().get(0);
+                    } else {
+                        replica = tablet.getReplicaById(info.getReplicaIds().get(i));
+                    }
                     Preconditions.checkNotNull(replica, info);
 
                     String clusterId = info.getClusterId();
