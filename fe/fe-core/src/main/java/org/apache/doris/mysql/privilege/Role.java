@@ -1123,7 +1123,7 @@ public class Role implements Writable, GsonPostProcessable {
                     privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
                 }
             });
-        } else {
+        } else if (Config.isCloudMode()) {
             // cloud mode
             // For versions greater than VERSION_123, the cloud requires compatibility logic.
 
