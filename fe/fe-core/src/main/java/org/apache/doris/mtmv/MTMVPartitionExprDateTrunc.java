@@ -78,6 +78,8 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                         "partitionColumnType should be date/datetime "
                                 + "when PartitionType is range and expr is date_trunc");
             }
+        } else {
+            throw new AnalysisException("date_trunc only support range partition");
         }
     }
 
