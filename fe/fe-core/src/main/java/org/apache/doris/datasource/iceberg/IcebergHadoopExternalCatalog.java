@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 
@@ -30,6 +32,8 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
+
+    private final HadoopAuthenticator authenticator;
 
     public IcebergHadoopExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                         String comment) {
@@ -47,6 +51,13 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
             }
             catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
         }
+        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+        authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+    }
+
+    @Override
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
     }
 
     @Override

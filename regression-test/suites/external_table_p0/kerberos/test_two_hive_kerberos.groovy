@@ -1,5 +1,3 @@
-import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -98,8 +96,32 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
 
         thread1.join()
         thread2.join()
+
+        // 4. test iceberg catalog with kerberos
+        sql """
+            CREATE CATALOG IF NOT EXISTS iceberg
+            PROPERTIES ( 
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
+                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
+                "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
+            );
+        """
+
+        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_iceberg_db`; """
+        sql """ USE `test_krb_iceberg_db`; """
+
+
+        sql """ DROP DATABASE IF EXISTS `test_krb_iceberg_db`; """
+
+        // TODO: add tvf case
+
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""
-        // TODO: add tvf case
     }
 }

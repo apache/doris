@@ -32,7 +32,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -102,7 +101,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+            source = new IcebergHMSSource((HMSExternalTable) table, desc);
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -111,7 +110,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 case IcebergExternalCatalog.ICEBERG_DLF:
                 case IcebergExternalCatalog.ICEBERG_GLUE:
                 case IcebergExternalCatalog.ICEBERG_HADOOP:
-                    source = new IcebergApiSource((IcebergExternalTable) table, desc, columnNameToRange);
+                    source = new IcebergApiSource((IcebergExternalTable) table, desc);
                     break;
                 default:
                     Preconditions.checkState(false, "Unknown iceberg catalog type: " + catalogType);
@@ -177,7 +176,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
-        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+        try {
+            return source.getCatalog().getAuthenticator().doAs(this::doGetSplits);
+        } catch (IOException e) {
+            throw new UserException(e);
+        }
     }
 
     private List<Split> doGetSplits() throws UserException {
