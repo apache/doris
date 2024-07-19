@@ -31,6 +31,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.stream.Collectors;
 
 public class DorisStreamLoader {
     private final static Logger LOG = LogManager.getLogger(DorisStreamLoader.class);
