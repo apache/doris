@@ -154,8 +154,6 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
-import org.apache.doris.resource.workloadgroup.QueryQueue;
-import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -656,61 +654,35 @@ public class StmtExecutor {
     }
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
-        // queue query here
-        QueueOfferToken offerRet = null;
-        QueryQueue queryQueue = null;
-        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
-                && context.getSessionVariable().getEnablePipelineEngine()) {
-            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            try {
-                offerRet = queryQueue.offer();
-            } catch (InterruptedException e) {
-                // this Exception means try lock/await failed, so no need to handle offer result
-                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
-                throw new RuntimeException("interrupted Exception happens when queue query");
-            }
-            if (offerRet != null && !offerRet.isOfferSuccess()) {
-                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                throw new UserException(retMsg);
-            }
-        }
-
         int retryTime = Config.max_query_retry_time;
-        try {
-            for (int i = 0; i < retryTime; i++) {
-                try {
-                    //reset query id for each retry
-                    if (i > 0) {
-                        UUID uuid = UUID.randomUUID();
-                        TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                                uuid.getLeastSignificantBits());
-                        AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
-                                DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
-                        context.setQueryId(newQueryId);
-                    }
-                    handleQueryStmt();
-                    break;
-                } catch (RpcException e) {
-                    if (i == retryTime - 1) {
-                        throw e;
-                    }
-                    if (!context.getMysqlChannel().isSend()) {
-                        LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
-                    } else {
-                        throw e;
-                    }
-                } finally {
-                    // The final profile report occurs after be returns the query data, and the profile cannot be
-                    // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-                    // for the profile before unregisterQuery().
-                    updateProfile(true);
-                    QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+        for (int i = 0; i < retryTime; i++) {
+            try {
+                //reset query id for each retry
+                if (i > 0) {
+                    UUID uuid = UUID.randomUUID();
+                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
+                            uuid.getLeastSignificantBits());
+                    AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
+                            DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                    context.setQueryId(newQueryId);
                 }
-            }
-        } finally {
-            if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.poll();
+                handleQueryStmt();
+                break;
+            } catch (RpcException e) {
+                if (i == retryTime - 1) {
+                    throw e;
+                }
+                if (!context.getMysqlChannel().isSend()) {
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                } else {
+                    throw e;
+                }
+            } finally {
+                // The final profile report occurs after be returns the query data, and the profile cannot be
+                // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
+                // for the profile before unregisterQuery().
+                updateProfile(true);
+                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
         }
     }
@@ -1549,6 +1521,7 @@ public class StmtExecutor {
         try (Scope scope = queryScheduleSpan.makeCurrent()) {
             coordBase.exec();
         } catch (Exception e) {
+            coordBase.close();
             queryScheduleSpan.recordException(e);
             throw e;
         } finally {
@@ -1648,6 +1621,7 @@ public class StmtExecutor {
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
+            coordBase.close();
             fetchResultSpan.end();
             if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
@@ -2092,6 +2066,7 @@ public class StmtExecutor {
                  */
                 throwable = t;
             } finally {
+                coord.close();
                 updateProfile(true);
                 QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
@@ -2762,6 +2737,7 @@ public class StmtExecutor {
             try (Scope scope = queryScheduleSpan.makeCurrent()) {
                 coord.exec();
             } catch (Exception e) {
+                coord.close();
                 queryScheduleSpan.recordException(e);
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
@@ -2782,6 +2758,7 @@ public class StmtExecutor {
                 fetchResultSpan.recordException(e);
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             } finally {
+                coord.close();
                 fetchResultSpan.end();
             }
         } finally {

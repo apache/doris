@@ -69,6 +69,8 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -263,6 +265,8 @@ public class Coordinator implements CoordInterface {
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
 
+    private ConnectContext context;
+
     private PointQueryExec pointExec = null;
 
     private StatsErrorEstimator statsErrorEstimator;
@@ -274,6 +278,9 @@ public class Coordinator implements CoordInterface {
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
+
+    private QueueOfferToken offerRet = null;
+    private QueryQueue queryQueue = null;
 
     public ExecutionProfile getExecutionProfile() {
         return executionProfile;
@@ -291,6 +298,7 @@ public class Coordinator implements CoordInterface {
 
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+        this.context = context;
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -555,6 +563,48 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        // LoadTask does not have context, not controlled by queue now
+        if (context != null) {
+            if (Config.enable_workload_group) {
+                this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                boolean shouldQueue = Config.enable_query_queue;
+                if (shouldQueue) {
+                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    if (queryQueue == null) {
+                        // This logic is actually useless, because when could not find query queue, it will
+                        // throw exception during workload group manager.
+                        throw new UserException("could not find query queue");
+                    }
+                    try {
+                        offerRet = queryQueue.offer();
+                    } catch (InterruptedException e) {
+                        // this Exception means try lock/await failed, so no need to handle offer result
+                        LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
+                        throw new RuntimeException("interrupted Exception happens when queue query");
+                    }
+                    if (offerRet != null && !offerRet.isOfferSuccess()) {
+                        String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
+                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
+                        throw new UserException(retMsg);
+                    }
+                }
+            } else {
+                context.setWorkloadGroupName("");
+            }
+        }
+        execInternal();
+    }
+
+    @Override
+    public void close() {
+        if (queryQueue != null && offerRet != null && offerRet.isOfferSuccess()) {
+            queryQueue.poll();
+            queryQueue = null;
+            offerRet = null;
+        }
+    }
+
+    private void execInternal() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());

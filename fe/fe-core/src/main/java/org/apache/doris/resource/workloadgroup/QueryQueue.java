@@ -57,7 +57,9 @@ public class QueryQueue {
         // to prevent hang
         // the lock shouldn't be hold for too long
         // we should catch the case when it happens
-        queueLock.tryLock(5, TimeUnit.SECONDS);
+        if (!queueLock.tryLock(5, TimeUnit.SECONDS)) {
+            return new QueueOfferToken(false, "query lock 5s timeout");
+        }
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
@@ -94,8 +96,8 @@ public class QueryQueue {
         }
     }
 
-    public void poll() throws InterruptedException {
-        queueLock.tryLock(5, TimeUnit.SECONDS);
+    public void poll() {
+        queueLock.lock();
         try {
             currentRunningQueryNum--;
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
@@ -113,7 +115,9 @@ public class QueryQueue {
 
     public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout) {
         try {
-            queueLock.tryLock(5, TimeUnit.SECONDS);
+            if (!queueLock.tryLock(5, TimeUnit.SECONDS)) {
+                throw new InterruptedException("queue lock 5s timeout");
+            }
             try {
                 this.maxConcurrency = maxConcurrency;
                 this.maxQueueSize = maxQueueSize;
