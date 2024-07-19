@@ -48,7 +48,7 @@ public class PublishVersionTask extends AgentTask {
 
     private List<Long> errorTablets;
 
-    private List<Status> errorStatuses;
+    private Map<Long, Status> errorStatuses = Maps.newHashMap();
 
     // tabletId => version, current version = 0
     private Map<Long, Long> succTablets;
@@ -65,7 +65,6 @@ public class PublishVersionTask extends AgentTask {
         this.partitionVersionInfos = partitionVersionInfos;
         this.succTablets = null;
         this.errorTablets = new ArrayList<>();
-        this.errorStatuses = new ArrayList<>();
         this.isFinished = false;
     }
 
@@ -104,17 +103,17 @@ public class PublishVersionTask extends AgentTask {
         this.errorTablets.addAll(errorTablets);
     }
 
-    public synchronized List<Status> getErrorStatuses() {
+    public synchronized Map<Long, Status> getErrorStatuses() {
         return errorStatuses;
     }
 
-    public synchronized void addErrorStatuses(List<TStatus> errorStatuses) {
+    public synchronized void addErrorStatuses(List<Long> errorTablets, List<TStatus> errorStatuses) {
         this.errorStatuses.clear();
         if (errorStatuses == null) {
             return;
         }
-        for (TStatus st : errorStatuses) {
-            this.errorTablets.add(new Status(st));
+        for (int i = 0; i < errorTablets.size(); i++) {
+            tableIdToTabletDeltaRows.put(errorTablets.get(i), errorStatuses.get(i));
         }
     }
 

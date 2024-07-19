@@ -184,6 +184,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             for (PublishVersionTask task : tasks) {
                 if (task.isFinished()) {
                     calculateTaskUpdateRows(tableIdToTabletDeltaRows, task);
+                    setReplicaLastErrorStatus(transactionState, beId, task);
                 } else {
                     if (infoService.checkBackendAlive(task.getBackendId())) {
                         hasBackendAliveAndUnfinishedTask.set(true);
@@ -265,6 +266,16 @@ public class PublishVersionDaemon extends MasterDaemon {
                     tableIdToTabletDeltaRows.put(tableEntry.getKey(), tableEntry.getValue());
                 }
             }
+        }
+    }
+
+    private void setReplicaLastErrorStatus(TransactionState transactionState, long beId, PublishVersionTask task) {
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
+        for (Entry<Long, Status> entry : task.getErrorStatuses()) {
+            long tabletId = entry.getKey();
+            Status st = entry.getValue();
+            long replicaId = tabletInvertedIndex.getReplica(tabletId, beId);
+            transactionState.addReplicaLastErrorStatus(replicaId, st);
         }
     }
 

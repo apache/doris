@@ -229,6 +229,8 @@ public class TransactionState implements Writable {
     // error replica ids
     @SerializedName(value = "errorReplicas")
     private Set<Long> errorReplicas;
+
+    private Map<Long, Status> replicaLastErrorStatuses = Maps.newHashMap();
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
@@ -386,6 +388,10 @@ public class TransactionState implements Writable {
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
+    }
+
+    public void addReplicaLastErrorStatus(long replica, Status st) {
+        replicaLastErrorStatuses.put(replica, st);
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {

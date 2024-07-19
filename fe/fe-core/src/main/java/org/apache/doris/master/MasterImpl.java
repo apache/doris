@@ -511,7 +511,7 @@ public class MasterImpl {
             errorTabletIds = request.getErrorTabletIds();
         }
 
-        List<TStatus> errorStatuses == null;
+        List<TStatus> errorStatuses = null;
         if (request.isSetErrorStatuses()) {
             errorStatuses = request.getErrorStatuses();
         }
@@ -526,7 +526,7 @@ public class MasterImpl {
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.setSuccTablets(succTablets);
         publishVersionTask.addErrorTablets(errorTabletIds);
-        publishVersionTask.addErrorStatuses(errorStatuses);
+        publishVersionTask.addErrorStatuses(errorTabletIds, errorStatuses);
         publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {

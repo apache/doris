@@ -109,6 +109,7 @@ public class Replica {
     // the last load failed version
     @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
     private long lastFailedVersion = -1L;
+    private Status lastFailedStatus;
     @Deprecated
     @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
     private long lastFailedVersionHash = 0L;
@@ -290,6 +291,14 @@ public class Replica {
 
     public long getLastFailedVersion() {
         return lastFailedVersion;
+    }
+
+    public void setLastFailedStatus(Status st) {
+        this.lastFailedStatus = st;
+    }
+
+    public Status getLastFailedStatus() {
+        return lastFailedStatus;
     }
 
     public long getLastFailedTimestamp() {
