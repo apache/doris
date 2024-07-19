@@ -403,8 +403,6 @@ public class LoadAction extends RestBaseController {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
-            // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setThreadLocalInfo();
 
             try {
