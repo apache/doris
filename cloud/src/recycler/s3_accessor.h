@@ -34,6 +34,7 @@ class S3RateLimiterHolder;
 enum class S3RateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
+class SimpleThreadPool;
 
 struct AccessorRateLimiter {
 public:
