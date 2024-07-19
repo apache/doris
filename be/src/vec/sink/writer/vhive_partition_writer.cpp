@@ -19,6 +19,8 @@
 
 #include <aws/s3/model/CompletedPart.h>
 
+#include <utility>
+
 #include "io/file_factory.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
@@ -31,15 +33,13 @@
 namespace doris {
 namespace vectorized {
 
-VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
-                                           TUpdateMode::type update_mode,
-                                           const VExprContextSPtrs& write_output_expr_ctxs,
-                                           std::vector<std::string> write_column_names,
-                                           WriteInfo write_info, std::string file_name,
-                                           int file_name_index,
-                                           TFileFormatType::type file_format_type,
-                                           TFileCompressType::type hive_compress_type,
-                                           const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(
+        const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
+        const VExprContextSPtrs& write_output_expr_ctxs,
+        std::vector<std::string> write_column_names, WriteInfo write_info, std::string file_name,
+        int file_name_index, TFileFormatType::type file_format_type,
+        TFileCompressType::type hive_compress_type, THiveSerDeProperties& hive_serde_properties,
+        const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
           _write_output_expr_ctxs(write_output_expr_ctxs),
@@ -49,6 +49,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
+          _hive_serde_properties(hive_serde_properties),
           _hadoop_conf(hadoop_conf) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -111,9 +112,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
         // TODO : support args from hive
-        _file_format_transformer.reset(new VCSVTransformer(state, _file_writer.get(),
-                                                           _write_output_expr_ctxs, false, "csv",
-                                                           "", ",", "\n", false));
+        _file_format_transformer.reset(new VCSVTransformer(
+                state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
+                _hive_serde_properties.field_delim, _hive_serde_properties.line_delim, false));
         return _file_format_transformer->open();
     }
     default: {

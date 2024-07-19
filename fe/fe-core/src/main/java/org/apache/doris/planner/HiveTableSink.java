@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
@@ -38,6 +39,7 @@ import org.apache.doris.thrift.THiveColumn;
 import org.apache.doris.thrift.THiveColumnType;
 import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartition;
+import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -50,6 +52,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class HiveTableSink extends BaseExternalTableDataSink {
+    public static final String PROP_FIELD_DELIMITER = "field.delim";
+    public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
+    public static final String PROP_LINE_DELIMITER = "line.delim";
+    public static final String DEFAULT_LINE_DELIMITER = "\n";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
 
     private final HMSExternalTable targetTable;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -193,6 +200,23 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             partitions.add(hivePartition);
         }
         tSink.setPartitions(partitions);
+    }
+
+    private void setSerDeProperties(THiveTableSink tSink) {
+        THiveSerDeProperties serDeProperties = new THiveSerDeProperties();
+        // 1. set field delimiter
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_SERIALIZATION_FORMAT);
+        serDeProperties.setFieldDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat)));
+        // 2. set line delimiter
+        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_LINE_DELIMITER);
+        serDeProperties.setLineDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_LINE_DELIMITER, lineDelim)));
+        tSink.setSerdeProperties(serDeProperties);
     }
 
     protected TDataSinkType getDataSinkType() {
