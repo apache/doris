@@ -174,6 +174,9 @@ public class ConnectContext {
     protected String defaultCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
     protected boolean isSend;
 
+    // record last used database of every catalog
+    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
+
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
 
     protected String remoteIP;
@@ -319,6 +322,18 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public void addLastDBOfCatalog(String catalog, String db) {
+        lastDBOfCatalog.put(catalog, db);
+    }
+
+    public String getLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
+    }
+
+    public String removeLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
     }
 
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {

@@ -145,9 +145,24 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         sql """alter catalog ${catalog_name} rename hms;"""
 
         sql """switch hms;"""
-
-        def res3 = sql """select count(*) from test.hive_test limit 10;"""
+        sql """use test;"""
+        def res3 = sql """select count(*) from hive_test limit 10;"""
         logger.info("recoding select: " + res3.toString())
+
+        def user = 'account_user_test'
+        def pwd = 'C123_567p'
+        try_sql("DROP USER ${user}")
+        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+        sql """GRANT SELECT_PRIV on *.*.* to '${user}'"""
+        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+            sql """switch hms;"""
+            try {
+                sql """show tables;"""
+                assertTrue(false)
+            } catch (Exception e) {
+                assertTrue(e.getMessage().contains("No database selected"))
+            }
+        }
 
         sql """alter catalog hms rename ${catalog_name};"""
 
