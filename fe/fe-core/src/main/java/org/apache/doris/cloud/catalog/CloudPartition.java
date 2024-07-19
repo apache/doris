@@ -130,8 +130,8 @@ public class CloudPartition extends Partition {
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
                 // Cache visible version, see hasData() for details.
-                assert resp.getVersionUpdateTimeMsList().size() == 1;
-                setCachedVisibleVersion(version, resp.getVersionUpdateTimeMs(0));
+                long mTime = resp.getVersionUpdateTimeMsList().size() == 1 ? resp.getVersionUpdateTimeMs(0) : 0;
+                setCachedVisibleVersion(version, mTime);
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
                 version = Partition.PARTITION_INIT_VERSION;
