@@ -46,7 +46,7 @@ static uint8_t NEXT_THREE_BYTE = 253;
 static uint8_t NEXT_EIGHT_BYTE = 254;
 // the EXTRA_RESERVE_BYTE wanner to make sure _pos pointer is always in _buf memory
 // used in reserve() for allocate current buffer
-static size_t EXTRA_RESERVE_BYTE = 128;
+static size_t EXTRA_RESERVE_BYTE = 16;
 
 // the first byte:
 // <= 250: length
