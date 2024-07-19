@@ -82,9 +82,9 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
         }
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     } else {
+        // value columns
         size_t left = num_rows;
         while (left > 0) {
-            // value columns
             uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
             VLOG_NOTICE << "num_rows_written: " << num_rows_written
                         << ", _cur_writer_idx: " << _cur_writer_idx;
