@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -76,7 +77,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -509,29 +509,8 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         Set<String> tableNames = new HashSet<>();
-        List<Plan> children = join.children();
-        for (Plan child : children) {
-            // get alias name
-            if (child instanceof LogicalSubQueryAlias) {
-                LogicalSubQueryAlias subQueryAlias = (LogicalSubQueryAlias) child;
-                String alias = subQueryAlias.getAlias();
-
-                if (!tableNames.add(alias)) {
-                    throw new AnalysisException("Not unique table/alias: '" + alias + "'");
-                }
-                // get table name
-            } else if (child instanceof LogicalFilter) {
-                Plan grandChild = child.children().get(0);
-                if (grandChild instanceof LogicalOlapScan) {
-                    LogicalOlapScan olapScan = (LogicalOlapScan) grandChild;
-                    String tableName = olapScan.getTable().getName();
-
-                    if (!tableNames.add(tableName)) {
-                        throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
-                    }
-                }
-            }
-        }
+        // Call the recursive method to check for duplicate table names or aliases in the plan
+        checkPlan(join, tableNames);
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
@@ -556,6 +535,35 @@ public class BindExpression implements AnalysisRuleFactory {
                 join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
     }
+
+    // Recursive method to check for duplicate table names or aliases
+    private void checkPlan(Plan plan, Set<String> tableNames) throws AnalysisException {
+        if (plan instanceof LogicalSubQueryAlias) {
+            LogicalSubQueryAlias subQueryAlias = (LogicalSubQueryAlias) plan;
+            String alias = subQueryAlias.getAlias();
+
+            if (!tableNames.add(alias)) {
+                throw new AnalysisException("Not unique table/alias: '" + alias + "'");
+            }
+        }
+
+        if (plan instanceof LogicalCatalogRelation) {
+            LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
+            String tableName = relation.getTable().getName();
+
+            if (!tableNames.add(tableName)) {
+                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
+            }
+        }
+
+        // Recursively check the children of the current plan
+        for (Plan child : plan.children()) {
+            checkPlan(child, tableNames);
+        }
+    }
+
+
+
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
         UsingJoin<Plan, Plan> using = ctx.root;
