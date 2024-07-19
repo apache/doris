@@ -225,6 +225,11 @@ public:
                               PJdbcTestConnectionResult* result,
                               google::protobuf::Closure* done) override;
 
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -285,11 +290,6 @@ public:
     void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
                                     const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response,
-                                    google::protobuf::Closure* done) override;
-
-    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                    const PFetchRemoteSchemaRequest* request,
-                                    PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
 private:
