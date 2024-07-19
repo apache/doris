@@ -294,7 +294,7 @@ Status EnginePublishVersionTask::execute() {
             TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id);
             auto tablet_id = tablet_info.tablet_id;
             if (tablet == nullptr) {
-                Status st = Status::Error<PUSH_TABLE_NOT_EXIST>(
+                Status st = Status::Error<PUSH_TABLE_NOT_EXIST, false>(
                         "can't get tablet when publish version. tablet_id={}",
                         tablet_info.tablet_id);
                 add_error_tablet_id(tablet_id, st);
@@ -311,10 +311,10 @@ Status EnginePublishVersionTask::execute() {
                         // current just report 0
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
-                        Status st = Status::Error<VERSION_NOT_EXIST>(
+                        Status st = Status::Error<VERSION_NOT_EXIST, false>(
                                 "check_version_exist failed when publish version. tablet_id={}, "
                                 "version={}",
-                                tablet_info.tablet_id, version);
+                                tablet_info.tablet_id, version.to_string());
                         add_error_tablet_id(tablet_id, st);
                         if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                             LOG(WARNING)

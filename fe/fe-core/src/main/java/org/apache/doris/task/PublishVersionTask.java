@@ -17,8 +17,10 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Maps;
@@ -46,6 +48,8 @@ public class PublishVersionTask extends AgentTask {
 
     private List<Long> errorTablets;
 
+    private List<Status> errorStatuses;
+
     // tabletId => version, current version = 0
     private Map<Long, Long> succTablets;
 
@@ -61,6 +65,7 @@ public class PublishVersionTask extends AgentTask {
         this.partitionVersionInfos = partitionVersionInfos;
         this.succTablets = null;
         this.errorTablets = new ArrayList<>();
+        this.errorStatuses = new ArrayList<>();
         this.isFinished = false;
     }
 
@@ -97,6 +102,20 @@ public class PublishVersionTask extends AgentTask {
             return;
         }
         this.errorTablets.addAll(errorTablets);
+    }
+
+    public synchronized List<Status> getErrorStatuses() {
+        return errorStatuses;
+    }
+
+    public synchronized void addErrorStatuses(List<TStatus> errorStatuses) {
+        this.errorStatuses.clear();
+        if (errorStatuses == null) {
+            return;
+        }
+        for (TStatus st : errorStatuses) {
+            this.errorTablets.add(new Status(st));
+        }
     }
 
     public void setTableIdTabletsDeltaRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows) {

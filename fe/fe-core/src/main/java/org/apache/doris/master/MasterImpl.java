@@ -511,6 +511,11 @@ public class MasterImpl {
             errorTabletIds = request.getErrorTabletIds();
         }
 
+        List<TStatus> errorStatuses == null;
+        if (request.isSetErrorStatuses()) {
+            errorStatuses = request.getErrorStatuses();
+        }
+
         if (request.isSetReportVersion()) {
             // report version is required. here we check if set, for compatibility.
             long reportVersion = request.getReportVersion();
@@ -521,6 +526,7 @@ public class MasterImpl {
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.setSuccTablets(succTablets);
         publishVersionTask.addErrorTablets(errorTabletIds);
+        publishVersionTask.addErrorStatuses(errorStatuses);
         publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
