@@ -26,6 +26,7 @@
 
 #include <atomic>
 #include <memory>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -243,6 +244,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             {
                                                     .expiration_time = expiration_time,
                                             },
+                                    .download_done {},
                             });
                 }
 #endif
@@ -479,6 +481,7 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
     if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         bool has_delete = false;
         int64_t point = cumulative_layer_point();
+        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
         for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (rs_meta->start_version() >= point) {
                 continue;

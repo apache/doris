@@ -529,6 +529,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
         }
 
+        if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
+                || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
+        }
         if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.OK
                 && commitTxnResponse.getStatus().getCode() != MetaServiceCode.TXN_ALREADY_VISIBLE) {
             LOG.warn("commitTxn failed, transactionId:{}, retryTime:{}, commitTxnResponse:{}",
@@ -544,9 +548,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             internalMsgBuilder.append(" code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
-        }
-        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
-            throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
@@ -714,6 +715,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey())
@@ -790,10 +792,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     cumulativePoints.put(tabletId, respCumulativePoints.get(i));
                 }
             }
+            totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        LOG.info("get delete bitmap lock successfully. txns: {}. time cost: {} ms.",
-                 transactionId, stopWatch.getTime());
+        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
+            LOG.info(
+                    "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                            + "partitionSize: {}. time cost: {} ms.",
+                    transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,

@@ -19,11 +19,19 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
 
+import java.util.stream.Collectors
+
 suite("sql_cache") {
     // TODO: regression-test does not support check query profile,
     // so this suite does not check whether cache is used, :)
     def tableName = "test_sql_cache"
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '0')"
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -183,33 +191,57 @@ suite("sql_cache") {
     sql 'set default_order_by_limit = 2'
     sql 'set sql_select_limit = 1'
 
-    qt_sql_cache8 """
-                    select
-                        k1,
-                        sum(k2) as total_pv 
-                    from
-                        ${tableName} 
-                    where
-                        k1 between '2022-05-28' and '2022-06-30' 
-                    group by
-                        k1 
-                    order by
-                        k1;
-                """
-    
-    qt_sql_cache9 """
-                    select
-                        k1,
-                        sum(k2) as total_pv 
-                    from
-                        ${tableName} 
-                    where
-                        k1 between '2022-05-28' and '2022-06-30' 
-                    group by
-                        k1 
-                    order by
-                        k1;
-                """
+    profile("sql_cache8") {
+        run {
+            qt_sql_cache8 """
+                -- sql_cache8
+                select
+                    k1,
+                    sum(k2) as total_pv 
+                from
+                    ${tableName} 
+                where
+                    k1 between '2022-05-28' and '2022-06-30' 
+                group by
+                    k1 
+                order by
+                    k1;
+            """
+        }
+
+        check { profileString, exception ->
+            if (!exception.is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception)
+                throw exception
+            }
+        }
+    }
+
+    profile("sql_cache9") {
+        run {
+            qt_sql_cache9 """
+                -- sql_cache9
+                select
+                    k1,
+                    sum(k2) as total_pv 
+                from
+                    ${tableName} 
+                where
+                    k1 between '2022-05-28' and '2022-06-30' 
+                group by
+                    k1 
+                order by
+                    k1;
+            """
+        }
+
+        check { profileString, exception ->
+            if (!exception.is(null)) {
+                logger.error("Profile failed, profile result:\n${profileString}", exception)
+                throw exception
+            }
+        }
+    }
 
     sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 }
