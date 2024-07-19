@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -388,6 +389,10 @@ public class TransactionState implements Writable {
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
+    }
+
+    public Map<Long, Status> getReplicaLastErrorStatuses() {
+        return replicaLastErrorStatuses;
     }
 
     public void addReplicaLastErrorStatus(long replica, Status st) {
@@ -828,6 +833,7 @@ public class TransactionState implements Writable {
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
+        replicaLastErrorStatuses.clear();
         involvedBackends.clear();
     }
 

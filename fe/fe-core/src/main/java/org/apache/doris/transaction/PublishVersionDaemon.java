@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
@@ -271,11 +274,11 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private void setReplicaLastErrorStatus(TransactionState transactionState, long beId, PublishVersionTask task) {
         TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
-        for (Entry<Long, Status> entry : task.getErrorStatuses()) {
+        for (Entry<Long, Status> entry : task.getErrorStatuses().entrySet()) {
             long tabletId = entry.getKey();
             Status st = entry.getValue();
-            long replicaId = tabletInvertedIndex.getReplica(tabletId, beId);
-            transactionState.addReplicaLastErrorStatus(replicaId, st);
+            Replica replica = tabletInvertedIndex.getReplica(tabletId, beId);
+            transactionState.addReplicaLastErrorStatus(replica.getId(), st);
         }
     }
 

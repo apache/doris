@@ -42,6 +42,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
@@ -2177,6 +2178,7 @@ public class DatabaseTransactionMgr {
         }
         Map<Long, Triple<Long, Long, Partition>> partitionMap = new HashMap<>();
         Map<Long, Triple<Long, Long, OlapTable>> tableMap = new HashMap<>();
+        Map<Long, Status> replicaLastErrorStatuses = transactionState.getReplicaLastErrorStatuses();
         for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -2232,6 +2234,10 @@ public class DatabaseTransactionMgr {
                                         lastFailedVersion = newCommitVersion;
                                     }
                                     failedVersionSetReplicas.add(replica.getId());
+                                    Status st = replicaLastErrorStatuses.get(replica.getId());
+                                    if (st != null) {
+                                        replica.setLastFailedStatus(st);
+                                    }
                                     if (LOG.isDebugEnabled()) {
                                         LOG.debug("txn_id={}, set replica={}, last_failed_version={}",
                                                 transactionState.getTransactionId(), replica.getId(),

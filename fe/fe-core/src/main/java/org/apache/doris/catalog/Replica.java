@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
@@ -712,6 +713,10 @@ public class Replica {
         }
         strBuffer.append(", state=");
         strBuffer.append(state.name());
+        if (lastFailedVersion > 0 && lastFailedStatus != null) {
+            strBuffer.append(", lastFailedStatus=");
+            strBuffer.append(lastFailedStatus);
+        }
         strBuffer.append("]");
 
         return strBuffer.toString();

@@ -1717,6 +1717,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         succ_tablets.clear();
         error_tablet_ids.clear();
         table_id_to_tablet_id_to_num_delta_rows.clear();
+        error_tablet_id_to_status.clear();
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
                                              &error_tablet_id_to_status, &succ_tablets,
                                              &discontinuous_version_tablets,

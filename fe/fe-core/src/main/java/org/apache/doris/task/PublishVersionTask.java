@@ -113,7 +113,7 @@ public class PublishVersionTask extends AgentTask {
             return;
         }
         for (int i = 0; i < errorTablets.size(); i++) {
-            tableIdToTabletDeltaRows.put(errorTablets.get(i), errorStatuses.get(i));
+            this.errorStatuses.put(errorTablets.get(i), new Status(errorStatuses.get(i)));
         }
     }
 
