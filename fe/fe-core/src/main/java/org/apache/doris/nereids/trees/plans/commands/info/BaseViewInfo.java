@@ -107,7 +107,13 @@ public class BaseViewInfo {
         analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
-    protected String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    /**
+     * rewriteSql
+     * @param indexStringSqlMap indexStringSqlMap
+     * @param querySql querySql
+     * @return
+     */
+    public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
@@ -245,8 +251,8 @@ public class BaseViewInfo {
         }
     }
 
-    private static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
-        private static PlanSlotFinder INSTANCE = new PlanSlotFinder();
+    public static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
+        public static PlanSlotFinder INSTANCE = new PlanSlotFinder();
 
         @Override
         public Void visitLogicalView(LogicalView<? extends Plan> alias, StatementContext context) {

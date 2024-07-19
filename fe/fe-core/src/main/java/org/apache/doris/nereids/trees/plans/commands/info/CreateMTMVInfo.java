@@ -47,10 +47,12 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -58,6 +60,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -182,8 +186,24 @@ public class CreateMTMVInfo {
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
-        BaseViewInfo.analyzeAndFillRewriteSqlMap(querySql, ctx);
+        analyzeAndFillRewriteSqlMap(querySql, ctx);
         querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+    }
+
+    private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
+        StatementContext stmtCtx = ctx.getStatementContext();
+        LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
+        if (parsedViewPlan instanceof UnboundResultSink) {
+            parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
+        }
+        CascadesContext viewContextForStar = CascadesContext.initContext(
+                stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
+        AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
+        analyzerForStar.analyze();
+        Plan analyzedPlan = viewContextForStar.getRewritePlan();
+        // Traverse all slots in the plan, and add the slot's location information
+        // and the fully qualified replacement string to the indexInSqlToString of the StatementContext.
+        analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
     private void analyzeProperties() {
