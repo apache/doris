@@ -289,8 +289,6 @@ public:
 
     DataTypePtr get_root_type() const;
 
-    bool is_variant() const override { return true; }
-
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 

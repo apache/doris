@@ -140,6 +140,12 @@ public:
         __builtin_unreachable();
     }
 
+    void pop_back(size_t n) override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call pop_back in predicate column");
+        __builtin_unreachable();
+    }
+
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call update_hash_with_value in predicate column");
