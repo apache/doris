@@ -17,6 +17,23 @@
 
 package org.apache.doris.datasource.lakesoul;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
@@ -27,21 +44,13 @@ import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.ArrowType;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.FieldType;
 import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
-
 import io.substrait.expression.Expression;
-import org.apache.doris.analysis.*;
-import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
-
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -55,13 +64,13 @@ public class LakeSoulPredicateTest {
     public static void before() throws AnalysisException, IOException {
         schema = new Schema(
                 Arrays.asList(
-                    new Field("c_int", FieldType.nullable(new ArrowType.Int(32, true)),null),
-                    new Field("c_long", FieldType.nullable(new ArrowType.Int(64, true)),null),
-                    new Field("c_bool", FieldType.nullable(new ArrowType.Bool()),null),
-                    new Field("c_float", FieldType.nullable(new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)),null),
-                    new Field("c_double", FieldType.nullable(new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),null),
-                    new Field("c_dec", FieldType.nullable(new ArrowType.Decimal(20,10)),null),
-                    new Field("c_date", FieldType.nullable(new ArrowType.Date(DateUnit.DAY)),null),
+                    new Field("c_int", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                    new Field("c_long", FieldType.nullable(new ArrowType.Int(64, true)), null),
+                    new Field("c_bool", FieldType.nullable(new ArrowType.Bool()), null),
+                    new Field("c_float", FieldType.nullable(new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)), null),
+                    new Field("c_double", FieldType.nullable(new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)), null),
+                    new Field("c_dec", FieldType.nullable(new ArrowType.Decimal(20, 10)), null),
+                    new Field("c_date", FieldType.nullable(new ArrowType.Date(DateUnit.DAY)), null),
                     new Field("c_ts", FieldType.nullable(new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")), null),
                     new Field("c_str", FieldType.nullable(new ArrowType.Utf8()), null)
                 ));
@@ -248,7 +257,7 @@ public class LakeSoulPredicateTest {
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(andPredicate, schema);
                 Assert.assertNotNull("pred: " + andPredicate.toSql(), expression);
                 Assert.assertEquals(SubstraitUtil.substraitExprToProto(LakeSoulUtils.convertToSubstraitExpr(validExprs.get(i), schema), "table"),
-                    SubstraitUtil.substraitExprToProto(expression, "table"));
+                        SubstraitUtil.substraitExprToProto(expression, "table"));
             }
         }
 

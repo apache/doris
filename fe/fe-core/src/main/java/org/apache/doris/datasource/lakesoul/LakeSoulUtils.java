@@ -17,8 +17,22 @@
 
 package org.apache.doris.datasource.lakesoul;
 
-import org.apache.doris.analysis.*;
-import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.Subquery;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TExprOpcode;
@@ -34,7 +48,6 @@ import io.substrait.expression.Expression;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
-import org.apache.iceberg.expressions.Expressions;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -44,7 +57,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -263,7 +280,8 @@ public class LakeSoulUtils {
             } else {
                 return SubstraitUtil.CONST_FALSE;
             }
-        } if (predicate instanceof CompoundPredicate) {
+        }
+        if (predicate instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) predicate;
             switch (compoundPredicate.getOp()) {
                 case AND: {
@@ -273,7 +291,9 @@ public class LakeSoulUtils {
                         return SubstraitUtil.and(left, right);
                     } else if (left != null) {
                         return left;
-                    } else return right;
+                    } else {
+                        return right;
+                    }
                 }
                 case OR: {
                     Expression left = convertToSubstraitExpr(compoundPredicate.getChild(0), tableSchema);
@@ -351,7 +371,11 @@ public class LakeSoulUtils {
         Object value = extractDorisLiteral(type, literalExpr);
         if (value == null) {
             if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                return SubstraitUtil.makeUnary(fieldRef, DefaultExtensionCatalog.FUNCTIONS_COMPARISON,"is_null:any", TypeCreator.NULLABLE.BOOLEAN);
+                return SubstraitUtil.makeUnary(
+                        fieldRef,
+                        DefaultExtensionCatalog.FUNCTIONS_COMPARISON,
+                        "is_null:any",
+                        TypeCreator.NULLABLE.BOOLEAN);
             } else {
                 return null;
             }
@@ -422,18 +446,26 @@ public class LakeSoulUtils {
     public static Object extractDorisLiteral(Type type, LiteralExpr expr) {
 
         if (expr instanceof BoolLiteral) {
-            if (type instanceof Type.Bool) return ((BoolLiteral) expr).getValue();
-            if (type instanceof Type.Str) return expr.getStringValue();
+            if (type instanceof Type.Bool) {
+                return ((BoolLiteral) expr).getValue();
+            }
+            if (type instanceof Type.Str) {
+                return expr.getStringValue();
+            }
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            if (type instanceof Type.Date){
-                if (dateLiteral.getType().isDatetimeV2() || dateLiteral.getType().isDatetime()) return null;
+            if (type instanceof Type.Date) {
+                if (dateLiteral.getType().isDatetimeV2() || dateLiteral.getType().isDatetime()) {
+                    return null;
+                }
                 return dateLiteral.getLongValue();
             }
             if (type instanceof Type.TimestampTZ || type instanceof Type.Timestamp) {
                 return dateLiteral.getLongValue();
             }
-            if (type instanceof Type.Str) return expr.getStringValue();
+            if (type instanceof Type.Str) {
+                return expr.getStringValue();
+            }
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             if (type instanceof Type.Decimal) {
@@ -441,27 +473,29 @@ public class LakeSoulUtils {
             } else if (type instanceof Type.FP64) {
                 return decimalLiteral.getDoubleValue();
             }
-            if (type instanceof Type.Str) return expr.getStringValue();
+            if (type instanceof Type.Str) {
+                return expr.getStringValue();
+            }
         } else if (expr instanceof FloatLiteral) {
             FloatLiteral floatLiteral = (FloatLiteral) expr;
 
             if (floatLiteral.getType() == org.apache.doris.catalog.Type.FLOAT) {
                 return type instanceof Type.FP32
                     || type instanceof Type.FP64
-                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue(): null;
+                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue() : null;
             } else {
                 return type instanceof Type.FP64
-                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue(): null;
+                    || type instanceof Type.Decimal ? ((FloatLiteral) expr).getValue() : null;
             }
         } else if (expr instanceof IntLiteral) {
             if (type instanceof Type.I8
-                || type instanceof Type.I16
-                || type instanceof Type.I32
-                || type instanceof Type.I64
-                || type instanceof Type.FP32
-                || type instanceof Type.FP64
-                || type instanceof Type.Decimal
-                || type instanceof Type.Date
+                    || type instanceof Type.I16
+                    || type instanceof Type.I32
+                    || type instanceof Type.I64
+                    || type instanceof Type.FP32
+                    || type instanceof Type.FP64
+                    || type instanceof Type.Decimal
+                    || type instanceof Type.Date
             ) {
                 return expr.getRealValue();
             }
@@ -473,17 +507,23 @@ public class LakeSoulUtils {
 
         } else if (expr instanceof StringLiteral) {
             String value = expr.getStringValue();
-            if (type instanceof Type.Str) return value;
+            if (type instanceof Type.Str) {
+                return value;
+            }
             if (type instanceof Type.Date) {
                 try {
-                    return (int) ChronoUnit.DAYS.between(EPOCH_DAY, LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE));
+                    return (int) ChronoUnit.DAYS.between(
+                        EPOCH_DAY,
+                        LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE));
                 } catch (DateTimeParseException e) {
                     return null;
                 }
             }
-            if (type instanceof Type.Timestamp || type instanceof Type.TimestampTZ ) {
+            if (type instanceof Type.Timestamp || type instanceof Type.TimestampTZ) {
                 try {
-                    return ChronoUnit.MICROS.between(EPOCH, OffsetDateTime.parse(value, DateTimeFormatter.ISO_DATE_TIME));
+                    return ChronoUnit.MICROS.between(
+                        EPOCH,
+                        OffsetDateTime.parse(value, DateTimeFormatter.ISO_DATE_TIME));
                 } catch (DateTimeParseException e) {
                     return null;
                 }
