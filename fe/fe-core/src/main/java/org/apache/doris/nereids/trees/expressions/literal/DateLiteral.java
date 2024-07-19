@@ -46,7 +46,7 @@ public class DateLiteral extends Literal {
 
     // for cast datetime type to date type.
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
-    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -415,6 +415,21 @@ public class DateLiteral extends Literal {
 
     public long getDay() {
         return day;
+    }
+
+    public int getDayOfYear() {
+        if (year == 0 && month == 3 && (day == 1 || day == 2)) {
+            return toJavaDateType().getDayOfYear() - 1;
+        }
+        return toJavaDateType().getDayOfYear();
+    }
+
+    public int getDayOfWeek() {
+        if (year == 0 && (month == 1 || (month == 2 && day <= 28))) {
+            // shift right with 1 offset
+            return toJavaDateType().getDayOfWeek().getValue() % 7 + 1;
+        }
+        return toJavaDateType().getDayOfWeek().getValue();
     }
 
     public Expression plusDays(long days) {

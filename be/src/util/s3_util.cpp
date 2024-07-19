@@ -257,7 +257,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
         aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
 #endif
     }
 
@@ -370,6 +370,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .region = info.region(),
                     .ak = info.ak(),
                     .sk = info.sk(),
+                    .token {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageType::AWS,
             },

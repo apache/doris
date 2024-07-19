@@ -1044,11 +1044,11 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                                      const PFetchRemoteSchemaRequest* request,
-                                                      PFetchRemoteSchemaResponse* response,
-                                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                  const PFetchRemoteSchemaRequest* request,
+                                                  PFetchRemoteSchemaResponse* response,
+                                                  google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -1120,13 +1120,13 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!target_tablets.empty()) {
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
-                    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id, false);
-                    if (tablet == nullptr) {
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    if (!res.has_value()) {
                         // just ignore
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(tablet->tablet_schema());
+                    tablet_schemas.push_back(res.value()->merged_tablet_schema());
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -1918,11 +1918,6 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 
     pull_rowset_callback->join();
     if (pull_rowset_callback->cntl_->Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(stub, remote_host,
-                                                                             brpc_port)) {
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl_->remote_side());
-        }
         LOG(WARNING) << "failed to response result of slave replica to master replica, error="
                      << berror(pull_rowset_callback->cntl_->ErrorCode())
                      << ", error_text=" << pull_rowset_callback->cntl_->ErrorText()
