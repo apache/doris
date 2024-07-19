@@ -97,8 +97,8 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
             }
 
             int64_t to_write = num_rows_written + left >= num_rows_key_group
-                                         ? num_rows_key_group - num_rows_written
-                                         : left;
+                                       ? num_rows_key_group - num_rows_written
+                                       : left;
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, num_rows - left,
                                                                             to_write));
             left -= to_write;
