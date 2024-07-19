@@ -47,10 +47,6 @@ void DataTypeNumber<T>::push_number(ColumnString::Chars& chars, const T& num) co
     if constexpr (std::is_same<T, UInt128>::value) {
         std::string hex = int128_to_string(num);
         chars.insert(hex.begin(), hex.end());
-    } else if constexpr (std::is_same_v<T, float>) {
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
-        chars.insert(buf, buf + len);
     } else if constexpr (std::is_same_v<Int128, T> || std::numeric_limits<T>::is_iec559) {
         fmt::memory_buffer buffer;
         fmt::format_to(buffer, "{}", num);

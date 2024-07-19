@@ -54,12 +54,6 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
         std::string hex =
                 int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
         ostr.write(hex.data(), hex.size());
-    } else if constexpr (std::is_same_v<T, float>) {
-        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num),
-                                MAX_FLOAT_STR_LENGTH + 2, buf);
-        ostr.write(buf, len);
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         ostr.write_number(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     }
