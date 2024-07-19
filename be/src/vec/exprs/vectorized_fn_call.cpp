@@ -38,6 +38,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
@@ -152,6 +153,10 @@ Status VectorizedFnCall::eval_inverted_index(
         uint32_t num_rows, roaring::Roaring* bitmap) const {
     DCHECK_GE(get_num_children(), 1);
     if (get_child(0)->is_slot_ref()) {
+        if (_fn.name.function_name != vectorized::ArrayContainsAction::name) {
+            return Status::NotSupported("only support array_contains action, but got {}",
+                                        _fn.name.function_name);
+        }
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
             iter != colid_to_inverted_index_iter.end()) {
