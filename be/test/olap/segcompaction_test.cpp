@@ -51,7 +51,7 @@ static const std::string lTestDir = "./data_test/data/segcompaction_test";
 
 class SegCompactionTest : public testing::Test {
 public:
-    SegCompactionTest() {}
+    SegCompactionTest() = default;
 
     void SetUp() {
         config::enable_segcompaction = true;
