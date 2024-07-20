@@ -84,16 +84,13 @@ public:
         _data_dir = std::make_unique<DataDir>(*l_engine, lTestDir);
         static_cast<void>(_data_dir->update_capacity());
 
-
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 
         s = l_engine->start_bg_threads();
         EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
-    void TearDown() {
-        config::enable_segcompaction = false;
-    }
+    void TearDown() { config::enable_segcompaction = false; }
 
 protected:
     OlapReaderStatistics _stats;
@@ -126,7 +123,8 @@ protected:
     }
 
     // (k1 int, k2 varchar(20), k3 int) keys (k1, k2)
-    void create_tablet_schema(TabletSchemaSPtr tablet_schema, KeysType keystype, int num_value_col=1) {
+    void create_tablet_schema(TabletSchemaSPtr tablet_schema, KeysType keystype,
+                              int num_value_col = 1) {
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keystype);
         tablet_schema_pb.set_num_short_key_columns(2);
@@ -158,14 +156,14 @@ protected:
 
         for (int i = 1; i <= num_value_col; i++) {
             ColumnPB* v_column = tablet_schema_pb.add_column();
-            v_column->set_unique_id(2+i);
+            v_column->set_unique_id(2 + i);
             v_column->set_name(fmt::format("v{}", i));
             v_column->set_type("INT");
             v_column->set_length(4);
             v_column->set_is_key(false);
             v_column->set_is_nullable(false);
             v_column->set_is_bf_column(false);
-            v_column->set_default_value(std::to_string(i*10));
+            v_column->set_default_value(std::to_string(i * 10));
             v_column->set_aggregation("SUM");
         }
 
