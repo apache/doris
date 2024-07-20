@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -64,6 +67,16 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
                 && tableSink.getPartitions().isEmpty()
                 && (!(table instanceof MTMV) || MTMVUtil.allowModifyMTMVData(ctx))
                 && (tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion));
+    }
+
+    @Override
+    protected void beforeExec() {
+        try {
+            this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(table.getId(), ctx, false));
+        } catch (LoadException | DdlException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
