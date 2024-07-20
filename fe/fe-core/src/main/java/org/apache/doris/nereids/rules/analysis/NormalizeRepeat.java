@@ -51,6 +51,7 @@ import com.google.common.collect.Sets.SetView;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -135,7 +136,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         Map<Expression, NormalizeToSlotTriplet> groupingExprMap = groupingExprContext.getNormalizeToSlotMap();
         Set<Alias> existsAlias = getExistsAlias(repeat, groupingExprMap);
         Set<Expression> needToSlotsArgs = collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(repeat);
-        NormalizeToSlotContext argsContext = NormalizeToSlotContext.buildContext(existsAlias, needToSlotsArgs);
+        NormalizeToSlotContext argsContext = buildContextWithAlias(repeat, existsAlias, needToSlotsArgs);
 
         // normalize grouping sets to List<List<Slot>>
         ImmutableList.Builder<List<Slot>> normalizedGroupingSetBuilder = ImmutableList.builder();
@@ -260,6 +261,30 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             existsAliasMap.put(existsAlias.child(), existsAlias);
         }
 
+        List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
+        Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
+        for (Expression expression : sourceExpressions) {
+            Optional<NormalizeToSlotTriplet> pushDownTriplet;
+            if (groupingSetExpressions.contains(expression)) {
+                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
+            } else {
+                pushDownTriplet = Optional.of(
+                        NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
+            }
+
+            if (pushDownTriplet.isPresent()) {
+                normalizeToSlotMap.put(expression, pushDownTriplet.get());
+            }
+        }
+        return new NormalizeToSlotContext(normalizeToSlotMap);
+    }
+
+    private static NormalizeToSlotContext buildContextWithAlias(Repeat<? extends Plan> repeat,
+            Set<Alias> existsAliases, Collection<? extends Expression> sourceExpressions) {
+        Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
+        for (Alias existsAlias : existsAliases) {
+            existsAliasMap.put(existsAlias.child(), existsAlias);
+        }
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
