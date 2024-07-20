@@ -266,6 +266,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean useNereids = false;
 
+    private Backend groupCommitBackend;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -291,6 +293,10 @@ public class Coordinator implements CoordInterface {
     // A countdown latch to mark the completion of each fragment. use for pipelineX
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
+
+    public void setGroupCommitBe(Backend backend) {
+        this.groupCommitBackend = backend;
+    }
 
     public void setTWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
@@ -1717,8 +1723,11 @@ public class Coordinator implements CoordInterface {
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
-                if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (isAllExternalScan
-                        && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
+                if (groupCommitBackend != null) {
+                    execHostport = getGroupCommitBackend(addressToBackendID);
+                } else if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (
+                        isAllExternalScan
+                                && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
                     // 2 cases:
                     // case 1: user set resource tag, we need to use the BE with the specified resource tags.
                     // case 2: All scan nodes are external scan node,
@@ -1909,7 +1918,9 @@ public class Coordinator implements CoordInterface {
             if (params.instanceExecParams.isEmpty()) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
-                if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
+                if (groupCommitBackend != null) {
+                    execHostport = getGroupCommitBackend(addressToBackendID);
+                } else if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
                         && !addressToBackendID.isEmpty()) {
                     // In this case, we only use the BE where the replica selected by the tag is located to
                     // execute this query. Otherwise, except for the scan node, the rest of the execution nodes
@@ -1931,6 +1942,14 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
             }
         }
+    }
+
+    private TNetworkAddress getGroupCommitBackend(Map<TNetworkAddress, Long> addressToBackendID) {
+        // Used for Nereids planner Group commit insert BE select.
+        TNetworkAddress execHostport = new TNetworkAddress(groupCommitBackend.getHost(),
+                groupCommitBackend.getBePort());
+        addressToBackendID.put(execHostport, groupCommitBackend.getId());
+        return execHostport;
     }
 
     // Traverse the expected runtimeFilterID in each fragment, and establish the corresponding relationship
