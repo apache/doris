@@ -29,6 +29,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
+import org.apache.doris.thrift.TGetBeResourceRequest;
+import org.apache.doris.thrift.TGetBeResourceResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -145,6 +147,11 @@ public class GenericPoolTest {
 
         @Override
         public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetBeResourceResult getBeResource(TGetBeResourceRequest request) throws TException {
             return null;
         }
 
