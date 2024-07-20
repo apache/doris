@@ -116,20 +116,6 @@ public:
 
         if constexpr (trim_single) {
             const auto ch = remove_str.data[0];
-#if defined(__AVX2__)
-            constexpr auto AVX2_BYTES = sizeof(__m256i);
-            const auto size = end - begin;
-            const auto* const avx2_begin = end - size / AVX2_BYTES * AVX2_BYTES;
-            const auto spaces = _mm256_set1_epi8(ch);
-            for (p = end - AVX2_BYTES; p >= avx2_begin; p -= AVX2_BYTES) {
-                uint32_t masks = _mm256_movemask_epi8(
-                        _mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i*)p), spaces));
-                if ((~masks)) {
-                    break;
-                }
-            }
-            p += AVX2_BYTES;
-#endif
             for (; (p - 1) >= begin && *(p - 1) == ch; p--) {
             }
             return p;
@@ -157,19 +143,6 @@ public:
 
         if constexpr (trim_single) {
             const auto ch = remove_str.data[0];
-#if defined(__AVX2__)
-            constexpr auto AVX2_BYTES = sizeof(__m256i);
-            const auto size = end - begin;
-            const auto* const avx2_end = begin + size / AVX2_BYTES * AVX2_BYTES;
-            const auto spaces = _mm256_set1_epi8(ch);
-            for (; p < avx2_end; p += AVX2_BYTES) {
-                uint32_t masks = _mm256_movemask_epi8(
-                        _mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i*)p), spaces));
-                if ((~masks)) {
-                    break;
-                }
-            }
-#endif
             for (; p < end && *p == ch; ++p) {
             }
             return p;
