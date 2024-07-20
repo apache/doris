@@ -19,8 +19,8 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <ostream>
@@ -39,9 +39,6 @@ public:
     Exception() : _code(ErrorCode::OK) {}
     Exception(int code, const std::string_view& msg);
     Exception(const Status& status) : Exception(status.code(), status.msg()) {}
-    // add nested exception as first param, or the template may could not find
-    // the correct method for ...args
-    Exception(const Exception& nested, int code, const std::string_view& msg);
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
@@ -63,7 +60,6 @@ private:
         std::string _stack;
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::unique_ptr<Exception> _nested_excption;
     mutable std::string _cache_string;
 };
 
@@ -71,16 +67,12 @@ inline const std::string& Exception::to_string() const {
     if (!_cache_string.empty()) {
         return _cache_string;
     }
-    std::stringstream ostr;
-    ostr << "[E" << _code << "] ";
-    ostr << (_err_msg ? _err_msg->_msg : "");
+    fmt::memory_buffer buf;
+    fmt::format_to(buf, "[E{}] {}", _code, _err_msg ? _err_msg->_msg : "");
     if (_err_msg && !_err_msg->_stack.empty()) {
-        ostr << '\n' << _err_msg->_stack;
+        fmt::format_to(buf, "\n{}", _err_msg->_stack);
     }
-    if (_nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << _nested_excption->to_string();
-    }
-    _cache_string = ostr.str();
+    _cache_string = fmt::to_string(buf);
     return _cache_string;
 }
 
