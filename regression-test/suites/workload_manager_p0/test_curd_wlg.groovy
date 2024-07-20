@@ -536,7 +536,7 @@ suite("test_crud_wlg") {
     sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
     sql "set workload_group=bypass_group;"
     test {
-        sql "select count(1) from information_schema.active_queries;"
+        sql "select count(1) from ${table_name};"
         exception "query waiting queue is full"
     }
 
