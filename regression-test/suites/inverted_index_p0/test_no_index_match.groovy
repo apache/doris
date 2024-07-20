@@ -95,7 +95,21 @@ suite("test_no_index_match", "p0") {
           qt_sql """ select count() from ${testTable_unique} where (request match_phrase '欧冶工业品');  """
           qt_sql """ select count() from ${testTable_unique} where (request match_phrase_prefix '欧冶工业品');  """
       } finally {
-      } 
+      }
+
+      try {
+          """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */ count() from ${testTable_unique} where (request match_phrase 'hm bg');  """
+      } catch (Exception e) {
+        log.info(e.getMessage());
+        assertTrue(e.getMessage().contains("match_phrase not support execute_match"))
+      }
+
+      try {
+          """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */ count() from ${testTable_unique} where (request match_phrase_prefix 'hm b');  """
+      } catch (Exception e) {
+        log.info(e.getMessage());
+        assertTrue(e.getMessage().contains("match_phrase_prefix not support execute_match"))
+      }
     } finally {
     }
 }

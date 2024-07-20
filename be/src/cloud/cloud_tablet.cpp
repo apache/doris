@@ -28,6 +28,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -43,8 +44,10 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/storage_policy.h"
+#include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/debug_points.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -130,6 +133,19 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
         clear_cache();
     }
     return st;
+}
+
+TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
+    std::shared_lock rdlock(_meta_lock);
+    TabletSchemaSPtr target_schema;
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& [_, rowset] : _rs_version_map) {
+        schemas.push_back(rowset->tablet_schema());
+    }
+    // get the max version schema and merge all schema
+    static_cast<void>(
+            vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
+    return target_schema;
 }
 
 // Sync tablet meta and all rowset meta if not running.
