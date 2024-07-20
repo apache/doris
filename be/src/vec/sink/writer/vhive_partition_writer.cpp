@@ -33,13 +33,16 @@
 namespace doris {
 namespace vectorized {
 
-VHivePartitionWriter::VHivePartitionWriter(
-        const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
-        const VExprContextSPtrs& write_output_expr_ctxs,
-        std::vector<std::string> write_column_names, WriteInfo write_info, std::string file_name,
-        int file_name_index, TFileFormatType::type file_format_type,
-        TFileCompressType::type hive_compress_type, THiveSerDeProperties& hive_serde_properties,
-        const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
+                                           TUpdateMode::type update_mode,
+                                           const VExprContextSPtrs& write_output_expr_ctxs,
+                                           std::vector<std::string> write_column_names,
+                                           WriteInfo write_info, std::string file_name,
+                                           int file_name_index,
+                                           TFileFormatType::type file_format_type,
+                                           TFileCompressType::type hive_compress_type,
+                                           const THiveSerDeProperties &hive_serde_properties,
+                                           const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
           _write_output_expr_ctxs(write_output_expr_ctxs),
