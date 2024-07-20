@@ -20,6 +20,7 @@ package org.apache.doris.resource.workloadgroup;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -420,6 +421,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         List<String> row = new ArrayList<>();
         row.add(String.valueOf(id));
         row.add(name);
+        Pair<Integer, Integer> queryQueueDetail = qq != null ? qq.getQueryQueueDetail() : null;
         // skip id,name,running query,waiting query
         for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
             String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
@@ -461,9 +463,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     row.add(val + "%");
                 }
             } else if (QueryQueue.RUNNING_QUERY_NUM.equals(key)) {
-                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
+                row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
-                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
+                row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
             } else if (TAG.equals(key)) {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
