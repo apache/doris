@@ -1767,6 +1767,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
 
+    @ConfField(mutable = true, description = {
+            "当BE内存用量大于该值时，查询会进入排队逻辑，默认值为-1，代表该值不生效。取值范围0~1的小数",
+            "When be memory usage bigger than this value, query could queue, "
+                    + "default value is -1, means this value not work. Decimal value range from 0 to 1"})
+    public static double query_queue_by_be_used_memory = -1;
+
+    @ConfField(mutable = true, description = {"基于内存反压场景FE定时拉取BE内存用量的时间间隔",
+            "In the scenario of memory backpressure, "
+                    + "the time interval for obtaining BE memory usage at regular intervals"})
+    public static long get_be_resource_usage_interval_ms = 10000;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 

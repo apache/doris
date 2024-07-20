@@ -1297,4 +1297,14 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     response.__set_report_exec_status_params(*report_exec_status_params);
 }
 
+void BaseBackendService::get_be_resource(TGetBeResourceResult& result,
+                                         const TGetBeResourceRequest& request) {
+    int64_t mem_usage = PerfCounters::get_vm_rss();
+    int64_t mem_limit = MemInfo::mem_limit();
+    TGlobalResourceUsage global_resource_usage;
+    global_resource_usage.__set_mem_limit(mem_limit);
+    global_resource_usage.__set_mem_usage(mem_usage);
+    result.__set_global_resource_usage(global_resource_usage);
+}
+
 } // namespace doris

@@ -64,6 +64,7 @@ import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
@@ -618,6 +619,22 @@ public class Coordinator implements CoordInterface {
         return fragmentParams;
     }
 
+    private boolean shouldQueue() {
+        boolean ret = Config.enable_query_queue && !context.getSessionVariable()
+                .getBypassWorkloadGroup() && !isQueryCancelled();
+        if (!ret) {
+            return false;
+        }
+        // a query with ScanNode need not queue only when all its scan node is SchemaScanNode
+        for (ScanNode scanNode : this.scanNodes) {
+            boolean isSchemaScanNode = scanNode instanceof SchemaScanNode;
+            if (!isSchemaScanNode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -629,8 +646,7 @@ public class Coordinator implements CoordInterface {
         if (context != null) {
             if (Config.enable_workload_group) {
                 this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-                boolean shouldQueue = Config.enable_query_queue && !context.getSessionVariable()
-                        .getBypassWorkloadGroup() && !isQueryCancelled();
+                boolean shouldQueue = this.shouldQueue();
                 if (shouldQueue) {
                     queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
                     if (queryQueue == null) {

@@ -26,7 +26,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
@@ -374,11 +373,11 @@ public final class QeProcessorImpl implements QeProcessor {
             return -1;
         }
 
-        public TokenState getQueueStatus() {
+        public String getQueueStatus() {
             if (coord.getQueueToken() != null) {
-                return coord.getQueueToken().getTokenState();
+                return coord.getQueueToken().getQueueMsg();
             }
-            return null;
+            return "";
         }
     }
 }
