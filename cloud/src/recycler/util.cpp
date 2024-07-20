@@ -17,10 +17,9 @@
 
 #include "recycler/util.h"
 
-#include <glog/logging.h>
-
 #include <cstdint>
 
+#include "common/logging.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
@@ -39,34 +38,20 @@ int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res) {
     instance_key(key0_info, &key0);
     instance_key(key1_info, &key1);
 
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(INFO) << "failed to init txn, err=" << err;
-        return -1;
-    }
-
-    std::unique_ptr<RangeGetIterator> it;
-    do {
-        TxnErrorCode err = txn->get(key0, key1, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get instance, err=" << err;
+    auto it = txn_kv->full_range_get(std::move(key0), std::move(key1), {.prefetch = true});
+    for (auto kvp = it->next(); kvp; kvp = it->next()) {
+        auto [k, v] = *kvp;
+        InstanceInfoPB instance_info;
+        if (!instance_info.ParseFromArray(v.data(), v.size())) {
+            LOG_WARNING("malformed instance info").tag("key", hex(k));
             return -1;
         }
+    }
 
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            if (!it->has_next()) key0 = k;
-
-            InstanceInfoPB instance_info;
-            if (!instance_info.ParseFromArray(v.data(), v.size())) {
-                LOG(WARNING) << "malformed instance info, key=" << hex(k);
-                return -1;
-            }
-            res.push_back(std::move(instance_info));
-        }
-        key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    if (!it->is_valid()) {
+        LOG_WARNING("failed to get instance info kv");
+        return -1;
+    }
 
     return 0;
 }
