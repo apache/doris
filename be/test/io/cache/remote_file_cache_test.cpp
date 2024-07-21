@@ -166,7 +166,7 @@ protected:
         // just use to create s3 filesystem, otherwise won't use cache
         S3Conf s3_conf;
         std::shared_ptr<io::S3FileSystem> fs;
-        Status st = io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs);
+        Status st = io::S3FileSystem::create(std::move(s3_conf), resource_id, nullptr, &fs);
         // io::S3FileSystem::create will call connect, which will fail because s3_conf is empty.
         // but it does affect the following unit test
         ASSERT_FALSE(st.ok()) << st;
