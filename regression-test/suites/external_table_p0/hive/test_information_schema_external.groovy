@@ -21,7 +21,7 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
 
     def enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 
