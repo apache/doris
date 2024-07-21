@@ -2935,4 +2935,7 @@ public class Config extends ConfigBase {
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int bdb_retry_time = 3;
 }
