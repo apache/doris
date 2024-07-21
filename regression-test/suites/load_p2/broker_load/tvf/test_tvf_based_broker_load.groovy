@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_based_broker_load_p2", "p2") {
-
+suite("test_tvf_based_broker_load", "p2") {
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tables = ["part",
                   "upper_case",
                   "reverse",
@@ -50,38 +52,38 @@ suite("test_tvf_based_broker_load_p2", "p2") {
                   "orc_s3_case9", // table column uppercase * load column lowercase * orc file uppercase
                   "csv_s3_case_line_delimiter" // csv format table with special line delimiter
     ]
-    def paths = ["s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/path/*/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 // "s3://doris-build-1308700295/regression/load/data/random_all_types/part*", // just ignore it, parquet_case9 can't support complex type
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_100k_rows.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/line_delimiter/lineitem_0x7.csv.gz"
+    def paths = ["s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/path/*/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 // "s3://${s3BucketName}/regression/load/data/random_all_types/part*", // just ignore it, parquet_case9 can't support complex type
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_100k_rows.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/line_delimiter/lineitem_0x7.csv.gz"
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                         """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -230,8 +232,8 @@ suite("test_tvf_based_broker_load_p2", "p2") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             """
@@ -241,7 +243,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
     }
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"]
-    def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
 
     // test load
@@ -250,8 +252,8 @@ suite("test_tvf_based_broker_load_p2", "p2") {
         try {
             def i = 0
             for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_drop.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_create.sql""").text
                 def uuid = UUID.randomUUID().toString().replace("-", "0")
                 uuids.add(uuid)
                 do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
@@ -305,7 +307,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
 
         } finally {
             for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_drop.sql""").text
             }
         }
     }

@@ -678,6 +678,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx,
         const bool ignore_data_hash_distribution) {
+    num_buckets = num_buckets != 0 ? num_buckets : _num_instances;
     auto& operator_xs = cur_pipe->operator_xs();
     const auto downstream_pipeline_id = cur_pipe->id();
     auto local_exchange_id = next_operator_id();

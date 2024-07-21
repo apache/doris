@@ -374,7 +374,7 @@ public abstract class ConnectProcessor {
                 }
 
                 StatementBase parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);

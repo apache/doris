@@ -432,6 +432,9 @@ struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required list<Types.TTabletId> tablet_ids
+    4: optional list<i64> base_compaction_cnts
+    5: optional list<i64> cumulative_compaction_cnts
+    6: optional list<i64> cumulative_points
 }
 
 struct TCalcDeleteBitmapRequest {
