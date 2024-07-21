@@ -97,7 +97,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected String brokerName;
 
-    @Getter
     protected TableSnapshot tableSnapshot;
 
     /**
@@ -593,5 +592,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 manager.removeSplitSource(sourceId);
             }
         }
+    }
+
+    public void setQueryTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    public TableSnapshot getQueryTableSnapshot() {
+        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
+        if (snapshot != null) {
+            return snapshot;
+        }
+        return this.tableSnapshot;
     }
 }
