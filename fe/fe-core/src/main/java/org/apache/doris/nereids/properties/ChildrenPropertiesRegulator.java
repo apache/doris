@@ -473,6 +473,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             return true;
         }
         // process set operation
+        boolean naturalFound = false;
         PhysicalProperties requiredProperty = requiredProperties.get(0);
         DistributionSpec requiredDistributionSpec = requiredProperty.getDistributionSpec();
         if (requiredDistributionSpec instanceof DistributionSpecGather) {
@@ -489,6 +490,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                         || (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecHash
                         && ((DistributionSpecHash) childrenProperties.get(i).getDistributionSpec())
                         .getShuffleType() == ShuffleType.NATURAL)) {
+                    // TODO: should do bucket shuffle down grade
+                    if (!naturalFound
+                            && childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecHash
+                            && ((DistributionSpecHash) childrenProperties.get(i).getDistributionSpec())
+                            .getShuffleType() == ShuffleType.NATURAL) {
+                        naturalFound = true;
+                        continue;
+                    }
                     updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
                 }
             }
@@ -501,6 +510,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                         || !bothSideShuffleKeysAreSameOrder(basic, current,
                         (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                         (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                    // TODO: should do bucket shuffle down grade
+                    if (!naturalFound && current.getShuffleType() == ShuffleType.NATURAL
+                            && bothSideShuffleKeysAreSameOrder(basic, current,
+                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                        naturalFound = true;
+                        continue;
+                    }
                     PhysicalProperties target = calAnotherSideRequired(
                             ShuffleType.EXECUTION_BUCKETED, basic, current,
                             (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
