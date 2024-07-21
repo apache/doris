@@ -52,6 +52,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -134,7 +135,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         Set<Expression> needToSlotsGroupingExpr = collectNeedToSlotGroupingExpr(repeat);
         NormalizeToSlotContext groupingExprContext = buildContext(repeat, needToSlotsGroupingExpr);
         Map<Expression, NormalizeToSlotTriplet> groupingExprMap = groupingExprContext.getNormalizeToSlotMap();
-        Set<Alias> existsAlias = getExistsAlias(repeat, groupingExprMap);
+        Map<Expression, Alias> existsAlias = getExistsAlias(repeat, groupingExprMap);
         Set<Expression> needToSlotsArgs = collectNeedToSlotArgsOfGroupingScalarFuncAndAggFunc(repeat);
         NormalizeToSlotContext argsContext = buildContextWithAlias(repeat, existsAlias, needToSlotsArgs);
 
@@ -255,9 +256,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     /** buildContext */
     public static NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
             Set<? extends Expression> sourceExpressions) {
-        Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
+        List<Alias> aliases = ExpressionUtils.collectToList(repeat.getOutputExpressions(), Alias.class::isInstance);
         Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
         for (Alias existsAlias : aliases) {
+            if (existsAliasMap.containsKey(existsAlias.child())) {
+                continue;
+            }
             existsAliasMap.put(existsAlias.child(), existsAlias);
         }
 
@@ -280,11 +284,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private static NormalizeToSlotContext buildContextWithAlias(Repeat<? extends Plan> repeat,
-            Set<Alias> existsAliases, Collection<? extends Expression> sourceExpressions) {
-        Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
-        for (Alias existsAlias : existsAliases) {
-            existsAliasMap.put(existsAlias.child(), existsAlias);
-        }
+            Map<Expression, Alias> existsAliasMap, Collection<? extends Expression> sourceExpressions) {
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
@@ -295,10 +295,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 pushDownTriplet = Optional.of(
                         NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
             }
-
-            if (pushDownTriplet.isPresent()) {
-                normalizeToSlotMap.put(expression, pushDownTriplet.get());
-            }
+            pushDownTriplet.ifPresent(
+                    normalizeToSlotTriplet -> normalizeToSlotMap.put(expression, normalizeToSlotTriplet));
         }
         return new NormalizeToSlotContext(normalizeToSlotMap);
     }
@@ -329,18 +327,23 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
     }
 
-    private static Set<Alias> getExistsAlias(LogicalRepeat<Plan> repeat,
+    private static Map<Expression, Alias> getExistsAlias(LogicalRepeat<Plan> repeat,
             Map<Expression, NormalizeToSlotTriplet> groupingExprMap) {
-        Set<Alias> existsAlias = Sets.newHashSet();
-        Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
-        existsAlias.addAll(aliases);
+        Map<Expression, Alias> existsAliasMap = new HashMap<>();
         for (NormalizeToSlotTriplet triplet : groupingExprMap.values()) {
             if (triplet.pushedExpr instanceof Alias) {
                 Alias alias = (Alias) triplet.pushedExpr;
-                existsAlias.add(alias);
+                existsAliasMap.put(triplet.originExpr, alias);
             }
         }
-        return existsAlias;
+        List<Alias> aliases = ExpressionUtils.collectToList(repeat.getOutputExpressions(), Alias.class::isInstance);
+        for (Alias alias : aliases) {
+            if (existsAliasMap.containsKey(alias.child())) {
+                continue;
+            }
+            existsAliasMap.put(alias.child(), alias);
+        }
+        return existsAliasMap;
     }
 
     /*
