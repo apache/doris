@@ -23,7 +23,6 @@ suite("test_tvf_csv_with_enclose_escape", "p0") {
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
 
-
     //reuse stream load case.
     def  load_case_path = context.config.dataPath + "/load_p0/stream_load/"
     def load_cases = [
@@ -33,14 +32,12 @@ suite("test_tvf_csv_with_enclose_escape", "p0") {
         'enclose_empty_values.csv'
     ]        
 
-
     String outFilePath="test_tvf_csv_with_enclose_escape/"
-    
     
     for (List<Object> backend : backends) {
         def be_host = backend[1]
         for(String load_file_name : load_cases ) {
-            scpFiles("root", be_host,load_case_path + load_file_name ,outFilePath)
+            scpFiles("root", be_host,load_case_path + load_file_name ,outFilePath,false)
         }
     }
 
@@ -59,6 +56,36 @@ suite("test_tvf_csv_with_enclose_escape", "p0") {
             "escape"="\\\\"
         ) order by c1,c2,c3,c4,c5,c6;  """ 
     }
+    
+    def crlf_lf_path = context.config.dataPath + "/external_table_p0/tvf/"
+    def file_name_end = """crlf_lf_enclose.csv""" 
 
+    for (List<Object> backend : backends) {
+        def be_host = backend[1]
+        scpFiles("root", be_host,crlf_lf_path + file_name_end ,outFilePath,false)
+    }
+
+    sql """ set keep_carriage_return = true; """
+    qt_csv_test_1  """ select * from  local (  
+        "file_path" = "${outFilePath}/${file_name_end}",
+        "format" = "csv"                           ,
+        "backend_id"="${be_id}"                    ,
+        "column_separator"=","                     ,
+        "trim_double_quotes"="true"                , 
+        "enclose"="\\""                             ,
+        "escape"="\\\\"
+    ) order by c1,c2,c3,c4;  """ 
+
+
+    sql """ set keep_carriage_return = false; """
+    qt_csv_test_2  """ select * from  local (  
+        "file_path" = "${outFilePath}/${file_name_end}",
+        "format" = "csv"                           ,
+        "backend_id"="${be_id}"                    ,
+        "column_separator"=","                     ,
+        "trim_double_quotes"="true"                , 
+        "enclose"="\\""                             ,
+        "escape"="\\\\"
+    ) order by c1,c2,c3,c4;  """ 
 
 }

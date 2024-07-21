@@ -12,3 +12,21 @@
 -- !load_test --
 7	aaa	2023-07-20		2023-07-20:05:48:31	
 
+-- !csv_test_1 --
+\r\r\r\r\r\r"21"	22\r	2""3,,	24\r\r\r
+1	\r\r\r\r\r\r"2"	\r\r\r"3"	"4\r\r\r\r\r\r\n"\r
+13	14	"15"\r\r\r\r\r\r\r\r	"16"\r
+17	18	19	"20"\r\r\r\r
+25\r\r	26\r\r\r\r\r\n\r\r\r	27\r\n	28
+5	6	7\r\r\r\r\r	"\r8"\r
+9	10	\r\r\r\r\r\r\r11\r\r\r\r\r	\r\r\r\r\r\r\r\r12
+
+-- !csv_test_2 --
+\r\r\r\r\r\r"21"	22\r	2""3,,	24\r\r
+1	\r\r\r\r\r\r"2"	\r\r\r"3"	4\r\r\r\r\r\r\n
+13	14	"15"\r\r\r\r\r\r\r\r	16
+17	18	19	"20"\r\r\r
+25\r\r	26\r\r\r\r\r\n\r\r\r	27\r\n	28
+5	6	7\r\r\r\r\r	\r8
+9	10	\r\r\r\r\r\r\r11\r\r\r\r\r	\r\r\r\r\r\r\r\r12
+
