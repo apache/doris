@@ -344,6 +344,8 @@ public:
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
+    virtual BasicSharedState* basic_shared_state() = 0;
+
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
@@ -398,6 +400,8 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
+
+    BasicSharedState* basic_shared_state() override { return _shared_state; }
 
     void inc_running_big_mem_op_num(RuntimeState* state) {
         if (!_big_mem_op_num_added) {

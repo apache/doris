@@ -156,6 +156,9 @@ Status PipelineTask::_extract_dependencies() {
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
         }
+        if (local_state->basic_shared_state()) {
+            local_state->basic_shared_state()->set_all_sink_dep(write_dependencies);
+        }
     }
     {
         std::unique_lock<std::mutex> lc(_dependency_lock);

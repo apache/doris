@@ -26,7 +26,6 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -64,6 +63,13 @@ void BasicSharedState::sub_running_source_operators() {
     }
 }
 
+void BasicSharedState::set_all_sink_dep(std::vector<Dependency*> deps) {
+    std::lock_guard lc(lock);
+    for (auto* dep : deps) {
+        sink_all_deps.push_back(dep->shared_from_this());
+    }
+}
+
 void BasicSharedState::set_all_dep_always_ready() {
     for (auto& dep : source_deps) {
         DCHECK(dep);
@@ -72,6 +78,13 @@ void BasicSharedState::set_all_dep_always_ready() {
     for (auto& dep : sink_deps) {
         DCHECK(dep);
         dep->set_always_ready();
+    }
+    {
+        std::lock_guard lc(lock);
+        for (auto& dep : sink_all_deps) {
+            DCHECK(dep);
+            dep->set_always_ready();
+        }
     }
 }
 

@@ -90,11 +90,22 @@ struct BasicSharedState {
 
     Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
 
+    void set_all_sink_dep(std::vector<Dependency*> deps);
+
 private:
     friend class Dependency;
     friend struct LocalExchangeSharedState;
     std::vector<DependencySPtr> source_deps;
     std::vector<DependencySPtr> sink_deps;
+
+    // In some sinks, such as GroupCommitBlockSink and LocalExchangeSink,
+    // their sink dependencies are more than just one from BasicSharedState.
+    std::vector<DependencySPtr> sink_all_deps;
+
+    // set_all_sink_dep occurs during the open phase of the task,
+    // which may result in the sink still being in the open phase while the source has already closed.
+    std::mutex lock;
+
     std::atomic<int> _running_sink_operators = 0;
     std::atomic<int> _running_source_operators = 0;
 };
