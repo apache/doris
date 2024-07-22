@@ -117,7 +117,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // check mv plan is valid or not
-            if (!isMaterializationValid(cascadesContext, context)) {
+            if (!isMaterializationValid(queryPlan, cascadesContext, context)) {
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
@@ -836,7 +836,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     // check mv plan is valid or not, this can use cache for performance
-    private boolean isMaterializationValid(CascadesContext cascadesContext, MaterializationContext context) {
+    private boolean isMaterializationValid(Plan queryPlan, CascadesContext cascadesContext,
+            MaterializationContext context) {
         long materializationId = context.generateMaterializationIdentifier().hashCode();
         Boolean cachedCheckResult = cascadesContext.getMemo().materializationHasChecked(this.getClass(),
                 materializationId);
@@ -847,6 +848,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 context.recordFailReason(context.getStructInfo(),
                         "View struct info is invalid", () -> String.format("view plan is %s",
                                 context.getStructInfo().getOriginalPlan().treeString()));
+                // tmp to location question
+                LOG.info(String.format("View struct info is invalid, query plan is %s, view plan is %s",
+                        queryPlan.treeString(), context.getStructInfo().getTopPlan().treeString()));
                 cascadesContext.getMemo().recordMaterializationCheckResult(this.getClass(), materializationId,
                         false);
                 return false;
@@ -858,12 +862,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             context.recordFailReason(context.getStructInfo(),
                     "View struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
+            LOG.info(String.format("View struct info is invalid, query plan is %s, view plan is %s",
+                    queryPlan.treeString(), context.getStructInfo().getTopPlan().treeString()));
             return false;
         }
         if (!context.getStructInfo().isValid()) {
             context.recordFailReason(context.getStructInfo(),
                     "View struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
+            LOG.info(String.format("View struct info is invalid, query plan is %s, view plan is %s",
+                    queryPlan.treeString(), context.getStructInfo().getTopPlan().treeString()));
             return false;
         }
         return true;

@@ -415,7 +415,26 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_0_before "${query3_0}"
-    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
+    sql"""
+        CREATE MATERIALIZED VIEW mv3_0 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv3_0}
+        """
+
+    def job_name = getJobName(db, "mv3_0");
+    waitingMTMVTaskFinished(job_name)
+
+    def explain_memo_plan =  """explain memo plan ${query3_0}"""
+    logger.info("query3_0 explain memo plan is " + explain_memo_plan.toString())
+
+    explain {
+        sql("${query3_0}")
+        contains("mv3_0(mv3_0)")
+    }
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
