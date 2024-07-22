@@ -162,6 +162,9 @@ Status PipelineXTask::_extract_dependencies() {
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
     }
+    if (query_context()->is_cancelled()) {
+        clear_blocking_state();
+    }
     return Status::OK();
 }
 
