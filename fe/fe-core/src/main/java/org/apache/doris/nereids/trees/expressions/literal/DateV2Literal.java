@@ -33,7 +33,7 @@ import java.util.function.Supplier;
  * date v2 literal for nereids
  */
 public class DateV2Literal extends DateLiteral {
-    private final Supplier<org.apache.doris.analysis.DateLiteral> LEGACY_LITERAL = Suppliers.memoize(() ->
+    private final Supplier<org.apache.doris.analysis.DateLiteral> legacyLiteral = Suppliers.memoize(() ->
             new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATEV2)
     );
 
@@ -47,7 +47,7 @@ public class DateV2Literal extends DateLiteral {
 
     @Override
     public org.apache.doris.analysis.DateLiteral toLegacyLiteral() {
-        return LEGACY_LITERAL.get();
+        return legacyLiteral.get();
     }
 
     @Override
