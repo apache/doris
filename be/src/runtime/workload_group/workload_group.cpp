@@ -107,39 +107,55 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     }
 }
 
-int64_t WorkloadGroup::memory_used() {
+int64_t WorkloadGroup::make_memory_tracker_snapshots(
+        std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots) {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
+            if (tracker_snapshots != nullptr) {
+                tracker_snapshots->insert(tracker_snapshots->end(), tracker);
+            }
             used_memory += tracker->consumption();
         }
     }
+    // refresh total memory used.
+    _total_mem_used = used_memory;
+    // reserve memory is recorded in the query mem tracker
+    // and _total_mem_used already contains all the current reserve memory.
+    // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
+    _wg_refresh_interval_memory_growth.store(0.0);
     return used_memory;
 }
 
-void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
-    _weighted_mem_used.store(int64_t(wg_total_mem_used * ratio), std::memory_order_relaxed);
+int64_t WorkloadGroup::memory_used() {
+    return make_memory_tracker_snapshots(nullptr);
+}
+
+void WorkloadGroup::set_weighted_memory_ratio(double ratio) {
+    _weighted_mem_ratio = ratio;
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    mem_tracker_ptr->tg_tracker_limiter_group_it =
+    mem_tracker_ptr->wg_tracker_limiter_group_it =
             _mem_tracker_limiter_pool[group_num].trackers.insert(
                     _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
 void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    if (mem_tracker_ptr->tg_tracker_limiter_group_it !=
+    if (mem_tracker_ptr->wg_tracker_limiter_group_it !=
         _mem_tracker_limiter_pool[group_num].trackers.end()) {
         _mem_tracker_limiter_pool[group_num].trackers.erase(
-                mem_tracker_ptr->tg_tracker_limiter_group_it);
-        mem_tracker_ptr->tg_tracker_limiter_group_it =
+                mem_tracker_ptr->wg_tracker_limiter_group_it);
+        mem_tracker_ptr->wg_tracker_limiter_group_it =
                 _mem_tracker_limiter_pool[group_num].trackers.end();
     }
 }

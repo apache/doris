@@ -40,6 +40,7 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
@@ -361,18 +362,24 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     std::shared_ptr<QueryContext> query_context =
             ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
     if (query_context != nullptr) {
-        _query_thread_context = {load_tid, query_context->query_mem_tracker};
+        _query_thread_context = {load_tid, query_context->query_mem_tracker,
+                                 query_context->workload_group()};
     } else {
-        _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
-                                                   MemTrackerLimiter::Type::LOAD,
-                                                   fmt::format("(FromLoadStream)Load#Id={}",
-                                                               ((UniqueId)load_id).to_string()))};
+        _query_thread_context = {
+                load_tid,
+                MemTrackerLimiter::create_shared(
+                        MemTrackerLimiter::Type::LOAD,
+                        fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string())),
+                ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(
+                        1)}; // tg_id=1 is normal workload group.
     }
 #else
-    _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
-                                               MemTrackerLimiter::Type::LOAD,
-                                               fmt::format("(FromLoadStream)Load#Id={}",
-                                                           ((UniqueId)load_id).to_string()))};
+    _query_thread_context = {
+            load_tid,
+            MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::LOAD,
+                    fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string())),
+            ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(1)};
 #endif
 }
 
