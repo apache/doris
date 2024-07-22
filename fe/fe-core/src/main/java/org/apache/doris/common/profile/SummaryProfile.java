@@ -40,7 +40,6 @@ import java.util.Map;
  * It contains the summary information of a query.
  */
 public class SummaryProfile {
-
     // Summary
     public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
@@ -312,28 +311,8 @@ public class SummaryProfile {
     @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
-    public static SummaryProfile read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), SummaryProfile.class);
-    }
-
-    public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
-    }
-
     public SummaryProfile() {
         init();
-    }
-
-    public String getProfileId() {
-        return this.summaryProfile.getInfoString(PROFILE_ID);
-    }
-
-    public RuntimeProfile getSummary() {
-        return summaryProfile;
-    }
-
-    public RuntimeProfile getExecutionSummary() {
-        return executionSummaryProfile;
     }
 
     private void init() {
@@ -355,6 +334,22 @@ public class SummaryProfile {
             String randomId = String.valueOf(TimeUtils.getStartTimeMs());
             executionSummaryProfile.addInfoString(key, randomId);
         }
+    }
+
+    public static SummaryProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), SummaryProfile.class);
+    }
+
+    public String getProfileId() {
+        return this.summaryProfile.getInfoString(PROFILE_ID);
+    }
+
+    public RuntimeProfile getSummary() {
+        return summaryProfile;
+    }
+
+    public RuntimeProfile getExecutionSummary() {
+        return executionSummaryProfile;
     }
 
     public void prettyPrint(StringBuilder builder) {
@@ -832,5 +827,9 @@ public class SummaryProfile {
 
     public void incDeleteFileCnt() {
         this.filesystemDeleteFileCnt += 1;
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 }

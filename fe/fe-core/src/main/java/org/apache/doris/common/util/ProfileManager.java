@@ -285,19 +285,6 @@ public class ProfileManager extends MasterDaemon {
         return result;
     }
 
-    // The init value of query finish time of profile is MIN_VALUE
-    // So more recent query will be on the top of heap
-    private PriorityQueue<ProfileElement> getQueryOrderByQueryFinishTime() {
-        PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
-                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
-
-        queryIdToProfileMap.forEach((queryId, profileElement) -> {
-            queryIdDeque.add(profileElement);
-        });
-
-        return queryIdDeque;
-    }
-
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
             TUniqueId queryID, TNetworkAddress targetBackend) {
         TGetRealtimeExecStatusResponse resp = null;
@@ -580,24 +567,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    // When the query is finished, the profile should be marked as finished
-    public void markQueryFinished(TUniqueId queryId) {
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
-            if (element == null) {
-                LOG.debug("Profile {} does not exist, already finished or does not enable profile",
-                        DebugUtil.printId(queryId));
-                return;
-            }
-            element.profile.markisFinished(System.currentTimeMillis());
-        } catch (Exception e) {
-            LOG.error("Failed to mark query {} finished", DebugUtil.printId(queryId), e);
-        } finally {
-            readLock.unlock();
-        }
-    }
-
     @Override
     protected void runAfterCatalogReady() {
         loadProfilesFromStorageIfFirstTime();
@@ -755,7 +724,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private List<ProfileElement> getProfilesToBeRemoved() {
-        final int maxProfilesOnStorage = Config.max_profile_on_storage;
+        final int maxProfilesOnStorage = Config.max_spilled_profile_num;
         // By order of profile storage timestamp
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
                 (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
@@ -903,6 +872,37 @@ public class ProfileManager extends MasterDaemon {
             } catch (InterruptedException e) {
                 LOG.error("Failed to remove broken profile", e);
             }
+        }
+    }
+
+        // The init value of query finish time of profile is MIN_VALUE
+    // So more recent query will be on the top of heap
+    private PriorityQueue<ProfileElement> getQueryOrderByQueryFinishTime() {
+        PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
+
+        queryIdToProfileMap.forEach((queryId, profileElement) -> {
+            queryIdDeque.add(profileElement);
+        });
+
+        return queryIdDeque;
+    }
+
+    // When the query is finished, the profile should be marked as finished
+    public void markQueryFinished(TUniqueId queryId) {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
+            if (element == null) {
+                LOG.debug("Profile {} does not exist, already finished or does not enable profile",
+                        DebugUtil.printId(queryId));
+                return;
+            }
+            element.profile.markisFinished(System.currentTimeMillis());
+        } catch (Exception e) {
+            LOG.error("Failed to mark query {} finished", DebugUtil.printId(queryId), e);
+        } finally {
+            readLock.unlock();
         }
     }
 }

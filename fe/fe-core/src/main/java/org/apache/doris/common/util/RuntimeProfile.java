@@ -125,18 +125,14 @@ public class RuntimeProfile {
         init();
     }
 
-    public static RuntimeProfile read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
-    }
-
-    public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
-    }
-
     private void init() {
         this.infoStringsLock = new ReentrantReadWriteLock();
         this.childLock = new ReentrantReadWriteLock();
         this.counterLock = new ReentrantReadWriteLock();
+    }
+
+    public static RuntimeProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
     }
 
     public void setIsCancel(Boolean isCancel) {
@@ -779,5 +775,9 @@ public class RuntimeProfile {
 
     public Map<String, String> getInfoStrings() {
         return infoStrings;
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 }

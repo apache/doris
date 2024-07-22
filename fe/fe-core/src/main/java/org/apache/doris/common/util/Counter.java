@@ -40,22 +40,6 @@ public class Counter {
         return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
     }
 
-    public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
-    }
-
-    public boolean equals(Object rhs) {
-        if (this == rhs) {
-            return true;
-        }
-        if (rhs == null || getClass() != rhs.getClass()) {
-            return false;
-        }
-
-        Counter other = (Counter) rhs;
-        return other.value == value && other.type == type && other.level == level;
-    }
-
     public long getValue() {
         return value;
     }
@@ -136,6 +120,22 @@ public class Counter {
 
     public String toString() {
         return print();
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public boolean equals(Object rhs) {
+        if (this == rhs) {
+            return true;
+        }
+        if (rhs == null || getClass() != rhs.getClass()) {
+            return false;
+        }
+
+        Counter other = (Counter) rhs;
+        return other.value == value && other.type == type && other.level == level;
     }
 
 }

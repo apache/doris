@@ -111,6 +111,84 @@ public class Profile {
         this.autoProfileDurationMs = autoProfileDurationMs;
     }
 
+    // check if the profile file is valid and create a file input stream
+    // user need to close the file stream.
+    private static FileInputStream createPorfileFileInputStream(String path) {
+        File profileFile = new File(path);
+        if (!profileFile.isFile()) {
+            LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
+            return null;
+        }
+
+        String[] parts = path.split(File.separator);
+        if (parts.length < 1) {
+            LOG.warn("Profile storage path {} is invalid", profileFile.getAbsolutePath());
+            return null;
+        }
+        // Profile could be a load task with multiple queries, so we call it id.
+        if (parseProfileFileName(parts[parts.length - 1]) == null) {
+            LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
+            return null;
+        }
+
+        FileInputStream profileMetaFileInputStream = null;
+        try {
+            profileMetaFileInputStream = new FileInputStream(path);
+        } catch (Exception e) {
+            LOG.warn("open profile file {} failed", path, e);
+        }
+
+        return profileMetaFileInputStream;
+    }
+
+    // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
+    public static String[] parseProfileFileName(String profileFileName) {
+        String [] timeAndID = profileFileName.split(SEPERATOR);
+        if (timeAndID.length != 2) {
+            return null;
+        }
+        TUniqueId thriftId = DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
+        if (thriftId == null) {
+            if (Long.valueOf(timeAndID[1]) == null) {
+                return null;
+            }
+        }
+        return timeAndID;
+    }
+
+    // read method will only read summary profile, and return a Profile object
+    public static Profile read(String path) {
+        FileInputStream profileFileInputStream = null;
+        try {
+            profileFileInputStream = createPorfileFileInputStream(path);
+            // Maybe profile path is invalid
+            if (profileFileInputStream == null) {
+                return null;
+            }
+            // read method will move the cursor to the end of the summary profile
+            DataInput dataInput = new DataInputStream(profileFileInputStream);
+
+            Profile res = new Profile();
+            res.summaryProfile = SummaryProfile.read(dataInput);
+            res.setId(res.summaryProfile.getProfileId());
+            res.profileStoragePath = path;
+            res.isFinished = true;
+            LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
+            return res;
+        } catch (Exception exception) {
+            LOG.error("read profile failed", exception);
+            return null;
+        } finally {
+            if (profileFileInputStream != null) {
+                try {
+                    profileFileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("close profile file {} failed", path, e);
+                }
+            }
+        }
+    }
+
     // For load task, the profile contains many execution profiles
     public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
@@ -197,6 +275,23 @@ public class Profile {
         return builder.toString();
     }
 
+    private RuntimeProfile composeRootProfile() {
+        RuntimeProfile rootProfile = new RuntimeProfile(id);
+        rootProfile.addChild(summaryProfile.getSummary());
+        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            rootProfile.addChild(executionProfile.getRoot());
+        }
+        rootProfile.computeTimeInProfile();
+        return rootProfile;
+    }
+
+    public String getProfileBrief() {
+        RuntimeProfile rootProfile = composeRootProfile();
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(rootProfile.toBrief());
+    }
+
     // Read file if profile has been stored to storage.
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
@@ -258,36 +353,6 @@ public class Profile {
             LOG.warn("build profile failed", aggProfileException);
             builder.append("build  profile failed");
         }
-    }
-
-    // check if the profile file is valid and create a file input stream
-    // user need to close the file stream.
-    private static FileInputStream createPorfileFileInputStream(String path) {
-        File profileFile = new File(path);
-        if (!profileFile.isFile()) {
-            LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
-            return null;
-        }
-
-        String[] parts = path.split(File.separator);
-        if (parts.length < 1) {
-            LOG.warn("Profile storage path {} is invalid", profileFile.getAbsolutePath());
-            return null;
-        }
-        // Profile could be a load task with multiple queries, so we call it id.
-        if (parseProfileFileName(parts[parts.length - 1]) == null) {
-            LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
-            return null;
-        }
-
-        FileInputStream profileMetaFileInputStream = null;
-        try {
-            profileMetaFileInputStream = new FileInputStream(path);
-        } catch (Exception e) {
-            LOG.warn("open profile file {} failed", path, e);
-        }
-
-        return profileMetaFileInputStream;
     }
 
     public long getProfileStoreTimestamp() {
@@ -391,54 +456,6 @@ public class Profile {
         }
     }
 
-    // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
-    public static String[] parseProfileFileName(String profileFileName) {
-        String [] timeAndID = profileFileName.split(SEPERATOR);
-        if (timeAndID.length != 2) {
-            return null;
-        }
-        TUniqueId thriftId = DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
-        if (thriftId == null) {
-            if (Long.valueOf(timeAndID[1]) == null) {
-                return null;
-            }
-        }
-        return timeAndID;
-    }
-
-    // read method will only read summary profile, and return a Profile object
-    public static Profile read(String path) {
-        FileInputStream profileFileInputStream = null;
-        try {
-            profileFileInputStream = createPorfileFileInputStream(path);
-            // Maybe profile path is invalid
-            if (profileFileInputStream == null) {
-                return null;
-            }
-            // read method will move the cursor to the end of the summary profile
-            DataInput dataInput = new DataInputStream(profileFileInputStream);
-
-            Profile res = new Profile();
-            res.summaryProfile = SummaryProfile.read(dataInput);
-            res.setId(res.summaryProfile.getProfileId());
-            res.profileStoragePath = path;
-            res.isFinished = true;
-            LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
-            return res;
-        } catch (Exception exception) {
-            LOG.error("read profile failed", exception);
-            return null;
-        } finally {
-            if (profileFileInputStream != null) {
-                try {
-                    profileFileInputStream.close();
-                } catch (Exception e) {
-                    LOG.warn("close profile file {} failed", path, e);
-                }
-            }
-        }
-    }
-
     public void writeToStorage(String systemProfileStorageDir) {
         if (Strings.isNullOrEmpty(id)) {
             LOG.warn("store profile failed, name is empty");
@@ -521,22 +538,5 @@ public class Profile {
         if (!FileUtils.deleteQuietly(profileFile)) {
             LOG.warn("remove profile {} failed", profileFile.getAbsolutePath());
         }
-    }
-
-    private RuntimeProfile composeRootProfile() {
-        RuntimeProfile rootProfile = new RuntimeProfile(id);
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
-        }
-        rootProfile.computeTimeInProfile();
-        return rootProfile;
-    }
-
-    public String getProfileBrief() {
-        RuntimeProfile rootProfile = composeRootProfile();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(rootProfile.toBrief());
     }
 }
