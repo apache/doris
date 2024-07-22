@@ -129,7 +129,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("3000") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "Invalid range value format： errCode = 2, detailMessage = Number out of range[3000]. type: TINYINT"
+        exception "Invalid range value format： errCode = 2, detailMessage = Number out of range[3000]. type: tinyint"
     }
     test {
         sql """
