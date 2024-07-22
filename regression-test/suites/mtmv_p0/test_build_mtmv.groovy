@@ -501,10 +501,10 @@ suite("test_build_mtmv") {
         DROP MATERIALIZED VIEW ${mvName}
     """
     def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
-    log.info(jobs)
+    log.info(jobs.toString())
     assertEquals(jobs.get(0).get(0), 0);
     def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
-    log.info(tasks)
+    log.info(tasks.toString())
     assertEquals(tasks.get(0).get(0), 0);
 
     // test bitmap
