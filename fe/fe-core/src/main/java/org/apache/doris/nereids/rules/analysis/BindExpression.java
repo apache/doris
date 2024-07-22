@@ -97,6 +97,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -510,7 +511,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Set<String> tableNames = new HashSet<>();
         // Call the recursive method to check for duplicate table names or aliases in the plan
-        checkPlan(join, tableNames);
+        checkPlan(join, tableNames, true);
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
@@ -537,32 +538,37 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     // Recursive method to check for duplicate table names or aliases
-    private void checkPlan(Plan plan, Set<String> tableNames) throws AnalysisException {
+    private void checkPlan(Plan plan, Set<String> tableNames, boolean isTopLevel) throws AnalysisException {
         if (plan instanceof LogicalSubQueryAlias) {
             LogicalSubQueryAlias subQueryAlias = (LogicalSubQueryAlias) plan;
             String alias = subQueryAlias.getAlias();
 
-            if (!tableNames.add(alias)) {
+            if (!tableNames.add(alias) && isTopLevel) {
                 throw new AnalysisException("Not unique table/alias: '" + alias + "'");
             }
-        }
 
-        if (plan instanceof LogicalCatalogRelation) {
+            // Recursively check children of LogicalSubQueryAlias with a new tableNames set
+            for (Plan child : plan.children()) {
+                checkPlan(child, new HashSet<>(), false);
+            }
+        } else if (plan instanceof LogicalCatalogRelation && !(plan instanceof LogicalSubQueryAlias)) {
             LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
             String tableName = relation.getTable().getName();
 
-            if (!tableNames.add(tableName)) {
+            if (GlobalVariable.lowerCaseTableNames != 0) {
+                tableName = tableName.toLowerCase();
+            }
+
+            if (!tableNames.add(tableName) && isTopLevel) {
                 throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
             }
-        }
-
-        // Recursively check the children of the current plan
-        for (Plan child : plan.children()) {
-            checkPlan(child, tableNames);
+        } else {
+            // Recursively check the children of the current plan
+            for (Plan child : plan.children()) {
+                checkPlan(child, tableNames, isTopLevel);
+            }
         }
     }
-
-
 
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {

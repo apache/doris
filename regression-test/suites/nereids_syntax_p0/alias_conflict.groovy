@@ -114,6 +114,21 @@ suite("alias_conflict") {
     // Test for no conflict
     qt_select_no_conflict """select * from test_alias_conflict1 t1, test_alias_conflict2 t2 where t1.id = t2.id;"""
 
+
+    // Test case where alias are different
+    qt_select_diff_alias """select * from test_alias_conflict2 a, test_alias_conflict2 b;"""
+
+    // Test case where aliases conflict within subqueries should not raise error
+    qt_select_nested_no_conflict """select * from 
+    (
+      select * from test_alias_conflict1 a
+    ) b
+    join
+    (
+      select * from test_alias_conflict1 a
+    ) c
+    on b.id = c.id;"""
+
     sql """ DROP TABLE IF EXISTS `test_alias_conflict1` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict2` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict3` """
