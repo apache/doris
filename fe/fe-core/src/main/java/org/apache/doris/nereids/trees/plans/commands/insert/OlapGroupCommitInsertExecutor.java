@@ -30,8 +30,10 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -71,6 +73,11 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     @Override
     protected void beforeExec() {
+        if (Env.getCurrentEnv().getGroupCommitManager().isBlock(this.table.getId())) {
+            String msg = "insert table " + this.table.getId() + GroupCommitPlanner.SCHEMA_CHANGE;
+            LOG.info(msg);
+            throw new AnalysisException(msg);
+        }
         try {
             this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommit(table.getId(), ctx, false));
