@@ -80,6 +80,8 @@ struct SegmentWriterOptions {
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
+using IndicatorMapsVertical = std::map<uint32_t, const vectorized::UInt8*>;
+
 class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
@@ -138,10 +140,16 @@ public:
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
-                                const vectorized::Block* block);
+    Status fill_missing_columns(vectorized::Block* full_block,
+                                 const PartialUpdateReadPlan& read_plan,
+                                 const std::vector<uint32_t>& cids_full_read,
+                                 const std::vector<uint32_t>& cids_point_read,
+                                 const std::vector<bool>& use_default_or_null_flag,
+                                 bool has_default_or_nullable, const size_t& segment_start_pos,
+                                 bool is_unique_key_replace_if_not_null,
+                                 const vectorized::Block* block);
+    void calc_indicator_maps(uint32_t row_pos, uint32_t num_rows,
+                              const IndicatorMapsVertical& indicator_maps_vertical);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -244,6 +252,18 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    // For partial update, during publish version we may generate a new block to handle
+    // the data loss problem due to concurrent update. We need to re-calculate the values
+    // read from the old rows because there may be new rows with same keys written successfully
+    // during the period of flush phase and publish phase of the current write. Columns to read from
+    // the segements in old versions for this purpose include `missing_cols` and part of the
+    // `including_cols` if the property `enable_unique_key_replace_if_not_null` is turned on for all conflict rows.
+    // However, in publish version, the input block(s) has been trasnformed to segment(s) and we can't
+    // get the information about the locations of indicator values DIRECTLY. So we keep the information of
+    // the locations of indicator values of `including_cols` in `_indicator_maps` and pass it to publish phase
+    // through TabletTxnInfo
+    std::shared_ptr<IndicatorMaps> _indicator_maps = nullptr;
 };
 
 } // namespace segment_v2
