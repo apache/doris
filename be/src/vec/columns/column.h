@@ -334,27 +334,10 @@ public:
         __builtin_unreachable();
     }
 
-    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map) const {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method serialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
-    }
-
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
-    }
-
-    // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                               const uint8_t* null_map) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method deserialize_vec_with_null_map is not supported for " + get_name());
         __builtin_unreachable();
     }
 
@@ -424,6 +407,8 @@ public:
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
      *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
+     *  // nullable -> predict_column
+     *  // string (dictionary) -> column_dictionary
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -606,13 +591,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
-    }
-
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Values of column {} are not fixed size.", get_name());
-        return 0;
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
