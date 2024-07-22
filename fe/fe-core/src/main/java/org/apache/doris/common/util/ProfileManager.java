@@ -189,6 +189,28 @@ public class ProfileManager extends MasterDaemon {
                 LOG.debug("Add execution profile {} to profile manager",
                         DebugUtil.printId(executionProfile.getQueryId()));
             }
+            // This branch has two purposes:
+            // 1. discard profile collecting if its collection not finished in 5 seconds after query finished.
+            // 2. prevent execution profile from leakage. If we have too many execution profiles in memory,
+            // we will remove execution profiles of query that has finished in 5 seconds ago.
+            if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
+                List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
+                for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
+                    boolean queryFinishedLongEnough = tmpProfile.getQueryFinishTime() > 0
+                            && System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
+                            > Config.profile_async_collect_expire_time_secs * 1000;
+
+                    if (queryFinishedLongEnough) {
+                        finishOrExpireExecutionProfiles.add(tmpProfile);
+                    }
+                }
+                StringBuilder stringBuilder = new StringBuilder();
+                for (ExecutionProfile tmp : finishOrExpireExecutionProfiles) {
+                    stringBuilder.append(DebugUtil.printId(tmp.getQueryId())).append(",");
+                    queryIdToExecutionProfiles.remove(tmp.getQueryId());
+                }
+                LOG.warn("Remove expired execution profiles {}", stringBuilder.toString());
+            }
         } finally {
             writeLock.unlock();
         }

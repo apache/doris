@@ -3112,24 +3112,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case "set_var":
                     Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
                     for (HintAssignmentContext kv : hintStatement.parameters) {
-                        String parameterName = visitIdentifierOrText(kv.key);
-                        Optional<String> value = Optional.empty();
-                        if (kv.constantValue != null) {
-                            Literal literal = (Literal) visit(kv.constantValue);
-                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                        } else if (kv.identifierValue != null) {
-                            // maybe we should throw exception when the identifierValue is quoted identifier
-                            value = Optional.ofNullable(kv.identifierValue.getText());
+                        if (kv.key != null) {
+                            String parameterName = visitIdentifierOrText(kv.key);
+                            Optional<String> value = Optional.empty();
+                            if (kv.constantValue != null) {
+                                Literal literal = (Literal) visit(kv.constantValue);
+                                value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                            } else if (kv.identifierValue != null) {
+                                // maybe we should throw exception when the identifierValue is quoted identifier
+                                value = Optional.ofNullable(kv.identifierValue.getText());
+                            }
+                            parameters.put(parameterName, value);
                         }
-                        parameters.put(parameterName, value);
                     }
                     hints.put(hintName, new SelectHintSetVar(hintName, parameters));
                     break;
                 case "leading":
                     List<String> leadingParameters = new ArrayList<String>();
                     for (HintAssignmentContext kv : hintStatement.parameters) {
-                        String parameterName = visitIdentifierOrText(kv.key);
-                        leadingParameters.add(parameterName);
+                        if (kv.key != null) {
+                            String parameterName = visitIdentifierOrText(kv.key);
+                            leadingParameters.add(parameterName);
+                        }
                     }
                     hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
                     break;
@@ -3139,8 +3143,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case "use_cbo_rule":
                     List<String> useRuleParameters = new ArrayList<String>();
                     for (HintAssignmentContext kv : hintStatement.parameters) {
-                        String parameterName = visitIdentifierOrText(kv.key);
-                        useRuleParameters.add(parameterName);
+                        if (kv.key != null) {
+                            String parameterName = visitIdentifierOrText(kv.key);
+                            useRuleParameters.add(parameterName);
+                        }
                     }
                     hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
                     break;
@@ -3148,7 +3154,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     List<String> noUseRuleParameters = new ArrayList<String>();
                     for (HintAssignmentContext kv : hintStatement.parameters) {
                         String parameterName = visitIdentifierOrText(kv.key);
-                        noUseRuleParameters.add(parameterName);
+                        if (kv.key != null) {
+                            noUseRuleParameters.add(parameterName);
+                        }
                     }
                     hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
                     break;

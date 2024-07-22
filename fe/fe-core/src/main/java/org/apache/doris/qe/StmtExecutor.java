@@ -726,13 +726,6 @@ public class StmtExecutor {
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
                     }
-                    if (context.getSessionVariable().isEnableInsertGroupCommit()) {
-                        // FIXME: Group commit insert does not need to forward to master
-                        //  Nereids does not support group commit, so we can not judge if should forward
-                        //  Here throw an exception to fallback to legacy planner and let legacy judge if should forward
-                        //  After Nereids support group commit, we can remove this exception
-                        throw new NereidsException(new UserException("Nereids does not support group commit insert"));
-                    }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
                         context.setQueryId(masterOpExecutor.getQueryId());
@@ -793,7 +786,7 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                planner.addHook(InitMaterializationContextHook.INSTANCE);
+                statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
@@ -995,9 +988,8 @@ public class StmtExecutor {
                 syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
-                parsedStmt.checkPriv();
             }
-
+            parsedStmt.checkPriv();
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
                 handlePrepareStmt();
                 return;
