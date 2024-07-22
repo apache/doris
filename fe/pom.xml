@@ -318,7 +318,7 @@ under the License.
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
-        <lakesoul.version>2.6.0</lakesoul.version>
+        <lakesoul.version>2.6.1</lakesoul.version>
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
