@@ -146,8 +146,8 @@ public:
         if (config::enable_je_purge_dirty_pages) {
             try {
                 // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-                int err = jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
-                          nullptr, nullptr, 0);
+                int err = jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(),
+                                    nullptr, nullptr, nullptr, 0);
                 if (err) {
                     LOG(WARNING) << "Jemalloc purge all unused dirty pages failed";
                 }
