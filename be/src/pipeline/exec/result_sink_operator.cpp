@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
@@ -64,8 +65,9 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
 
     // create sender
+    auto& p = _parent->cast<ResultSinkOperatorX>();
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
+            state->fragment_instance_id(), p._result_sink_buffer_size_rows, &_sender, true,
             state->execution_timeout()));
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
     return Status::OK();
@@ -117,6 +119,11 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
         _sink_type = sink.type;
+    }
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        _result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+    } else {
+        _result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
     }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
