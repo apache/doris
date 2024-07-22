@@ -84,6 +84,7 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
             .load_id = _load_id,
             .table_schema_param = schema,
             // TODO(plat1ko): write_file_cache
+            .storage_vault_id {},
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);

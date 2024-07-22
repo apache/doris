@@ -22,6 +22,12 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#if defined(__APPLE__)
+#include <ctime>
+#define CURRENT_TIME std::chrono::system_clock::now()
+#else
+#define CURRENT_TIME std::chrono::high_resolution_clock::now()
+#endif
 
 namespace doris {
 // Just 10^6.
@@ -85,8 +91,7 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(
 
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
-    auto [count_value, tokens_value] =
-            _update_remain_token(std::chrono::system_clock::now(), amount);
+    auto [count_value, tokens_value] = _update_remain_token(CURRENT_TIME, amount);
 
     if (_limit && count_value > _limit) {
         // CK would throw exception

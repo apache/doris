@@ -34,33 +34,15 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/simple_thread_pool.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
 #include "recycler/azure_obj_client.h"
 #include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
-
-namespace {
-
-bvar::Adder<uint64_t> too_many_request_http_retry_times("too_many_request_http_retry_times");
-
-class CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
-public:
-    CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
-
-    bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
-                     long attemptedRetries) const override {
-        if (attemptedRetries < m_maxRetries &&
-            error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
-            too_many_request_http_retry_times << 1;
-            return true;
-        }
-        return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
-    }
-};
-} // namespace
 
 namespace doris::cloud {
 bvar::Adder<int64_t> get_rate_limit_ms("get_rate_limit_ms");
@@ -219,7 +201,15 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     return (*accessor)->init();
 }
 
+static std::shared_ptr<SimpleThreadPool> worker_pool;
+
 int S3Accessor::init() {
+    static std::once_flag log_annotated_tags_key_once;
+    std::call_once(log_annotated_tags_key_once, [&]() {
+        LOG_INFO("start s3 accessor parallel worker pool");
+        worker_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        worker_pool->start();
+    });
     switch (conf_.provider) {
     case S3Conf::AZURE: {
         Azure::Storage::Blobs::BlobClientOptions options;
@@ -229,6 +219,12 @@ int S3Accessor::init() {
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
         uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
                            conf_.ak, conf_.bucket);
+        // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
+        // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
+        // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
+        // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
+        options.PerRetryPolicies.emplace_back(
+                std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
@@ -249,7 +245,7 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
-        aws_config.retryStrategy = std::make_shared<CustomRetryStrategy>(
+        aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry /*scaleFactor = 25*/);
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 std::move(aws_cred), std::move(aws_config),
@@ -265,7 +261,7 @@ int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expir
     LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
     return obj_client_
             ->delete_objects_recursively({.bucket = conf_.bucket, .key = get_key(path_prefix)},
-                                         expiration_time)
+                                         {.executor = worker_pool}, expiration_time)
             .ret;
 }
 
@@ -307,7 +303,8 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
         keys.emplace_back(get_key(path));
     }
 
-    return obj_client_->delete_objects(conf_.bucket, std::move(keys)).ret;
+    return obj_client_->delete_objects(conf_.bucket, std::move(keys), {.executor = worker_pool})
+            .ret;
 }
 
 int S3Accessor::delete_file(const std::string& path) {

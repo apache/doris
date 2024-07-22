@@ -25,6 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -221,7 +222,10 @@ public class CloudReplica extends Replica {
                 return backendId;
             }
         }
-
+        if (DebugPointUtil.isEnable("CloudReplica.getBackendIdImpl.clusterToBackends")) {
+            LOG.info("Debug Point enable CloudReplica.getBackendIdImpl.clusterToBackends");
+            return -1;
+        }
         return hashReplicaToBe(clusterId, false);
     }
 
