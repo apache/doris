@@ -189,6 +189,23 @@ public:
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
+    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
+                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                const PartialUpdateReadPlan& read_plan,
+                                const std::vector<uint32_t>* cids_full_read,
+                                vectorized::Block* block_full_read,
+                                std::map<uint32_t, uint32_t>* missing_cols_read_index);
+
+    // with point read, used by flexible partial update
+    Status read_columns_by_plan(
+            TabletSchemaSPtr tablet_schema,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const PartialUpdateReadPlan& read_plan, const std::vector<uint32_t>* cids_full_read,
+            const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+            vectorized::Block* block_point_read,
+            std::map<uint32_t, uint32_t>* missing_cols_read_index,
+            std::map<uint32_t, std::map<uint32_t, uint32_t>>* parital_update_cols_read_index);
+
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
             const PartialUpdateReadPlan& read_plan_ori,

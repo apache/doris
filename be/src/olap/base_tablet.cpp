@@ -924,6 +924,169 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     return Status::OK();
 }
 
+Status BaseTablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
+                                        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                        const PartialUpdateReadPlan& read_plan,
+                                        const std::vector<uint32_t>* cids_full_read,
+                                        vectorized::Block* block_full_read,
+                                        std::map<uint32_t, uint32_t>* full_read_index) {
+    auto full_read_columns = block_full_read->mutate_columns();
+    uint32_t read_idx1 = 0;
+    return std::visit(
+            vectorized::Overload {
+                    [&](const RowStoreReadPlan& row_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : row_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+                            for (const auto& [segment_id, rows_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (const auto& [id_and_pos, cids] : rows_info) {
+                                    // set read index for missing columns
+                                    rids.emplace_back(id_and_pos.rid);
+                                    (*full_read_index)[id_and_pos.pos] = read_idx1++;
+                                }
+
+                                auto st = fetch_value_through_row_column(
+                                        rowset, segment_id, rids, rows_info, cids_full_read,
+                                        nullptr, block_full_read, nullptr, false);
+                                if (!st.ok()) {
+                                    LOG(WARNING) << "failed to fetch value through row column";
+                                    return st;
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    },
+                    [&](const ColumnStoreReadPlan& column_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : column_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+
+                            for (const auto& [segment_id, columns_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (auto [rid, pos] : columns_info.missing_column_rows) {
+                                    rids.emplace_back(rid);
+                                    // set read index for missing columns
+                                    (*full_read_index)[pos] = read_idx1++;
+                                }
+
+                                // read values for missing columns
+                                for (size_t i = 0; i < cids_full_read->size(); ++i) {
+                                    TabletColumn tablet_column =
+                                            tablet_schema->column(cids_full_read->at(i));
+                                    auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                    tablet_column,
+                                                                    full_read_columns[i]);
+                                    if (!st.ok()) {
+                                        LOG(WARNING) << "failed to fetch value by rowids";
+                                        return st;
+                                    }
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    }},
+            read_plan);
+}
+
+Status Tablet::read_columns_by_plan(
+        TabletSchemaSPtr tablet_schema, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        const PartialUpdateReadPlan& read_plan, const std::vector<uint32_t>* cids_full_read,
+        const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+        vectorized::Block* block_point_read, std::map<uint32_t, uint32_t>* full_read_index,
+        std::map<uint32_t, std::map<uint32_t, uint32_t>>* point_read_index) {
+    auto full_read_columns = block_full_read->mutate_columns();
+    auto point_read_columns = block_point_read->mutate_columns();
+
+    uint32_t read_idx1 = 0;
+    std::map<uint32_t, uint32_t> read_idx2;
+    for (uint32_t cid : *cids_point_read) {
+        read_idx2[cid] = 0;
+    }
+
+    return std::visit(
+            vectorized::Overload {
+                    [&](const RowStoreReadPlan& row_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : row_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+                            for (const auto& [segment_id, rows_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (const auto& [id_and_pos, cids] : rows_info) {
+                                    // set read index for missing columns
+                                    rids.emplace_back(id_and_pos.rid);
+                                    (*full_read_index)[id_and_pos.pos] = read_idx1++;
+                                    for (const auto cid : cids) {
+                                        // set read index for partial update columns
+                                        (*point_read_index)[cid][id_and_pos.pos] = read_idx2[cid]++;
+                                    }
+                                }
+
+                                auto st = fetch_value_through_row_column(
+                                        rowset, segment_id, rids, rows_info, cids_full_read,
+                                        cids_point_read, block_full_read, block_point_read, true);
+                                if (!st.ok()) {
+                                    LOG(WARNING) << "failed to fetch value through row column";
+                                    return st;
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    },
+                    [&](const ColumnStoreReadPlan& column_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : column_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+
+                            for (const auto& [segment_id, columns_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (auto [rid, pos] : columns_info.missing_column_rows) {
+                                    rids.emplace_back(rid);
+                                    // set read index for missing columns
+                                    (*full_read_index)[pos] = read_idx1++;
+                                }
+
+                                // read values for missing columns
+                                for (size_t i = 0; i < cids_full_read->size(); ++i) {
+                                    TabletColumn tablet_column =
+                                            tablet_schema->column(cids_full_read->at(i));
+                                    auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                    tablet_column,
+                                                                    full_read_columns[i]);
+                                    if (!st.ok()) {
+                                        LOG(WARNING) << "failed to fetch value by rowids";
+                                        return st;
+                                    }
+                                }
+                                // read values for cells with indicator values in including columns
+                                for (size_t i = 0; i < cids_point_read->size(); i++) {
+                                    const auto& rows_info = columns_info.partial_update_rows;
+                                    uint32_t cid = cids_point_read->at(i);
+                                    if (!rows_info.empty() && rows_info.contains(cid)) {
+                                        std::vector<uint32_t> rids;
+                                        for (auto [rid, pos] : rows_info.at(cid)) {
+                                            rids.emplace_back(rid);
+                                            // set read index for partial update columns
+                                            (*point_read_index)[cid][pos] = read_idx2[cid]++;
+                                        }
+
+                                        TabletColumn tablet_column = tablet_schema->column(cid);
+                                        auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                        tablet_column,
+                                                                        point_read_columns[i]);
+                                        if (!st.ok()) {
+                                            LOG(WARNING) << "failed to fetch value by rowids";
+                                            return st;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    }},
+            read_plan);
+}
+
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,

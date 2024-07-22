@@ -626,6 +626,34 @@ void VerticalSegmentWriter::_calc_indicator_maps(
     }
 }
 
+// Consider a merge-on-write unique table with colums [k1, k2, v1, v1, v2, v3, v4, v5] where k1, k2 are key columns
+// and v1, v2, v3, v4, v5 are value columns. The table has the following data:
+//  k1|k2|v1|v2|v3|v4|v5
+//  1 |1 |1 |1 |1 |1 |1
+//  2 |2 |2 |2 |2 |2 |2
+//  3 |3 |3 |3 |3 |3 |3
+//  4 |4 |4 |4 |4 |4 |4
+//  5 |5 |5 |5 |5 |5 |5
+// The user inserts the following data for partial update. Charactor `?` means that the cell is filled
+// with indicator value(currently we use null as indicator value).
+// row_num   k1|k2|v1|v2|v3
+// 1         1 |1 |10|10|10
+// 2         2 |2 |? |20|20
+// 3         3 |3 |30|30|?
+// 4         4 |4 |40|40|40
+// 5         5 |5 |50|? |50
+// Here, full_columns = [k1, k2, v1, v2, v3, v4, v5]
+//       old_full_read_columns = [v4, v5], the old values from the previous rows will be read into these columns.
+//       old_point_read_columns = [k1, k2, v1, v2, v3], the old values from the previous rows will be read into these columns
+// if the correspoding columns in the input block has cell with indicator value.
+// Becase the column is immutable, filled_including_value_columns will store the data merged from
+// the original input block and old_point_read_columns. After the insertion, the data in the table will be:
+//  k1|k2|v1|v2|v3|v4|v5
+//  1 |1 |10|10|10|1 |1
+//  2 |2 |2 |20|20|2 |2
+//  3 |3 |30|30|3 |3 |3
+//  4 |4 |40|40|40|4 |4
+//  5 |5 |50|5 |50|5 |5
 Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns, const PartialUpdateReadPlan& read_plan,
         const std::vector<uint32_t>& cids_full_read, const std::vector<uint32_t>& cids_point_read,
@@ -671,6 +699,31 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             }
         }
     }
+
+    vectorized::Block old_full_read_block = _tablet_schema->create_block_by_cids(cids_full_read);
+    vectorized::MutableColumns old_full_read_columns = old_full_read_block.mutate_columns();
+    vectorized::Block old_point_read_block = _tablet_schema->create_block_by_cids(cids_point_read);
+    vectorized::MutableColumns old_point_read_columns = old_point_read_block.mutate_columns();
+    vectorized::MutableColumns filled_including_value_columns =
+            old_point_read_block.clone_empty_columns(); // used to hold data after being filled
+    // !!NOTE: columns in old_point_read_block may have different row nums!
+
+    // rowid in input block -> line num in old_full_read_block
+    std::map<uint32_t, uint32_t> missing_cols_read_index;
+    // partial update cid -> (rowid in input block -> line num in old_point_read_block)
+    std::map<uint32_t, std::map<uint32_t, uint32_t>> parital_update_cols_read_index;
+
+    if (is_unique_key_replace_if_not_null) {
+        RETURN_IF_ERROR(_tablet->read_columns_by_plan(
+                _tablet_schema, _rsid_to_rowset, read_plan, &cids_full_read, &cids_point_read,
+                &old_full_read_block, &old_point_read_block, &missing_cols_read_index,
+                &parital_update_cols_read_index));
+    } else {
+        RETURN_IF_ERROR(_tablet->read_columns_by_plan(_tablet_schema, _rsid_to_rowset, read_plan,
+                                                      &cids_full_read, &old_full_read_block,
+                                                      &missing_cols_read_index));
+    }
+
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
