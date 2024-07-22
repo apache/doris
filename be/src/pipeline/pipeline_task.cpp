@@ -406,7 +406,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
     } else if (is_wg_mem_low_water_mark) {
         int64_t query_weighted_limit = 0;
         int64_t query_weighted_consumption = 0;
-        query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
+        query_ctx->get_weighted_memory(query_weighted_limit, query_weighted_consumption);
         if (query_weighted_limit == 0 || query_weighted_consumption < query_weighted_limit) {
             return false;
         }
