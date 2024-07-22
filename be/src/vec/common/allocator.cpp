@@ -111,6 +111,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                     print_id(doris::thread_context()->task_id()),
                     doris::thread_context()->get_thread_id(),
                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
+            // only query thread exceeded memory limit for the first time and wait_gc is true.
+            doris::MemInfo::je_thread_tcache_flush();
             while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
