@@ -143,22 +143,16 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                 param_value->type, &param_value->value, query_param));
-        if (is_string_type(param_value->type)) {
-            Status st = iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
-            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
-                // if analyzed param with no term, we do not filter any rows
-                // return all rows with OK status
-                bitmap->addRange(0, num_rows);
-                return Status::OK();
-            } else if (st != Status::OK()) {
-                return st;
-            }
-        } else {
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        Status st = iter->read_from_inverted_index(
+                data_type_with_name.first, query_param->get_value(),
+                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
+        if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+            // if analyzed param with no term, we do not filter any rows
+            // return all rows with OK status
+            bitmap->addRange(0, num_rows);
+            return Status::OK();
+        } else if (st != Status::OK()) {
+            return st;
         }
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -168,7 +162,7 @@ public:
         RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
         std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
-            *bitmap -= *null_bitmap;
+            *roaring -= *null_bitmap;
         }
 
         *bitmap = *roaring;
