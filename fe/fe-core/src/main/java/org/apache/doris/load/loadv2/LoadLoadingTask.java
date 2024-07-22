@@ -182,9 +182,6 @@ public class LoadLoadingTask extends LoadTask {
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
             actualExecute(curCoordinator, timeoutS);
-            if (this.jobProfile != null) {
-                curCoordinator.getExecutionProfile().update(beginTime, true);
-            }
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }

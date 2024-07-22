@@ -45,7 +45,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -245,31 +244,11 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public void removeProfile(String profileId) {
-        writeLock.lock();
-        try {
-            if (Strings.isNullOrEmpty(profileId)) {
-                LOG.warn("Profile id is null or empty, can not remove it");
-                return;
-            }
-
-            ProfileElement profileElementRemoved = queryIdToProfileMap.remove(profileId);
-            // If the Profile object is removed from manager, then related execution profile is also useless.
-            if (profileElementRemoved != null) {
-                for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
-                    this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                }
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
     public List<List<String>> getAllQueries() {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
-            PriorityQueue<ProfileElement> queueIdDeque = getQueryOrderByQueryFinishTime();
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
             while (!queueIdDeque.isEmpty()) {
                 ProfileElement profileElement = queueIdDeque.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
@@ -725,9 +704,10 @@ public class ProfileManager extends MasterDaemon {
 
     private List<ProfileElement> getProfilesToBeRemoved() {
         final int maxProfilesOnStorage = Config.max_spilled_profile_num;
-        // By order of profile storage timestamp
+        // By order of query finish timestamp
+        // The profile with the least storage timestamp will be on the top of heap
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
-                (ProfileElement profileElement) -> profileElement.profile.getProfileStoreTimestamp()));
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
 
         // Collect all profiles that has been stored to storage
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
@@ -739,6 +719,7 @@ public class ProfileManager extends MasterDaemon {
         List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
 
         while (profileDeque.size() > maxProfilesOnStorage) {
+            // First profile is the oldest profile
             queryIdToBeRemoved.add(profileDeque.poll());
         }
 
@@ -875,11 +856,11 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-        // The init value of query finish time of profile is MIN_VALUE
-    // So more recent query will be on the top of heap
-    private PriorityQueue<ProfileElement> getQueryOrderByQueryFinishTime() {
+    // The init value of query finish time of profile is MAX_VALUE
+    // So more recent query will be on the top of heap.
+    private PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
         PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
-                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()).reversed());
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
             queryIdDeque.add(profileElement);
@@ -888,17 +869,18 @@ public class ProfileManager extends MasterDaemon {
         return queryIdDeque;
     }
 
-    // When the query is finished, the profile should be marked as finished
+    // When the query is finished, the execution profile should be marked as finished
+    // For load task, one of its execution profile is finished.
     public void markQueryFinished(TUniqueId queryId) {
         readLock.lock();
         try {
-            ProfileElement element = queryIdToProfileMap.get(DebugUtil.printId(queryId));
-            if (element == null) {
+            ExecutionProfile execProfile = queryIdToExecutionProfiles.get(queryId);
+            if (execProfile == null) {
                 LOG.debug("Profile {} does not exist, already finished or does not enable profile",
                         DebugUtil.printId(queryId));
                 return;
             }
-            element.profile.markisFinished(System.currentTimeMillis());
+            execProfile.setQueryFinishTime(System.currentTimeMillis());
         } catch (Exception e) {
             LOG.error("Failed to mark query {} finished", DebugUtil.printId(queryId), e);
         } finally {

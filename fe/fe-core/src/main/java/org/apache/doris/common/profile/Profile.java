@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -86,16 +87,16 @@ public class Profile {
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
-    // isFinished means the coordinator or stmtexecutor is finished.
+    // isQueryFinished means the coordinator or stmtexecutor is finished.
     // does not mean the profile report has finished, since the report is async.
-    private boolean isFinished = false;
+    // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
+    private boolean isQueryFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
     // if not, we will store the profile to storage, and release the memory,
     // futher report will be ignored.
-    // why MIN_VALUE? So that we can use PriorityQueue to sort profile by finish time.
-    private long queryFinishTimestamp = Long.MIN_VALUE;
-    private long profileStoreTimestamp = Long.MIN_VALUE;
+    // why MAX_VALUE? So that we can use PriorityQueue to sort profile by finish time decreasing order.
+    private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = 3;
     private long autoProfileDurationMs = 500;
@@ -106,7 +107,7 @@ public class Profile {
     public Profile(boolean isEnable, int profileLevel, long autoProfileDurationMs) {
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
-        this.isFinished = !isEnable;
+        this.isQueryFinished = !isEnable;
         this.profileLevel = profileLevel;
         this.autoProfileDurationMs = autoProfileDurationMs;
     }
@@ -172,7 +173,11 @@ public class Profile {
             res.summaryProfile = SummaryProfile.read(dataInput);
             res.setId(res.summaryProfile.getProfileId());
             res.profileStoragePath = path;
-            res.isFinished = true;
+            res.isQueryFinished = true;
+            String[] parts = path.split(File.separator);
+            String queryFinishTimeStr = parseProfileFileName(parts[parts.length - 1])[0];
+            // queryFinishTime is used for sorting profile by finish time.
+            res.queryFinishTimestamp = Long.valueOf(queryFinishTimeStr);
             LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
             return res;
         } catch (Exception exception) {
@@ -205,12 +210,13 @@ public class Profile {
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmtexecutor is finished.
-    public synchronized void updateSummary(long startTime, Map<String, String> summaryInfo, boolean isFinished,
+    public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
         try {
-            if (this.isFinished) {
+            if (this.isQueryFinished) {
                 return;
             }
+
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 StringBuilder builder = new StringBuilder();
@@ -235,25 +241,16 @@ public class Profile {
                     );
                 }
             }
+
             summaryProfile.update(summaryInfo);
             this.setId(summaryProfile.getProfileId());
-
-            for (ExecutionProfile executionProfile : executionProfiles) {
-                // Tell execution profile the start time
-                executionProfile.update(startTime, isFinished);
+            ProfileManager.getInstance().pushProfile(this);
+            if (isFinished) {
+                this.markQueryFinished(System.currentTimeMillis());
             }
-
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
-            }
-            // TODO: should not change isFinished here, in principle, the modification of isFinished should only
-            // made by method markisFinished.
-            // State change should be carefully designed, the absense of unified behaviour is
-            // a potential risk of bug.
-            this.isFinished = isFinished;
-            if (isFinished) {
-                this.queryFinishTimestamp = System.currentTimeMillis();
             }
         } catch (Throwable t) {
             LOG.warn("update profile {} failed", id, t);
@@ -278,7 +275,7 @@ public class Profile {
     // If the query is already finished, and user wants to get the profile, we should check
     // if BE has reported all profiles, if not, sleep 2s.
     private void waitProfileCompleteIfNeeded() {
-        if (!this.isFinished) {
+        if (!this.isQueryFinished) {
             return;
         }
         boolean allCompleted = true;
@@ -377,10 +374,6 @@ public class Profile {
         }
     }
 
-    public long getProfileStoreTimestamp() {
-        return this.profileStoreTimestamp;
-    }
-
     public long getQueryFinishTimestamp() {
         return this.queryFinishTimestamp;
     }
@@ -403,7 +396,7 @@ public class Profile {
             return false;
         }
 
-        if (!isFinished) {
+        if (!isQueryFinished) {
             return false;
         }
 
@@ -423,7 +416,7 @@ public class Profile {
             // it is hard to write a parse function.
             long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
             // time cost of this query is large enough.
-            if (durationMs > autoProfileDurationMs) {
+            if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs > autoProfileDurationMs) {
                 LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
                         id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
                 return true;
@@ -432,12 +425,12 @@ public class Profile {
             return false;
         }
 
-        if (this.queryFinishTimestamp == Long.MIN_VALUE) {
-            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is 0,", id);
+        if (this.queryFinishTimestamp == Long.MAX_VALUE) {
+            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", id);
             return false;
         }
 
-        if (this.queryFinishTimestamp != Long.MIN_VALUE
+        if (this.queryFinishTimestamp != Long.MAX_VALUE
                     && System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
             LOG.info("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
@@ -458,19 +451,14 @@ public class Profile {
     }
 
     // Profile IO threads races with Coordinator threads.
-    public void markisFinished(long queryFinishTime) {
+    public void markQueryFinished(long queryFinishTime) {
         try {
             if (this.profileHasBeenStored()) {
                 LOG.error("Logical error, profile {} has already been stored to storage", this.id);
                 return;
             }
 
-            this.executionProfiles.forEach(
-                    executionProfile -> {
-                        executionProfile.setQueryFinishTime(queryFinishTime);
-                    });
-
-            this.isFinished = true;
+            this.isQueryFinished = true;
             this.queryFinishTimestamp = System.currentTimeMillis();
         } catch (Throwable t) {
             LOG.warn("mark query finished failed", t);
@@ -490,11 +478,10 @@ public class Profile {
         }
 
         final String profileId = this.summaryProfile.getProfileId();
-        final long tmpProfileStoreTime = System.currentTimeMillis();
-        this.profileStoreTimestamp = tmpProfileStoreTime;
 
-        // time_id
-        final String profileFilePath = systemProfileStorageDir + File.separator + String.valueOf(tmpProfileStoreTime)
+        // queryFinishTimeStamp_ProfileId
+        final String profileFilePath = systemProfileStorageDir + File.separator
+                                    + String.valueOf(this.queryFinishTimestamp)
                                     + SEPERATOR + profileId;
 
         File profileFile = new File(profileFilePath);
@@ -527,7 +514,9 @@ public class Profile {
             return;
         } finally {
             try {
-                fileOutputStream.close();
+                if (fileOutputStream != null) {
+                    fileOutputStream.close();
+                }
             } catch (Exception e) {
                 LOG.warn("close profile file {} failed", profileFilePath, e);
             }

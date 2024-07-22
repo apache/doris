@@ -121,7 +121,6 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -1195,15 +1194,9 @@ public class StmtExecutor {
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
-            // TODO: Push profile should only be called once at beginning of query
-            ProfileManager.getInstance().pushProfile(profile);
+            profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
-        } finally {
-            if (isFinished) {
-                ProfileManager.getInstance().markQueryFinished(context.queryId());
-            }
         }
     }
 
@@ -3376,7 +3369,10 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
             RowBatch batch;
-            coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
+            if (Config.enable_collect_internal_query_profile) {
+                context.getSessionVariable().enableProfile = true;
+            }
+            coord = EnvFactory.getInstance().createCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
@@ -3385,7 +3381,7 @@ public class StmtExecutor {
             } catch (UserException e) {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
-
+            updateProfile(false);
             try {
                 coord.exec();
             } catch (Exception e) {
@@ -3415,10 +3411,8 @@ public class StmtExecutor {
             }
             AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
-            if (Config.enable_collect_internal_query_profile) {
-                updateProfile(true);
-            }
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            updateProfile(true);
         }
     }
 

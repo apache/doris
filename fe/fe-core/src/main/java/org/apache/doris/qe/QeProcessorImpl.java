@@ -168,7 +168,11 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
 
-            ProfileManager.getInstance().markQueryFinished(queryId);
+            // Here we shuold use query option instead of ConnectContext,
+            // because for the coordinator of load task, it does not have ConnectContext.
+            if (queryInfo.getCoord().getQueryOptions().enable_profile) {
+                ProfileManager.getInstance().markQueryFinished(queryId);
+            }
 
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
