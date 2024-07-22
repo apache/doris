@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -105,6 +106,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -116,6 +118,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -508,9 +511,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        Set<String> tableNames = new HashSet<>();
-        // Call the recursive method to check for duplicate table names or aliases in the plan
-        checkPlan(join, tableNames);
+        checkConflictAlias(join);
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
@@ -536,31 +537,29 @@ public class BindExpression implements AnalysisRuleFactory {
                 join.children(), null);
     }
 
-    // Recursive method to check for duplicate table names or aliases
-    private void checkPlan(Plan plan, Set<String> tableNames) throws AnalysisException {
-        if (plan instanceof LogicalSubQueryAlias) {
-            LogicalSubQueryAlias subQueryAlias = (LogicalSubQueryAlias) plan;
-            String alias = subQueryAlias.getAlias();
-
-            if (!tableNames.add(alias)) {
-                throw new AnalysisException("Not unique table/alias: '" + alias + "'");
+    private void checkConflictAlias(Plan plan) {
+        Set<String> existsTableNames = Sets.newLinkedHashSet();
+        Consumer<String> checkAlias = tableAliasName -> {
+            if (!existsTableNames.add(tableAliasName)) {
+                throw new AnalysisException("Not unique table/alias: '" + tableAliasName + "'");
             }
+        };
 
-        } else if (plan instanceof LogicalCatalogRelation) {
-            LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
-            String tableName = relation.getTable().getName();
-
-
-            if (!tableNames.add(tableName)) {
-                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
+        boolean stopCheckChildren = true;
+        plan.foreach(p -> {
+            if (p instanceof LogicalSubQueryAlias) {
+                checkAlias.accept(((LogicalSubQueryAlias<?>) p).getAlias());
+                return stopCheckChildren;
+            } else if (p instanceof LogicalCatalogRelation) {
+                TableIf table = ((LogicalCatalogRelation) p).getTable();
+                checkAlias.accept(table.getName());
+                return stopCheckChildren;
+            } else {
+                return !stopCheckChildren;
             }
-        } else {
-            // Recursively check the children of the current plan
-            for (Plan child : plan.children()) {
-                checkPlan(child, tableNames);
-            }
-        }
+        });
     }
+
 
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
