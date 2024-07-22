@@ -2199,6 +2199,11 @@ visible_functions = {
         [['ignore'], 'BOOLEAN', ['ARRAY_DECIMAL128', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_STRING', '...'], 'ALWAYS_NOT_NULLABLE']
+    ],
+
+    # multi match functions
+    "MultiMatch": [
+        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 

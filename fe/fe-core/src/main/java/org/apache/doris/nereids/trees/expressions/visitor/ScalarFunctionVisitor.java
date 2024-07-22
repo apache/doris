@@ -297,6 +297,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
@@ -2146,5 +2147,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStructElement(StructElement structElement, C context) {
         return visitScalarFunction(structElement, context);
+    }
+
+    default R visitMultiMatch(MultiMatch multiMatch, C context) {
+        return visitScalarFunction(multiMatch, context);
     }
 }

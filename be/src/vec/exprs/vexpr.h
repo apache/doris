@@ -226,7 +226,16 @@ public:
                       size_t input_rows_count, const std::string& function_name);
 
     std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
-                                          const std::string& function_name);
+                                          const std::string& function_name) const;
+
+    virtual bool can_push_down_to_index() const { return false; }
+    virtual bool can_fast_execute() const { return false; }
+    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params) {
+        return Status::NotSupported("Not supported execute_with_inverted_index");
+    }
+    virtual bool equals(const VExpr& other);
+    void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
+    uint32_t index_unique_id() const { return _index_unique_id; }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -292,6 +301,10 @@ protected:
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;
+
+    // ensuring uniqueness during index traversal
+    uint32_t _index_unique_id = 0;
+    bool _can_fast_execute = false;
 };
 
 } // namespace vectorized
