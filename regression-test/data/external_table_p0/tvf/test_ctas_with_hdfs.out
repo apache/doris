@@ -94,7 +94,7 @@ varchar_col	TEXT	Yes	false	\N	NONE
 bigint_col	BIGINT	Yes	false	\N	NONE
 binary_col	TEXT	Yes	false	\N	NONE
 boolean_col	BOOLEAN	Yes	false	\N	NONE
-char_col	CHAR(50)	Yes	false	\N	NONE
+char_col	VARCHAR(65533)	Yes	false	\N	NONE
 date_col	DATE	Yes	false	\N	NONE
 decimal_col	DECIMAL(12, 4)	Yes	false	\N	NONE
 double_col	DOUBLE	Yes	false	\N	NONE
