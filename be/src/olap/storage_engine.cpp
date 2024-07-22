@@ -179,7 +179,7 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
     }
 
     rapidjson::StringBuffer str_buf;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
     root.Accept(writer);
     *result = std::string(str_buf.GetString());
 }
