@@ -197,6 +197,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1226,6 +1227,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        ConnectContext ctx = ConnectContext.get();
+        Objects.requireNonNull(ctx, "ConnectContext.get() can not be null.");
         try {
             DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
             TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
@@ -1259,23 +1262,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            ConnectContext ctx = ConnectContext.get();
+
             try {
                 // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
                 // create_priv of newTable, and select_priv of existedTable, and priv check has done in
                 // CreateTableStmt/CreateTableCommand, so we skip it
-                if (ctx != null) {
-                    ctx.setSkipAuth(true);
-                }
+                ctx.setSkipAuth(true);
                 CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
-                        createTableStmt.get(0), ConnectContext.get());
+                        createTableStmt.get(0), ctx);
                 parsedCreateTableStmt.setTableName(stmt.getTableName());
                 parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
                 createTable(parsedCreateTableStmt);
             } finally {
-                if (ctx != null) {
-                    ctx.setSkipAuth(false);
-                }
+                ctx.setSkipAuth(false);
             }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
