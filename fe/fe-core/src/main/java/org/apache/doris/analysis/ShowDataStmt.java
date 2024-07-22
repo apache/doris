@@ -90,6 +90,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("StatsRowCount", ScalarType.createVarchar(20)))
                     .build();
 
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
@@ -288,6 +289,7 @@ public class ShowDataStmt extends ShowStmt {
                     long indexReplicaCount = 0;
                     long indexRowCount = 0;
                     long indexRemoteSize = 0;
+                    long indexStatsRowCount = olapTable.getRowCountForIndex(indexId);
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize(false);
@@ -300,7 +302,7 @@ public class ShowDataStmt extends ShowStmt {
                     // .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
                     //      .add("RemoteSize")
                     List<Object> row = Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
-                             indexRowCount, indexRemoteSize);
+                             indexRowCount, indexRemoteSize, indexStatsRowCount);
                     totalRowsObject.add(row);
 
                     totalSize += indexSize;
@@ -333,11 +335,11 @@ public class ShowDataStmt extends ShowStmt {
                     if (index == 0) {
                         result = Arrays.asList(tableName.getTbl(), String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)), remoteReadableSize);
+                                String.valueOf(row.get(4)), remoteReadableSize, String.valueOf(row.get(6)));
                     } else {
                         result = Arrays.asList("", String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)), remoteReadableSize);
+                                String.valueOf(row.get(4)), remoteReadableSize, String.valueOf(row.get(6)));
                     }
                     totalRows.add(result);
                 }
@@ -349,7 +351,7 @@ public class ShowDataStmt extends ShowStmt {
                 String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
                         + totalRemoteSizePair.second;
                 List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "",
-                         remoteReadableSize);
+                         remoteReadableSize, "");
                 totalRows.add(row);
             } finally {
                 olapTable.readUnlock();

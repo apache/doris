@@ -36,6 +36,7 @@ suite("test_query_sys", "query,p0") {
     sql "select pi();"
     sql "select e();"
     sql "select sleep(2);"
+    sql "select sleep('1.1');"
 
     // INFORMATION_SCHEMA
     sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"nereids_test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"

@@ -107,10 +107,6 @@ void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) 
     }
 }
 
-void IDataType::insert_default_into(IColumn& column) const {
-    column.insert_default();
-}
-
 void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_type(get_pdata_type(this));
 }

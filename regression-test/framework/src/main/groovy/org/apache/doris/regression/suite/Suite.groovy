@@ -17,6 +17,8 @@
 
 package org.apache.doris.regression.suite
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 import groovy.json.JsonOutput
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
@@ -28,6 +30,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
@@ -257,6 +260,15 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    public void dockerAwaitUntil(int atMostSeconds, int intervalSecond = 1, Closure actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
+        Awaitility.await().atMost(atMostSeconds, SECONDS).pollInterval(intervalSecond, SECONDS).until(
+            {
+                connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
+            }
+        )
     }
 
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
@@ -618,6 +630,10 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void profile(String tag, Closure<String> actionSupplier) {
+        runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
     void createMV(String sql) {
@@ -1570,7 +1586,14 @@ class Suite implements GroovyInterceptable {
         json.result.cluster
     }
 
-    def drop_cluster = { cluster_name, cluster_id ->
+    // cloud
+    String getCloudBeTagByName(String clusterName) {
+        def bes = sql_return_maparray "show backends"
+        def be = bes.stream().filter(be -> be.Tag.contains(clusterName)).findFirst().orElse(null)
+        return be.Tag
+    }
+
+    def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                      type: "COMPUTE",
@@ -1585,6 +1608,11 @@ class Suite implements GroovyInterceptable {
 
         def drop_cluster_api = { request_body, check_func ->
             httpTest {
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 endpoint context.config.metaServiceHttpAddress
                 uri "/MetaService/http/drop_cluster?token=${token}"
                 body request_body
@@ -1790,11 +1818,12 @@ class Suite implements GroovyInterceptable {
             def last_end_version = -1
             for(def rowset : rowsets) {
                 def version_str = rowset.substring(1, rowset.indexOf("]"))
-                logger.info("version_str: $version_str")
                 def versions = version_str.split("-")
                 def start_version = versions[0].toLong()
                 def end_version = versions[1].toLong()
-                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                if (last_end_version + 1 != start_version) {
+                    logger.warn("last_version:[$last_start_version - $last_end_version], cur_version:[$start_version - $end_version], version_str: $version_str")
+                }
                 assertEquals(last_end_version + 1, start_version)
                 last_start_version = start_version
                 last_end_version = end_version

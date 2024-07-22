@@ -79,4 +79,33 @@ suite("test_colocate_join_of_column_order") {
 
     sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_t1`; """
     sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_t2`; """
+
+    // multi tables
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_ta`; """
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_colocate_join_of_column_order_ta` ( `c1` bigint NULL, `c2` bigint NULL)
+            DISTRIBUTED BY HASH(c1) PROPERTIES ( "replication_num" = "1", "colocate_with" = "group_column_order3");
+    """
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_tb`; """
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_colocate_join_of_column_order_tb` ( `c1` bigint NULL, `c2` bigint NULL)
+            DISTRIBUTED BY HASH(c1) PROPERTIES ( "replication_num" = "1", "colocate_with" = "group_column_order3");
+    """
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_tc`; """
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_colocate_join_of_column_order_tc` ( `c1` bigint NULL, `c2` bigint NULL)
+            DISTRIBUTED BY HASH(c1) PROPERTIES ( "replication_num" = "1", "colocate_with" = "group_column_order3");
+    """
+    sql """insert into test_colocate_join_of_column_order_ta values(1,1);"""
+    sql """insert into test_colocate_join_of_column_order_tb values(1,1);"""
+    sql """insert into test_colocate_join_of_column_order_tc values(1,1);"""
+
+    explain {
+        sql("""select /*+ set_var(disable_join_reorder=true) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
+        contains "COLOCATE"
+    }
+
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_ta`; """
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_tb`; """
+    sql """ DROP TABLE IF EXISTS `test_colocate_join_of_column_order_tc`; """
 }

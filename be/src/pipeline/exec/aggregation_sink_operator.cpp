@@ -503,7 +503,8 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                 _shared_state->reach_limit =
                         hash_table_size >=
                         (_shared_state->do_sort_limit
-                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit *
+                                           config::topn_agg_limit_multiplier
                                  : Base::_parent->template cast<AggSinkOperatorX>()._limit);
                 if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
                     _shared_state->build_limit_heap(hash_table_size);
@@ -792,6 +793,7 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
                 state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc(),
                 intermediate_slot_desc, output_slot_desc));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -832,7 +834,6 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
 
     for (auto& _aggregate_evaluator : _aggregate_evaluators) {
         RETURN_IF_ERROR(_aggregate_evaluator->open(state));
-        _aggregate_evaluator->set_version(state->be_exec_version());
     }
 
     return Status::OK();

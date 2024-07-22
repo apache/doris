@@ -114,6 +114,16 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     variant.insert(field);
 }
 
+Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    const auto* var = check_and_get_column<ColumnObject>(column);
+    if (!var->serialize_one_row_to_string(row_num, bw)) {
+        return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
+    }
+    return Status::OK();
+}
+
 void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end, const cctz::time_zone& ctz) const {

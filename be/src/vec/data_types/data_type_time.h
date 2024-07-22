@@ -68,7 +68,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Float64& num) const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -103,7 +103,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Float64& num) const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;

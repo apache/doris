@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
@@ -123,6 +124,7 @@ public class TabletStatMgr extends MasterDaemon {
                 if (!table.tryWriteLockIfExist(3000, TimeUnit.MILLISECONDS)) {
                     continue;
                 }
+                Map<Long, Long> indexesRowCount = new HashMap<>();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
@@ -159,12 +161,13 @@ public class TabletStatMgr extends MasterDaemon {
                                 indexRowCount += tabletRowCount;
                             } // end for tablets
                             index.setRowCount(indexRowCount);
+                            indexesRowCount.put(index.getId(), indexRowCount);
                         } // end for indices
                     } // end for partitions
 
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
-                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
+                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L, indexesRowCount));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",

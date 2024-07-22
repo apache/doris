@@ -80,7 +80,7 @@ public class IndexesProcNodeTest {
         Assert.assertEquals(procResult.getRows().get(1).get(5), "col_2");
         Assert.assertEquals(procResult.getRows().get(1).get(11), "INVERTED");
         Assert.assertEquals(procResult.getRows().get(1).get(12), "inverted index on col_2");
-        Assert.assertEquals(procResult.getRows().get(1).get(13), "(\"parser\" = \"unicode\", \"lower_case\" = \"true\")");
+        Assert.assertEquals(procResult.getRows().get(1).get(13), "(\"parser\" = \"unicode\", \"lower_case\" = \"true\", \"support_phrase\" = \"true\")");
 
         Assert.assertEquals(procResult.getRows().get(2).get(0), "tbl_test_indexes_proc");
         Assert.assertEquals(procResult.getRows().get(2).get(1), "3");
