@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -60,9 +61,12 @@ class BindSlotReferenceTest {
     public void testAmbiguousSlot() {
         LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, scan1, scan2, null);
-        LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
+        LogicalSubQueryAlias<LogicalOlapScan> aliasedScan2 = new LogicalSubQueryAlias<>("scan2_alias", scan2);
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(
+                JoinType.CROSS_JOIN, scan1, aliasedScan2, null);
+
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(
                 ImmutableList.of(new UnboundSlot("id")), join);
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
