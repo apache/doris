@@ -547,10 +547,6 @@ public class BindExpression implements AnalysisRuleFactory {
                 throw new AnalysisException("Not unique table/alias: '" + alias + "'");
             }
 
-            // Recursively check children of LogicalSubQueryAlias with a new tableNames set
-            for (Plan child : plan.children()) {
-                checkPlan(child, new HashSet<>(), false);
-            }
         } else if (plan instanceof LogicalCatalogRelation && !(plan instanceof LogicalSubQueryAlias)) {
             LogicalCatalogRelation relation = (LogicalCatalogRelation) plan;
             String tableName = relation.getTable().getName();
