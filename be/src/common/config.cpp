@@ -1162,6 +1162,9 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
+DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
+DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
 DEFINE_mString(ca_cert_file_paths,

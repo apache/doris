@@ -1226,7 +1226,8 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
                 std::shared_ptr<io::S3FileSystem> fs;
                 if (existed_resource.fs == nullptr) {
-                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
+                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), nullptr,
+                                                  &fs);
                 } else {
                     fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
                     st = fs->set_conf(s3_conf);
