@@ -163,4 +163,42 @@ suite("test_outfile_exception") {
         // check exception
         exception "NoSuchBucket"
     }
+
+    // check hdfs url with fs.defaultFS
+    test {
+        String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+        sql """
+            select * from ${tableName} t ORDER BY user_id
+            into outfile "${defaultFS}//tmp/ftw/export/exp_"
+            format as csv_with_names_and_types
+            properties(
+                "fs.defaultFS"="${defaultFS}",
+                "hadoop.username" = "hadoop"
+            );
+        """
+
+        // check exception
+        exception "errors while get file status Wrong FS: hdfs://tmp/ftw/export/exp_"
+    }
+
+    // check hdfs url with fs.defaultFS + /
+    test {
+        String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+        sql """
+            select * from ${tableName} t ORDER BY user_id
+            into outfile "${defaultFS}//tmp/ftw/export/exp_"
+            format as csv_with_names_and_types
+            properties(
+                "fs.defaultFS"="${defaultFS}/",
+                "hadoop.username" = "hadoop"
+            );
+        """
+
+        // check exception
+        exception "errors while get file status Wrong FS: hdfs://tmp/ftw/export/exp_"
+    }
 }
