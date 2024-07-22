@@ -334,7 +334,6 @@ public:
 #else
         query_id = TUniqueId();
         query_mem_tracker = doris::ExecEnv::GetInstance()->orphan_mem_tracker();
-        wg_wptr = doris::ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(1);
 #endif
     }
 
