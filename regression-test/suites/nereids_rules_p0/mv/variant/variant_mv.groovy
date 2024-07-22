@@ -428,7 +428,7 @@ suite("variant_mv") {
     def job_name = getJobName(db, "mv3_0");
     waitingMTMVTaskFinished(job_name)
 
-    def explain_memo_plan =  """explain memo plan ${query3_0}"""
+    def explain_memo_plan =  sql """explain memo plan ${query3_0}"""
     logger.info("query3_0 explain memo plan is " + explain_memo_plan.toString())
 
     explain {

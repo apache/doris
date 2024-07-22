@@ -92,6 +92,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
         }
         failReasonBuilder.append("\n").append("]");
         return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
+                "plan", this.getPlan().treeString(),
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }
