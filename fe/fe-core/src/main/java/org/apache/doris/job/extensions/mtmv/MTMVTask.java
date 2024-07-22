@@ -171,6 +171,7 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
+            refreshHmsTable();
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
             // refreshHmsTable();
@@ -282,7 +283,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
+     * Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
      *
      * @throws AnalysisException
      * @throws DdlException
