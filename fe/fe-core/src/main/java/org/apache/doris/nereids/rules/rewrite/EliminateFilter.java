@@ -77,7 +77,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                         Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
                         Expression foldExpression = FoldConstantRule.evaluate(newExpr, context);
 
-                        if (foldExpression == BooleanLiteral.FALSE) {
+                        if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(
                                     ctx.statementContext.getNextRelationId(), filter.getOutput());
                         } else if (foldExpression != BooleanLiteral.TRUE) {
