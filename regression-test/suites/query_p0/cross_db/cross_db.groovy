@@ -23,7 +23,7 @@ suite("cross_db") {
     sql """CREATE DATABASE IF NOT EXISTS cross_db_1"""
     sql """CREATE DATABASE IF NOT EXISTS cross_db_2"""
     sql """
-    CREATE TABLE IF NOT EXISTS cross_db_1.cnt_table (
+    CREATE TABLE IF NOT EXISTS cross_db_1. (
         `id` LARGEINT NOT NULL,
         `count` LARGEINT  DEFAULT "0")
     AGGREGATE KEY(`id`, `count`)
@@ -31,7 +31,7 @@ suite("cross_db") {
     PROPERTIES ("replication_num" = "1")
     """
     sql """
-    CREATE TABLE IF NOT EXISTS cross_db_2.cnt_table (
+    CREATE TABLE IF NOT EXISTS cross_db_2. (
         `id` LARGEINT NOT NULL,
         `count` LARGEINT  DEFAULT "0")
     AGGREGATE KEY(`id`, `count`)
@@ -39,7 +39,7 @@ suite("cross_db") {
     PROPERTIES ("replication_num" = "1")
     """
     sql """
-    INSERT INTO cross_db_1.cnt_table VALUES
+    INSERT INTO cross_db_1. VALUES
         (1, 10),
         (2, 32),
         (3, 40),
@@ -47,14 +47,14 @@ suite("cross_db") {
     """
 
     sql """
-    INSERT INTO cross_db_2.cnt_table VALUES
+    INSERT INTO cross_db_2. VALUES
         (1, 10),
         (2, 32),
         (3, 40),
         (4, 40)
     """
 
-    sql """SELECT * FROM cross_db_1.cnt_table,cross_db_2.cnt_table"""
+    sql """SELECT * FROM cross_db_1.,cross_db_2.cnt_table"""
 
     sql """DROP DATABASE cross_db_1"""
     sql """DROP DATABASE cross_db_2"""
