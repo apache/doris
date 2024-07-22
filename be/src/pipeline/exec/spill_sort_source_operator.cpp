@@ -175,7 +175,8 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
     auto exception_catch_func = [this, query_id, mem_tracker, shared_state_holder,
                                  execution_context, spill_func]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        QueryThreadContext query_thread_context {query_id, mem_tracker};
+        SCOPED_ATTACH_TASK(query_thread_context);
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {

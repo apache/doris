@@ -947,7 +947,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_source, query_ctx));
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+    SCOPED_ATTACH_TASK(query_ctx.get());
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
@@ -1093,7 +1093,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             for (size_t i = 0; i < target_size; i++) {
                 RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
-                    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
+                    SCOPED_ATTACH_TASK(query_ctx.get());
                     prepare_status[i] = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
@@ -1611,7 +1611,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
                 pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker};
+                                        pip_context->get_query_ctx()->query_mem_tracker,
+                                        pip_context->get_query_ctx()->workload_group()};
             } else {
                 auto iter = _fragment_instance_map.find(tfragment_instance_id);
                 if (iter == _fragment_instance_map.end()) {
@@ -1717,7 +1718,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         query_ctx = iter->second;
     }
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
+    SCOPED_ATTACH_TASK(query_ctx.get());
     auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
     return merge_status;
 }
