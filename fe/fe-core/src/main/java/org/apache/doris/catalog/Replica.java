@@ -110,7 +110,7 @@ public class Replica {
     // the last load failed version
     @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
     private long lastFailedVersion = -1L;
-    private Status lastFailedStatus;
+    private Status lastFailedStatus = null;
     @Deprecated
     @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
     private long lastFailedVersionHash = 0L;
@@ -417,6 +417,7 @@ public class Replica {
             this.lastFailedVersion = -1;
             this.lastFailedTimestamp  = -1;
             this.lastFailedVersionHash = 0;
+            this.lastFailedStatus = null;
         }
         if (this.lastFailedVersion > 0
                 && this.lastSuccessVersion > this.lastFailedVersion) {
@@ -526,6 +527,7 @@ public class Replica {
             this.lastFailedVersion = -1;
             this.lastFailedVersionHash = 0;
             this.lastFailedTimestamp = -1;
+            this.lastFailedStatus = null;
             if (this.version < this.lastSuccessVersion) {
                 this.version = this.lastSuccessVersion;
             }
@@ -660,6 +662,8 @@ public class Replica {
         strBuffer.append(lastSuccessVersion);
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(lastFailedTimestamp);
+        strBuffer.append(", lastFailedStatus=");
+        strBuffer.append(lastFailedStatus);
         strBuffer.append(", schemaHash=");
         strBuffer.append(schemaHash);
         strBuffer.append(", state=");
@@ -696,6 +700,10 @@ public class Replica {
             strBuffer.append(lastSuccessVersion);
             strBuffer.append(", lastFailedTimestamp=");
             strBuffer.append(lastFailedTimestamp);
+            if (lastFailedStatus != null) {
+                strBuffer.append(", lastFailedStatus=");
+                strBuffer.append(lastFailedStatus);
+            }
         }
         if (isBad()) {
             strBuffer.append(", isBad=true");
@@ -713,10 +721,6 @@ public class Replica {
         }
         strBuffer.append(", state=");
         strBuffer.append(state.name());
-        if (lastFailedVersion > 0 && lastFailedStatus != null) {
-            strBuffer.append(", lastFailedStatus=");
-            strBuffer.append(lastFailedStatus);
-        }
         strBuffer.append("]");
 
         return strBuffer.toString();
