@@ -1428,19 +1428,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-        }
-        return rowCount;
+        return getRowCountForIndex(baseIndexId);
     }
 
     public long getRowCountForIndex(long indexId) {
-        Map<Long, Long> indexesRowCount = statistics.getIndexesRowCount();
-        if (indexesRowCount == null || !indexesRowCount.containsKey(indexId)) {
-            return -1;
+        long rowCount = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            MaterializedIndex index = entry.getValue().getIndex(indexId);
+            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
-        return indexesRowCount.get(indexId);
+        return rowCount;
     }
 
     @Override
@@ -2995,9 +2992,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long segmentCount;
 
-        @Getter
-        private Map<Long, Long> indexesRowCount;
-
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3018,7 +3012,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         public Statistics(String dbName, String tableName,
                 Long dataSize, Long totalReplicaDataSize,
                 Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount, Map<Long, Long> indexesRowCount) {
+                Long rowsetCount, Long segmentCount) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3033,7 +3027,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = rowCount;
             this.rowsetCount = rowsetCount;
             this.segmentCount = segmentCount;
-            this.indexesRowCount = indexesRowCount;
         }
     }
 
