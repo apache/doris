@@ -31,12 +31,11 @@ suite("test_topn_fault_injection", "nonConcurrent") {
         INDEX clientip_idx (`clientip`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT '',
         INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
       ) ENGINE=OLAP
-      UNIQUE KEY(`@timestamp`)
+      DUPLICATE KEY(`@timestamp`)
       COMMENT "OLAP"
-      DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
+      DISTRIBUTED BY RANDOM BUCKETS 1
       PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "enable_unique_key_merge_on_write" = "true",
         "disable_auto_compaction" = "true"
       );
     """
@@ -52,11 +51,12 @@ suite("test_topn_fault_injection", "nonConcurrent") {
         INDEX clientip_idx (`clientip`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT '',
         INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
       ) ENGINE=OLAP
-      DUPLICATE KEY(`@timestamp`)
+      UNIQUE KEY(`@timestamp`)
       COMMENT "OLAP"
-      DISTRIBUTED BY RANDOM BUCKETS 1
+      DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
       PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
         "disable_auto_compaction" = "true"
       );
     """
@@ -98,19 +98,37 @@ suite("test_topn_fault_injection", "nonConcurrent") {
       sql "sync"
 
       try {
-        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt")
+        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt_1")
 
         qt_sql """ select * from ${indexTbName1} where (request match_phrase 'hm') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (request match_phrase 'hm' and clientip match_phrase '1') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (request match_phrase 'hm' and clientip match_phrase '1') or (request match_phrase 'bg' and clientip match_phrase '2') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName1} where (request match_phrase 'hm' and clientip match_phrase '1' or clientip match_phrase '3') or (request match_phrase 'bg' and clientip match_phrase '2' or clientip match_phrase '4') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3') order by `@timestamp` limit 1; """
 
         qt_sql """ select * from ${indexTbName2} where (request match_phrase 'hm') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (request match_phrase 'hm' and clientip match_phrase '1') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (request match_phrase 'hm' and clientip match_phrase '1') or (request match_phrase 'bg' and clientip match_phrase '2') order by `@timestamp` limit 1; """
         qt_sql """ select * from ${indexTbName2} where (request match_phrase 'hm' and clientip match_phrase '1' or clientip match_phrase '3') or (request match_phrase 'bg' and clientip match_phrase '2' or clientip match_phrase '4') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3') order by `@timestamp` limit 1; """
       } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.topn_opt")
+        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.topn_opt_1")
+      }
+
+      try {
+        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.topn_opt_2")
+
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and request like '%ag%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' and clientip like '%1%') order by `@timestamp` limit 1; """
+        qt_sql """ select * from ${indexTbName2} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (clientip match_phrase '1' or clientip match_phrase '3' and request like '%ag%') order by `@timestamp` limit 1; """
+      } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.topn_opt_2")
       }
     } finally {
     }

@@ -1,0 +1,77 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+suite("query84") {
+    String db = context.config.getDbNameByFile(new File(context.file.parent))
+    sql "use ${db}"
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set exec_mem_limit=21G'
+    sql 'set be_number_for_test=3'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
+    sql 'set forbid_unknown_col_stats=true'
+    sql 'set enable_nereids_timeout = false'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+    def ds = """select  c_customer_id as customer_id
+       , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
+ from customer
+     ,customer_address
+     ,customer_demographics
+     ,household_demographics
+     ,income_band
+     ,store_returns
+ where ca_city	        =  'Woodland'
+   and c_current_addr_sk = ca_address_sk
+   and ib_lower_bound   >=  60306
+   and ib_upper_bound   <=  60306 + 50000
+   and ib_income_band_sk = hd_income_band_sk
+   and cd_demo_sk = c_current_cdemo_sk
+   and hd_demo_sk = c_current_hdemo_sk
+   and sr_cdemo_sk = cd_demo_sk
+ order by c_customer_id
+ limit 100"""
+    qt_ds_shape_84 '''
+    explain shape plan
+    select 
+    /*+ leading(store_returns {customer_demographics {customer customer_address {household_demographics income_band}}}) */
+     c_customer_id as customer_id
+       , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
+ from customer
+     ,customer_address
+     ,customer_demographics
+     ,household_demographics
+     ,income_band
+     ,store_returns
+ where ca_city	        =  'Woodland'
+   and c_current_addr_sk = ca_address_sk
+   and ib_lower_bound   >=  60306
+   and ib_upper_bound   <=  60306 + 50000
+   and ib_income_band_sk = hd_income_band_sk
+   and cd_demo_sk = c_current_cdemo_sk
+   and hd_demo_sk = c_current_hdemo_sk
+   and sr_cdemo_sk = cd_demo_sk
+ order by c_customer_id
+ limit 100
+    '''
+}
