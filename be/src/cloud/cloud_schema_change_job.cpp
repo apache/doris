@@ -62,7 +62,6 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
-
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));
     if (_new_tablet->tablet_state() == TABLET_RUNNING) {
@@ -151,7 +150,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates, start_resp.alter_version()));
+    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
+                                        start_resp.alter_version()));
 
     std::vector<ColumnId> return_columns;
     return_columns.resize(_base_tablet_schema->num_columns());
