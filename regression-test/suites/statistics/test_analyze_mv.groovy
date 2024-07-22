@@ -127,6 +127,10 @@ suite("test_analyze_mv") {
             "replication_num" = "1"
         )
     """
+    def rowCounts = sql """show data from mvTestDup"""
+    logger.info("row count: " + rowCounts)
+    assertEquals("0", rowCounts[0][4])
+    assertEquals("-1", rowCounts[0][6])
     createMV("create materialized view mv1 as select key1 from mvTestDup;")
     createMV("create materialized view mv2 as select key2 from mvTestDup;")
     createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;")
@@ -233,7 +237,6 @@ suite("test_analyze_mv") {
             "replication_num" = "1"
         );
     """
-
     createMV("create materialized view mv1 as select key2 from mvTestAgg;")
     createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;")
     createMV("create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;")
@@ -425,6 +428,10 @@ suite("test_analyze_mv") {
         logger.info(e.getMessage());
         return;
     }
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", 0, 6, "6")
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", 1, 6, "6")
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", 2, 6, "4")
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", 3, 6, "6")
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""

@@ -55,7 +55,6 @@ import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -593,14 +592,8 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell());
             }
 
-            TokenState tokenState = queryInfo.getQueueStatus();
-            if (tokenState == null) {
-                trow.addToColumnValue(new TCell());
-            } else if (tokenState == TokenState.READY_TO_RUN) {
-                trow.addToColumnValue(new TCell().setStringVal("RUNNING"));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal("QUEUED"));
-            }
+            String queueMsg = queryInfo.getQueueStatus();
+            trow.addToColumnValue(new TCell().setStringVal(queueMsg));
 
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
             dataBatch.add(trow);

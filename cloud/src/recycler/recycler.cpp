@@ -47,6 +47,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "recycler/recycler_service.h"
+#include "recycler/sync_executor.h"
 #include "recycler/util.h"
 
 namespace doris::cloud {
@@ -166,6 +167,16 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
 
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    _thread_pool_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
 }
 
 Recycler::~Recycler() {
@@ -225,7 +236,8 @@ void Recycler::recycle_callback() {
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
         }
-        auto instance_recycler = std::make_shared<InstanceRecycler>(txn_kv_, instance);
+        auto instance_recycler =
+                std::make_shared<InstanceRecycler>(txn_kv_, instance, _thread_pool_group);
         if (instance_recycler->init() != 0) {
             LOG(WARNING) << "failed to init instance recycler, instance_id=" << instance_id;
             continue;
@@ -438,11 +450,13 @@ private:
     std::unordered_set<Key, HashOfKey> schemas_without_inverted_index_;
 };
 
-InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance)
+InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                                   RecyclerThreadPoolGroup thread_pool_group)
         : txn_kv_(std::move(txn_kv)),
           instance_id_(instance.instance_id()),
           instance_info_(instance),
-          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)) {}
+          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)),
+          _thread_pool_group(std::move(thread_pool_group)) {}
 
 InstanceRecycler::~InstanceRecycler() = default;
 
@@ -539,22 +553,51 @@ int InstanceRecycler::init() {
     return init_storage_vault_accessors();
 }
 
+template <typename... Func>
+auto task_wrapper(Func... funcs) -> std::function<int()> {
+    return [funcs...]() {
+        return [](std::initializer_list<int> numbers) {
+            int i = 0;
+            for (int num : numbers) {
+                if (num != 0) {
+                    i = num;
+                }
+            }
+            return i;
+        }({funcs()...});
+    };
+}
+
 int InstanceRecycler::do_recycle() {
     TEST_SYNC_POINT("InstanceRecycler.do_recycle");
     if (instance_info_.status() == InstanceInfoPB::DELETED) {
         return recycle_deleted_instance();
     } else if (instance_info_.status() == InstanceInfoPB::NORMAL) {
-        int ret = recycle_indexes();
-        if (recycle_partitions() != 0) ret = -1;
-        if (recycle_tmp_rowsets() != 0) ret = -1;
-        if (recycle_rowsets() != 0) ret = -1;
-        if (abort_timeout_txn() != 0) ret = -1;
-        if (recycle_expired_txn_label() != 0) ret = -1;
-        if (recycle_copy_jobs() != 0) ret = -1;
-        if (recycle_stage() != 0) ret = -1;
-        if (recycle_expired_stage_objects() != 0) ret = -1;
-        if (recycle_versions() != 0) ret = -1;
-        return ret;
+        SyncExecutor<int> sync_executor(_thread_pool_group.group_recycle_function_pool,
+                                        fmt::format("instance id {}", instance_id_),
+                                        [](int r) { return r != 0; });
+        sync_executor
+                .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_indexes(); },
+                        [this]() -> int { return InstanceRecycler::recycle_partitions(); },
+                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); },
+                        [this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::abort_timeout_txn(); },
+                        [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_copy_jobs(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }));
+        bool finished = true;
+        std::vector<int> rets = sync_executor.when_all(&finished);
+        for (int ret : rets) {
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return finished ? 0 : -1;
     } else {
         LOG(WARNING) << "invalid instance status: " << instance_info_.status()
                      << " instance_id=" << instance_id_;
@@ -1009,7 +1052,7 @@ int InstanceRecycler::recycle_versions() {
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id,
                                       bool is_empty_tablet) {
     int num_scanned = 0;
-    int num_recycled = 0;
+    std::atomic_int num_recycled = 0;
 
     std::string tablet_key_begin, tablet_key_end;
     std::string stats_key_begin, stats_key_end;
@@ -1051,12 +1094,20 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 .tag("num_recycled", num_recycled);
     });
 
+    // The first string_view represents the tablet key which has been recycled
+    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
+    using TabletKeyPair = std::pair<std::string_view, bool>;
+    SyncExecutor<TabletKeyPair> sync_executor(
+            _thread_pool_group.recycle_tablet_pool,
+            fmt::format("recycle tablets, tablet id {}, index id {}, partition id {}", table_id,
+                        index_id, partition_id),
+            [](const TabletKeyPair& k) { return k.first.empty(); });
+
     // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
-    std::vector<std::string_view> tablet_keys;
     std::vector<std::string> tablet_idx_keys;
     std::vector<std::string> init_rs_keys;
-    bool use_range_remove = true;
     auto recycle_func = [&, is_empty_tablet, this](std::string_view k, std::string_view v) -> int {
+        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
@@ -1067,13 +1118,19 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         int64_t tablet_id = tablet_meta_pb.tablet_id();
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         if (!is_empty_tablet) {
-            if (recycle_tablet(tablet_id) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tablet_id);
-                use_range_remove = false;
-                return -1;
-            }
+            sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
+                               k]() mutable -> TabletKeyPair {
+                if (recycle_tablet(tid) != 0) {
+                    LOG_WARNING("failed to recycle tablet")
+                            .tag("instance_id", instance_id_)
+                            .tag("tablet_id", tid);
+                    range_move = false;
+                    return {std::string_view(), range_move};
+                }
+                ++num_recycled;
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                return {k, range_move};
+            });
         } else {
             // Empty tablet only has a [0-1] init rowset
             init_rs_keys.push_back(meta_rowset_key({instance_id_, tablet_id, 1}));
@@ -1097,19 +1154,38 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 }
                 return true;
             }());
+            sync_executor.add([k]() mutable -> TabletKeyPair {
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                return {k, true};
+            });
+            ++num_recycled;
         }
-        ++num_recycled;
-        tablet_keys.push_back(k);
         return 0;
     };
 
+    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
+        bool finished = true;
+        auto tablet_keys = sync_executor.when_all(&finished);
+        if (!finished) {
+            LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
+            return -1;
+        }
+        sync_executor.reset();
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
+        // sort the vector using key's order
+        std::sort(tablet_keys.begin(), tablet_keys.end(),
+                  [](const auto& prev, const auto& last) { return prev.first < last.first; });
+        bool use_range_remove = true;
+        for (auto& [_, remove] : tablet_keys) {
+            if (!remove) {
+                use_range_remove = remove;
+                break;
+            }
+        }
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
-            tablet_keys.clear();
             tablet_idx_keys.clear();
             init_rs_keys.clear();
-            use_range_remove = true;
         });
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
@@ -1119,10 +1195,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         std::string tablet_key_end;
         if (!tablet_keys.empty()) {
             if (use_range_remove) {
-                tablet_key_end = std::string(tablet_keys.back()) + '\x00';
-                txn->remove(tablet_keys.front(), tablet_key_end);
+                tablet_key_end = std::string(tablet_keys.back().first) + '\x00';
+                txn->remove(tablet_keys.front().first, tablet_key_end);
             } else {
-                for (auto k : tablet_keys) {
+                for (auto& [k, _] : tablet_keys) {
                     txn->remove(k);
                 }
             }
@@ -1284,13 +1360,26 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             }
         }
     }
+
+    SyncExecutor<int> concurrent_delete_executor(_thread_pool_group.s3_producer_pool,
+                                                 "delete_rowset_data",
+                                                 [](const int& ret) { return ret != 0; });
     for (auto& [resource_id, file_paths] : resource_file_paths) {
-        auto& accessor = accessor_map_[resource_id];
-        DCHECK(accessor);
-        if (accessor->delete_files(file_paths) != 0) {
+        concurrent_delete_executor.add([&, rid = &resource_id, paths = &file_paths]() -> int {
+            auto& accessor = accessor_map_[*rid];
+            DCHECK(accessor);
+            return accessor->delete_files(*paths);
+        });
+    }
+    bool finished = true;
+    std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+    for (int r : rets) {
+        if (r != 0) {
             ret = -1;
+            break;
         }
     }
+    ret = finished ? ret : -1;
     return ret;
 }
 
@@ -1349,14 +1438,31 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         ret = -1;
     }
 
+    SyncExecutor<int> concurrent_delete_executor(
+            _thread_pool_group.s3_producer_pool,
+            fmt::format("delete tablet {} s3 rowset", tablet_id),
+            [](const int& ret) { return ret != 0; });
+
     // delete all rowset data in this tablet
     for (auto& [_, accessor] : accessor_map_) {
-        if (accessor->delete_directory(tablet_path_prefix(tablet_id)) != 0) {
-            LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
-                         << " s3_path=" << accessor->uri();
+        concurrent_delete_executor.add([&, accessor_ptr = &accessor]() {
+            if ((*accessor_ptr)->delete_directory(tablet_path_prefix(tablet_id)) != 0) {
+                LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
+                             << " s3_path=" << accessor->uri();
+                return -1;
+            }
+            return 0;
+        });
+    }
+    bool finished = true;
+    std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+    for (int r : rets) {
+        if (r != 0) {
             ret = -1;
         }
     }
+
+    ret = finished ? ret : -1;
 
     if (ret == 0) {
         // All object files under tablet have been deleted

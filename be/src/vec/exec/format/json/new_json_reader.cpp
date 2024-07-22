@@ -420,8 +420,9 @@ Status NewJsonReader::_open_line_reader() {
     }
     _line_reader = NewPlainTextLineReader::create_unique(
             _profile, _file_reader, _decompressor.get(),
-            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
-            _current_offset);
+            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length,
+                                                     false),
+            size, _current_offset);
     return Status::OK();
 }
 

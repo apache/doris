@@ -96,18 +96,10 @@ public class IcebergTransaction implements Transaction {
                 .convertToWriterResult(fileFormat, spec, commitDataList);
         List<WriteResult> pendingResults = Lists.newArrayList(writeResult);
 
-        if (spec.isPartitioned()) {
-            partitionManifestUpdate(updateMode, table, pendingResults);
-            if (LOG.isDebugEnabled()) {
-                LOG.info("{} {} table partition manifest  successful and writeResult : {}..", tableInfo, updateMode,
-                        writeResult);
-            }
+        if (updateMode == TUpdateMode.APPEND) {
+            commitAppendTxn(table, pendingResults);
         } else {
-            tableManifestUpdate(updateMode, table, pendingResults);
-            if (LOG.isDebugEnabled()) {
-                LOG.info("{} {}  table  manifest  successful and writeResult : {}..", tableInfo, updateMode,
-                        writeResult);
-            }
+            commitReplaceTxn(table, pendingResults);
         }
     }
 
@@ -133,50 +125,8 @@ public class IcebergTransaction implements Transaction {
         return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
     }
 
-    private void partitionManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
-        if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
-            LOG.warn("{} partitionManifestUp method call but pendingResults is null or empty!", table.name());
-            return;
-        }
-        // Commit the appendPartitionOperator transaction.
-        if (updateMode == TUpdateMode.APPEND) {
-            commitAppendTxn(table, pendingResults);
-        } else {
-            ReplacePartitions appendPartitionOp = table.newReplacePartitions();
-            for (WriteResult result : pendingResults) {
-                Preconditions.checkState(result.referencedDataFiles().length == 0,
-                        "Should have no referenced data files.");
-                Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
-            }
-            appendPartitionOp.commit();
-        }
-    }
-
-    private void tableManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
-        if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
-            LOG.warn("{} tableManifestUp method call but pendingResults is null or empty!", table.name());
-            return;
-        }
-        // Commit the appendPartitionOperator transaction.
-        if (LOG.isDebugEnabled()) {
-            LOG.info("{} tableManifestUp method call  ", table.name());
-        }
-        if (updateMode == TUpdateMode.APPEND) {
-            commitAppendTxn(table, pendingResults);
-        } else {
-            ReplacePartitions appendPartitionOp = table.newReplacePartitions();
-            for (WriteResult result : pendingResults) {
-                Preconditions.checkState(result.referencedDataFiles().length == 0,
-                        "Should have no referenced data files.");
-                Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
-            }
-            appendPartitionOp.commit();
-        }
-    }
-
-
     private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
-        // To be compatible with iceberg format V1.
+        // commit append files.
         AppendFiles appendFiles = table.newAppend();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
@@ -184,6 +134,18 @@ public class IcebergTransaction implements Transaction {
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+    }
+
+
+    private void commitReplaceTxn(Table table, List<WriteResult> pendingResults) {
+        // commit replace partitions
+        ReplacePartitions appendPartitionOp = table.newReplacePartitions();
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files.");
+            Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
+        }
+        appendPartitionOp.commit();
     }
 
 }
