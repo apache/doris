@@ -769,7 +769,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         }
 
         if (is_unique_key_replace_if_not_null) {
-            //TODO(bobhan1): fix me later(the wrong row pos)
             for (size_t i = 0; i < cids_point_read.size(); i++) {
                 uint32_t cid = cids_point_read[i];
                 if (parital_update_cols_read_index[cid].contains(idx + segment_start_pos)) {
