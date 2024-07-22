@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -43,6 +44,10 @@ public class AssignedJobBuilder {
                     = getInputAssignedJobs(unassignedJob, allAssignedJobs);
             List<AssignedJob> fragmentAssignedJobs =
                     unassignedJob.computeAssignedJobs(workerManager, inputAssignedJobs);
+            if (fragmentAssignedJobs.isEmpty()) {
+                throw new IllegalStateException("Fragment has no instance, unassignedJob: " + unassignedJob
+                        + ", fragment: " + unassignedJob.getFragment().getExplainString(TExplainLevel.VERBOSE));
+            }
             allAssignedJobs.putAll(fragmentId, fragmentAssignedJobs);
         }
         return allAssignedJobs;
