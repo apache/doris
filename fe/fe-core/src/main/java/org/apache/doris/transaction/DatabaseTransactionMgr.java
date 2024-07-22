@@ -2311,10 +2311,8 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                                entry.getKey(), dbId, endTransactionId);
-                    }
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
