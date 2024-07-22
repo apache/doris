@@ -317,12 +317,57 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // create full block and fill with input columns
     full_block = _tablet_schema->create_block();
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
-    size_t input_id = 0;
-    for (auto i : including_cids) {
-        full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
+    std::vector<uint32_t> determistic_cids; // columns that dont't need read from old rows
+    std::vector<uint32_t>
+            point_read_cids; // columns that we should read values from old rows for some rows
+
+    // indictors to apply partial updates for including columns,
+    // cells with `indicator` values should be read from the old rows
+    // currently we use treat null value as `indicator`
+    IndicatorMapsVertical indicator_maps_vertical; // cid -> rows
+    PartialUpdateReadPlan read_plan;
+    if (_tablet_schema->has_row_store_for_all_columns()) {
+        read_plan = RowStoreReadPlan {};
     }
+
+    bool is_unique_key_replace_if_not_null = _tablet_schema->is_unique_key_replace_if_not_null();
+    if (is_unique_key_replace_if_not_null) {
+        for (size_t i = 0; i < including_cids.size(); i++) {
+            uint32_t cid = including_cids[i];
+            vectorized::ColumnPtr col = data.block->get_by_position(i).column;
+            full_block.replace_by_position(cid, col);
+            if (i < _num_key_columns) {
+                // key columns always don't need to be read from old rows
+                determistic_cids.emplace_back(cid);
+                continue;
+            }
+
+            // for nullable column, the null map indicate which cells we should read values from old rows
+            // we don't read from old rows for sequence column if include-cids contain the sequence column
+            if (col->is_nullable() && col->has_null() &&
+                (!_tablet_schema->has_sequence_col() ||
+                 cid != _tablet_schema->sequence_col_idx())) {
+                indicator_maps_vertical[cid] =
+                        assert_cast<const vectorized::ColumnNullable*>(col.get())
+                                ->get_null_map_data()
+                                .data();
+                point_read_cids.emplace_back(cid);
+            } else {
+                indicator_maps_vertical[cid] = nullptr;
+                determistic_cids.emplace_back(cid);
+            }
+        }
+        _calc_indicator_maps(data.row_pos, data.num_rows, indicator_maps_vertical);
+    } else {
+        determistic_cids = including_cids;
+        for (size_t i = 0; i < including_cids.size(); i++) {
+            full_block.replace_by_position(including_cids[i],
+                                           data.block->get_by_position(i).column);
+        }
+    }
+
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
-            &full_block, data.row_pos, data.num_rows, including_cids));
+            &full_block, data.row_pos, data.num_rows, determistic_cids));
 
     bool have_input_seq_column = false;
     // write including columns

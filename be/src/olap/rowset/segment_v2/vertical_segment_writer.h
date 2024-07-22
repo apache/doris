@@ -76,6 +76,8 @@ struct RowsInBlock {
     size_t num_rows;
 };
 
+using IndicatorMapsVertical = std::map<uint32_t, const vectorized::UInt8*>;
+
 class VerticalSegmentWriter {
 public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
@@ -123,6 +125,8 @@ public:
 
     void clear();
 
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const { return _indicator_maps; }
+
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -157,6 +161,8 @@ private:
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos,
                                  const vectorized::Block* block);
+    void _calc_indicator_maps(uint32_t row_pos, uint32_t num_rows,
+                              const IndicatorMapsVertical& indicator_maps_vertical);
 
 private:
     uint32_t _segment_id;
@@ -213,6 +219,18 @@ private:
 
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    // For partial update, during publish version we may generate a new block to handle
+    // the data loss problem due to concurrent update. We need to re-calculate the values
+    // read from the old rows because there may be new rows with same keys written successfully
+    // during the period of flush phase and publish phase of the current write. Columns to read from
+    // the segements in old versions for this purpose include `missing_cols` and part of the
+    // `including_cols` if the property `enable_unique_key_replace_if_not_null` is turned on for all conflict rows.
+    // However, in publish version, the input block(s) has been trasnformed to segment(s) and we can't
+    // get the information about the locations of indicator values DIRECTLY. So we keep the information of
+    // the locations of indicator values of `including_cols` in `_indicator_maps` and pass it to publish phase
+    // through TabletTxnInfo
+    std::shared_ptr<IndicatorMaps> _indicator_maps = nullptr;
 };
 
 } // namespace segment_v2

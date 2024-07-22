@@ -99,6 +99,7 @@ public:
     void set_timezone(std::string timezone) { _timezone = timezone; }
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
+    bool is_unique_key_replace_if_not_null() const { return _is_unique_key_replace_if_not_null; }
     std::string debug_string() const;
 
 private:
@@ -113,6 +114,7 @@ private:
     bool _is_partial_update = false;
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
+    bool _is_unique_key_replace_if_not_null = false;
     std::string _auto_increment_column;
     int32_t _auto_increment_column_unique_id;
     int64_t _timestamp_ms = 0;
