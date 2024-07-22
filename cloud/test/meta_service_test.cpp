@@ -2102,8 +2102,8 @@ TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
 
     // first time to check txn conflict
     meta_service->abort_txn_with_coordinator(
-            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
-            &abort_txn_req, &abort_txn_resp, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
+            &abort_txn_resp, nullptr);
     ASSERT_EQ(abort_txn_resp.status().code(), MetaServiceCode::OK);
 
     brpc::Controller abort_txn_conflict_cntl;
