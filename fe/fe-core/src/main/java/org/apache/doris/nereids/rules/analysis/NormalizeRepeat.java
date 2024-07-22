@@ -265,20 +265,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             existsAliasMap.put(existsAlias.child(), existsAlias);
         }
 
-        List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
-            Optional<NormalizeToSlotTriplet> pushDownTriplet;
-            if (groupingSetExpressions.contains(expression)) {
-                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
-            } else {
-                pushDownTriplet = Optional.of(
-                        NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
-            }
-
-            if (pushDownTriplet.isPresent()) {
-                normalizeToSlotMap.put(expression, pushDownTriplet.get());
-            }
+            Optional<NormalizeToSlotTriplet> pushDownTriplet =
+                    toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
+            pushDownTriplet.ifPresent(
+                    normalizeToSlotTriplet -> normalizeToSlotMap.put(expression, normalizeToSlotTriplet));
         }
         return new NormalizeToSlotContext(normalizeToSlotMap);
     }
