@@ -181,14 +181,12 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     @Test
     public void testReadFromStream() throws Exception {
         createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
-        Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
-                ImmutableList.of(IntegerType.INSTANCE));
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
         byte[] buffer = outputStream.toByteArray();
         ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
-        Env.getCurrentEnv().getGlobalFunctionMgr().readFields(new DataInputStream(inputStream));
+        Env.getCurrentEnv().getGlobalFunctionMgr().read(new DataInputStream(inputStream));
 
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(connectContext.getDatabase(), "f8").size());
