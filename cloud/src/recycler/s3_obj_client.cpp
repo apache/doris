@@ -192,7 +192,8 @@ std::unique_ptr<ObjectListIterator> S3ObjClient::list_objects(ObjectStoragePathR
 }
 
 ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
-                                                  std::vector<std::string> keys) {
+                                                  std::vector<std::string> keys,
+                                                  ObjClientOptions option) {
     if (keys.empty()) {
         return {0};
     }
@@ -281,8 +282,9 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
 }
 
 ObjectStorageResponse S3ObjClient::delete_objects_recursively(ObjectStoragePathRef path,
+                                                              ObjClientOptions option,
                                                               int64_t expiration_time) {
-    return delete_objects_recursively_(path, expiration_time, MaxDeleteBatch);
+    return delete_objects_recursively_(path, option, expiration_time, MaxDeleteBatch);
 }
 
 ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,

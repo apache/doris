@@ -434,7 +434,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 .collect(Collectors.toSet());
 
         Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
-                cascadesContext.getConnectContext(), System.currentTimeMillis());
+                cascadesContext.getConnectContext(), System.currentTimeMillis(), false);
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();
@@ -754,7 +754,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
     // check mv plan is valid or not, this can use cache for performance
     private boolean isMaterializationValid(CascadesContext cascadesContext, MaterializationContext context) {
-        long materializationId = context.getMaterializationQualifier().hashCode();
+        long materializationId = context.generateMaterializationIdentifier().hashCode();
         Boolean cachedCheckResult = cascadesContext.getMemo().materializationHasChecked(this.getClass(),
                 materializationId);
         if (cachedCheckResult == null) {

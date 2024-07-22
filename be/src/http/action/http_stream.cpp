@@ -30,6 +30,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
@@ -119,7 +120,7 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record && !config::is_cloud_mode()) {
+    if (config::enable_stream_load_record) {
         str = ctx->prepare_stream_load_record(str);
         _save_stream_load_record(ctx, str);
     }
@@ -364,8 +365,9 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder =
-            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
+    std::shared_ptr<StreamLoadRecorder> stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().get_stream_load_recorder();
+
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
