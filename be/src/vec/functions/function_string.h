@@ -3728,47 +3728,51 @@ private:
             if (text.size < gram_num) {
                 continue;
             }
-            restore_map.resize(text.size, 0);
-            auto not_overlap_pattern_count = get_not_overlap_with_text(
-                    text, pattern_count, gram_num, pattern_map, restore_map);
-            res_data[i] = 1.0F - (not_overlap_pattern_count) * 1.0F / std::max(pattern_count, 1);
+            restore_map.reserve(text.size);
+            auto [text_count, union_count] = get_text_set(text, gram_num, pattern_map, restore_map);
+
+            res_data[i] = 2.0F * union_count / (text_count + pattern_count);
         }
     }
 
     int get_pattern_set(phmap::flat_hash_map<uint32_t, int>& pattern_map, StringRef& pattern,
                         int gram_num) const {
-        int i = 0;
-        for (i = 0; i + gram_num <= pattern.size; i++) {
+        int pattern_count = 0;
+        for (int i = 0; i + gram_num <= pattern.size; i++) {
             uint32_t cur_hash = HashUtil::crc_hash(pattern.data + i, gram_num, 0);
-            pattern_map[cur_hash]++;
+            if (!pattern_map.contains(cur_hash)) {
+                pattern_map[cur_hash] = 0b01;
+                pattern_count++;
+            }
         }
-        return i;
+        return pattern_count;
     }
 
-    int get_not_overlap_with_text(StringRef& text, int not_overlap_pattern_count, int gram_num,
-                                  phmap::flat_hash_map<uint32_t, int>& pattern_map,
-                                  std::vector<uint32_t>& restore_map) const {
-        int i;
-        for (i = 0; i + gram_num <= text.size; i++) {
+    pair<int, int> get_text_set(StringRef& text, int gram_num,
+                                phmap::flat_hash_map<uint32_t, int>& pattern_map,
+                                std::vector<uint32_t>& restore_map) const {
+        restore_map.clear();
+        int text_count = 0, union_count = 0;
+        for (int i = 0; i + gram_num <= text.size; i++) {
             uint32_t cur_hash = HashUtil::crc_hash(text.data + i, gram_num, 0);
-            // if this gram is in pattern
-            if (pattern_map[cur_hash] > 0) {
-                not_overlap_pattern_count--;
-                pattern_map[cur_hash]--;
-                restore_map[i] = cur_hash;
+            auto& val = pattern_map[cur_hash];
+            if (val == 0b00) {
+                val ^= 0b10;
+                text_count++;
+                restore_map.push_back(cur_hash);
+            } else if (val == 0b01) {
+                val ^= 0b10;
+                text_count++;
+                union_count++;
+                restore_map.push_back(cur_hash);
             }
         }
 
-        // restore pattern_map
-        for (int j = 0; j < i; j++) {
-            if (restore_map[j]) {
-                pattern_map[restore_map[j]]++;
-                // reset restore_map
-                restore_map[j] = 0;
-            }
+        for (auto& reset_hash : restore_map) {
+            pattern_map[reset_hash] ^= 0b10;
         }
 
-        return not_overlap_pattern_count;
+        return {text_count, union_count};
     }
 };
 
