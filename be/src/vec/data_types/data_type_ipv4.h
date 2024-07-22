@@ -63,7 +63,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const IPv4& num) const;
+    void push_number(ColumnString::Chars& chars, const IPv4& num) const;
     std::string to_string(const IPv4& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 

@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -378,7 +379,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     .build()
                 : (List) unboundFunction.getArguments();
 
-        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+        String dbName = unboundFunction.getDbName();
+        if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
             ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
@@ -390,7 +392,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                unboundFunction.getDbName(), functionName, arguments);
+                dbName, functionName, arguments);
+        // for create view stmt
+        if (builder instanceof UdfBuilder) {
+            unboundFunction.getIndexInSqlString().ifPresent(index -> {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(null == dbName
+                                ? ConnectContext.get().getDatabase() : dbName, functionName)));
+            });
+        }
+
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
         if (wantToParseSqlFromSqlCache) {
@@ -716,27 +727,40 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return !extractSlots.isEmpty() ? extractSlots : candidates;
     }
 
+    private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
+        if (!indexInSql.isPresent()) {
+            return slots;
+        }
+        List<Slot> newSlots = new ArrayList<>();
+        for (Slot slot : slots) {
+            newSlots.add(slot.withIndexInSql(indexInSql.get()));
+        }
+        return newSlots;
+    }
+
     /** bindSlotByScope */
     public List<Slot> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
+        Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
         int namePartSize = nameParts.size();
         switch (namePartSize) {
             // column
             case 1: {
-                return bindSingleSlotByName(nameParts.get(0), scope);
+                return addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
             }
             // table.column
             case 2: {
-                return bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope);
+                return addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
             }
             // db.table.column
             case 3: {
-                return bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope);
+                return addSqlIndexInfo(bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope),
+                        idxInSql);
             }
             // catalog.db.table.column
             case 4: {
-                return bindSingleSlotByCatalog(
-                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope);
+                return addSqlIndexInfo(bindSingleSlotByCatalog(
+                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
             }
             default: {
                 throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));

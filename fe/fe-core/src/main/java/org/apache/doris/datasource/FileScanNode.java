@@ -98,7 +98,10 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     public long getPushDownCount() {
-        return 0;
+        // 1. Do not use `0`: If the number of entries in the table is 0,
+        //                    it is unclear whether optimization has been performed.
+        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
+        return -1;
     }
 
     @Override

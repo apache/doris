@@ -261,7 +261,8 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
+        this.tables = tables.stream()
+                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
     }
 
     public final ConnectContext getConnectContext() {
@@ -399,7 +400,7 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newHashMap();
+        tables = Maps.newTreeMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);

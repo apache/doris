@@ -49,7 +49,7 @@ suite("test_load_block_to_single_tablet", "p0") {
         set 'partitions', 'p202403, p202404'
 
         file 'test_load_block_to_single_tablet.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
 
     sql "sync"

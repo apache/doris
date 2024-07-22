@@ -252,43 +252,6 @@ void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWrit
     ostr.write("}", 1);
 }
 
-static inline IColumn& extract_element_column(IColumn& column, size_t idx) {
-    return assert_cast<ColumnStruct&>(column).get_column(idx);
-}
-
-template <typename F>
-void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
-    /// We use the assumption that tuples of zero size do not exist.
-    size_t old_size = column.size();
-
-    try {
-        impl();
-
-        // Check that all columns now have the same size.
-        size_t new_size = column.size();
-
-        for (auto i = 0; i < elems.size(); i++) {
-            const auto& element_column = extract_element_column(column, i);
-            if (element_column.size() != new_size) {
-                // This is not a logical error because it may work with
-                // user-supplied data.
-                LOG(FATAL) << "Cannot read a tuple because not all elements are present";
-                __builtin_unreachable();
-            }
-        }
-    } catch (...) {
-        for (auto i = 0; i < elems.size(); i++) {
-            auto& element_column = extract_element_column(column, i);
-
-            if (element_column.size() > old_size) {
-                element_column.pop_back(1);
-            }
-        }
-
-        throw;
-    }
-}
-
 MutableColumnPtr DataTypeStruct::create_column() const {
     size_t size = elems.size();
     MutableColumns tuple_columns(size);
@@ -305,14 +268,6 @@ Field DataTypeStruct::get_default() const {
         t.push_back(elems[i]->get_default());
     }
     return t;
-}
-
-void DataTypeStruct::insert_default_into(IColumn& column) const {
-    add_element_safe(elems, column, [&] {
-        for (auto i = 0; i < elems.size(); i++) {
-            elems[i]->insert_default_into(extract_element_column(column, i));
-        }
-    });
 }
 
 bool DataTypeStruct::equals(const IDataType& rhs) const {
