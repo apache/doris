@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "function_array_index.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -125,6 +126,88 @@ public:
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+
+        DCHECK(context->get_num_args() >= 1);
+        DCHECK(context->get_arg_type(0)->is_array_type());
+        DCHECK(context->get_arg_type(1)->is_array_type() &&
+               !context->get_arg_type(1)->children.empty())
+                << "array_overlap second argument must be array and not empty";
+        // now we only support same
+        std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
+        Field field;
+        if (context->get_constant_col(1)) {
+            context->get_constant_col(1)->column_ptr->get(0, field);
+            state->value = field;
+            state->type = context->get_arg_type(1)->children[0].type;
+            context->set_function_state(scope, state);
+        }
+        return Status::OK();
+    }
+
+    /**
+     * eval inverted index. we can filter array rows with inverted index iter
+     */
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const override {
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        auto* param_value = reinterpret_cast<ParamValue*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (param_value == nullptr || param_value->value.is_null()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, param_value is nullptr or value is null");
+        }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+        }
+        // in array_overlaps param is array Field
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        const Array& query_val = param_value->value.get<Array>();
+        for (size_t i = 0; i < query_val.size(); ++i) {
+            Field nested_query_val = query_val[i];
+            std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                    param_value->type, &nested_query_val, query_param));
+            Status st = iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res);
+            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+                // if analyzed param with no term, we do not filter any rows
+                // return all rows with OK status
+                bitmap->addRange(0, num_rows);
+                return Status::OK();
+            } else if (st != Status::OK()) {
+                return st;
+            }
+            *roaring |= *single_res;
+        }
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *roaring -= *null_bitmap;
+        }
+
+        *bitmap = *roaring;
+        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

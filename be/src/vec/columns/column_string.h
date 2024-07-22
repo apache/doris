@@ -101,6 +101,8 @@ private:
 
 public:
     bool is_variable_length() const override { return true; }
+    // used in string ut testd
+    void sanity_check() const;
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -307,10 +309,6 @@ public:
             offsets.push_back(offset);
         }
     }
-
-    //    template <typename T, size_t copy_length>
-    //    void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
-    //            __attribute__((noinline));
 
     template <size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
