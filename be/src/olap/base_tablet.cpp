@@ -554,25 +554,24 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
     return Status::Error<ErrorCode::KEY_NOT_FOUND>("can't find key in all rowsets");
 }
 
-void BaseTablet::prepare_to_read(const RowLocation& row_location, size_t pos,
-                                 PartialUpdateReadPlan* read_plan) {
-    auto rs_it = read_plan->find(row_location.rowset_id);
-    if (rs_it == read_plan->end()) {
-        std::map<uint32_t, std::vector<RidAndPos>> segid_to_rid;
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        segid_to_rid.emplace(row_location.segment_id, rid_pos);
-        read_plan->emplace(row_location.rowset_id, segid_to_rid);
-        return;
-    }
-    auto seg_it = rs_it->second.find(row_location.segment_id);
-    if (seg_it == rs_it->second.end()) {
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        rs_it->second.emplace(row_location.segment_id, rid_pos);
-        return;
-    }
-    seg_it->second.emplace_back(RidAndPos {row_location.row_id, pos});
+void BaseTablet::prepare_to_read(PartialUpdateReadPlan& read_plan, const RowLocation& row_location,
+                                 uint32_t pos, const std::vector<uint32_t>& partial_update_cids) {
+    std::visit(vectorized::Overload {
+                       [&](RowStoreReadPlan& plan) {
+                           plan[row_location.rowset_id][row_location.segment_id].emplace_back(
+                                   RidAndPos {row_location.row_id, pos}, partial_update_cids);
+                       },
+                       [&](ColumnStoreReadPlan& plan) {
+                           auto& read_columns_info =
+                                   plan[row_location.rowset_id][row_location.segment_id];
+                           read_columns_info.missing_column_rows.emplace_back(row_location.row_id,
+                                                                              pos);
+                           for (uint32_t cid : partial_update_cids) {
+                               read_columns_info.partial_update_rows[cid].emplace_back(
+                                       row_location.row_id, pos);
+                           }
+                       }},
+               read_plan);
 }
 
 // if user pass a token, then all calculation works will submit to a threadpool,

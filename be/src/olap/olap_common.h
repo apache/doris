@@ -530,7 +530,7 @@ struct ReadColumnsInfo {
 using RowStoreReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<ReadRowsInfo>>>;
 using ColumnStoreReadPlan = std::map<RowsetId, std::map<uint32_t, ReadColumnsInfo>>;
 using PartialUpdateReadPlan = std::variant<ColumnStoreReadPlan, RowStoreReadPlan>;
-using IndicatorMaps = std::map<uint32_t, std::vector<uint32_t>>;
+using IndicatorMaps = std::map<uint32_t, std::vector<uint32_t>>; // rowid -> cids
 
 // used for controll compaction
 struct VersionWithTime {

@@ -158,8 +158,12 @@ private:
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
+                                 const PartialUpdateReadPlan& read_plan,
+                                 const std::vector<uint32_t>& cids_full_read,
+                                 const std::vector<uint32_t>& cids_point_read,
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos,
+                                 bool is_unique_key_replace_if_not_null,
                                  const vectorized::Block* block);
     void _calc_indicator_maps(uint32_t row_pos, uint32_t num_rows,
                               const IndicatorMapsVertical& indicator_maps_vertical);

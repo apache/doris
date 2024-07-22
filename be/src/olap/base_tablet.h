@@ -150,8 +150,8 @@ public:
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
 
-    static void prepare_to_read(const RowLocation& row_location, size_t pos,
-                                PartialUpdateReadPlan* read_plan);
+    static void prepare_to_read(PartialUpdateReadPlan& read_plan, const RowLocation& row_location,
+                                uint32_t pos, const std::vector<uint32_t>& partial_update_cids);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but

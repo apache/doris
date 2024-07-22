@@ -370,11 +370,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             &full_block, data.row_pos, data.num_rows, determistic_cids));
 
     bool have_input_seq_column = false;
-    // write including columns
+    // write determistic columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     size_t segment_start_pos;
-    for (auto cid : including_cids) {
+    for (auto cid : determistic_cids) {
         // here we get segment column row num before append data.
         segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
@@ -513,7 +513,12 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            if (is_unique_key_replace_if_not_null && _indicator_maps->contains(block_pos)) {
+                _tablet->prepare_to_read(read_plan, loc, segment_pos,
+                                         _indicator_maps->at(block_pos));
+            } else {
+                _tablet->prepare_to_read(read_plan, loc, segment_pos, {});
+            }
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -545,11 +550,23 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
 
-    // convert missing columns and send to column writer
+    // convert remaining columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    std::vector<uint32_t> remaining_cids;
+    if (is_unique_key_replace_if_not_null) {
+        remaining_cids.reserve(missing_cids.size() + point_read_cids.size());
+        for (uint32_t cid : missing_cids) {
+            remaining_cids.emplace_back(cid);
+        }
+        for (uint32_t cid : point_read_cids) {
+            remaining_cids.emplace_back(cid);
+        }
+    } else {
+        remaining_cids = missing_cids;
+    }
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
-            &full_block, data.row_pos, data.num_rows, missing_cids));
-    for (auto cid : missing_cids) {
+            &full_block, data.row_pos, data.num_rows, remaining_cids));
+    for (auto cid : remaining_cids) {
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
             return status;
@@ -597,10 +614,24 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     return Status::OK();
 }
 
+void VerticalSegmentWriter::_calc_indicator_maps(
+        uint32_t row_pos, uint32_t num_rows, const IndicatorMapsVertical& indicator_maps_vertical) {
+    _indicator_maps = std::make_shared<std::map<uint32_t, std::vector<uint32_t>>>();
+    for (auto [cid, indicator_map] : indicator_maps_vertical) {
+        for (uint32_t pos = row_pos; pos < row_pos + num_rows; pos++) {
+            if (indicator_map != nullptr && indicator_map[pos] != 0) {
+                (*_indicator_maps)[pos].emplace_back(cid);
+            }
+        }
+    }
+}
+
 Status VerticalSegmentWriter::_fill_missing_columns(
-        vectorized::MutableColumns& mutable_full_columns,
+        vectorized::MutableColumns& mutable_full_columns, const PartialUpdateReadPlan& read_plan,
+        const std::vector<uint32_t>& cids_full_read, const std::vector<uint32_t>& cids_point_read,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        const size_t& segment_start_pos, const vectorized::Block* block) {
+        const size_t& segment_start_pos, bool is_unique_key_replace_if_not_null,
+        const vectorized::Block* block) {
     // create old value columns
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
