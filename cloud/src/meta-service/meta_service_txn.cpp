@@ -2568,11 +2568,11 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
     response->mutable_txn_info()->CopyFrom(txn_info);
 }
 
-void MetaServiceImpl::abort_txn_by_coordinate_be(::google::protobuf::RpcController* controller,
-                                                 const AbortTxnByCoordinateBeRequest* request,
-                                                 AbortTxnByCoordinateBeResponse* response,
+void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                                 const AbortTxnWithCoordinatorRequest* request,
+                                                 AbortTxnWithCoordinatorResponse* response,
                                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(abort_txn_by_coordinate_be);
+    RPC_PREPROCESS(abort_txn_with_coordinator);
     if (!request->has_id() || !request->has_ip() || !request->has_start_time()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid coordinate id, coordinate ip or coordinate start time.";
@@ -2588,7 +2588,7 @@ void MetaServiceImpl::abort_txn_by_coordinate_be(::google::protobuf::RpcControll
         msg = ss.str();
         return;
     }
-    RPC_RATE_LIMIT(abort_txn_by_coordinate_be);
+    RPC_RATE_LIMIT(abort_txn_with_coordinator);
     std::string begin_info_key = txn_info_key({instance_id, 0, 0});
     std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
     LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);

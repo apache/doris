@@ -363,14 +363,14 @@ public class MetaServiceClient {
         return blockingStub.getObjStoreInfo(request);
     }
 
-    public Cloud.AbortTxnByCoordinateBeResponse
-            abortTxnByCoordinateBe(Cloud.AbortTxnByCoordinateBeRequest request) {
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) {
         if (!request.hasCloudUniqueId()) {
-            Cloud.AbortTxnByCoordinateBeRequest.Builder builder =
-                    Cloud.AbortTxnByCoordinateBeRequest.newBuilder();
+            Cloud.AbortTxnWithCoordinatorRequest.Builder builder =
+                    Cloud.AbortTxnWithCoordinatorRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.abortTxnByCoordinateBe(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.abortTxnByCoordinateBe(request);
+        return blockingStub.abortTxnWithCoordinator(request);
     }
 }

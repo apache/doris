@@ -444,7 +444,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         return false;
     }
 
-    public static boolean checkFailedTxnsByStartTime(TransactionState txn) {
+    public static boolean checkFailedTxnsByCoordinator(TransactionState txn) {
         TxnCoordinator coordinator = txn.getCoordinator();
         if (coordinator.sourceType == TransactionState.TxnSourceType.FE) {
             List<Frontend> frontends = Env.getCurrentEnv().getFrontends(null);
@@ -455,7 +455,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         } else if (coordinator.sourceType == TransactionState.TxnSourceType.BE) {
             Backend be = Env.getCurrentSystemInfo().getBackend(coordinator.id);
-            if (be.getHost().equals(coordinator.ip) && be.getLastStartTime() > coordinator.startTime) {
+            if (be.getHost().equals(coordinator.ip) && (be.getLastStartTime() > coordinator.startTime
+                    || (!be.isAlive() && System.currentTimeMillis() - be.getLastUpdateMs()
+                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L))) {
                 return true;
             }
         }
@@ -467,7 +469,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         for (TransactionState txn : conflictTxns) {
             boolean failed = false;
             if (!failed) {
-                failed = checkFailedTxnsByStartTime(txn);
+                failed = checkFailedTxnsByCoordinator(txn);
             }
             if (failed) {
                 failedTxns.add(txn);
