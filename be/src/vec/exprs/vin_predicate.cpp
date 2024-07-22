@@ -78,9 +78,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _prepare_finished = true;
-
-    _can_fast_execute = _function->can_fast_execute();
-
+    _can_fast_execute = can_fast_execute();
     return Status::OK();
 }
 

@@ -115,11 +115,6 @@ public:
 
     virtual Field get_field(const TExprNode& node) const = 0;
 
-    /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overridden if data type default value differs from column default value (example: Enum data types).
-      */
-    virtual void insert_default_into(IColumn& column) const;
-
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;
 

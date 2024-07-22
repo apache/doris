@@ -67,10 +67,8 @@ public abstract class FileScanNode extends ExternalScanNode {
     public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
-    protected long inputSplitsNum = 0;
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
-    protected long readPartitionNum = 0;
     protected long fileSplitSize;
     public long rowCount = 0;
 
@@ -100,7 +98,10 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     public long getPushDownCount() {
-        return 0;
+        // 1. Do not use `0`: If the number of entries in the table is 0,
+        //                    it is unclear whether optimization has been performed.
+        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
+        return -1;
     }
 
     @Override
@@ -119,9 +120,9 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (isBatchMode()) {
             output.append("(approximate)");
         }
-        output.append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+        output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
-        output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
+        output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE) {
@@ -310,9 +311,5 @@ public abstract class FileScanNode extends ExternalScanNode {
         BlockLocation last = blkLocations[blkLocations.length - 1];
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
-    }
-
-    public long getReadPartitionNum() {
-        return this.readPartitionNum;
     }
 }

@@ -86,6 +86,8 @@ public class SqlCacheContext {
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
 
+    private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
+
     public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
         this.queryId = Objects.requireNonNull(queryId, "queryId cannot be null");
@@ -392,6 +394,14 @@ public class SqlCacheContext {
         this.resultSetInFe = resultSetInFe;
     }
 
+    public CacheKeyType getCacheKeyType() {
+        return cacheKeyType;
+    }
+
+    public void setCacheKeyType(CacheKeyType cacheKeyType) {
+        this.cacheKeyType = cacheKeyType;
+    }
+
     /** FullTableName */
     @lombok.Data
     @lombok.AllArgsConstructor
@@ -432,5 +442,13 @@ public class SqlCacheContext {
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
         }
+    }
+
+    /** CacheKeyType */
+    public enum CacheKeyType {
+        // use `userIdentity`:`sql`.trim() as Cache key in FE
+        SQL,
+        // use MD5 as Cache key in FE
+        MD5
     }
 }

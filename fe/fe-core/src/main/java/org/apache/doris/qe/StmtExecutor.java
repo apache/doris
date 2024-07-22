@@ -125,6 +125,7 @@ import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.load.EtlJobType;
@@ -658,13 +659,13 @@ public class StmtExecutor {
         }
         List<ScanNode> scanNodeList = planner.getScanNodes();
         for (ScanNode scanNode : scanNodeList) {
-            if (scanNode instanceof OlapScanNode) {
-                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+            if (scanNode instanceof OlapScanNode || scanNode instanceof FileScanNode) {
                 Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                        olapScanNode.getSelectedPartitionNum().longValue(),
-                        olapScanNode.getSelectedTabletsNum(),
-                        olapScanNode.getCardinality(),
+                        scanNode.getSelectedPartitionNum(),
+                        scanNode.getSelectedSplitNum(),
+                        scanNode.getCardinality(),
                         context.getQualifiedUser());
+
             }
         }
     }
@@ -715,13 +716,6 @@ public class StmtExecutor {
                         throw new NereidsException(new UserException("The statement has been forwarded to master FE("
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status"));
-                    }
-                    if (context.getSessionVariable().isEnableInsertGroupCommit()) {
-                        // FIXME: Group commit insert does not need to forward to master
-                        //  Nereids does not support group commit, so we can not judge if should forward
-                        //  Here throw an exception to fallback to legacy planner and let legacy judge if should forward
-                        //  After Nereids support group commit, we can remove this exception
-                        throw new NereidsException(new UserException("Nereids does not support group commit insert"));
                     }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
@@ -783,7 +777,7 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                planner.addHook(InitMaterializationContextHook.INSTANCE);
+                statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
@@ -985,9 +979,8 @@ public class StmtExecutor {
                 syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
-                parsedStmt.checkPriv();
             }
-
+            parsedStmt.checkPriv();
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
                 handlePrepareStmt();
                 return;

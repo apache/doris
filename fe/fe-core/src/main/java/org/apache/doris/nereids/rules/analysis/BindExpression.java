@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -104,6 +106,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -115,6 +118,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -507,6 +511,8 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
+        checkConflictAlias(join);
+
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
 
@@ -529,6 +535,29 @@ public class BindExpression implements AnalysisRuleFactory {
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
                 join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
+    }
+
+    private void checkConflictAlias(Plan plan) {
+        Set<String> existsTableNames = Sets.newLinkedHashSet();
+        Consumer<String> checkAlias = tableAliasName -> {
+            if (!existsTableNames.add(tableAliasName)) {
+                throw new AnalysisException("Not unique table/alias: '" + tableAliasName + "'");
+            }
+        };
+
+        boolean stopCheckChildren = true;
+        plan.foreach(p -> {
+            if (p instanceof LogicalSubQueryAlias) {
+                checkAlias.accept(((LogicalSubQueryAlias<?>) p).getAlias());
+                return stopCheckChildren;
+            } else if (p instanceof LogicalCatalogRelation) {
+                TableIf table = ((LogicalCatalogRelation) p).getTable();
+                checkAlias.accept(table.getName());
+                return stopCheckChildren;
+            } else {
+                return !stopCheckChildren;
+            }
+        });
     }
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
@@ -591,9 +620,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
                 UnboundStar unboundStar = (UnboundStar) expression;
-                unboundStar.getIndexInSqlString().ifPresent(pair ->
-                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
-                );
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
             }
         }
         return project.withProjects(boundProjections.build());

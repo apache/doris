@@ -94,4 +94,8 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundStar(this, context);
     }
+
+    public UnboundStar withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundStar(qualifier, Optional.ofNullable(index));
+    }
 }
