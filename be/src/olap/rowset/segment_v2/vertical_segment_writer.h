@@ -157,7 +157,7 @@ private:
     void _serialize_block_to_row_column(vectorized::Block& block);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
-    Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
+    Status _fill_missing_columns(vectorized::Block* full_block,
                                  const PartialUpdateReadPlan& read_plan,
                                  const std::vector<uint32_t>& cids_full_read,
                                  const std::vector<uint32_t>& cids_point_read,

@@ -325,7 +325,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // indictors to apply partial updates for including columns,
     // cells with `indicator` values should be read from the old rows
     // currently we use treat null value as `indicator`
-    IndicatorMapsVertical indicator_maps_vertical; // cid -> rows
+    IndicatorMapsVertical indicator_maps_vertical; // cid -> rowids
     PartialUpdateReadPlan read_plan;
     if (_tablet_schema->has_row_store_for_all_columns()) {
         read_plan = RowStoreReadPlan {};
@@ -343,7 +343,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                 continue;
             }
 
-            // for nullable column, the null map indicate which cells we should read values from old rows
+            // when `is_unique_key_replace_if_not_null` is enabled, for nullable columns, the null map of the column
+            // indicates which cells we should read values from old rows
             // we don't read from old rows for sequence column if include-cids contain the sequence column
             if (col->is_nullable() && col->has_null() &&
                 (!_tablet_schema->has_sequence_col() ||
@@ -401,7 +402,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 full_block.try_get_by_name(DELETE_SIGN);
         delete_sign_column != nullptr) {
-        auto& delete_sign_col =
+        const auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         if (delete_sign_col.size() >= data.row_pos + data.num_rows) {
             delete_sign_column_data = delete_sign_col.get_data().data();
@@ -543,12 +544,12 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     }
 
     // read and fill block
-    auto mutable_full_columns = full_block.mutate_columns();
-    RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, read_plan, missing_cids,
-                                          point_read_cids, use_default_or_null_flag,
-                                          has_default_or_nullable, segment_start_pos,
-                                          is_unique_key_replace_if_not_null, data.block));
+    RETURN_IF_ERROR(_fill_missing_columns(&full_block, read_plan, missing_cids, point_read_cids,
+                                          use_default_or_null_flag, has_default_or_nullable,
+                                          segment_start_pos, is_unique_key_replace_if_not_null,
+                                          data.block));
 
+    // TODO(baohan): handle rowstore logic
     // row column should be filled here
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
@@ -646,8 +647,7 @@ void VerticalSegmentWriter::_calc_indicator_maps(
 // 5         5 |5 |50|? |50
 // Here, full_columns = [k1, k2, v1, v2, v3, v4, v5]
 //       old_full_read_columns = [v4, v5], the old values from the previous rows will be read into these columns.
-//       old_point_read_columns = [k1, k2, v1, v2, v3], the old values from the previous rows will be read into these columns
-// if the correspoding columns in the input block has cell with indicator value.
+//       old_point_read_columns = [v1, v2, v3], the old values from the previous rows will be read into these columns if the correspoding columns in the input block has cell with indicator value.
 // Becase the column is immutable, filled_including_value_columns will store the data merged from
 // the original input block and old_point_read_columns. After the insertion, the data in the table will be:
 //  k1|k2|v1|v2|v3|v4|v5
@@ -657,11 +657,12 @@ void VerticalSegmentWriter::_calc_indicator_maps(
 //  4 |4 |40|40|40|4 |4
 //  5 |5 |50|5 |50|5 |5
 Status VerticalSegmentWriter::_fill_missing_columns(
-        vectorized::MutableColumns& mutable_full_columns, const PartialUpdateReadPlan& read_plan,
+        vectorized::Block* full_block, const PartialUpdateReadPlan& read_plan,
         const std::vector<uint32_t>& cids_full_read, const std::vector<uint32_t>& cids_point_read,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos, bool is_unique_key_replace_if_not_null,
         const vectorized::Block* block) {
+    vectorized::MutableColumns mutable_full_columns = full_block->mutate_columns();
     vectorized::Block old_full_read_block = _tablet_schema->create_block_by_cids(cids_full_read);
     vectorized::MutableColumns old_full_read_columns = old_full_read_block.mutate_columns();
     vectorized::Block old_point_read_block = _tablet_schema->create_block_by_cids(cids_point_read);
@@ -713,7 +714,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         }
     }
 
-    // fill all missing value from mutable_old_columns, need to consider default value and null value
+    // fill all missing value from old_value_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
         // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
         // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
@@ -721,26 +722,26 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
         // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
         // to check if a row REALLY exists in the table.
-        if (use_default_or_null_flag[idx] ||
-            (delete_sign_column_data != nullptr &&
-             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
-            for (auto i = 0; i < missing_cids.size(); ++i) {
+        uint32_t pos_in_old_block = missing_cols_read_index[idx + segment_start_pos];
+        if (use_default_or_null_flag[idx] || (delete_sign_column_data != nullptr &&
+                                              delete_sign_column_data[pos_in_old_block] != 0)) {
+            for (auto i = 0; i < cids_full_read.size(); ++i) {
                 // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
-                const auto& tablet_column = _tablet_schema->column(missing_cids[i]);
+                const auto& tablet_column = _tablet_schema->column(cids_full_read[i]);
+                auto& target_column = mutable_full_columns[cids_full_read[i]];
                 if (tablet_column.has_default_value()) {
-                    mutable_full_columns[missing_cids[i]]->insert_from(
-                            *mutable_default_value_columns[i].get(), 0);
+                    target_column->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (tablet_column.is_nullable()) {
-                    auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
-                            mutable_full_columns[missing_cids[i]].get());
+                    auto* nullable_column =
+                            assert_cast<vectorized::ColumnNullable*>(target_column.get());
                     nullable_column->insert_null_elements(1);
                 } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
                     const auto& column = *DORIS_TRY(
                             _opts.rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-                    auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
-                            mutable_full_columns[missing_cids[i]].get());
+                    auto* auto_inc_column =
+                            assert_cast<vectorized::ColumnInt64*>(target_column.get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*>(
                                      block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
@@ -750,18 +751,48 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    mutable_full_columns[missing_cids[i]]->insert_default();
+                    target_column->insert_default();
                 }
             }
             continue;
         }
-        auto pos_in_old_block = read_index[idx + segment_start_pos];
-        for (auto i = 0; i < missing_cids.size(); ++i) {
-            mutable_full_columns[missing_cids[i]]->insert_from(
-                    *old_value_block.get_columns_with_type_and_name()[i].column.get(),
-                    pos_in_old_block);
+
+        // TODO(bobhan1): fix me later(the wrong row pos)
+        // TODO(bobhan1): handle row store column here!!!
+        for (auto i = 0; i < cids_full_read.size(); ++i) {
+            uint32_t cid = cids_full_read[i];
+            if (full_block->get_by_position(cid).name != BeConsts::ROW_STORE_COL) {
+                mutable_full_columns[cid]->insert_from(
+                        *old_full_read_block.get_columns_with_type_and_name()[i].column.get(),
+                        pos_in_old_block);
+            }
+        }
+
+        if (is_unique_key_replace_if_not_null) {
+            //TODO(bobhan1): fix me later(the wrong row pos)
+            for (size_t i = 0; i < cids_point_read.size(); i++) {
+                uint32_t cid = cids_point_read[i];
+                if (parital_update_cols_read_index[cid].contains(idx + segment_start_pos)) {
+                    // cells with indicator value should be replaced with old values in previous rows
+                    uint32_t pos_in_old_block =
+                            parital_update_cols_read_index[cid][idx + segment_start_pos];
+                    filled_including_value_columns[i]->insert_from(*old_point_read_columns[i],
+                                                                   pos_in_old_block);
+                } else {
+                    filled_including_value_columns[i]->insert_from(*mutable_full_columns[cid],
+                                                                   idx + segment_start_pos);
+                }
+            }
         }
     }
+
+    if (is_unique_key_replace_if_not_null) {
+        for (size_t i = 0; i < cids_point_read.size(); i++) {
+            full_block->replace_by_position(cids_point_read[i],
+                                            std::move(filled_including_value_columns[i]));
+        }
+    }
+
     return Status::OK();
 }
 
