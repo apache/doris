@@ -360,12 +360,12 @@ public class Coordinator implements CoordInterface {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
+        this.topnFilters = planner.getTopnFilters();
 
         List<Integer> fragmentIds = new ArrayList<>();
         for (PlanFragment fragment : fragments) {
             fragmentIds.add(fragment.getFragmentId().asInt());
         }
-        this.topnFilters = planner.getTopnFilters();
         this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
     }
 
@@ -386,6 +386,7 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+
         List<Integer> fragmentIds = new ArrayList<>();
         for (PlanFragment fragment : fragments) {
             fragmentIds.add(fragment.getFragmentId().asInt());

@@ -244,7 +244,7 @@ public class Profile {
 
             summaryProfile.update(summaryInfo);
             this.setId(summaryProfile.getProfileId());
-            ProfileManager.getInstance().pushProfile(this);
+
             if (isFinished) {
                 this.markQueryFinished(System.currentTimeMillis());
             }
@@ -252,6 +252,7 @@ public class Profile {
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
             }
+            ProfileManager.getInstance().pushProfile(this);
         } catch (Throwable t) {
             LOG.warn("update profile {} failed", id, t);
             throw t;
