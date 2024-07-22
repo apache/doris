@@ -99,7 +99,7 @@ suite("test_create_table_like_nereids") {
         create table new_char_255 like test_create_table_like_char_255;
     """
     def res1 = sql "show create table new_char_255"
-    mustContain(res1[0][1], "CHARACTER(255)")
+    mustContain(res1[0][1], "character(255)")
 
     sql "insert into new_char_255 values(123,'abcdddddd')"
     qt_select "select * from new_char_255"

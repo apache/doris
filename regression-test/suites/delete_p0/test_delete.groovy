@@ -510,7 +510,7 @@ suite("test_delete") {
 
     test {
         sql "delete from table_bitmap where user_id is null"
-        exception "Can not apply delete condition to column type: BITMAP"
+        exception "Can not apply delete condition to column type: bitmap"
     }
 
     sql "drop table if exists table_decimal"

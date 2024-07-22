@@ -203,9 +203,9 @@ suite("test_analyze_mv") {
     verify_column_stats(result_all, result_sample[1])
     verify_column_stats(result_all_cached, result_sample[1])
 
-    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result_sample[0][0])
+    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("4.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
@@ -531,16 +531,16 @@ suite("test_analyze_mv") {
     assertEquals("SAMPLE", result_sample[0][9])
     assertEquals("MANUAL", result_sample[0][11])
 
-    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
     logger.info("result " + result_sample)
     if ("MANUAL" != result_sample[0][11]) {
         logger.info("Overwrite by auto analyze, analyze it again.")
         sql """analyze table mvTestDup with sync with sample rows 4000000"""
-        result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+        result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
         logger.info("result after reanalyze " + result_sample)
     }
     assertEquals(1, result_sample.size())
-    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result_sample[0][0])
+    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("4.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
@@ -608,13 +608,13 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mv_key2", "mv3")
     verifyTaskStatus(result_sample, "mva_MAX__`value2`", "mv3")
     verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
-    verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS BIGINT)", "mv3")
+    verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS bigint)", "mv3")
 
     // Test alter column stats
     sql """drop stats mvTestDup"""
     sql """alter table mvTestDup modify column key1 set stats ('ndv'='1', 'num_nulls'='1', 'min_value'='10', 'max_value'='40', 'row_count'='50');"""
     sql """alter table mvTestDup index mv3 modify column mv_key1 set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"""
-    sql """alter table mvTestDup index mv3 modify column `mva_SUM__CAST(``value1`` AS BIGINT)` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
+    sql """alter table mvTestDup index mv3 modify column `mva_SUM__CAST(``value1`` AS bigint)` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
 
     def result = sql """show column cached stats mvTestDup(key1)"""
     assertEquals(1, result.size())
@@ -640,9 +640,9 @@ suite("test_analyze_mv") {
     assertEquals("0", result[0][7])
     assertEquals("4", result[0][8])
 
-    result = sql """show column cached stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    result = sql """show column cached stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
     assertEquals(1, result.size())
-    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result[0][0])
+    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result[0][0])
     assertEquals("mv3", result[0][1])
     assertEquals("11.0", result[0][2])
     assertEquals("10.0", result[0][3])
