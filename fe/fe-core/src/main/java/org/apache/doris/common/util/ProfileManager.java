@@ -266,7 +266,23 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public List<List<String>> getAllQueries() {
-        return getQueryWithType(null);
+        List<List<String>> result = Lists.newArrayList();
+        readLock.lock();
+        try {
+            PriorityQueue<ProfileElement> queueIdDeque = getQueryOrderByQueryFinishTime();
+            while (!queueIdDeque.isEmpty()) {
+                ProfileElement profileElement = queueIdDeque.poll();
+                Map<String, String> infoStrings = profileElement.infoStrings;
+                List<String> row = Lists.newArrayList();
+                for (String str : SummaryProfile.SUMMARY_KEYS) {
+                    row.add(infoStrings.get(str));
+                }
+                result.add(row);
+            }
+        } finally {
+            readLock.unlock();
+        }
+        return result;
     }
 
     // The init value of query finish time of profile is MIN_VALUE
@@ -280,30 +296,6 @@ public class ProfileManager extends MasterDaemon {
         });
 
         return queryIdDeque;
-    }
-
-    public List<List<String>> getQueryWithType(ProfileType type) {
-        List<List<String>> result = Lists.newArrayList();
-        readLock.lock();
-        try {
-            PriorityQueue<ProfileElement> queueIdDeque = getQueryOrderByQueryFinishTime();
-            while (!queueIdDeque.isEmpty()) {
-                ProfileElement profileElement = queueIdDeque.poll();
-                Map<String, String> infoStrings = profileElement.infoStrings;
-                if (type != null && !infoStrings.get(SummaryProfile.TASK_TYPE).equalsIgnoreCase(type.name())) {
-                    continue;
-                }
-
-                List<String> row = Lists.newArrayList();
-                for (String str : SummaryProfile.SUMMARY_KEYS) {
-                    row.add(infoStrings.get(str));
-                }
-                result.add(row);
-            }
-        } finally {
-            readLock.unlock();
-        }
-        return result;
     }
 
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
@@ -510,25 +502,6 @@ public class ProfileManager extends MasterDaemon {
             readLock.unlock();
         }
         return builder.getFragmentTreeRoot(executionId);
-    }
-
-    public List<Triple<String, String, Long>> getFragmentInstanceList(String queryID,
-            String executionId, String fragmentId)
-            throws AnalysisException {
-        MultiProfileTreeBuilder builder;
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get instance list. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            builder = element.builder;
-        } finally {
-            readLock.unlock();
-        }
-
-        return builder.getInstanceList(executionId, fragmentId);
     }
 
     public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId,
