@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDynamicSplit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -166,6 +167,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalFilter(LogicalFilter<? extends Plan> filter, C context) {
+        return visit(filter, context);
+    }
+
+    public R visitLogicalDynamicSplit(LogicalDynamicSplit<? extends Plan> filter, C context) {
         return visit(filter, context);
     }
 

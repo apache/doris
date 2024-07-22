@@ -42,12 +42,10 @@ public class JobExecutionConfiguration {
     @Setter
     private boolean immediate = false;
 
-    /**
-     * Maximum number of concurrent tasks, <= 0 means no limit
-     * if the number of tasks exceeds the limit, the task will be delayed execution
-     * todo: implement this later, we need to consider concurrency strategies
-     */
-    private Integer maxConcurrentTaskNum;
+    @Getter
+    @Setter
+    @SerializedName(value = "mctn")
+    private int maxConcurrentTaskNum = -1;
 
     public void checkParams() {
         if (executeType == null) {

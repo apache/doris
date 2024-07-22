@@ -175,6 +175,7 @@ import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
+import org.apache.doris.job.extensions.insert.BatchInsertJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -427,6 +428,7 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
             jobExecutorRuntimeTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
+                            .registerSubtype(BatchInsertJob.class, BatchInsertJob.class.getSimpleName())
                             .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
                             .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 

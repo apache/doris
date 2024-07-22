@@ -101,7 +101,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobMap.get(jobId);
     }
 
-    public void registerJob(T job) throws JobException {
+    public long registerJob(T job) throws JobException {
         writeLock();
         try {
             job.onRegister();
@@ -114,6 +114,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             //check its need to scheduler
             jobScheduler.scheduleOneJob(job);
             job.logCreateOperation();
+            return job.getJobId();
         } finally {
             writeUnlock();
         }

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
+import org.apache.doris.nereids.rules.analysis.BindDynamicSplit;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
@@ -118,8 +119,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new AnalyzeCTE()),
             topDown(new EliminateLogicalSelectHint()),
             bottomUp(
-                    new BindRelation(customTableResolver),
-                    new CheckPolicy()
+                new BindRelation(customTableResolver),
+                new CheckPolicy(),
+                new BindDynamicSplit()
             ),
             bottomUp(new BindExpression()),
             topDown(new BindSink()),

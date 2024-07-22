@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.job.scheduler;
 
-public enum JobType {
-    INSERT,
-    MV,
-    BATCH_INSERT
+public enum TaskDispatchOperate {
+    DROP_ALL_TASK,
+    DROP_GROUP_TASK,
+    EXECUTE_GROUP_NEXT_TASK
+
 }

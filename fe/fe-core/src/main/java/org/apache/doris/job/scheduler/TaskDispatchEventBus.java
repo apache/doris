@@ -15,10 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.job.scheduler;
 
-public enum JobType {
-    INSERT,
-    MV,
-    BATCH_INSERT
+import org.apache.doris.job.manager.TaskDisruptorGroupManager;
+
+import com.google.common.eventbus.EventBus;
+
+public class TaskDispatchEventBus {
+    private static final EventBus eventBus = new EventBus("TaskDispatchEventBus");
+
+    public static void register(TaskDisruptorGroupManager taskDisruptorGroupManager) {
+        eventBus.register(taskDisruptorGroupManager);
+    }
+
+    public static void post(TaskDispatchEvent event) {
+        eventBus.post(event);
+    }
 }
