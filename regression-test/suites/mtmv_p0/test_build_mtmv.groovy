@@ -500,12 +500,12 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
+    def jobs = sql """select * from jobs("type"="mv")  where MvName= '${mvName}'"""
     log.info(jobs.toString())
-    assertEquals(jobs.get(0).get(0), 0);
-    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
+    assertEquals(0, jobs.size());
+    def tasks = sql """select * from tasks("type"="mv") where MvName = '${mvName}'"""
     log.info(tasks.toString())
-    assertEquals(tasks.get(0).get(0), 0);
+    assertEquals(0, tasks.size());
 
     // test bitmap
     sql """drop table if exists `${tableName}`"""
