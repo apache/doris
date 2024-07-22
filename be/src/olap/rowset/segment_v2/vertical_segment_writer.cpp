@@ -317,6 +317,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // create full block and fill with input columns
     full_block = _tablet_schema->create_block();
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     std::vector<uint32_t> determistic_cids; // columns that dont't need read from old rows
     std::vector<uint32_t>
             point_read_cids; // columns that we should read values from old rows for some rows
@@ -543,15 +544,16 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
-    RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                          has_default_or_nullable, segment_start_pos, data.block));
+    RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, read_plan, missing_cids,
+                                          point_read_cids, use_default_or_null_flag,
+                                          has_default_or_nullable, segment_start_pos,
+                                          is_unique_key_replace_if_not_null, data.block));
 
     // row column should be filled here
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
 
     // convert remaining columns and send to column writer
-    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     std::vector<uint32_t> remaining_cids;
     if (is_unique_key_replace_if_not_null) {
         remaining_cids.reserve(missing_cids.size() + point_read_cids.size());
@@ -660,53 +662,13 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos, bool is_unique_key_replace_if_not_null,
         const vectorized::Block* block) {
-    // create old value columns
-    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
-    auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
-    CHECK_EQ(missing_cids.size(), old_value_block.columns());
-    auto mutable_old_columns = old_value_block.mutate_columns();
-    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
-    // record real pos, key is input line num, value is old_block line num
-    std::map<uint32_t, uint32_t> read_index;
-    size_t read_idx = 0;
-    for (auto rs_it : _rssid_to_rid) {
-        for (auto seg_it : rs_it.second) {
-            auto rowset = _rsid_to_rowset[rs_it.first];
-            CHECK(rowset);
-            std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
-            }
-            if (has_row_column) {
-                auto st = _tablet->fetch_value_through_row_column(
-                        rowset, *_tablet_schema, seg_it.first, rids, missing_cids, old_value_block);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value through row column";
-                    return st;
-                }
-                continue;
-            }
-            for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                TabletColumn tablet_column = _tablet_schema->column(missing_cids[cid]);
-                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                         mutable_old_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value by rowids";
-                    return st;
-                }
-            }
-        }
-    }
-
     vectorized::Block old_full_read_block = _tablet_schema->create_block_by_cids(cids_full_read);
     vectorized::MutableColumns old_full_read_columns = old_full_read_block.mutate_columns();
     vectorized::Block old_point_read_block = _tablet_schema->create_block_by_cids(cids_point_read);
     vectorized::MutableColumns old_point_read_columns = old_point_read_block.mutate_columns();
     vectorized::MutableColumns filled_including_value_columns =
             old_point_read_block.clone_empty_columns(); // used to hold data after being filled
-    // !!NOTE: columns in old_point_read_block may have different row nums!
+    // !!!NOTE: columns in old_point_read_block may have different row nums!!!
 
     // rowid in input block -> line num in old_full_read_block
     std::map<uint32_t, uint32_t> missing_cols_read_index;
@@ -725,27 +687,27 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     }
 
     // build default value columns
-    auto default_value_block = old_value_block.clone_empty();
+    auto default_value_block = old_full_read_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                old_value_block.try_get_by_name(DELETE_SIGN);
+                old_full_read_block.try_get_by_name(DELETE_SIGN);
         delete_sign_column != nullptr) {
-        auto& delete_sign_col =
+        const auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         delete_sign_column_data = delete_sign_col.get_data().data();
     }
 
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        for (auto i = 0; i < missing_cids.size(); ++i) {
-            const auto& column = _tablet_schema->column(missing_cids[i]);
+        for (auto i = 0; i < cids_full_read.size(); ++i) {
+            const auto& column = _tablet_schema->column(cids_full_read[i]);
             if (column.has_default_value()) {
                 const auto& default_value =
                         _opts.rowset_ctx->partial_update_info->default_values[i];
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
+                RETURN_IF_ERROR(old_full_read_block.get_by_position(i).type->from_string(
                         rb, mutable_default_value_columns[i].get()));
             }
         }
