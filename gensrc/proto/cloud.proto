@@ -142,6 +142,7 @@ message NodeInfoPB {
         UNKNOWN = 0;
         FE_MASTER = 1;
         FE_OBSERVER = 2;
+        FE_FOLLOWER = 3;
     }
     optional string cloud_unique_id = 1;
     optional string name = 2;
