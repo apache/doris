@@ -124,6 +124,7 @@ void CompactionSubmitRegistry::reset(const std::vector<DataDir*>& stores) {
 
 uint32_t CompactionSubmitRegistry::count_executing_compaction(DataDir* dir,
                                                               CompactionType compaction_type) {
+    // non-lock, used in snapshot
     const auto& compaction_tasks = _get_tablet_set(dir, compaction_type);
     return std::count_if(compaction_tasks.begin(), compaction_tasks.end(), [](const auto& task) {
         return task->compaction_stage == CompactionStage::EXECUTING;
@@ -131,12 +132,23 @@ uint32_t CompactionSubmitRegistry::count_executing_compaction(DataDir* dir,
 }
 
 uint32_t CompactionSubmitRegistry::count_executing_cumu_and_base(DataDir* dir) {
+    // non-lock, used in snapshot
     return count_executing_compaction(dir, CompactionType::BASE_COMPACTION) +
            count_executing_compaction(dir, CompactionType::CUMULATIVE_COMPACTION);
 }
 
 bool CompactionSubmitRegistry::has_compaction_task(DataDir* dir, CompactionType compaction_type) {
+    // non-lock, used in snapshot
     return !_get_tablet_set(dir, compaction_type).empty();
+}
+
+std::vector<TabletSharedPtr> CompactionSubmitRegistry::pick_topn_tablets_for_compaction(
+        TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
+        const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score) {
+    // non-lock, used in snapshot
+    return tablet_mgr->find_best_tablets_to_compaction(compaction_type, data_dir,
+                                                       _get_tablet_set(data_dir, compaction_type),
+                                                       disk_max_score, cumu_compaction_policies);
 }
 
 bool CompactionSubmitRegistry::insert(TabletSharedPtr tablet, CompactionType compaction_type) {
@@ -168,14 +180,6 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
     default:
         CHECK(false) << "invalid compaction type";
     }
-}
-
-std::vector<TabletSharedPtr> CompactionSubmitRegistry::pick_topn_tablets_for_compaction(
-        TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-        const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score) {
-    return tablet_mgr->find_best_tablets_to_compaction(compaction_type, data_dir,
-                                                       _get_tablet_set(data_dir, compaction_type),
-                                                       disk_max_score, cumu_compaction_policies);
 }
 
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {

@@ -177,6 +177,7 @@ public:
     CompactionSubmitRegistry() = default;
     CompactionSubmitRegistry(CompactionSubmitRegistry&& r);
 
+    // create a snapshot for current registry, operations to the snapshot can be lock-free.
     CompactionSubmitRegistry create_snapshot();
 
     void reset(const std::vector<DataDir*>& stores);
