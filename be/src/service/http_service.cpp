@@ -19,6 +19,7 @@
 
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 #include <vector>
@@ -37,6 +38,7 @@
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/download_action.h"
@@ -381,6 +383,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
             new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
                                       show_nested_index_file_action);
+
+    CompactionScoreAction* compaction_score_action = _pool.add(
+            new CompactionScoreAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
