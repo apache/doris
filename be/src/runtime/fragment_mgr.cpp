@@ -710,7 +710,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+    SCOPED_ATTACH_TASK(query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -1073,7 +1073,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
                 pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker};
+                                        pip_context->get_query_ctx()->query_mem_tracker,
+                                        pip_context->get_query_ctx()->workload_group()};
             } else {
                 return Status::InternalError("Non-pipeline is disabled!");
             }
@@ -1165,7 +1166,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                            queryid.to_string());
         }
     }
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
+    SCOPED_ATTACH_TASK(query_ctx.get());
     auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }
