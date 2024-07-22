@@ -144,12 +144,12 @@ public class StatisticsRepository {
         params.put("tableId", String.valueOf(table.getId()));
         StringJoiner sj = new StringJoiner(",");
         for (String colName : columnNames) {
-            sj.add("'" + colName + "'");
+            sj.add("'" + StatisticsUtil.escapeSQL(colName) + "'");
         }
         params.put("columnInfo", sj.toString());
         sj = new StringJoiner(",");
         for (String part : partitionNames) {
-            sj.add("'" + part + "'");
+            sj.add("'" + StatisticsUtil.escapeSQL(part) + "'");
         }
         params.put("partitionInfo", sj.toString());
         return StatisticsUtil.executeQuery(FETCH_PARTITIONS_STATISTIC_TEMPLATE, params);
@@ -418,7 +418,7 @@ public class StatisticsRepository {
         params.put("tableId", String.valueOf(tableId));
         params.put("indexId", String.valueOf(idxId));
         params.put("partName", partName);
-        params.put("columnId", colName);
+        params.put("columnId", StatisticsUtil.escapeSQL(colName));
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
             .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));
     }

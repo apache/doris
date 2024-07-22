@@ -24,8 +24,6 @@
 
 namespace doris::pipeline {
 
-enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
-
 class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
@@ -53,7 +51,7 @@ private:
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs, bool require_bucket_distribution);
+                      const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -77,8 +75,6 @@ public:
     }
     bool require_data_distribution() const override { return _is_colocate; }
 
-    bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
-
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
     Status prepare_for_spill(RuntimeState* state);
@@ -99,17 +95,16 @@ private:
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    bool _reuse_mem;
     const int64_t _limit;
-    SortAlgorithm _algorithm;
 
     const RowDescriptor _row_descriptor;
-    const bool _use_two_phase_read;
     const bool _merge_by_exchange;
     const bool _is_colocate = false;
     const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
     const std::vector<TExpr> _partition_exprs;
+    const TSortAlgorithm::type _algorithm;
+    const bool _reuse_mem;
 };
 
 } // namespace doris::pipeline

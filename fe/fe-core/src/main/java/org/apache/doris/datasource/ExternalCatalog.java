@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -598,6 +600,11 @@ public abstract class ExternalCatalog
             // Should not return null.
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
+            if (!db.isPresent()) {
+                LOG.warn("met invalid db id {} in replayInitCatalog, catalog: {}, ignore it to skip bug.",
+                        log.getRefreshDbIds().get(i), name);
+                continue;
+            }
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -831,5 +838,26 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            TableRef tableRef = stmt.getTblRef();
+            TableName tableName = tableRef.getName();
+            // delete all table data if null
+            List<String> partitions = null;
+            if (tableRef.getPartitionNames() != null) {
+                partitions = tableRef.getPartitionNames().getPartitionNames();
+            }
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
     }
 }

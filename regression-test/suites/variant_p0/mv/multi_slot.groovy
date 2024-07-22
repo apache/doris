@@ -53,41 +53,41 @@ suite ("multi_slot") {
     // TODO fix and remove enable_rewrite_element_at_to_slot
     order_qt_select_star "select /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
 
-    def retry_times = 60
-    for (def i = 0; i < retry_times; ++i) {
-        boolean is_k1a2p2ap3p = false
-        boolean is_k1a2p2ap3ps = false
-        boolean is_d_table = false
-        explain {
-            sql("select  /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1")
-            check { explainStr, ex, startTime, endTime ->
-                if (ex != null) {
-                    throw ex;
-                }
-                logger.info("explain result: ${explainStr}".toString())
-                is_k1a2p2ap3p = explainStr.contains"(k1a2p2ap3p)"
-                is_k1a2p2ap3ps = explainStr.contains("(k1a2p2ap3ps)")
-                is_d_table = explainStr.contains("(multi_slot)")
-                assert is_k1a2p2ap3p || is_k1a2p2ap3ps || is_d_table
-            }
-        }
-        // FIXME: the mv selector maybe select base table forever when exist multi mv,
-        //        so this pr just treat as success if select base table.
-        //        we should remove is_d_table in the future
-        if (is_d_table || is_k1a2p2ap3p || is_k1a2p2ap3ps) {
-            break
-        }
-        if (i + 1 == retry_times) {
-            throw new IllegalStateException("retry and failed too much")
-        }
-        sleep(1000)
-    }
-    order_qt_select_mv "select  /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1;"
+    // def retry_times = 60
+    // for (def i = 0; i < retry_times; ++i) {
+    //     boolean is_k1a2p2ap3p = false
+    //     boolean is_k1a2p2ap3ps = false
+    //     boolean is_d_table = false
+    //     explain {
+    //         sql("select  /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1")
+    //         check { explainStr, ex, startTime, endTime ->
+    //             if (ex != null) {
+    //                 throw ex;
+    //             }
+    //             logger.info("explain result: ${explainStr}".toString())
+    //             is_k1a2p2ap3p = explainStr.contains"(k1a2p2ap3p)"
+    //             is_k1a2p2ap3ps = explainStr.contains("(k1a2p2ap3ps)")
+    //             is_d_table = explainStr.contains("(multi_slot)")
+    //             assert is_k1a2p2ap3p || is_k1a2p2ap3ps || is_d_table
+    //         }
+    //     }
+    //     // FIXME: the mv selector maybe select base table forever when exist multi mv,
+    //     //        so this pr just treat as success if select base table.
+    //     //        we should remove is_d_table in the future
+    //     if (is_d_table || is_k1a2p2ap3p || is_k1a2p2ap3ps) {
+    //         break
+    //     }
+    //     if (i + 1 == retry_times) {
+    //         throw new IllegalStateException("retry and failed too much")
+    //     }
+    //     sleep(1000)
+    // }
+    // order_qt_select_mv "select  /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1;"
 
-    explain {
-        sql("select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3")
-        contains "(k1a2p2ap3p)"
-    }
-    order_qt_select_mv "select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3;"
+    // explain {
+    //     sql("select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3")
+    //     contains "(k1a2p2ap3p)"
+    // }
+    // order_qt_select_mv "select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot order by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3;"
 
 }

@@ -131,6 +131,14 @@ public:
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
+    int get_disk_num() { return _disk_num; }
+
+    Status init_stream_load_recorder(const std::string& stream_load_record_path);
+
+    const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
+        return _stream_load_recorder;
+    }
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -153,6 +161,10 @@ protected:
     scoped_refptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    int _disk_num {-1};
+
+    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -242,17 +254,13 @@ public:
 
     bool should_fetch_from_peer(int64_t tablet_id);
 
-    const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
-        return _stream_load_recorder;
-    }
-
     Status get_compaction_status_json(std::string* result);
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force);
+                                  bool force, bool eager = true);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -345,8 +353,6 @@ private:
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
-    Status _init_stream_load_recorder(const std::string& stream_load_record_path);
-
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
 
@@ -384,6 +390,8 @@ private:
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+
+    int _get_executing_compaction_num(std::unordered_set<TabletSharedPtr>& compaction_tasks);
 
 private:
     EngineOptions _options;
@@ -447,9 +455,9 @@ private:
 
     std::mutex _tablet_submitted_compaction_mutex;
     // a tablet can do base and cumulative compaction at same time
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_full_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_cumu_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -463,8 +471,6 @@ private:
 
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
-
-    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>

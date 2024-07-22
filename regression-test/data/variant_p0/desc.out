@@ -198,3 +198,11 @@ v.金额	SMALLINT	Yes	false	\N	NONE
 k	BIGINT	Yes	true	\N	
 v	VARIANT	Yes	false	\N	NONE
 
+-- !sql15 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+v.a	TINYINT	Yes	false	\N	NONE
+v.b	TINYINT	Yes	false	\N	NONE
+v.c	TINYINT	Yes	false	\N	NONE
+v.d	TINYINT	Yes	false	\N	NONE
+

@@ -71,8 +71,9 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         auto scan_range = scan_ranges[0].scan_range.ext_scan_range.file_scan_range;
         if (scan_range.__isset.split_source) {
             auto split_source = scan_range.split_source;
+            RuntimeProfile::Counter* get_split_timer = ADD_TIMER(_runtime_profile, "GetSplitTime");
             _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
-                    state, split_source.split_source_id, split_source.num_splits);
+                    state, get_split_timer, split_source.split_source_id, split_source.num_splits);
         }
     }
     if (_split_source == nullptr) {

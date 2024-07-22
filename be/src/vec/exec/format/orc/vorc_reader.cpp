@@ -935,13 +935,10 @@ Status OrcReader::_fill_partition_columns(
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -1586,7 +1583,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
@@ -1656,7 +1653,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();

@@ -160,7 +160,9 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     // init collect iterator
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
-    opts.block_row_max = read_params.batch_size;
+    if (read_params.batch_size > 0) {
+        opts.block_row_max = read_params.batch_size;
+    }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
     // In agg keys value columns compact, get first row for _init_agg_state
@@ -214,10 +216,13 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
     StorageReadOptions opts;
-    _reader_context.batch_size = read_params.batch_size;
+    if (read_params.batch_size > 0) {
+        _reader_context.batch_size = read_params.batch_size;
+    } else {
+        _reader_context.batch_size = opts.block_row_max;
+    }
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    _arena = std::make_unique<Arena>();
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
@@ -308,9 +313,6 @@ void VerticalBlockReader::_update_agg_data(MutableColumns& columns) {
 
 void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
                                             bool is_close) {
-    if (!_arena) [[unlikely]] {
-        return;
-    }
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function = _agg_functions[idx];
         AggregateDataPtr place = _agg_places[idx];
@@ -318,7 +320,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      _arena.get(), _stored_has_null_tag[idx]);
+                                      &_arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -328,7 +330,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
         }
     }
     if (is_close) {
-        _arena->clear();
+        _arena.clear();
     }
 }
 
@@ -460,7 +462,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
 
         size_t block_rows = block->rows();
-        if (_filter_delete && block_rows > 0) {
+        if (_delete_sign_available && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
                 *eof = (res.is<END_OF_FILE>());

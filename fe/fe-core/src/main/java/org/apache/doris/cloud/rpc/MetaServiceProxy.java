@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.rpc;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
@@ -101,11 +100,6 @@ public class MetaServiceProxy {
     }
 
     private MetaServiceClient getProxy() {
-        if (Env.isCheckpointThread()) {
-            LOG.error("You should not use RPC in the checkpoint thread");
-            throw new RuntimeException("use RPC in the checkpoint thread");
-        }
-
         if (Config.enable_check_compatibility_mode) {
             LOG.error("Should not use RPC in check compatibility mode");
             throw new RuntimeException("use RPC in the check compatibility mode");
@@ -319,6 +313,15 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.commitIndex(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.checkKv(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

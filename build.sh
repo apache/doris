@@ -103,7 +103,6 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
-    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -382,9 +381,6 @@ fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
-if [[ -z "${ENABLE_STACKTRACE}" ]]; then
-    ENABLE_STACKTRACE='ON'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
@@ -485,7 +481,6 @@ echo "Get params:
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
-    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
     DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
@@ -587,7 +582,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
@@ -742,6 +736,8 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+    # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
+    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -750,12 +746,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
-    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
-        rm -rf "${DORIS_HOME}/zoneinfo"
-        echo "Generating zoneinfo files"
-        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
-    fi
-    cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
@@ -872,6 +862,7 @@ fi
 
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
+    rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
     fi

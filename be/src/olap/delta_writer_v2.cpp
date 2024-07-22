@@ -123,12 +123,13 @@ Status DeltaWriterV2::init() {
     context.rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
+    context.memtable_on_sink_support_index_v2 = true;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
     ThreadPool* wg_thread_pool_ptr = nullptr;
     if (_state->get_query_ctx()) {
-        wg_thread_pool_ptr = _state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+        wg_thread_pool_ptr = _state->get_query_ctx()->get_memtable_flush_pool();
     }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
                                            wg_thread_pool_ptr,
@@ -180,7 +181,7 @@ Status DeltaWriterV2::close() {
     return _memtable_writer->close();
 }
 
-Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
+Status DeltaWriterV2::close_wait(int32_t& num_segments, RuntimeProfile* profile) {
     SCOPED_RAW_TIMER(&_close_wait_time);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
@@ -190,6 +191,7 @@ Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
         _update_profile(profile);
     }
     RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
+    num_segments = _rowset_writer->next_segment_id();
 
     _delta_written_success = true;
     return Status::OK();

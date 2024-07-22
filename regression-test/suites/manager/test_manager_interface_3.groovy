@@ -179,7 +179,7 @@ suite('test_manager_interface_3',"p0") {
             // Roles: test_manager_role_grant_role1 
             if ( result[i][3] == "${role1}") {
                 //UserIdentity: 
-                println result[i][0]
+                logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
                     assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Create_priv,Drop_priv")
@@ -234,7 +234,7 @@ suite('test_manager_interface_3',"p0") {
             // Roles: test_manager_role_grant_role1 
             if ( result[i][3] == "${role1}") {
                 //UserIdentity: 
-                println result[i][0]
+                logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
                     assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv")

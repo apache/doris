@@ -86,6 +86,8 @@ public class SqlCacheContext {
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
 
+    private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
+
     public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
         this.queryId = Objects.requireNonNull(queryId, "queryId cannot be null");
@@ -329,51 +331,55 @@ public class SqlCacheContext {
                 if (cacheKeyMd5 != null) {
                     return cacheKeyMd5;
                 }
-
-                StringBuilder cacheKey = new StringBuilder(originSql);
-                for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
-                    cacheKey.append("|")
-                            .append(entry.getKey())
-                            .append("=")
-                            .append(entry.getValue());
-                }
-                for (Variable usedVariable : usedVariables) {
-                    cacheKey.append("|")
-                            .append(usedVariable.getType().name())
-                            .append(":")
-                            .append(usedVariable.getName())
-                            .append("=")
-                            .append(usedVariable.getRealExpression().toSql());
-                }
-                for (Pair<Expression, Expression> pair : foldNondeterministicPairs) {
-                    cacheKey.append("|")
-                            .append(pair.key().toSql())
-                            .append("=")
-                            .append(pair.value().toSql());
-                }
-                for (Entry<FullTableName, List<RowFilterPolicy>> entry : rowPolicies.entrySet()) {
-                    List<RowFilterPolicy> policy = entry.getValue();
-                    if (policy.isEmpty()) {
-                        continue;
-                    }
-                    cacheKey.append("|")
-                            .append(entry.getKey())
-                            .append("=")
-                            .append(policy);
-                }
-                for (Entry<FullColumnName, Optional<DataMaskPolicy>> entry : dataMaskPolicies.entrySet()) {
-                    if (!entry.getValue().isPresent()) {
-                        continue;
-                    }
-                    cacheKey.append("|")
-                            .append(entry.getKey())
-                            .append("=")
-                            .append(entry.getValue().map(Object::toString).orElse(""));
-                }
-                cacheKeyMd5 = CacheProxy.getMd5(cacheKey.toString());
+                cacheKeyMd5 = doComputeCacheKeyMd5(usedVariables);
             }
         }
         return cacheKeyMd5;
+    }
+
+    /** doComputeCacheKeyMd5 */
+    public synchronized PUniqueId doComputeCacheKeyMd5(Set<Variable> usedVariables) {
+        StringBuilder cacheKey = new StringBuilder(originSql);
+        for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
+            cacheKey.append("|")
+                    .append(entry.getKey())
+                    .append("=")
+                    .append(entry.getValue());
+        }
+        for (Variable usedVariable : usedVariables) {
+            cacheKey.append("|")
+                    .append(usedVariable.getType().name())
+                    .append(":")
+                    .append(usedVariable.getName())
+                    .append("=")
+                    .append(usedVariable.getRealExpression().toSql());
+        }
+        for (Pair<Expression, Expression> pair : foldNondeterministicPairs) {
+            cacheKey.append("|")
+                    .append(pair.key().toSql())
+                    .append("=")
+                    .append(pair.value().toSql());
+        }
+        for (Entry<FullTableName, List<RowFilterPolicy>> entry : rowPolicies.entrySet()) {
+            List<RowFilterPolicy> policy = entry.getValue();
+            if (policy.isEmpty()) {
+                continue;
+            }
+            cacheKey.append("|")
+                    .append(entry.getKey())
+                    .append("=")
+                    .append(policy);
+        }
+        for (Entry<FullColumnName, Optional<DataMaskPolicy>> entry : dataMaskPolicies.entrySet()) {
+            if (!entry.getValue().isPresent()) {
+                continue;
+            }
+            cacheKey.append("|")
+                    .append(entry.getKey())
+                    .append("=")
+                    .append(entry.getValue().map(Object::toString).orElse(""));
+        }
+        return CacheProxy.getMd5(cacheKey.toString());
     }
 
     public void setOriginSql(String originSql) {
@@ -386,6 +392,14 @@ public class SqlCacheContext {
 
     public void setResultSetInFe(ResultSet resultSetInFe) {
         this.resultSetInFe = resultSetInFe;
+    }
+
+    public CacheKeyType getCacheKeyType() {
+        return cacheKeyType;
+    }
+
+    public void setCacheKeyType(CacheKeyType cacheKeyType) {
+        this.cacheKeyType = cacheKeyType;
     }
 
     /** FullTableName */
@@ -422,12 +436,19 @@ public class SqlCacheContext {
     @lombok.AllArgsConstructor
     public static class ScanTable {
         public final FullTableName fullTableName;
-        public final long latestTimestamp;
         public final long latestVersion;
         public final List<Long> scanPartitions = Lists.newArrayList();
 
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
         }
+    }
+
+    /** CacheKeyType */
+    public enum CacheKeyType {
+        // use `userIdentity`:`sql`.trim() as Cache key in FE
+        SQL,
+        // use MD5 as Cache key in FE
+        MD5
     }
 }

@@ -117,6 +117,9 @@
       "level": {
         "type": "constant_keyword",
         "value": "debug"
+      },
+      "c_user": {
+        "type": "nested"
       }
     }
   }

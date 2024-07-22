@@ -85,7 +85,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String PROP_SEPARATOR_CHAR = "separatorChar";
-    public static final String PROP_QUOTA_CHAR = "quoteChar";
+    public static final String PROP_QUOTE_CHAR = "quoteChar";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -180,7 +181,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionItems = selectedPartitions.selectedPartitions.values();
             }
             Preconditions.checkNotNull(partitionItems);
-            this.readPartitionNum = partitionItems.size();
+            this.selectedPartitionNum = partitionItems.size();
 
             // get partitions from cache
             List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
@@ -197,7 +198,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
                     hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;
-            this.readPartitionNum = 1;
+            this.selectedPartitionNum = 1;
             resPartitions.add(dummyPartition);
         }
         if (ConnectContext.get().getExecutor() != null) {
@@ -445,32 +446,40 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
-            if (delimiter.get(PROP_FIELD_DELIMITER).length() == 0) {
-                textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
-            } else {
-                textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
-            }
-        } else if (delimiter.containsKey(PROP_SEPARATOR_CHAR)) {
-            textParams.setColumnSeparator(delimiter.get(PROP_SEPARATOR_CHAR));
-        } else {
-            textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
-        }
-        if (delimiter.containsKey(PROP_QUOTA_CHAR)) {
-            textParams.setEnclose(delimiter.get(PROP_QUOTA_CHAR).getBytes()[0]);
-        }
-        textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
-        textParams.setMapkvDelimiter(delimiter.getOrDefault(PROP_MAP_KV_DELIMITER, DEFAULT_MAP_KV_DELIMITER));
 
-        //  textParams.collection_delimiter field is map, array and struct delimiter;
-        if (delimiter.get(PROP_COLLECTION_DELIMITER_HIVE2) != null) {
-            textParams.setCollectionDelimiter(delimiter.get(PROP_COLLECTION_DELIMITER_HIVE2));
-        } else if (delimiter.get(PROP_COLLECTION_DELIMITER_HIVE3) != null) {
-            textParams.setCollectionDelimiter(delimiter.get(PROP_COLLECTION_DELIMITER_HIVE3));
-        } else {
-            textParams.setCollectionDelimiter(DEFAULT_COLLECTION_DELIMITER);
+        // 1. set column separator
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SERIALIZATION_FORMAT);
+        Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SEPARATOR_CHAR);
+        textParams.setColumnSeparator(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator, serFormat)));
+        // 2. set line delimiter
+        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_LINE_DELIMITER);
+        textParams.setLineDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_LINE_DELIMITER, lineDelim)));
+        // 3. set mapkv delimiter
+        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_MAP_KV_DELIMITER);
+        textParams.setMapkvDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_MAP_KV_DELIMITER, mapkvDelim)));
+        // 4. set collection delimiter
+        Optional<String> collectionDelimHive2 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_COLLECTION_DELIMITER_HIVE2);
+        Optional<String> collectionDelimHive3 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_COLLECTION_DELIMITER_HIVE3);
+        textParams.setCollectionDelimiter(
+                HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3)));
+        // 5. set quote char
+        Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
+        if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
+            textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
+
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
@@ -502,3 +511,4 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
+

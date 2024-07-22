@@ -96,6 +96,9 @@
               "ignore_above": 256
             }
           }
+        },
+        "c_user": {
+          "type": "nested"
         }
       }
     }

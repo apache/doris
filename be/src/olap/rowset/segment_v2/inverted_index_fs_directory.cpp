@@ -98,6 +98,21 @@ public:
     int64_t length() const override;
 };
 
+class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
+private:
+    io::FileWriter* _index_v2_file_writer = nullptr;
+
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutputV2() = default;
+    void init(io::FileWriter* file_writer);
+    ~FSIndexOutputV2() override;
+    void close() override;
+    int64_t length() const override;
+};
+
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
                                           int32_t buffer_size) {
@@ -112,30 +127,28 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                           : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
-    if (!fs->open_file(path, &h->_reader, &reader_options).ok()) {
-        error.set(CL_ERR_IO, "open file error");
+    Status st = fs->open_file(path, &h->_reader, &reader_options);
+    DBUG_EXECUTE_IF("inverted file read error: index file not found",
+                    { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
+    if (st.code() == ErrorCode::NOT_FOUND) {
+        error.set(CL_ERR_FileNotFound, "File does not exist");
+    } else if (st.code() == ErrorCode::IO_ERROR) {
+        error.set(CL_ERR_IO, "File open io error");
+    } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
+        error.set(CL_ERR_IO, "File Access denied");
+    } else {
+        error.set(CL_ERR_IO, "Could not open file");
     }
 
     //Check if a valid handle was retrieved
-    if (h->_reader) {
+    if (st.ok() && h->_reader) {
         //Store the file length
         h->_length = h->_reader->size();
         h->_fpos = 0;
         ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
         return true;
-
-    } else {
-        int err = errno;
-        if (err == ENOENT) {
-            error.set(CL_ERR_IO, "File does not exist");
-        } else if (err == EACCES) {
-            error.set(CL_ERR_IO, "File Access denied");
-        } else if (err == EMFILE) {
-            error.set(CL_ERR_IO, "Too many open files");
-        } else {
-            error.set(CL_ERR_IO, "Could not open file");
-        }
     }
+
     //delete h->_shared_lock;
     //_CLDECDELETE(h)
     return false;
@@ -335,6 +348,86 @@ int64_t DorisFSDirectory::FSIndexOutput::length() const {
     return _writer->bytes_appended();
 }
 
+void DorisFSDirectory::FSIndexOutputV2::init(io::FileWriter* file_writer) {
+    _index_v2_file_writer = file_writer;
+    DBUG_EXECUTE_IF(
+            "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+            "init",
+            {
+                _CLTHROWA(CL_ERR_IO,
+                          "debug point: test throw error in fsindexoutput init mock error");
+            })
+}
+
+DorisFSDirectory::FSIndexOutputV2::~FSIndexOutputV2() {}
+
+void DorisFSDirectory::FSIndexOutputV2::flushBuffer(const uint8_t* b, const int32_t size) {
+    if (_index_v2_file_writer != nullptr && b != nullptr && size > 0) {
+        Slice data {b, (size_t)size};
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
+                "flushBuffer",
+                { return; })
+        Status st = _index_v2_file_writer->append(data);
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer", {
+                    st = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "flush buffer mock error");
+                })
+        if (!st.ok()) {
+            LOG(WARNING) << "File IO Write error: " << st.to_string();
+            _CLTHROWA(CL_ERR_IO, "writer append data when flushBuffer error");
+        }
+    } else {
+        if (_index_v2_file_writer == nullptr) {
+            LOG(WARNING) << "File writer is nullptr in DorisFSDirectory::FSIndexOutputV2, "
+                            "ignore flush.";
+            _CLTHROWA(CL_ERR_IO, "flushBuffer error, _index_v2_file_writer = nullptr");
+        } else if (b == nullptr) {
+            LOG(WARNING) << "buffer is nullptr when flushBuffer in "
+                            "DorisFSDirectory::FSIndexOutput";
+        }
+    }
+}
+
+void DorisFSDirectory::FSIndexOutputV2::close() {
+    try {
+        BufferedIndexOutput::close();
+        DBUG_EXECUTE_IF(
+                "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_"
+                "close",
+                {
+                    _CLTHROWA(CL_ERR_IO,
+                              "debug point: test throw error in bufferedindexoutput close");
+                })
+    } catch (CLuceneError& err) {
+        LOG(WARNING) << "FSIndexOutputV2 close, BufferedIndexOutput close error: " << err.what();
+        if (err.number() == CL_ERR_IO) {
+            LOG(WARNING) << "FSIndexOutputV2 close, BufferedIndexOutput close IO error: "
+                         << err.what();
+        }
+        _CLTHROWA(err.number(), err.what());
+    }
+    if (_index_v2_file_writer) {
+        auto ret = _index_v2_file_writer->close();
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
+                        { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
+        if (!ret.ok()) {
+            LOG(WARNING) << "FSIndexOutputV2 close, stream sink file writer close error: "
+                         << ret.to_string();
+            _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
+        }
+    } else {
+        LOG(WARNING) << "File writer is nullptr, ignore finalize and close.";
+        _CLTHROWA(CL_ERR_IO, "close file writer error, _index_v2_file_writer = nullptr");
+    }
+}
+
+int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
+    CND_PRECONDITION(_index_v2_file_writer != nullptr, "file is not open");
+    return _index_v2_file_writer->bytes_appended();
+}
+
 DorisFSDirectory::DorisFSDirectory() {
     filemode = 0644;
     this->lockFactory = nullptr;
@@ -349,19 +442,6 @@ void DorisFSDirectory::init(const io::FileSystemSPtr& fs, const char* path,
     }
 
     lucene::store::Directory::setLockFactory(lock_factory);
-
-    // It's fail checking directory existence in S3.
-    if (_fs->type() == io::FileSystemType::S3) {
-        return;
-    }
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(_fs->exists(directory, &exists),
-                           "Doris compound directory init IO error");
-    if (!exists) {
-        auto e = "Doris compound directory init error: " + directory + " is not a directory";
-        LOG(WARNING) << e;
-        _CLTHROWA(CL_ERR_IO, e.c_str());
-    }
 }
 
 void DorisFSDirectory::priv_getFN(char* buffer, const char* name) const {
@@ -432,7 +512,13 @@ int64_t DorisFSDirectory::fileLength(const char* name) const {
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
     int64_t size = -1;
-    LOG_AND_THROW_IF_ERROR(_fs->file_size(buffer, &size), "Get file size IO error");
+    Status st = _fs->file_size(buffer, &size);
+    DBUG_EXECUTE_IF("inverted file read error: index file not found",
+                    { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
+    if (st.code() == ErrorCode::NOT_FOUND) {
+        _CLTHROWA(CL_ERR_FileNotFound, "File does not exist");
+    }
+    LOG_AND_THROW_IF_ERROR(st, "Get file size IO error");
     return size;
 }
 
@@ -501,6 +587,12 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
         LOG(WARNING) << "FSIndexOutput init error: " << err.what();
         _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
     }
+    return ret;
+}
+
+lucene::store::IndexOutput* DorisFSDirectory::createOutputV2(io::FileWriter* file_writer) {
+    auto* ret = _CLNEW FSIndexOutputV2();
+    ret->init(file_writer);
     return ret;
 }
 

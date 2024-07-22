@@ -77,7 +77,7 @@ suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive"
         connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
             def database_lists = sql """show databases from ${catalog_name}"""
             boolean ok = false;
-            for (int i = 0; i < database_lists.size(); ++j) {
+            for (int i = 0; i < database_lists.size(); ++i) {
                 assertEquals(1, database_lists[i].size())
                 if (database_lists[i][0].equals("default")) {
                     ok = true;

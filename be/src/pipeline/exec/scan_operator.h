@@ -68,8 +68,6 @@ public:
                                     parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
-    virtual bool ready_to_read() = 0;
-
     [[nodiscard]] virtual bool should_run_serial() const = 0;
 
     virtual RuntimeProfile* scanner_profile() = 0;
@@ -143,8 +141,6 @@ class ScanLocalState : public ScanLocalStateBase {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
-
-    bool ready_to_read() override;
 
     [[nodiscard]] bool should_run_serial() const override;
 

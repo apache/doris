@@ -99,6 +99,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
+
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
@@ -570,9 +573,12 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     @Override
     public String toString() {
-        return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
-                desc.getTable().getName()).add("keyRanges", "").addValue(
-                super.debugString()).toString();
+        return MoreObjects.toStringHelper(this)
+                .add("id", getId().asInt())
+                .add("tid", desc.getId().asInt())
+                .add("tblName", desc.getTable().getName())
+                .add("keyRanges", "")
+                .addValue(super.debugString()).toString();
     }
 
     // Some of scan node(eg, DataGenScanNode) does not need to check column priv
@@ -830,4 +836,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return !topnFilterSortNodes.isEmpty();
     }
 
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
+    }
 }

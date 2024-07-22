@@ -98,6 +98,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");");
+        connectContext.getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
     }
 
     //@Disabled //ISSUE #18263

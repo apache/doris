@@ -137,7 +137,7 @@ public:
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                         int64_t segment_id, uint64_t offset, std::span<const Slice> data,
-                        bool segment_eos = false);
+                        bool segment_eos = false, FileType file_type = FileType::SEGMENT_FILE);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
@@ -206,7 +206,6 @@ public:
         _success_tablets.push_back(tablet_id);
     }
 
-    // for tests only
     void add_failed_tablet(int64_t tablet_id, Status reason) {
         std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
         _failed_tablets[tablet_id] = reason;
@@ -216,6 +215,7 @@ private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
+    void _handle_failure(butil::IOBuf& buf, Status st);
 
     Status _check_cancel() {
         if (!_is_cancelled.load()) {

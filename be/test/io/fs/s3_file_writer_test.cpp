@@ -47,7 +47,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"

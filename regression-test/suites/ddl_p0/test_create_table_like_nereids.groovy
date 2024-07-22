@@ -16,6 +16,24 @@
 // under the License.
 
 suite("test_create_table_like_nereids") {
+    def getMVJobState = { tableName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+        return jobStateResult[0][8]
+    }
+    def waitForMVJob =  (tbName, timeout) -> {
+        while (timeout--){
+            String result = getMVJobState(tbName)
+            if (result == "FINISHED") {
+                sleep(3000)
+                break
+            } else {
+                sleep(100)
+                if (timeout < 1){
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
@@ -26,18 +44,16 @@ suite("test_create_table_like_nereids") {
     properties('replication_num' = '1');"""
     sql """insert into mal_test_create_table_like values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
-    sql "sync"
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    sleep(2000)
+    waitForMVJob("mal_test_create_table_like", 3000)
     sql "alter table mal_test_create_table_like add rollup ru2(b,pk);"
-    sleep(2000)
+    waitForMVJob("mal_test_create_table_like", 3000)
 
     // no rollup
     sql "drop table if exists table_like"
     sql "CREATE TABLE table_like LIKE mal_test_create_table_like;"
     sql """insert into table_like values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
-    "sync"
     qt_test_without_roll_up "select * from table_like order by pk,a,b;"
 
     // with all rollup
@@ -66,7 +82,6 @@ suite("test_create_table_like_nereids") {
     } ;
     sql """insert into table_like_with_partial_roll_up values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
-    sql "sync"
     sleep(2000)
     sql "select sum(a) from table_like_with_partial_roll_up group by a order by 1"
 
@@ -74,4 +89,28 @@ suite("test_create_table_like_nereids") {
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
+
+    sql "drop table if exists test_create_table_like_char_255"
+    sql """
+        CREATE TABLE test_create_table_like_char_255
+        (
+        `id` INT NOT NULL,
+        `name` CHAR(255)
+        )
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+        PROPERTIES (
+        "replication_num" = "1",
+        "light_schema_change" = "true"
+        );
+    """
+    sql "drop table if exists new_char_255"
+    qt_test_char_255 """
+        create table new_char_255 like test_create_table_like_char_255;
+    """
+    def res1 = sql "show create table new_char_255"
+    mustContain(res1[0][1], "CHARACTER(255)")
+
+    sql "insert into new_char_255 values(123,'abcdddddd')"
+    qt_select "select * from new_char_255"
 }

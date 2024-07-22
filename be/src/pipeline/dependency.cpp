@@ -82,9 +82,10 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready);
+    fmt::format_to(debug_string_buffer,
+                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
+                   _blocked_task.size(), _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -248,7 +249,8 @@ void AggSharedState::build_limit_heap(size_t hash_table_size) {
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows) {
+bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
+                                     const std::vector<int>* key_locs) {
     if (num_rows) {
         cmp_res.resize(num_rows);
         need_computes.resize(num_rows);
@@ -257,9 +259,10 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows) 
 
         const auto key_size = null_directions.size();
         for (int i = 0; i < key_size; i++) {
-            block->get_by_position(i).column->compare_internal(
-                    limit_columns_min, *limit_columns[i], null_directions[i], order_directions[i],
-                    cmp_res, need_computes.data());
+            block->get_by_position(key_locs ? key_locs->operator[](i) : i)
+                    .column->compare_internal(limit_columns_min, *limit_columns[i],
+                                              null_directions[i], order_directions[i], cmp_res,
+                                              need_computes.data());
         }
 
         auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {

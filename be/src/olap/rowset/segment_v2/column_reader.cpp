@@ -128,6 +128,7 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
                                 const io::FileReaderSPtr& file_reader,
                                 std::unique_ptr<ColumnReader>* reader) {
     // map reader now has 3 sub readers for key, value, offsets(scalar), null(scala)
+    DCHECK(meta.children_columns_size() == 3 || meta.children_columns_size() == 4);
     std::unique_ptr<ColumnReader> key_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                          meta.children_columns(0).num_rows(), file_reader,
@@ -342,11 +343,9 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    bool use_page_cache = iter_opts.use_page_cache &&
-                          (!config::file_cache_index_only || iter_opts.type == INDEX_PAGE);
     PageReadOptions opts {
             .verify_checksum = _opts.verify_checksum,
-            .use_page_cache = use_page_cache,
+            .use_page_cache = iter_opts.use_page_cache,
             .kept_in_memory = _opts.kept_in_memory,
             .type = iter_opts.type,
             .file_reader = iter_opts.file_reader,
@@ -1602,6 +1601,9 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
     if (obj.is_null_root()) {
         obj.create_root();
     }
+    if (!obj.is_finalized()) {
+        obj.finalize();
+    }
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
     obj.incr_num_rows(*n);
@@ -1634,6 +1636,9 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
                     : assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
+    }
+    if (!obj.is_finalized()) {
+        obj.finalize();
     }
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));

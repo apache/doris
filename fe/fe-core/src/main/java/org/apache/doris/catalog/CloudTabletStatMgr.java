@@ -159,7 +159,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 if (!table.writeLockIfExist()) {
                     continue;
                 }
-
+                Map<Long, Long> indexesRowCount = new HashMap<>();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -201,12 +201,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tableSegmentCount += tabletSegmentCount;
                             } // end for tablets
                             index.setRowCount(indexRowCount);
+                            indexesRowCount.put(index.getId(), indexRowCount);
                         } // end for indices
                     } // end for partitions
 
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
-                            tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount));
+                            tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount, indexesRowCount));
                     LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
                 } finally {
@@ -215,7 +216,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                 newCloudTableStatsMap.put(Pair.of(dbId, table.getId()), new OlapTable.Statistics(db.getName(),
                         table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
-                        tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount));
+                        tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount, indexesRowCount));
             }
         }
         this.cloudTableStatsMap = newCloudTableStatsMap;

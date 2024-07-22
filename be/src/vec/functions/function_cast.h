@@ -576,6 +576,7 @@ struct ConvertImplGenericFromString {
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
+            format_options.escape_char = '\\';
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
@@ -766,6 +767,7 @@ struct ConvertImplGenericToJsonb {
 
         auto tmp_col = ColumnString::create();
         vectorized::DataTypeSerDe::FormatOptions options;
+        options.escape_char = '\\';
         for (size_t i = 0; i < input_rows_count; i++) {
             // convert to string
             tmp_col->clear();

@@ -148,8 +148,6 @@ public class Backend implements Writable {
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
-    private long fileCacheCapactiyBytes = 0;
-
     public Backend() {
         this.host = "";
         this.version = "";
@@ -239,14 +237,6 @@ public class Backend implements Writable {
 
     public int getHeartbeatPort() {
         return heartbeatPort;
-    }
-
-    public void setfileCacheCapacityBytes(long fileCacheCapactiyBytes) {
-        this.fileCacheCapactiyBytes = fileCacheCapactiyBytes;
-    }
-
-    public long getfileCacheCapactiyBytes() {
-        return fileCacheCapactiyBytes;
     }
 
     public int getHttpPort() {

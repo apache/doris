@@ -206,6 +206,7 @@ public class RangePartitionInfo extends PartitionInfo {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
             return GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);

@@ -53,6 +53,7 @@ public class PaimonJniScanner extends JniScanner {
     private RecordReader<InternalRow> reader;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
+    private List<DataType> paimonDataTypeList;
 
     private long ctlId;
     private long dbId;
@@ -99,7 +100,7 @@ public class PaimonJniScanner extends JniScanner {
             initTable();
             initReader();
             resetDatetimeV2Precision();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw e;
         }
@@ -114,9 +115,12 @@ public class PaimonJniScanner extends JniScanner {
                                     + " Please refresh table and try again",
                             fields.length, paimonAllFieldNames.size()));
         }
-        readBuilder.withProjection(getProjected());
+        int[] projected = getProjected();
+        readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
         reader = readBuilder.newRead().createReader(getSplit());
+        paimonDataTypeList =
+            Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
     }
 
     private int[] getProjected() {
@@ -175,7 +179,7 @@ public class PaimonJniScanner extends JniScanner {
                 while ((record = recordIterator.next()) != null) {
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i]);
+                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
                         appendData(i, columnValue);
                     }
                     rows++;
@@ -189,8 +193,8 @@ public class PaimonJniScanner extends JniScanner {
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
-                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
-                    getSplit(), params.get("required_fields"), paimonAllFieldNames, e);
+                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}, dataType: {}",
+                    getSplit(), params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
             throw new IOException(e);
         }
         return rows;

@@ -6,7 +6,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/common")
 
 set(COMMON_FILES
     configbase.cpp
-    sync_point.cpp
     util.cpp
     logging.cpp
     bvars.cpp

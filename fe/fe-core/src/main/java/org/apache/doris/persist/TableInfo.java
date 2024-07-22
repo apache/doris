@@ -42,10 +42,16 @@ public class TableInfo implements Writable {
 
     @SerializedName("nT")
     private String newTableName;
+    @SerializedName("oT")
+    private String oldTableName;
     @SerializedName("nR")
     private String newRollupName;
+    @SerializedName("oR")
+    private String oldRollupName;
     @SerializedName("nP")
     private String newPartitionName;
+    @SerializedName("oP")
+    private String oldPartitionName;
 
     public TableInfo() {
         // for persist
@@ -63,17 +69,38 @@ public class TableInfo implements Writable {
         this.newPartitionName = newPartitionName;
     }
 
+    private TableInfo(long dbId, long tableId, long indexId, long partitionId,
+                      String newTableName, String oldTableName, String newRollupName, String oldRollupName,
+                      String newPartitionName, String oldPartitionName) {
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.indexId = indexId;
+        this.partitionId = partitionId;
+
+        this.newTableName = newTableName;
+        this.oldTableName = oldTableName;
+        this.newRollupName = newRollupName;
+        this.oldRollupName = oldRollupName;
+        this.newPartitionName = newPartitionName;
+        this.oldPartitionName = oldPartitionName;
+    }
+
     public static TableInfo createForTableRename(long dbId, long tableId, String newTableName) {
         return new TableInfo(dbId, tableId, -1L, -1L, newTableName, "", "");
     }
 
-    public static TableInfo createForRollupRename(long dbId, long tableId, long indexId, String newRollupName) {
-        return new TableInfo(dbId, tableId, indexId, -1L, "", newRollupName, "");
+    public static TableInfo createForTableRename(long dbId, long tableId, String oldTableName, String newTableName) {
+        return new TableInfo(dbId, tableId, -1L, -1L, newTableName, oldTableName, "", "", "", "");
+    }
+
+    public static TableInfo createForRollupRename(long dbId, long tableId, long indexId, String oldRollupName,
+                                                  String newRollupName) {
+        return new TableInfo(dbId, tableId, indexId, -1L, "", "", newRollupName, oldRollupName, "", "");
     }
 
     public static TableInfo createForPartitionRename(long dbId, long tableId, long partitionId,
-                                                     String newPartitionName) {
-        return new TableInfo(dbId, tableId, -1L, partitionId, "", "", newPartitionName);
+                                                     String oldPartitionName, String newPartitionName) {
+        return new TableInfo(dbId, tableId, -1L, partitionId, "", "", "", "", newPartitionName, oldPartitionName);
     }
 
     public static TableInfo createForModifyDistribution(long dbId, long tableId) {
@@ -133,5 +160,9 @@ public class TableInfo implements Writable {
         newTableName = Text.readString(in);
         newRollupName = Text.readString(in);
         newPartitionName = Text.readString(in);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.util.Utils;
@@ -2173,11 +2174,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         return getStringValue();
     }
 
-    public String getStringValueForStreamLoad() {
+    public String getStringValueForStreamLoad(FormatOptions options) {
         return getStringValue();
     }
 
@@ -2186,7 +2187,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // ["1", "2", "3"]
     // ["a", "b", "c"]
     // [["1", "2", "3"], ["1"], ["3"]]
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 
@@ -2369,7 +2370,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
         List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         return isNullable(f, mockedExprs);
     }
 

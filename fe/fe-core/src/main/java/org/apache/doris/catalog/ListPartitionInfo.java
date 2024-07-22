@@ -67,6 +67,7 @@ public class ListPartitionInfo extends PartitionInfo {
         }
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
             return GsonUtils.GSON.fromJson(Text.readString(in), ListPartitionInfo.class);

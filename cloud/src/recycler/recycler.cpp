@@ -21,7 +21,6 @@
 #include <butil/endpoint.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <signal.h>
 
 #include <atomic>
 #include <chrono>
@@ -36,6 +35,7 @@
 #include "recycler/checker.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/storage_vault_accessor.h"
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
 #endif
@@ -43,10 +43,11 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "recycler/recycler_service.h"
+#include "recycler/sync_executor.h"
 #include "recycler/util.h"
 
 namespace doris::cloud {
@@ -166,6 +167,16 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
 
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    _thread_pool_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
 }
 
 Recycler::~Recycler() {
@@ -225,7 +236,8 @@ void Recycler::recycle_callback() {
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
         }
-        auto instance_recycler = std::make_shared<InstanceRecycler>(txn_kv_, instance);
+        auto instance_recycler =
+                std::make_shared<InstanceRecycler>(txn_kv_, instance, _thread_pool_group);
         if (instance_recycler->init() != 0) {
             LOG(WARNING) << "failed to init instance recycler, instance_id=" << instance_id;
             continue;
@@ -329,13 +341,13 @@ int Recycler::start(brpc::Server* server) {
         server->AddService(recycler_service, brpc::SERVER_OWNS_SERVICE);
     }
 
-    workers_.push_back(std::thread(std::bind(&Recycler::instance_scanner_callback, this)));
+    workers_.emplace_back([this] { instance_scanner_callback(); });
     for (int i = 0; i < config::recycle_concurrency; ++i) {
-        workers_.push_back(std::thread(std::bind(&Recycler::recycle_callback, this)));
+        workers_.emplace_back([this] { recycle_callback(); });
     }
 
-    workers_.push_back(std::thread(std::mem_fn(&Recycler::lease_recycle_jobs), this));
-    workers_.push_back(std::thread(std::mem_fn(&Recycler::check_recycle_tasks), this));
+    workers_.emplace_back(std::mem_fn(&Recycler::lease_recycle_jobs), this);
+    workers_.emplace_back(std::mem_fn(&Recycler::check_recycle_tasks), this);
     return 0;
 }
 
@@ -408,11 +420,11 @@ public:
     // Empty `ids` means this schema has no inverted index
     void insert(int64_t index_id, int32_t schema_version, const std::vector<int64_t>& ids) {
         if (ids.empty()) {
-            TEST_SYNC_POINT_CALLBACK("InvertedIndexIdCache::insert1", nullptr);
+            TEST_SYNC_POINT("InvertedIndexIdCache::insert1");
             std::lock_guard lock(mtx_);
             schemas_without_inverted_index_.emplace(index_id, schema_version);
         } else {
-            TEST_SYNC_POINT_CALLBACK("InvertedIndexIdCache::insert2", nullptr);
+            TEST_SYNC_POINT("InvertedIndexIdCache::insert2");
             std::lock_guard lock(mtx_);
             inverted_index_id_map_.try_emplace({index_id, schema_version}, ids);
         }
@@ -438,44 +450,35 @@ private:
     std::unordered_set<Key, HashOfKey> schemas_without_inverted_index_;
 };
 
-InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance)
+InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                                   RecyclerThreadPoolGroup thread_pool_group)
         : txn_kv_(std::move(txn_kv)),
           instance_id_(instance.instance_id()),
           instance_info_(instance),
-          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)) {}
+          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)),
+          _thread_pool_group(std::move(thread_pool_group)) {}
 
 InstanceRecycler::~InstanceRecycler() = default;
 
 int InstanceRecycler::init_obj_store_accessors() {
     for (const auto& obj_info : instance_info_.obj_info()) {
-        S3Conf s3_conf;
-        s3_conf.ak = obj_info.ak();
-        s3_conf.sk = obj_info.sk();
-        if (obj_info.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                             << " obj_info: " << proto_to_json(obj_info);
-            } else {
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
-            }
-        }
-        s3_conf.endpoint = obj_info.endpoint();
-        s3_conf.region = obj_info.region();
-        s3_conf.bucket = obj_info.bucket();
-        s3_conf.prefix = obj_info.prefix();
 #ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockS3Accessor>(s3_conf);
+        auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
-#endif
-        if (accessor->init() != 0) [[unlikely]] {
+        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
         }
+
+        std::shared_ptr<S3Accessor> accessor;
+        int ret = S3Accessor::create(std::move(*s3_conf), &accessor);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
+                         << " resource_id=" << obj_info.id();
+            return ret;
+        }
+#endif
         accessor_map_.emplace(obj_info.id(), std::move(accessor));
     }
 
@@ -487,45 +490,56 @@ int InstanceRecycler::init_storage_vault_accessors() {
         return 0;
     }
 
-    std::string storage_vault_start = storage_vault_key({instance_id_, ""});
-    std::string storage_vault_end = storage_vault_key({instance_id_, "\xff"});
-    std::unique_ptr<RangeGetIterator> it;
+    FullRangeGetIteratorOptions opts(txn_kv_);
+    opts.prefetch = true;
+    auto it = txn_kv_->full_range_get(storage_vault_key({instance_id_, ""}),
+                                      storage_vault_key({instance_id_, "\xff"}), std::move(opts));
 
-    do {
-        int ret = txn_get(txn_kv_.get(), storage_vault_start, storage_vault_end, it);
-        if (ret != 0) {
-            LOG(WARNING) << "failed to get storage vault, instance_id=" << instance_id_;
-            return ret;
+    for (auto kv = it->next(); kv.has_value(); kv = it->next()) {
+        auto [k, v] = *kv;
+        StorageVaultPB vault;
+        if (!vault.ParseFromArray(v.data(), v.size())) {
+            LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
+            return -1;
         }
 
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            StorageVaultPB vault;
-            if (!vault.ParseFromArray(v.data(), v.size())) {
-                LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
+        if (vault.has_hdfs_info()) {
+            auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
+            int ret = accessor->init();
+            if (ret != 0) {
+                LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
+                             << " resource_id=" << vault.id() << " name=" << vault.name();
+                return ret;
+            }
+
+            accessor_map_.emplace(vault.id(), std::move(accessor));
+        } else if (vault.has_obj_info()) {
+#ifdef UNIT_TEST
+            auto accessor = std::make_shared<MockAccessor>();
+#else
+            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            if (!s3_conf) {
+                LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
                 return -1;
             }
 
-            if (vault.has_hdfs_info()) {
-                auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
-                ret = accessor->init();
-                if (ret != 0) {
-                    LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
-                                 << " resource_id=" << vault.id() << " name=" << vault.name();
-                    return ret;
-                }
-
-                accessor_map_.emplace(vault.id(), std::move(accessor));
+            std::shared_ptr<S3Accessor> accessor;
+            int ret = S3Accessor::create(std::move(*s3_conf), &accessor);
+            if (ret != 0) {
+                LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
+                             << " resource_id=" << vault.id() << " name=" << vault.name();
+                return ret;
             }
-            // TODO: more vault type
+#endif
 
-            if (!it->has_next()) {
-                storage_vault_start = k;
-            }
+            accessor_map_.emplace(vault.id(), std::move(accessor));
         }
-        storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
+    }
 
-    } while (it->more());
+    if (!it->is_valid()) {
+        LOG_WARNING("failed to get storage vault kv");
+        return -1;
+    }
 
     return 0;
 }
@@ -539,22 +553,51 @@ int InstanceRecycler::init() {
     return init_storage_vault_accessors();
 }
 
+template <typename... Func>
+auto task_wrapper(Func... funcs) -> std::function<int()> {
+    return [funcs...]() {
+        return [](std::initializer_list<int> numbers) {
+            int i = 0;
+            for (int num : numbers) {
+                if (num != 0) {
+                    i = num;
+                }
+            }
+            return i;
+        }({funcs()...});
+    };
+}
+
 int InstanceRecycler::do_recycle() {
     TEST_SYNC_POINT("InstanceRecycler.do_recycle");
     if (instance_info_.status() == InstanceInfoPB::DELETED) {
         return recycle_deleted_instance();
     } else if (instance_info_.status() == InstanceInfoPB::NORMAL) {
-        int ret = recycle_indexes();
-        if (recycle_partitions() != 0) ret = -1;
-        if (recycle_tmp_rowsets() != 0) ret = -1;
-        if (recycle_rowsets() != 0) ret = -1;
-        if (abort_timeout_txn() != 0) ret = -1;
-        if (recycle_expired_txn_label() != 0) ret = -1;
-        if (recycle_copy_jobs() != 0) ret = -1;
-        if (recycle_stage() != 0) ret = -1;
-        if (recycle_expired_stage_objects() != 0) ret = -1;
-        if (recycle_versions() != 0) ret = -1;
-        return ret;
+        SyncExecutor<int> sync_executor(_thread_pool_group.group_recycle_function_pool,
+                                        fmt::format("instance id {}", instance_id_),
+                                        [](int r) { return r != 0; });
+        sync_executor
+                .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_indexes(); },
+                        [this]() -> int { return InstanceRecycler::recycle_partitions(); },
+                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); },
+                        [this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::abort_timeout_txn(); },
+                        [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_copy_jobs(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }));
+        bool finished = true;
+        std::vector<int> rets = sync_executor.when_all(&finished);
+        for (int ret : rets) {
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return finished ? 0 : -1;
     } else {
         LOG(WARNING) << "invalid instance status: " << instance_info_.status()
                      << " instance_id=" << instance_id_;
@@ -619,11 +662,14 @@ int InstanceRecycler::recycle_deleted_instance() {
     }
 
     for (auto& [_, accessor] : accessor_map_) {
-        if (stopped()) return ret;
-        LOG(INFO) << "begin to delete all objects in " << accessor->path();
-        int del_ret = accessor->delete_objects_by_prefix("");
+        if (stopped()) {
+            return ret;
+        }
+
+        LOG(INFO) << "begin to delete all objects in " << accessor->uri();
+        int del_ret = accessor->delete_all();
         if (del_ret == 0) {
-            LOG(INFO) << "successfully delete all objects in " << accessor->path();
+            LOG(INFO) << "successfully delete all objects in " << accessor->uri();
         } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
             // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
             // so the recycling has been successful.
@@ -1006,7 +1052,7 @@ int InstanceRecycler::recycle_versions() {
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id,
                                       bool is_empty_tablet) {
     int num_scanned = 0;
-    int num_recycled = 0;
+    std::atomic_int num_recycled = 0;
 
     std::string tablet_key_begin, tablet_key_end;
     std::string stats_key_begin, stats_key_end;
@@ -1048,12 +1094,20 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 .tag("num_recycled", num_recycled);
     });
 
+    // The first string_view represents the tablet key which has been recycled
+    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
+    using TabletKeyPair = std::pair<std::string_view, bool>;
+    SyncExecutor<TabletKeyPair> sync_executor(
+            _thread_pool_group.recycle_tablet_pool,
+            fmt::format("recycle tablets, tablet id {}, index id {}, partition id {}", table_id,
+                        index_id, partition_id),
+            [](const TabletKeyPair& k) { return k.first.empty(); });
+
     // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
-    std::vector<std::string_view> tablet_keys;
     std::vector<std::string> tablet_idx_keys;
     std::vector<std::string> init_rs_keys;
-    bool use_range_remove = true;
     auto recycle_func = [&, is_empty_tablet, this](std::string_view k, std::string_view v) -> int {
+        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
@@ -1064,13 +1118,19 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         int64_t tablet_id = tablet_meta_pb.tablet_id();
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         if (!is_empty_tablet) {
-            if (recycle_tablet(tablet_id) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tablet_id);
-                use_range_remove = false;
-                return -1;
-            }
+            sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
+                               k]() mutable -> TabletKeyPair {
+                if (recycle_tablet(tid) != 0) {
+                    LOG_WARNING("failed to recycle tablet")
+                            .tag("instance_id", instance_id_)
+                            .tag("tablet_id", tid);
+                    range_move = false;
+                    return {std::string_view(), range_move};
+                }
+                ++num_recycled;
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                return {k, range_move};
+            });
         } else {
             // Empty tablet only has a [0-1] init rowset
             init_rs_keys.push_back(meta_rowset_key({instance_id_, tablet_id, 1}));
@@ -1094,19 +1154,38 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
                 }
                 return true;
             }());
+            sync_executor.add([k]() mutable -> TabletKeyPair {
+                LOG_INFO("k is {}, is empty {}", k, k.empty());
+                return {k, true};
+            });
+            ++num_recycled;
         }
-        ++num_recycled;
-        tablet_keys.push_back(k);
         return 0;
     };
 
+    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
+        bool finished = true;
+        auto tablet_keys = sync_executor.when_all(&finished);
+        if (!finished) {
+            LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
+            return -1;
+        }
+        sync_executor.reset();
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
+        // sort the vector using key's order
+        std::sort(tablet_keys.begin(), tablet_keys.end(),
+                  [](const auto& prev, const auto& last) { return prev.first < last.first; });
+        bool use_range_remove = true;
+        for (auto& [_, remove] : tablet_keys) {
+            if (!remove) {
+                use_range_remove = remove;
+                break;
+            }
+        }
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
-            tablet_keys.clear();
             tablet_idx_keys.clear();
             init_rs_keys.clear();
-            use_range_remove = true;
         });
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
@@ -1116,10 +1195,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         std::string tablet_key_end;
         if (!tablet_keys.empty()) {
             if (use_range_remove) {
-                tablet_key_end = std::string(tablet_keys.back()) + '\x00';
-                txn->remove(tablet_keys.front(), tablet_key_end);
+                tablet_key_end = std::string(tablet_keys.back().first) + '\x00';
+                txn->remove(tablet_keys.front().first, tablet_key_end);
             } else {
-                for (auto k : tablet_keys) {
+                for (auto& [k, _] : tablet_keys) {
                     txn->remove(k);
                 }
             }
@@ -1208,7 +1287,7 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
         }
     }
     // TODO(AlexYue): seems could do do batch
-    return accessor->delete_objects(file_paths);
+    return accessor->delete_files(file_paths);
 }
 
 int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets) {
@@ -1281,13 +1360,26 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             }
         }
     }
+
+    SyncExecutor<int> concurrent_delete_executor(_thread_pool_group.s3_producer_pool,
+                                                 "delete_rowset_data",
+                                                 [](const int& ret) { return ret != 0; });
     for (auto& [resource_id, file_paths] : resource_file_paths) {
-        auto& accessor = accessor_map_[resource_id];
-        DCHECK(accessor);
-        if (accessor->delete_objects(file_paths) != 0) {
+        concurrent_delete_executor.add([&, rid = &resource_id, paths = &file_paths]() -> int {
+            auto& accessor = accessor_map_[*rid];
+            DCHECK(accessor);
+            return accessor->delete_files(*paths);
+        });
+    }
+    bool finished = true;
+    std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+    for (int r : rets) {
+        if (r != 0) {
             ret = -1;
+            break;
         }
     }
+    ret = finished ? ret : -1;
     return ret;
 }
 
@@ -1301,7 +1393,7 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
         return -1;
     }
     auto& accessor = it->second;
-    return accessor->delete_objects_by_prefix(rowset_path_prefix(tablet_id, rowset_id));
+    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
 }
 
 int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
@@ -1346,14 +1438,31 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         ret = -1;
     }
 
+    SyncExecutor<int> concurrent_delete_executor(
+            _thread_pool_group.s3_producer_pool,
+            fmt::format("delete tablet {} s3 rowset", tablet_id),
+            [](const int& ret) { return ret != 0; });
+
     // delete all rowset data in this tablet
     for (auto& [_, accessor] : accessor_map_) {
-        if (accessor->delete_objects_by_prefix(tablet_path_prefix(tablet_id)) != 0) {
-            LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
-                         << " s3_path=" << accessor->path();
+        concurrent_delete_executor.add([&, accessor_ptr = &accessor]() {
+            if ((*accessor_ptr)->delete_directory(tablet_path_prefix(tablet_id)) != 0) {
+                LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
+                             << " s3_path=" << accessor->uri();
+                return -1;
+            }
+            return 0;
+        });
+    }
+    bool finished = true;
+    std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+    for (int r : rets) {
+        if (r != 0) {
             ret = -1;
         }
     }
+
+    ret = finished ? ret : -1;
 
     if (ret == 0) {
         // All object files under tablet have been deleted
@@ -1966,7 +2075,7 @@ struct CopyJobIdTuple {
     std::string stage_path;
 };
 struct BatchObjStoreAccessor {
-    BatchObjStoreAccessor(std::shared_ptr<ObjStoreAccessor> accessor, uint64_t& batch_count,
+    BatchObjStoreAccessor(std::shared_ptr<StorageVaultAccessor> accessor, uint64_t& batch_count,
                           TxnKv* txn_kv)
             : accessor_(std::move(accessor)), batch_count_(batch_count), txn_kv_(txn_kv) {};
     ~BatchObjStoreAccessor() {
@@ -2022,7 +2131,7 @@ private:
                  batch_count_);
         StopWatch sw;
         // TODO(yuejing): 在accessor的delete_objets的实现里可以考虑如果_paths数量不超过10个的话，就直接发10个delete objection operation而不是发post
-        if (0 != accessor_->delete_objects(paths_)) {
+        if (0 != accessor_->delete_files(paths_)) {
             LOG_WARNING("failed to delete {} internal stage objects in batch {} and it takes {} us",
                         paths_.size(), batch_count_, sw.elapsed_us());
             return;
@@ -2051,7 +2160,7 @@ private:
             }
         }
     }
-    std::shared_ptr<ObjStoreAccessor> accessor_;
+    std::shared_ptr<StorageVaultAccessor> accessor_;
     // the path of the s3 files to be deleted
     std::vector<std::string> paths_;
     struct CopyFiles {
@@ -2134,14 +2243,14 @@ int InstanceRecycler::recycle_copy_jobs() {
                 if (it != stage_accessor_map.end()) {
                     accessor = it->second;
                 } else {
-                    std::shared_ptr<ObjStoreAccessor> inner_accessor;
+                    std::shared_ptr<StorageVaultAccessor> inner_accessor;
                     auto ret = init_copy_job_accessor(stage_id, copy_job.stage_type(),
                                                       &inner_accessor);
                     if (ret < 0) { // error
                         LOG_WARNING("Failed to init_copy_job_accessor due to error code {}", ret);
                         return -1;
                     } else if (ret == 0) {
-                        path = inner_accessor->path();
+                        path = inner_accessor->uri();
                         accessor = std::make_shared<BatchObjStoreAccessor>(
                                 inner_accessor, batch_count, txn_kv_.get());
                         stage_accessor_map.emplace(stage_id, accessor);
@@ -2218,7 +2327,7 @@ int InstanceRecycler::recycle_copy_jobs() {
 
 int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
                                              const StagePB::StageType& stage_type,
-                                             std::shared_ptr<ObjStoreAccessor>* accessor) {
+                                             std::shared_ptr<StorageVaultAccessor>* accessor) {
 #ifdef UNIT_TEST
     // In unit test, external use the same accessor as the internal stage
     auto it = accessor_map_.find(stage_id);
@@ -2230,49 +2339,35 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
     }
 #else
     // init s3 accessor and add to accessor map
-    bool found = false;
-    ObjectStoreInfoPB object_store_info;
-    StagePB::StageAccessType stage_access_type = StagePB::AKSK;
-    for (auto& s : instance_info_.stages()) {
-        if (s.stage_id() == stage_id) {
-            object_store_info = s.obj_info();
-            if (s.has_access_type()) {
-                stage_access_type = s.access_type();
-            }
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
+    auto stage_it =
+            std::find_if(instance_info_.stages().begin(), instance_info_.stages().end(),
+                         [&stage_id](auto&& stage) { return stage.stage_id() == stage_id; });
+
+    if (stage_it == instance_info_.stages().end()) {
         LOG(INFO) << "Recycle nonexisted stage copy jobs. instance_id=" << instance_id_
                   << ", stage_id=" << stage_id << ", stage_type=" << stage_type;
         return 1;
     }
+
+    const auto& object_store_info = stage_it->obj_info();
+    auto stage_access_type = stage_it->has_access_type() ? stage_it->access_type() : StagePB::AKSK;
+
     S3Conf s3_conf;
     if (stage_type == StagePB::EXTERNAL) {
-        s3_conf.endpoint = object_store_info.endpoint();
-        s3_conf.region = object_store_info.region();
-        s3_conf.bucket = object_store_info.bucket();
-        s3_conf.prefix = object_store_info.prefix();
         if (stage_access_type == StagePB::AKSK) {
-            s3_conf.ak = object_store_info.ak();
-            s3_conf.sk = object_store_info.sk();
-            if (object_store_info.has_encryption_info()) {
-                AkSkPair plain_ak_sk_pair;
-                int ret = decrypt_ak_sk_helper(object_store_info.ak(), object_store_info.sk(),
-                                               object_store_info.encryption_info(),
-                                               &plain_ak_sk_pair);
-                if (ret != 0) {
-                    LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                                 << " obj_info: " << proto_to_json(object_store_info);
-                    return -1;
-                }
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
+            auto conf = S3Conf::from_obj_store_info(object_store_info);
+            if (!conf) {
+                return -1;
             }
+
+            s3_conf = std::move(*conf);
         } else if (stage_access_type == StagePB::BUCKET_ACL) {
-            s3_conf.ak = instance_info_.ram_user().ak();
-            s3_conf.sk = instance_info_.ram_user().sk();
+            auto conf = S3Conf::from_obj_store_info(object_store_info, true /* skip_aksk */);
+            if (!conf) {
+                return -1;
+            }
+
+            s3_conf = std::move(*conf);
             if (instance_info_.ram_user().has_encryption_info()) {
                 AkSkPair plain_ak_sk_pair;
                 int ret = decrypt_ak_sk_helper(
@@ -2285,6 +2380,9 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
                 }
                 s3_conf.ak = std::move(plain_ak_sk_pair.first);
                 s3_conf.sk = std::move(plain_ak_sk_pair.second);
+            } else {
+                s3_conf.ak = instance_info_.ram_user().ak();
+                s3_conf.sk = instance_info_.ram_user().sk();
             }
         } else {
             LOG(INFO) << "Unsupported stage access type=" << stage_access_type
@@ -2297,35 +2395,28 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
             LOG(WARNING) << "invalid idx: " << idx;
             return -1;
         }
-        auto& old_obj = instance_info_.obj_info()[idx - 1];
-        s3_conf.ak = old_obj.ak();
-        s3_conf.sk = old_obj.sk();
-        if (old_obj.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(old_obj.ak(), old_obj.sk(), old_obj.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                             << " obj_info: " << proto_to_json(old_obj);
-                return -1;
-            }
-            s3_conf.ak = std::move(plain_ak_sk_pair.first);
-            s3_conf.sk = std::move(plain_ak_sk_pair.second);
+
+        const auto& old_obj = instance_info_.obj_info()[idx - 1];
+        auto conf = S3Conf::from_obj_store_info(old_obj);
+        if (!conf) {
+            return -1;
         }
-        s3_conf.endpoint = old_obj.endpoint();
-        s3_conf.region = old_obj.region();
-        s3_conf.bucket = old_obj.bucket();
+
+        s3_conf = std::move(*conf);
         s3_conf.prefix = object_store_info.prefix();
     } else {
         LOG(WARNING) << "unknown stage type " << stage_type;
         return -1;
     }
-    *accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
-    auto ret = (*accessor)->init();
+
+    std::shared_ptr<S3Accessor> s3_accessor;
+    int ret = S3Accessor::create(std::move(s3_conf), &s3_accessor);
     if (ret != 0) {
         LOG(WARNING) << "failed to init s3 accessor ret=" << ret;
         return -1;
     }
+
+    *accessor = std::move(s3_accessor);
 #endif
     return 0;
 }
@@ -2373,33 +2464,31 @@ int InstanceRecycler::recycle_stage() {
             LOG(WARNING) << "invalid idx: " << idx;
             return -1;
         }
-        auto& old_obj = instance_info_.obj_info()[idx - 1];
-        S3Conf s3_conf;
-        s3_conf.ak = old_obj.ak();
-        s3_conf.sk = old_obj.sk();
-        if (old_obj.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(old_obj.ak(), old_obj.sk(), old_obj.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                             << " obj_info: " << proto_to_json(old_obj);
-                return -1;
-            }
-            s3_conf.ak = std::move(plain_ak_sk_pair.first);
-            s3_conf.sk = std::move(plain_ak_sk_pair.second);
-        }
-        s3_conf.endpoint = old_obj.endpoint();
-        s3_conf.region = old_obj.region();
-        s3_conf.bucket = old_obj.bucket();
-        s3_conf.prefix = recycle_stage.stage().obj_info().prefix();
-        std::shared_ptr<ObjStoreAccessor> accessor =
-                std::make_shared<S3Accessor>(std::move(s3_conf));
-        TEST_SYNC_POINT_CALLBACK("recycle_stage:get_accessor", &accessor);
-        auto ret = accessor->init();
+
+        std::shared_ptr<StorageVaultAccessor> accessor;
+        int ret = SYNC_POINT_HOOK_RETURN_VALUE(
+                [&] {
+                    auto& old_obj = instance_info_.obj_info()[idx - 1];
+                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    if (!s3_conf) {
+                        return -1;
+                    }
+
+                    s3_conf->prefix = recycle_stage.stage().obj_info().prefix();
+                    std::shared_ptr<S3Accessor> s3_accessor;
+                    int ret = S3Accessor::create(std::move(s3_conf.value()), &s3_accessor);
+                    if (ret != 0) {
+                        return -1;
+                    }
+
+                    accessor = std::move(s3_accessor);
+                    return 0;
+                }(),
+                "recycle_stage:get_accessor", &accessor);
+
         if (ret != 0) {
-            LOG(WARNING) << "failed to init s3 accessor ret=" << ret;
-            return -1;
+            LOG(WARNING) << "failed to init accessor ret=" << ret;
+            return ret;
         }
 
         LOG_INFO("begin to delete objects of dropped internal stage")
@@ -2409,7 +2498,7 @@ int InstanceRecycler::recycle_stage() {
                 .tag("user_id", recycle_stage.stage().mysql_user_id()[0])
                 .tag("obj_info_id", idx)
                 .tag("prefix", recycle_stage.stage().obj_info().prefix());
-        ret = accessor->delete_objects_by_prefix("");
+        ret = accessor->delete_all();
         if (ret != 0) {
             LOG(WARNING) << "failed to delete objects of dropped internal stage. instance_id="
                          << instance_id_ << ", stage_id=" << recycle_stage.stage().stage_id()
@@ -2458,28 +2547,17 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             LOG(WARNING) << "invalid idx: " << idx << ", id: " << stage.obj_info().id();
             continue;
         }
-        auto& old_obj = instance_info_.obj_info()[idx - 1];
-        S3Conf s3_conf;
-        s3_conf.ak = old_obj.ak();
-        s3_conf.sk = old_obj.sk();
-        if (old_obj.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret1 = decrypt_ak_sk_helper(old_obj.ak(), old_obj.sk(), old_obj.encryption_info(),
-                                            &plain_ak_sk_pair);
-            if (ret1 != 0) {
-                LOG(WARNING) << "fail to decrypt ak sk "
-                             << "obj_info:" << proto_to_json(old_obj);
-            } else {
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
-            }
+
+        const auto& old_obj = instance_info_.obj_info()[idx - 1];
+        auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+        if (!s3_conf) {
+            LOG(WARNING) << "failed to init accessor";
+            continue;
         }
-        s3_conf.endpoint = old_obj.endpoint();
-        s3_conf.region = old_obj.region();
-        s3_conf.bucket = old_obj.bucket();
-        s3_conf.prefix = stage.obj_info().prefix();
-        auto accessor = std::make_shared<S3Accessor>(std::move(s3_conf));
-        auto ret1 = accessor->init();
+
+        s3_conf->prefix = stage.obj_info().prefix();
+        std::shared_ptr<S3Accessor> accessor;
+        int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to init s3 accessor ret=" << ret1;
             ret = -1;
@@ -2491,10 +2569,10 @@ int InstanceRecycler::recycle_expired_stage_objects() {
                   << ", user_name=" << stage.mysql_user_name().at(0)
                   << ", user_id=" << stage.mysql_user_id().at(0)
                   << ", prefix=" << stage.obj_info().prefix();
-        int64_t expired_time =
+        int64_t expiration_time =
                 duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
                 config::internal_stage_objects_expire_time_second;
-        ret1 = accessor->delete_expired_objects("", expired_time);
+        ret1 = accessor->delete_all(expiration_time);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired stage objects, instance_id=" << instance_id_
                          << ", stage_id=" << stage.stage_id() << ", ret=" << ret1;

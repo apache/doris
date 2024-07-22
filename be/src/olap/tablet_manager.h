@@ -82,7 +82,7 @@ public:
     // single compaction tasks for the tablet.
     std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 

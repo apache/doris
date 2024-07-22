@@ -27,7 +27,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -44,7 +43,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,7 +58,7 @@ import java.util.stream.LongStream;
 /**
  * This class represents the olap tablet related metadata.
  */
-public class Tablet extends MetaObject implements Writable {
+public class Tablet extends MetaObject {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
     // if current version count of replica is mor than
     // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
@@ -85,20 +83,20 @@ public class Tablet extends MetaObject implements Writable {
 
     @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "replicas")
+    @SerializedName(value = "rs", alternate = {"replicas"})
     protected List<Replica> replicas;
-    @SerializedName(value = "checkedVersion")
+    @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
     @Deprecated
-    @SerializedName(value = "checkedVersionHash")
+    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
     private long checkedVersionHash;
-    @SerializedName(value = "isConsistent")
+    @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
 
     // cooldown conf
-    @SerializedName(value = "cooldownReplicaId")
+    @SerializedName(value = "cri", alternate = {"cooldownReplicaId"})
     private long cooldownReplicaId = -1;
-    @SerializedName(value = "cooldownTerm")
+    @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
     private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 
@@ -394,12 +392,7 @@ public class Tablet extends MetaObject implements Writable {
         return "tabletId=" + this.id;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -418,6 +411,7 @@ public class Tablet extends MetaObject implements Writable {
         isConsistent = in.readBoolean();
     }
 
+    @Deprecated
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);

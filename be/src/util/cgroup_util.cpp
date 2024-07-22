@@ -184,7 +184,7 @@ Status CGroupUtil::find_cgroup_mem_info(std::string* file_path) {
     }
     string cgroup_path;
     RETURN_IF_ERROR(find_abs_cgroup_path("memory", &cgroup_path));
-    *file_path = cgroup_path + "/memory.meminfo";
+    *file_path = cgroup_path + "/memory.stat";
     return Status::OK();
 }
 

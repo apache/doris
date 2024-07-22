@@ -23,7 +23,7 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
@@ -213,17 +213,15 @@ void handle_set(HttpRequest* req) {
 }
 
 void handle_clear(HttpRequest* req) {
-    auto& point = req->param("name");
+    const auto& point = req->param("name");
+    auto* sp = SyncPoint::get_instance();
     if (point.empty()) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "empty point name");
-        return;
-    }
-    auto sp = SyncPoint::get_instance();
-    if (point == "all") {
+        // If point name is emtpy, clear all
         sp->clear_all_call_backs();
         HttpChannel::send_reply(req, HttpStatus::OK, "OK");
         return;
     }
+
     sp->clear_call_back(point);
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
@@ -244,11 +242,19 @@ void handle_suite(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, "unknown suite: " + suite);
 }
 
+void handle_enable(HttpRequest* req) {
+    SyncPoint::get_instance()->enable_processing();
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+}
+
+void handle_disable(HttpRequest* req) {
+    SyncPoint::get_instance()->disable_processing();
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+}
+
 } // namespace
 
-InjectionPointAction::InjectionPointAction() {
-    SyncPoint::get_instance()->enable_processing();
-}
+InjectionPointAction::InjectionPointAction() = default;
 
 void InjectionPointAction::handle(HttpRequest* req) {
     LOG(INFO) << req->debug_string();
@@ -262,7 +268,14 @@ void InjectionPointAction::handle(HttpRequest* req) {
     } else if (op == "apply_suite") {
         handle_suite(req);
         return;
+    } else if (op == "enable") {
+        handle_enable(req);
+        return;
+    } else if (op == "disable") {
+        handle_disable(req);
+        return;
     }
+
     HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "unknown op: " + op);
 }
 

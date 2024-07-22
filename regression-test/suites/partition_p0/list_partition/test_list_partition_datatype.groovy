@@ -352,9 +352,10 @@ suite("test_list_partition_datatype", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
     sql """INSERT INTO test_list_partition_ddl_tbl_1 VALUES("0000-01-01", "0000-01-01"), ("9999-12-31", "9999-12-31")"""
+    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
     test {
         sql """INSERT INTO test_list_partition_ddl_tbl_1 VALUES("2000-01-02", "2000-01-03")"""
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
     }
     qt_sql1 "SELECT * FROM test_list_partition_ddl_tbl_1 order by k1"
     sql """INSERT INTO test_list_partition_ddl_tbl_1 VALUES("2000-11-02", "2000-11-03")"""
@@ -452,7 +453,7 @@ suite("test_list_partition_datatype", "p0") {
         """
     test {
         sql """insert into test_list_partition_tb2_char values('d', '1')"""
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
     }
     sql """alter table test_list_partition_tb2_char add partition partition_add_1 values in ("aaa","bbb")"""
     def ret = sql "show partitions from test_list_partition_tb2_char where PartitionName='partition_add_1'"
@@ -460,7 +461,7 @@ suite("test_list_partition_datatype", "p0") {
 
     test {
         sql """ insert into test_list_partition_tb2_char values('aa', '1')"""
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
     }
     sql "insert into test_list_partition_tb2_char values('a', 'a')"
     sql "insert into test_list_partition_tb2_char values('aaa', 'a')"

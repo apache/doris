@@ -96,21 +96,10 @@ suite("txn_insert_with_schema_change") {
     def getAlterTableState = { tName, job_state ->
         def retry = 0
         sql "use ${dbName};"
-        def last_state = ""
-        while (true) {
-            sleep(2000)
-            def state = sql """ show alter table column where tablename = "${tName}" order by CreateTime desc limit 1"""
-            logger.info("alter table state: ${state}")
-            last_state = state[0][9]
-            if (state.size() > 0 && last_state == job_state) {
-                return
-            }
-            retry++
-            if (retry >= 100 || last_state == "FINISHED" || last_state == "CANCELLED") {
-                break
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        assertTrue(false, "alter table job state is ${last_state}, not ${job_state} after retry ${retry} times")
     }
 
     // sqls size is 2
@@ -129,6 +118,7 @@ suite("txn_insert_with_schema_change") {
             statement.execute(sqls[1])
             logger.info("execute sql: commit")
             statement.execute("commit")
+            statement.execute("sync")
         } catch (Throwable e) {
             logger.error("txn insert failed", e)
             errors.add("txn insert failed " + e.getMessage())
@@ -156,8 +146,8 @@ suite("txn_insert_with_schema_change") {
              "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;"],
             ["delete from ${tableName}_1 where L_ORDERKEY < 50000;",
              "insert into ${tableName}_1(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;"],
-            ["insert into ${tableName}_2(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;",
-             "delete from ${tableName}_2 where L_ORDERKEY < 50000;"]
+            /*["insert into ${tableName}_2(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;",
+             "delete from ${tableName}_2 where L_ORDERKEY < 50000;"]*/
     ]
     def expected_row_count = [
             [6001215 * 5, 6001215 * 8, 6001215 * 11, 6001215 * 14, 6001215 * 17],

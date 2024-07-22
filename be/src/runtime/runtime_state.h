@@ -508,17 +508,6 @@ public:
                        : 0;
     }
 
-    int repeat_max_num() const {
-#ifndef BE_TEST
-        if (!_query_options.__isset.repeat_max_num) {
-            return 10000;
-        }
-        return _query_options.repeat_max_num;
-#else
-        return 10;
-#endif
-    }
-
     int64_t external_sort_bytes_threshold() const {
         if (_query_options.__isset.external_sort_bytes_threshold) {
             return _query_options.external_sort_bytes_threshold;
@@ -616,6 +605,10 @@ public:
     int max_operator_id() const { return _max_operator_id; }
 
     void set_task_id(int id) { _task_id = id; }
+
+    void set_task(pipeline::PipelineTask* task) { _task = task; }
+
+    pipeline::PipelineTask* get_task() const { return _task; }
 
     int task_id() const { return _task_id; }
 
@@ -721,6 +714,7 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
+    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
