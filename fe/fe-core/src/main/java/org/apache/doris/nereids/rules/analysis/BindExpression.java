@@ -623,18 +623,19 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
-        if (boundAggOutput.size() == 1 && boundAggOutput.get(0) instanceof BoundStar) {
-            // select * from t group by 1
-            // the aggregate node's output is BoundStar and need to be replaced with real slots
-            BoundStar boundStar = (BoundStar) boundAggOutput.get(0);
-            List<NamedExpression> boundProjections = new ArrayList<>();
-            boundProjections.addAll(boundStar.getSlots());
-            boundAggOutput = boundProjections;
+        List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
+        for (NamedExpression output : boundAggOutput) {
+            if (output instanceof BoundStar) {
+                boundProjections.addAll(((BoundStar) output).getSlots());
+            } else {
+                boundProjections.add(output);
+            }
         }
-        Supplier<Scope> aggOutputScopeWithoutAggFun = buildAggOutputScopeWithoutAggFun(boundAggOutput, cascadesContext);
+        Supplier<Scope> aggOutputScopeWithoutAggFun =
+                buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
-                 agg, agg.getGroupByExpressions(), boundAggOutput, aggOutputScopeWithoutAggFun, cascadesContext);
-        return agg.withGroupByAndOutput(boundGroupBy, boundAggOutput);
+                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
+        return agg.withGroupByAndOutput(boundGroupBy, boundProjections);
     }
 
     private Plan bindRepeat(MatchingContext<LogicalRepeat<Plan>> ctx) {

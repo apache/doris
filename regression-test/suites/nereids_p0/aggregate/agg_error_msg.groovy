@@ -52,4 +52,14 @@ suite("agg_error_msg") {
         sql """SELECT * from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
         exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
     }
+
+    test {
+        sql """SELECT *, pk from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
+        exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
+    }
+
+    test {
+        sql """SELECT *, * from table_20_undef_partitions2_keys3_properties4_distributed_by58 group by 1;"""
+        exception "col_int_undef_signed, col_int_undef_signed2 not in aggregate's output";
+    }
 }
