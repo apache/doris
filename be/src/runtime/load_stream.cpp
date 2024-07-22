@@ -365,21 +365,16 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
         _query_thread_context = {load_tid, query_context->query_mem_tracker,
                                  query_context->workload_group()};
     } else {
-        _query_thread_context = {
-                load_tid,
-                MemTrackerLimiter::create_shared(
-                        MemTrackerLimiter::Type::LOAD,
-                        fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string())),
-                ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(
-                        1)}; // tg_id=1 is normal workload group.
+        _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
+                                                   MemTrackerLimiter::Type::LOAD,
+                                                   fmt::format("(FromLoadStream)Load#Id={}",
+                                                               ((UniqueId)load_id).to_string()))};
     }
 #else
-    _query_thread_context = {
-            load_tid,
-            MemTrackerLimiter::create_shared(
-                    MemTrackerLimiter::Type::LOAD,
-                    fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string())),
-            ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(1)};
+    _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
+                                               MemTrackerLimiter::Type::LOAD,
+                                               fmt::format("(FromLoadStream)Load#Id={}",
+                                                           ((UniqueId)load_id).to_string()))};
 #endif
 }
 

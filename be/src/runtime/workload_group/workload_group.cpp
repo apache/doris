@@ -121,17 +121,21 @@ int64_t WorkloadGroup::make_memory_tracker_snapshots(
             used_memory += tracker->consumption();
         }
     }
+    refresh_memory(used_memory);
+    return used_memory;
+}
+
+int64_t WorkloadGroup::memory_used() {
+    return make_memory_tracker_snapshots(nullptr);
+}
+
+void WorkloadGroup::refresh_memory(int64_t used_memory) {
     // refresh total memory used.
     _total_mem_used = used_memory;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
     _wg_refresh_interval_memory_growth.store(0.0);
-    return used_memory;
-}
-
-int64_t WorkloadGroup::memory_used() {
-    return make_memory_tracker_snapshots(nullptr);
 }
 
 void WorkloadGroup::set_weighted_memory_ratio(double ratio) {

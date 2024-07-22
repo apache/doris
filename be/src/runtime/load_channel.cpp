@@ -54,9 +54,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                 _load_id.to_thrift(),
                 MemTrackerLimiter::create_shared(
                         MemTrackerLimiter::Type::LOAD,
-                        fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string())),
-                ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(
-                        1)}; // tg_id=1 is normal workload group.
+                        fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()))};
     }
     g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to

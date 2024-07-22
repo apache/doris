@@ -40,9 +40,7 @@ void AttachTask::init(const QueryThreadContext& query_thread_context) {
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-    QueryThreadContext query_thread_context = {
-            TUniqueId(), mem_tracker,
-            doris::ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(1)};
+    QueryThreadContext query_thread_context = {TUniqueId(), mem_tracker};
     init(query_thread_context);
 }
 

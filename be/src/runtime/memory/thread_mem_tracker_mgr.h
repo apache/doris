@@ -293,13 +293,17 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     if (!_limiter_tracker_raw->try_consume(size)) {
         return false;
     }
-    if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        _limiter_tracker_raw->release(size); // rollback
-        return false;
-    }
     auto wg_ptr = _wg_wptr.lock();
     if (!wg_ptr) {
-        wg_ptr->add_wg_refresh_interval_memory_growth(size);
+        if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
+            _limiter_tracker_raw->release(size); // rollback
+            return false;
+        }
+    }
+    if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
+        _limiter_tracker_raw->release(size);                 // rollback
+        wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+        return false;
     }
     if (_count_scope_mem) {
         _scope_mem += size;

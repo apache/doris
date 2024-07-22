@@ -81,6 +81,7 @@ public:
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
     // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
+    void refresh_memory(int64_t used_memory);
 
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
@@ -90,8 +91,19 @@ public:
     }
 
     void set_weighted_memory_ratio(double ratio);
-    void add_wg_refresh_interval_memory_growth(int64_t size) {
-        _wg_refresh_interval_memory_growth.fetch_add(size);
+    bool add_wg_refresh_interval_memory_growth(int64_t size) {
+        // `weighted_mem_used` is a rough memory usage in this group,
+        // because we can only get a precise memory usage by MemTracker which is not include page cache.
+        auto weighted_mem_used =
+                int64_t((_total_mem_used + _wg_refresh_interval_memory_growth.load() + size) *
+                        _weighted_mem_ratio);
+        if ((weighted_mem_used > ((double)_memory_limit *
+                                  _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+            return false;
+        } else {
+            _wg_refresh_interval_memory_growth.fetch_add(size);
+            return true;
+        }
     }
     void sub_wg_refresh_interval_memory_growth(int64_t size) {
         _wg_refresh_interval_memory_growth.fetch_sub(size);
