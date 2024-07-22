@@ -25,7 +25,7 @@ suite('test_report_version_missing', "nonConcurrent") {
     def tableName = "test_set_replica_status_table_in_docker"
     try {
     setFeConfig('disable_tablet_scheduler', true)
-    Thread.sleep(1000)
+    Thread.sleep(2000)
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
