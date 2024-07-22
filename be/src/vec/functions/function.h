@@ -41,6 +41,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
+namespace doris::segment_v2 {
+struct FuncExprParams;
+} // namespace doris::segment_v2
+
 namespace doris::vectorized {
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
@@ -60,6 +64,7 @@ namespace doris::vectorized {
     }
 
 class Field;
+class VExpr;
 
 // Only use dispose the variadic argument
 template <typename T>
@@ -200,8 +205,6 @@ public:
         return Status::OK();
     }
 
-    virtual bool can_fast_execute() const { return false; }
-
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
     /// The property of monotonicity for a certain range.
@@ -228,6 +231,13 @@ public:
         LOG(FATAL) << fmt::format("Function {} has no information about its monotonicity.",
                                   get_name());
         return Monotonicity {};
+    }
+
+    virtual bool can_push_down_to_index() const { return false; }
+    virtual Status eval_inverted_index(FunctionContext* context,
+                                       segment_v2::FuncExprParams& params) {
+        return Status::NotSupported("eval_inverted_index is not supported in function: ",
+                                    get_name());
     }
 };
 
@@ -410,15 +420,6 @@ public:
         return Status::OK();
     }
 
-    // here are lots of function not extends eval_inverted_index.
-    Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                               roaring::Roaring* bitmap) const override {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
-                                    get_name());
-    }
-
     [[noreturn]] const DataTypes& get_argument_types() const final {
         LOG(FATAL) << "get_argument_types is not implemented for IFunction";
         __builtin_unreachable();
@@ -517,13 +518,6 @@ public:
         return function->close(context, scope);
     }
 
-    bool can_fast_execute() const override {
-        auto function_name = function->get_name();
-        return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
-               function_name == "gt" || function_name == "le" || function_name == "ge" ||
-               function_name == "in";
-    }
-
     Status eval_inverted_index(FunctionContext* context,
                                const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
@@ -538,6 +532,12 @@ public:
 
     bool is_use_default_implementation_for_constants() const override {
         return function->is_use_default_implementation_for_constants();
+    }
+
+    bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
+    Status eval_inverted_index(FunctionContext* context,
+                               segment_v2::FuncExprParams& params) override {
+        return function->eval_inverted_index(context, params);
     }
 
 private:

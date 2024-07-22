@@ -53,6 +53,8 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -262,9 +264,15 @@ public abstract class ConnectProcessor {
         // TODO: after implemented full prepared, we could remove this flag
         boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
                         || mysqlCommand == MysqlCommand.COM_QUERY;
+        CacheKeyType cacheKeyType = null;
         if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
+                Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                        .getStatementContext().getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
+                }
                 if (cachedStmts != null) {
                     stmts = cachedStmts;
                 }
@@ -366,6 +374,12 @@ public abstract class ConnectProcessor {
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
                 ctx.setExecutor(executor);
+
+                if (cacheKeyType != null) {
+                    SqlCacheContext sqlCacheContext =
+                            executor.getContext().getStatementContext().getSqlCacheContext().get();
+                    sqlCacheContext.setCacheKeyType(cacheKeyType);
+                }
 
                 try {
                     executor.execute();

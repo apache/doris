@@ -87,7 +87,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const UInt32& num) const;
+    void push_number(ColumnString::Chars& chars, const UInt32& num) const;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt32 int_val) const;
@@ -138,7 +138,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const UInt64& num) const;
+    void push_number(ColumnString::Chars& chars, const UInt64& num) const;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt64 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;

@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_s3_tvf", "p2") {
-
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tables = [
             "agg_tbl_basic_tvf",
             "dup_tbl_array_tvf",
@@ -59,7 +61,7 @@ suite("test_s3_tvf", "p2") {
     // this parameter is similar with columns from path as (c1, c2, ...) in broker_load method, look at test case test_tvf_based_broker_load.groovy
    for (String table : basicTables) {
     attributeList.add(new TvfAttribute(table, "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, kd16", "K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18,Kd16", "", "")
-                 .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/basic_data.csv")
+                 .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/basic_data.csv")
                  .addProperty("format", "csv")
                  .addProperty("column_separator", "|")
                  .addProperty("use_path_style", "true")
@@ -69,7 +71,7 @@ suite("test_s3_tvf", "p2") {
                                                                                                                                                                                                                                                         // SET (k19=to_bitmap(c6), k20=HLL_HASH(c6), k21=TO_QUANTILE_STATE(c5, 1.0), kd19=to_bitmap(c6), kd20=HLL_HASH(c6), kd21=TO_QUANTILE_STATE(c5, 1.0)
    attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21, kd16",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21,kd16", "", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/basic_data.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("use_path_style", "true")
@@ -78,7 +80,7 @@ suite("test_s3_tvf", "p2") {
     // path partition key maybe don't support array type ? 
     // for(String table : arrayTables) {
     //     attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "kd16"], "", "")
-    //             .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=[1,2,3,4]/basic_array_data.csv")
+    //             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=[1,2,3,4]/basic_array_data.csv")
     //             .addProperty("format", "csv")
     //             .addProperty("column_separator", "|")
     //             .addProperty("force_parsing_by_standard_uri", "true")
@@ -87,7 +89,7 @@ suite("test_s3_tvf", "p2") {
 
     for (String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, kd16, kd17", "K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18,Kd16, kd17", "", "")
-                 .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/kd17=hello/basic_data.csv")
+                 .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/kd17=hello/basic_data.csv")
                  .addProperty("format", "csv")
                  .addProperty("column_separator", "|")
                  .addProperty("use_path_style", "true")
@@ -97,7 +99,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21, kd16",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21,kd16", "", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/kd17=hello/basic_data.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/kd17=hello/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("use_path_style", "true")
@@ -106,7 +108,7 @@ suite("test_s3_tvf", "p2") {
     
     // for (String table : basicTables) {
     //     attributeList.add(new TvfAttribute(table, "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, kd16, kd17", "K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18,Kd16, kd17", "", "")
-    //              .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/*/basic_data.csv")
+    //              .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/*/basic_data.csv")
     //              .addProperty("format", "csv")
     //              .addProperty("column_separator", "|")
     //              .addProperty("use_path_style", "true")
@@ -116,7 +118,7 @@ suite("test_s3_tvf", "p2") {
 
     // attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21, kd16",
     //         "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21,kd16", "", "")
-    //         .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/kd16=abcdefg/*/basic_data.csv")
+    //         .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/kd16=abcdefg/*/basic_data.csv")
     //         .addProperty("format", "csv")
     //         .addProperty("column_separator", "|")
     //         .addProperty("use_path_style", "true")
@@ -129,7 +131,7 @@ suite("test_s3_tvf", "p2") {
     // trim_double_quotes
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -138,7 +140,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true")
@@ -146,7 +148,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -156,7 +158,7 @@ suite("test_s3_tvf", "p2") {
     // trim_double_quotes with skip_lines : 1
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -166,7 +168,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true")
@@ -175,7 +177,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -186,7 +188,7 @@ suite("test_s3_tvf", "p2") {
     // stip_outer_array
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -197,7 +199,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true")
@@ -207,7 +209,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -219,7 +221,7 @@ suite("test_s3_tvf", "p2") {
     // read_json_by_line
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -231,7 +233,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_trim_double_quotes.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_trim_double_quotes.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true")
@@ -242,7 +244,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_trim_double_quotes.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_trim_double_quotes.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true")
@@ -261,8 +263,8 @@ suite("test_s3_tvf", "p2") {
     //         select * from s3(
     //             "s3.access_key" = "$a3k",
     //             "s3.secret_key" = "$s3k",
-    //             "s3.region" = "ap-beijing",
-    //             "uri" = "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json",
+    //             "s3.region" = "${s3Region}",
+    //             "uri" = "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json",
     //             "format" = "json",
     //             "read_json_by_line" = "false",
     //             "strip_outer_array" = "true",
@@ -277,7 +279,7 @@ suite("test_s3_tvf", "p2") {
     // jsonpaths
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "*","k00,k01,k12", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -289,7 +291,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02, k03,k04, k05,k19, k20, k21, kd19, kd20, kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "false")
             .addProperty("strip_outer_array", "true")
@@ -299,7 +301,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04", "k00,k01,k02,k03,k04", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -310,7 +312,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "*","k00,k01,k12", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "true")
@@ -324,7 +326,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02, k03,k04, k05,k19, k20, k21, kd19, kd20, kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "true")
             .addProperty("strip_outer_array", "false")
@@ -335,7 +337,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04", "k00,k01,k02,k03,k04", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "false")
@@ -347,7 +349,7 @@ suite("test_s3_tvf", "p2") {
 
     // json_root
     attributeList.add(new TvfAttribute("nest_tbl_basic_tvf", "id, city, code", "id, city, code", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/nest_json.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/nest_json.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("json_root", '$.item')
@@ -356,7 +358,7 @@ suite("test_s3_tvf", "p2") {
     // num_as_string
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "false")
@@ -367,7 +369,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "true")
             .addProperty("strip_outer_array", "false")
@@ -377,7 +379,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "false")
@@ -388,7 +390,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -398,7 +400,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "false")
             .addProperty("strip_outer_array", "true")
@@ -408,7 +410,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -420,7 +422,7 @@ suite("test_s3_tvf", "p2") {
     // fuzzy_parse
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -430,7 +432,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "false")
             .addProperty("strip_outer_array", "true")
@@ -439,7 +441,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -454,7 +456,7 @@ suite("test_s3_tvf", "p2") {
     /* normal */
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -462,14 +464,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -477,7 +479,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -485,14 +487,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -500,27 +502,27 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|"))
     }
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+            .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|"))
     }
 
 //    for(String table : basicTables) {
 //        attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-//                .addProperty("uri", "https://cos.ap-beijing.myqcloud.com/doris-build-1308700295/regression/load/data/basic_data.csv")
+//                .addProperty("uri", "https://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_data.csv")
 //                .addProperty("format", "csv")
 //                .addProperty("column_separator", "|")
 //                .addProperty("use_path_style", "true"))
@@ -528,14 +530,14 @@ suite("test_s3_tvf", "p2") {
 //
 //    attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
 //            "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-//            .addProperty("uri", "https://cos.ap-beijing.myqcloud.com/doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+//            .addProperty("uri", "https://${s3Endpoint}/${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
 //            .addProperty("format", "csv")
 //            .addProperty("column_separator", "|")
 //            .addProperty("use_path_style", "true"))
 //
 //    for(String table : arrayTables) {
 //        attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-//                .addProperty("uri", "https://cos.ap-beijing.myqcloud.com/doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+//                .addProperty("uri", "https://${s3Endpoint}/${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
 //                .addProperty("format", "csv")
 //                .addProperty("column_separator", "|")
 //                .addProperty("use_path_style", "true"))
@@ -544,7 +546,7 @@ suite("test_s3_tvf", "p2") {
     /* error */
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "", true)
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_with_errors.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_with_errors.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -552,14 +554,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "", true)
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_with_errors.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_with_errors.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "kd01", "kd02", "kd03", "kd04", "kd05", "kd06", "kd07", "kd08", "kd09", "kd10", "kd11", "kd12", "kd13", "kd14", "kd15", "kd16"], "", "", true)
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_with_errors.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_with_errors.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -568,7 +570,7 @@ suite("test_s3_tvf", "p2") {
     /* skip lines */
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_with_errors.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_with_errors.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("skip_lines", "10")
@@ -577,7 +579,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_with_errors.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_with_errors.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("skip_lines", "10")
@@ -585,7 +587,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_with_errors.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_with_errors.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("skip_lines", "10")
@@ -595,21 +597,21 @@ suite("test_s3_tvf", "p2") {
     /* compress type */
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.gz")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.gz")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|").addProperty("compress_type", "GZ"))
     }
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.gz")
+            .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.gz")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("compress_type", "GZ"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv.gz")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv.gz")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("compress_type", "GZ"))
@@ -617,21 +619,21 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.bz2")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.bz2")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|").addProperty("compress_type", "BZ2"))
     }
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.bz2")
+            .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.bz2")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("compress_type", "BZ2"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv.bz2")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv.bz2")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("compress_type", "BZ2"))
@@ -639,21 +641,21 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.lz4")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.lz4")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|").addProperty("compress_type", "LZ4FRAME"))
     }
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.lz4")
+            .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.lz4")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("compress_type", "LZ4FRAME"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv.lz4")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv.lz4")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("compress_type", "LZ4FRAME"))
@@ -662,14 +664,14 @@ suite("test_s3_tvf", "p2") {
     // compress_type: lzo
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.lzo")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.lzo")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|").addProperty("compress_type", "LZO"))
     }
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv.lzo")
+            .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv.lzo")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("compress_type", "LZO"))
@@ -677,7 +679,7 @@ suite("test_s3_tvf", "p2") {
     // we can upload basic_array_data.csv.lzo to s3
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-                .addProperty("uri", "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv.lzo")
+                .addProperty("uri", "https://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv.lzo")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("compress_type", "LZO"))
@@ -686,7 +688,7 @@ suite("test_s3_tvf", "p2") {
     // compress_type: deflate
     // for(String table : basicTables) {
     //     attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "")
-    //             .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_test.csv.deflate")
+    //             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_test.csv.deflate")
     //             .addProperty("format", "csv")
     //             .addProperty("column_separator", "|")
     //             .addProperty("compress_type", "DEFLATE")
@@ -695,7 +697,7 @@ suite("test_s3_tvf", "p2") {
 
     // attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
     //         "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-    //         .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_test.csv.deflate")
+    //         .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_test.csv.deflate")
     //         .addProperty("format", "csv")
     //         .addProperty("column_separator", "|")
     //         .addProperty("compress_type", "DEFLATE")
@@ -703,7 +705,7 @@ suite("test_s3_tvf", "p2") {
 
     // for(String table : arrayTables) {
     //     attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "", "")
-    //             .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv.deflate")
+    //             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv.deflate")
     //             .addProperty("format", "csv")
     //             .addProperty("column_separator", "|")
     //             .addProperty("compress_type", "DEFLATE")
@@ -712,7 +714,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "WHERE c1 > 50", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -720,14 +722,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"WHERE c1 > 50", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17"], "WHERE c1 > 50", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -735,7 +737,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : uniqTable) {
         attributeList.add(new TvfAttribute(table, ["k00", "k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09", "k10", "k11", "k12", "k13", "k14", "k15", "k16", "k17", "k18"], "", "ORDER BY c1")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -743,7 +745,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.parq")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.parq")
                 .addProperty("format", "parquet")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -751,14 +753,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.parq")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.parq")
             .addProperty("format", "parquet")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.parq")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.parq")
                 .addProperty("format", "parquet")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -766,7 +768,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.orc")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.orc")
                 .addProperty("format", "orc")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -774,14 +776,14 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.orc")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.orc")
             .addProperty("format", "orc")
             .addProperty("column_separator", "|")
             .addProperty("force_parsing_by_standard_uri", "true"))
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.orc")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.orc")
                 .addProperty("format", "orc")
                 .addProperty("column_separator", "|")
                 .addProperty("force_parsing_by_standard_uri", "true"))
@@ -789,7 +791,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -799,7 +801,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "false")
             .addProperty("strip_outer_array", "true")
@@ -808,7 +810,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "false")
                 .addProperty("strip_outer_array", "true")
@@ -818,7 +820,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18","k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "false")
@@ -828,7 +830,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18, to_bitmap(k05) as k19, HLL_HASH(k05) as k20, TO_QUANTILE_STATE(k04, 1.0) as k21, to_bitmap(k05) as kd19, HLL_HASH(k05) as kd20, TO_QUANTILE_STATE(k04, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line.json")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line.json")
             .addProperty("format", "json")
             .addProperty("read_json_by_line", "true")
             .addProperty("strip_outer_array", "false")
@@ -837,7 +839,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17", "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_by_line.json")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_by_line.json")
                 .addProperty("format", "json")
                 .addProperty("read_json_by_line", "true")
                 .addProperty("strip_outer_array", "false")
@@ -850,7 +852,7 @@ suite("test_s3_tvf", "p2") {
    // line_delimiter: \t
    for(String table : basicTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line_delimiter.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line_delimiter.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("line_delimiter", "\t")
@@ -859,7 +861,7 @@ suite("test_s3_tvf", "p2") {
 
     attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
             "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-            .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data_by_line_delimiter.csv")
+            .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data_by_line_delimiter.csv")
             .addProperty("format", "csv")
             .addProperty("column_separator", "|")
             .addProperty("line_delimiter", "\t")
@@ -867,7 +869,7 @@ suite("test_s3_tvf", "p2") {
 
     for(String table : arrayTables) {
         attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-                .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data_by_tab_line_delimiter.csv")
+                .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data_by_tab_line_delimiter.csv")
                 .addProperty("format", "csv")
                 .addProperty("column_separator", "|")
                 .addProperty("line_delimiter", "\t")
@@ -877,7 +879,7 @@ suite("test_s3_tvf", "p2") {
     // invalid line delimiter, this will case error
     // for(String table : basicTables) {
     //     attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17", "K18"], "", "")
-    //             .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+    //             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
     //             .addProperty("format", "csv")
     //             .addProperty("column_separator", "|")
     //             .addProperty("line_delimiter", ",")
@@ -886,7 +888,7 @@ suite("test_s3_tvf", "p2") {
 
     // attributeList.add(new TvfAttribute("agg_tbl_basic_tvf", "c1 as k00,c2 as k01,c3 as k02,c4 as k03,c5 as k04,c6 as k05,c7 as k06,c8 as k07,c9 as k08,c10 as k09,c11 as k10,c12 as k11,c13 as k12,c14 as k13,c15 as k14,c16 as k15,c17 as k16,c18 as k17,c19 as k18, to_bitmap(c6) as k19, HLL_HASH(c6) as k20, TO_QUANTILE_STATE(c5, 1.0) as k21, to_bitmap(c6) as kd19, HLL_HASH(c6) as kd20, TO_QUANTILE_STATE(c5, 1.0) as kd21",
     //         "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19,k20,k21,kd19,kd20,kd21" ,"", "")
-    //         .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_data.csv")
+    //         .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_data.csv")
     //         .addProperty("format", "csv")
     //         .addProperty("column_separator", "|")
     //         .addProperty("line_delimiter", ",")
@@ -894,7 +896,7 @@ suite("test_s3_tvf", "p2") {
 
     // for(String table : arrayTables) {
     //     attributeList.add(new TvfAttribute(table, ["K00", "K01", "K02", "K03", "K04", "K05", "K06", "K07", "K08", "K09", "K10", "K11", "K12", "K13", "K14", "K15", "K16", "K17"], "", "")
-    //             .addProperty("uri", "s3://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/data/basic_array_data.csv")
+    //             .addProperty("uri", "s3://${s3BucketName}.${s3Endpoint}/regression/load/data/basic_array_data.csv")
     //             .addProperty("format", "csv")
     //             .addProperty("column_separator", "|")
     //             .addProperty("line_delimiter", ",")
@@ -923,7 +925,7 @@ suite("test_s3_tvf", "p2") {
         FROM S3 (
             "s3.access_key" = "$ak",
             "s3.secret_key" = "$sk",
-            "s3.region" = "ap-beijing",
+            "s3.region" = "${s3Region}",
             ${prop}
         ) ${attribute.whereClause}
           ${attribute.orderByClause}

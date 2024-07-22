@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 
 #include <string>
 
