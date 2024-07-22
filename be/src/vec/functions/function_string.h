@@ -56,6 +56,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
@@ -3674,4 +3675,101 @@ private:
         }
     }
 };
+
+class FunctionNgramSearch : public IFunction {
+public:
+    static constexpr auto name = "ngram_search";
+    static FunctionPtr create() { return std::make_shared<FunctionNgramSearch>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    // ngram_search(text,pattern,gram_num)
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnFloat64::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
+        auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        if (col_const[0]) {
+            _execute_impl<true>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        } else {
+            _execute_impl<false>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    template <bool column_const>
+    void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
+                       ColumnFloat64& res, size_t size) const {
+        auto& res_data = res.get_data();
+        res_data.resize_fill(size, 0);
+        if (pattern.size < gram_num) {
+            return;
+        }
+        phmap::flat_hash_map<uint32_t, int> pattern_map;
+        int pattern_count = get_pattern_set(pattern_map, pattern, gram_num);
+        std::vector<uint32_t> restore_map;
+        for (int i = 0; i < size; i++) {
+            auto text = text_col->get_data_at(index_check_const<column_const>(i));
+            if (text.size < gram_num) {
+                continue;
+            }
+            restore_map.resize(text.size, 0);
+            auto not_overlap_pattern_count = get_not_overlap_with_text(
+                    text, pattern_count, gram_num, pattern_map, restore_map);
+            res_data[i] = 1.0F - (not_overlap_pattern_count) * 1.0F / std::max(pattern_count, 1);
+        }
+    }
+
+    int get_pattern_set(phmap::flat_hash_map<uint32_t, int>& pattern_map, StringRef& pattern,
+                        int gram_num) const {
+        int i = 0;
+        for (i = 0; i + gram_num <= pattern.size; i++) {
+            uint32_t cur_hash = HashUtil::crc_hash(pattern.data + i, gram_num, 0);
+            pattern_map[cur_hash]++;
+        }
+        return i;
+    }
+
+    int get_not_overlap_with_text(StringRef& text, int not_overlap_pattern_count, int gram_num,
+                                  phmap::flat_hash_map<uint32_t, int>& pattern_map,
+                                  std::vector<uint32_t>& restore_map) const {
+        int i;
+        for (i = 0; i + gram_num <= text.size; i++) {
+            uint32_t cur_hash = HashUtil::crc_hash(text.data + i, gram_num, 0);
+            // if this gram is in pattern
+            if (pattern_map[cur_hash] > 0) {
+                not_overlap_pattern_count--;
+                pattern_map[cur_hash]--;
+                restore_map[i] = cur_hash;
+            }
+        }
+
+        // restore pattern_map
+        for (int j = 0; j < i; j++) {
+            if (restore_map[j]) {
+                pattern_map[restore_map[j]]++;
+                // reset restore_map
+                restore_map[j] = 0;
+            }
+        }
+
+        return not_overlap_pattern_count;
+    }
+};
+
 } // namespace doris::vectorized
