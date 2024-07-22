@@ -85,6 +85,27 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
     }
 }
 
+void JsonbSerializeUtil::jsonb_to_block(
+        const DataTypeSerDeSPtrs& serdes_full_read, const DataTypeSerDeSPtrs& serdes_point_read,
+        const ColumnString& jsonb_column,
+        const std::unordered_map<uint32_t, uint32_t>& col_uid_to_idx_full_read,
+        const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>&
+                col_uid_to_idx_cid_point_read,
+        const std::vector<ReadRowsInfo>& rows_info, Block& block_full_read,
+        Block& block_point_read) {
+    DCHECK(jsonb_column.size() == rows_info.size());
+    for (int i = 0; i < jsonb_column.size(); ++i) {
+        StringRef jsonb_data = jsonb_column.get_data_at(i);
+        std::unordered_map<uint32_t, bool> point_read_cids;
+        for (uint32_t cid : rows_info[i].cids) {
+            point_read_cids.emplace(cid, false);
+        }
+        jsonb_to_block(serdes_full_read, serdes_point_read, jsonb_data.data, jsonb_data.size,
+                       col_uid_to_idx_full_read, col_uid_to_idx_cid_point_read, point_read_cids,
+                       block_full_read, block_point_read);
+    }
+}
+
 // single row
 void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data,
                                         size_t size,

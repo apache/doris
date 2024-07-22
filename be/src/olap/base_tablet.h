@@ -166,11 +166,12 @@ public:
                                      CalcDeleteBitmapToken* token,
                                      RowsetWriter* rowset_writer = nullptr);
 
-    Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
-                                      const segment_v2::SegmentSharedPtr& seg,
-                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      RowsetWriter* rowset_writer);
+    Status calc_segment_delete_bitmap(
+            RowsetSharedPtr rowset, const segment_v2::SegmentSharedPtr& seg,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            int64_t end_version,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+            RowsetWriter* rowset_writer);
 
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
@@ -189,15 +190,15 @@ public:
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
-    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                const PartialUpdateReadPlan& read_plan,
-                                const std::vector<uint32_t>* cids_full_read,
-                                vectorized::Block* block_full_read,
-                                std::map<uint32_t, uint32_t>* missing_cols_read_index);
+    static Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
+                                       const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                       const PartialUpdateReadPlan& read_plan,
+                                       const std::vector<uint32_t>* cids_full_read,
+                                       vectorized::Block* block_full_read,
+                                       std::map<uint32_t, uint32_t>* missing_cols_read_index);
 
     // with point read, used by flexible partial update
-    Status read_columns_by_plan(
+    static Status read_columns_by_plan(
             TabletSchemaSPtr tablet_schema,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const PartialUpdateReadPlan& read_plan, const std::vector<uint32_t>* cids_full_read,
@@ -211,16 +212,18 @@ public:
             const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
             vectorized::Block* output_block);
 
     // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
     // may be outdated due to schema change. Also note that the the cids should indicate the indexes
     // of the columns in the TabletSchema passed in.
-    static Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
-                                                 const TabletSchema& tablet_schema, uint32_t segid,
-                                                 const std::vector<uint32_t>& rowids,
-                                                 const std::vector<uint32_t>& cids,
-                                                 vectorized::Block& block);
+    static Status fetch_value_through_row_column(
+            RowsetSharedPtr input_rowset, const TabletSchema& tablet_schema, uint32_t segid,
+            const std::vector<uint32_t>& rowids, const std::vector<ReadRowsInfo>& rows_info,
+            const std::vector<uint32_t>* cids_full_read,
+            const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+            vectorized::Block* block_point_read, bool with_point_read = false);
 
     static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                         const std::vector<uint32_t>& rowids,
