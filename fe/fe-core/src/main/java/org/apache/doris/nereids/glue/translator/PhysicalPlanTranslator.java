@@ -193,6 +193,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
@@ -431,8 +432,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // This statement is only used in the group_commit mode
         if (context.getConnectContext().isGroupCommit()) {
             sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
-                olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
-                context.getSessionVariable().getGroupCommit(), 0);
+                    olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+                    context.getSessionVariable().getGroupCommit(),
+                    ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0 : 1);
         } else {
             sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
@@ -1051,9 +1053,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //  generate physical aggregate plan.
         //  There is one exception, we use some precondition in optimizer, input to buffer always require any for input,
         //  so when agg mode is INPUT_TO_BUFFER, we do not forbid parallel scan
-        if (leftMostNode instanceof OlapScanNode
-                && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
-                && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
+        if (aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
@@ -1109,6 +1109,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
+        }
+
+        if (storageLayerAggregate.getRelation() instanceof PhysicalFileScan
+                && pushAggOp.equals(TPushAggOp.COUNT)
+                && !ConnectContext.get().getSessionVariable().isEnableCountPushDownForExternalTable()) {
+            pushAggOp = TPushAggOp.NONE;
         }
 
         context.setRelationPushAggOp(

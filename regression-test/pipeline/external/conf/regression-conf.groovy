@@ -128,6 +128,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+enableIcebergTest=true
 
 enableEsTest=true
 es_5_port=59200

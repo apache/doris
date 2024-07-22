@@ -25,7 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 using namespace doris;
 
@@ -78,10 +78,15 @@ TEST(HdfsAccessorTest, normal) {
     sp->enable_processing();
 
     size_t alloc_entries = 0;
-    sp->set_call_back("DirEntries",
-                      [&alloc_entries](void* arg) { alloc_entries += *static_cast<size_t*>(arg); });
-    sp->set_call_back("~DirEntries",
-                      [&alloc_entries](void* arg) { alloc_entries -= *static_cast<size_t*>(arg); });
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "DirEntries",
+            [&alloc_entries](auto&& args) { alloc_entries += *try_any_cast<size_t*>(args[0]); },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "~DirEntries",
+            [&alloc_entries](auto&& args) { alloc_entries -= *try_any_cast<size_t*>(args[0]); },
+            &guards.emplace_back());
 
     std::unique_ptr<ListIterator> iter;
     ret = accessor.list_directory("data", &iter);

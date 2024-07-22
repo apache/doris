@@ -1428,18 +1428,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-        }
-        return rowCount;
+        return getRowCountForIndex(baseIndexId);
     }
 
     public long getRowCountForIndex(long indexId) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
-            rowCount += index == null ? 0 : index.getRowCount();
+            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
         return rowCount;
     }
@@ -2503,6 +2499,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPRESSION, compressionType.name());
         tableProperty.buildCompressionType();
+    }
+
+    public void setRowStorePageSize(long pageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                Long.valueOf(pageSize).toString());
+        tableProperty.buildRowStorePageSize();
+    }
+
+    public long rowStorePageSize() {
+        if (tableProperty != null) {
+            return tableProperty.rowStorePageSize();
+        }
+        return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {

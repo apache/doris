@@ -18,3 +18,9 @@
 6	\N	6
 6	7	1
 
+-- !test_char_255 --
+0
+
+-- !select --
+123	abcdddddd
+

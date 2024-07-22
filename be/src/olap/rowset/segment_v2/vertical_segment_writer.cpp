@@ -221,7 +221,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
-        opts.data_page_size = config::row_column_page_size;
+        opts.data_page_size = _tablet_schema->row_store_page_size();
     }
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
@@ -712,7 +712,9 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             continue;
         }
         if (_flush_schema == nullptr) {
-            _flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+            _flush_schema = std::make_shared<TabletSchema>();
+            // deep copy
+            _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.block->get_by_position(i).column;
         const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(

@@ -141,9 +141,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
             contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < 95.0))"""
         }
 
-        // The result of TEST_RAW will change
-        // So instead of qt, we're using sql here.
-        sql  """ select * from TEST_RAW order by ID; """
+        order_qt_raw  """ select * from TEST_RAW order by ID; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

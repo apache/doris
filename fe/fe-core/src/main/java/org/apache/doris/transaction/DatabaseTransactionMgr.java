@@ -91,6 +91,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -1095,7 +1096,10 @@ public class DatabaseTransactionMgr {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
-        tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
+            LOG.warn("finish transaction {} failed, get lock timeout with tables {}", transactionId, tableIdList);
+            return;
+        }
         PublishResult publishResult;
         try {
             // add all commit errors and publish errors to a single set
@@ -1475,12 +1479,7 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private PartitionCommitInfo generatePartitionCommitInfo(OlapTable table, long partitionId, long partitionVersion) {
@@ -1508,12 +1507,7 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private void checkBeforeUnprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds) {
@@ -1581,9 +1575,6 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
@@ -2306,7 +2297,8 @@ public class DatabaseTransactionMgr {
             table.updateVisibleVersionAndTime(version, versionTime);
         }
         analysisManager.setNewPartitionLoaded(newPartitionLoadedTableIds);
-        analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(), db.getId());
+        analysisManager.updateUpdatedRows(transactionState.getTableIdToTabletDeltaRows(),
+                db.getId(), transactionState.getTransactionId());
         return true;
     }
 
@@ -2686,7 +2678,7 @@ public class DatabaseTransactionMgr {
                             PublishVersionTask publishVersionTask = null;
                             if (publishVersionTasks != null) {
                                 List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
-                                        .filter(t -> t.getTransactionId() == subTransactionId
+                                        .filter(t -> t != null && t.getTransactionId() == subTransactionId
                                                 && t.getPartitionVersionInfos().stream()
                                                 .anyMatch(s -> s.getPartitionId() == partitionId))
                                         .collect(Collectors.toList());

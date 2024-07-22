@@ -150,7 +150,7 @@
 11	0.0
 
 -- !select_percentile_array --
-\N	\N
+\N	[]
 0	[1, 1, 1]
 1	[2, 2, 2]
 2	[3, 3, 3]
@@ -165,7 +165,7 @@
 11	[12, 12, 12]
 
 -- !select_percentile_array_mv --
-\N	\N
+\N	[]
 0	[1, 1, 1]
 1	[2, 2, 2]
 2	[3, 3, 3]
@@ -780,7 +780,7 @@
 11	12
 
 -- !select_histogram --
-\N	\N
+\N	{"num_buckets":0,"buckets":[]}
 0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":2,"pre_sum":0}]}
 1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":2,"pre_sum":0}]}
 2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":2,"pre_sum":0}]}
@@ -795,7 +795,7 @@
 11	{"num_buckets":1,"buckets":[{"lower":"12","upper":"12","ndv":1,"count":2,"pre_sum":0}]}
 
 -- !select_histogram_mv --
-\N	\N
+\N	{"num_buckets":0,"buckets":[]}
 0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":2,"pre_sum":0}]}
 1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":2,"pre_sum":0}]}
 2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":2,"pre_sum":0}]}
@@ -1080,7 +1080,7 @@
 11	0
 
 -- !select_sequence_match --
-\N	false
+\N	\N
 0	false
 1	false
 2	false
@@ -1095,7 +1095,7 @@
 11	false
 
 -- !select_sequence_match_mv --
-\N	false
+\N	\N
 0	false
 1	false
 2	false
@@ -1440,7 +1440,7 @@
 11	0.0
 
 -- !select_window_funnel --
-\N	0
+\N	\N
 0	1
 1	0
 2	0
@@ -1455,7 +1455,7 @@
 11	0
 
 -- !select_window_funnel_mv --
-\N	0
+\N	\N
 0	1
 1	0
 2	0
@@ -1470,7 +1470,7 @@
 11	0
 
 -- !select_retention --
-\N	[0, 0]
+\N	\N
 0	[0, 0]
 1	[0, 0]
 2	[0, 0]
@@ -1485,7 +1485,7 @@
 11	[0, 0]
 
 -- !select_retention_mv --
-\N	[0, 0]
+\N	\N
 0	[0, 0]
 1	[0, 0]
 2	[0, 0]

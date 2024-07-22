@@ -397,7 +397,7 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       run_status_compaction_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
     ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
@@ -405,6 +405,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       clear_file_cache_action);
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
+
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
 }
 // NOLINTEND(readability-function-size)
 

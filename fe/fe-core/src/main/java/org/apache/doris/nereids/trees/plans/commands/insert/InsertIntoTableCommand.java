@@ -146,7 +146,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }
-            if (this.logicalQuery instanceof UnboundTableSink) {
+            boolean isOverwrite = insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                    && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite();
+            if (this.logicalQuery instanceof UnboundTableSink && !isOverwrite) {
                 OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf,
                         (UnboundTableSink<?>) this.logicalQuery);
             }

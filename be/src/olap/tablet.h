@@ -421,18 +421,6 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
-                          bool include_stale = false) {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
-            visitor(rs);
-        }
-    }
-
     std::vector<std::string> get_binlog_filepath(std::string_view binlog_version) const;
     std::pair<std::string, int64_t> get_binlog_info(std::string_view binlog_version) const;
     std::string get_rowset_binlog_meta(std::string_view binlog_version,
@@ -483,8 +471,6 @@ public:
     }
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
-    Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
-                               int32_t* rowset_count, int64_t* file_count);
 
 private:
     Status _init_once_action();

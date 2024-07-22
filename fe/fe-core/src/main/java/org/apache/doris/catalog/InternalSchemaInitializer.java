@@ -109,7 +109,7 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         while (true) {
-            int backendNum = Env.getCurrentSystemInfo().getBackendNumFromDiffHosts(true);
+            int backendNum = Env.getCurrentSystemInfo().getStorageBackendNumFromDiffHosts(true);
             if (FeConstants.runningUnitTest) {
                 backendNum = Env.getCurrentSystemInfo().getAllBackendIds().size();
             }

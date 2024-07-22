@@ -32,7 +32,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/rowset/beta_rowset.h"
@@ -191,6 +191,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
             .is_doris_table = true,
+            .cache_base_path {},
             .file_size = meta.file_size,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);

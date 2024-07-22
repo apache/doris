@@ -163,10 +163,8 @@ public class OlapScanNode extends ScanNode {
     private boolean canTurnOnPreAggr = true;
     private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
-    private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
-    private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
     // tablet id to single replica bytes
@@ -293,14 +291,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
         this.forceOpenPreAgg = forceOpenPreAgg;
-    }
-
-    public Integer getSelectedPartitionNum() {
-        return selectedPartitionNum;
-    }
-
-    public Long getSelectedTabletsNum() {
-        return selectedTabletsNum;
     }
 
     public SortInfo getSortInfo() {
@@ -864,28 +854,31 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            final long coolDownReplicaId = tablet.getCooldownReplicaId();
-            // we prefer to query using cooldown replica to make sure the cache is fully utilized
-            // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
-            // is now under cooldown
-            // first time we choose BE A, and A will download data into cache while the other two's cache is empty
-            // second time we choose BE B, this time B will be cached, C is still empty
-            // third time we choose BE C, after this time all replica is cached
-            // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
-            if (-1L != coolDownReplicaId) {
-                final Optional<Replica> replicaOptional = replicas.stream()
-                        .filter(r -> r.getId() == coolDownReplicaId).findAny();
-                replicaOptional.ifPresent(
-                        r -> {
-                            Backend backend = Env.getCurrentSystemInfo()
-                                    .getBackend(r.getBackendId());
-                            if (backend != null && backend.isAlive()) {
-                                replicas.clear();
-                                replicas.add(r);
+            if (Config.enable_cooldown_replica_affinity) {
+                final long coolDownReplicaId = tablet.getCooldownReplicaId();
+                // we prefer to query using cooldown replica to make sure the cache is fully utilized
+                // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
+                // is now under cooldown
+                // first time we choose BE A, and A will download data into cache while the other two's cache is empty
+                // second time we choose BE B, this time B will be cached, C is still empty
+                // third time we choose BE C, after this time all replica is cached
+                // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
+                if (-1L != coolDownReplicaId) {
+                    final Optional<Replica> replicaOptional = replicas.stream()
+                            .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                    replicaOptional.ifPresent(
+                            r -> {
+                                Backend backend = Env.getCurrentSystemInfo()
+                                        .getBackend(r.getBackendId());
+                                if (backend != null && backend.isAlive()) {
+                                    replicas.clear();
+                                    replicas.add(r);
+                                }
                             }
-                        }
-                );
+                    );
+                }
             }
+
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
@@ -1215,7 +1208,7 @@ public class OlapScanNode extends ScanNode {
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
-            selectedTabletsNum += tablets.size();
+            selectedSplitNum += tablets.size();
             addScanRangeLocations(partition, tablets);
         }
     }
@@ -1377,7 +1370,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.joining(","));
         output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions)).append("\n");
-        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedSplitNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);

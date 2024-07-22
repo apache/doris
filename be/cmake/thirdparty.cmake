@@ -81,7 +81,6 @@ if (USE_JEMALLOC)
 else()
     add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 endif()
-add_thirdparty(jemalloc_arrow LIBNAME "lib/libjemalloc_arrow.a")
 
 if (WITH_MYSQL)
     add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")

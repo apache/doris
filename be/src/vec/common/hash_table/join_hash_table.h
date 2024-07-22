@@ -38,7 +38,7 @@ public:
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
         return std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
-                        static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
+                        static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
     }
 
     size_t get_byte_size() const {

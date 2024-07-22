@@ -124,6 +124,10 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 schedulerInstantJob(job, TaskType.SCHEDULED, null);
             }
         }
+        if (job.getJobConfig().isImmediate() && JobExecuteType.ONE_TIME.equals(job.getJobConfig().getExecuteType())) {
+            schedulerInstantJob(job, TaskType.SCHEDULED, null);
+            return;
+        }
         //RECURRING job and  immediate is true
         if (job.getJobConfig().isImmediate()) {
             job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());

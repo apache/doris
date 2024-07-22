@@ -33,6 +33,7 @@
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/common/schema_util.h"
@@ -829,29 +830,27 @@ Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& ou
     vectorized::MutableBlock mutable_output_block =
             vectorized::MutableBlock::build_mutable_block(&output_block);
 
-    std::vector<RowInBlock*> _row_in_blocks;
-    _row_in_blocks.reserve(in_block.rows());
-
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
+            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_in_blocks.reserve(in_block.rows());
     for (size_t i = 0; i < in_block.rows(); ++i) {
-        row_in_blocks.emplace_back(new RowInBlock {i});
+        row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
-              [&](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*vec_row_comparator)(l, r);
+              [&](const std::unique_ptr<RowInBlock>& l,
+                  const std::unique_ptr<RowInBlock>& r) -> bool {
+                  auto value = (*vec_row_comparator)(l.get(), r.get());
                   DCHECK(value != 0) << "value equel when sort block, l_pos: " << l->_row_pos
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
-    for (auto* block : row_in_blocks) {
+    for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
     return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
@@ -1555,6 +1554,37 @@ void BaseTablet::calc_consecutive_empty_rowsets(
             }
         }
     }
+}
+
+Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                                 int32_t* rowset_count, int64_t* file_count) {
+    Version v(start_version, end_version);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get all rowsets
+        if (v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    *rowset_count = rowsets.size();
+
+    *crc_value = 0;
+    *file_count = 0;
+    for (const auto& rs : rowsets) {
+        uint32_t rs_crc_value = 0;
+        int64_t rs_file_count = 0;
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        auto st = rowset->calc_file_crc(&rs_crc_value, &rs_file_count);
+        if (!st.ok()) {
+            return st;
+        }
+        // crc_value is calculated based on the crc_value of each rowset.
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+                                    sizeof(rs_crc_value));
+        *file_count += rs_file_count;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

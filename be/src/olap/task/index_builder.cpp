@@ -18,6 +18,7 @@
 #include "olap/task/index_builder.h"
 
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -124,7 +125,28 @@ Status IndexBuilder::update_inverted_index_info() {
                     }
                 }
                 _dropped_inverted_indexes.push_back(*index_meta);
+                // ATTN: DO NOT REMOVE INDEX AFTER OUTPUT_ROWSET_WRITER CREATED.
+                // remove dropped index_meta from output rowset tablet schema
+                output_rs_tablet_schema->remove_index(index_meta->index_id());
             }
+            DBUG_EXECUTE_IF("index_builder.update_inverted_index_info.drop_index", {
+                auto indexes_count = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                        "index_builder.update_inverted_index_info.drop_index", "indexes_count", 0);
+                if (indexes_count < 0) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "indexes count cannot be negative");
+                }
+                int32_t indexes_size = 0;
+                for (auto index : output_rs_tablet_schema->indexes()) {
+                    if (index.index_type() == IndexType::INVERTED) {
+                        indexes_size++;
+                    }
+                }
+                if (indexes_count != indexes_size) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "indexes count not equal to expected");
+                }
+            })
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
