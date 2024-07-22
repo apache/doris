@@ -41,7 +41,7 @@ done
 # echo "$@" "daemonized=${daemonized}"}
 
 # export env variables from doris_cloud.conf
-# read from be.conf
+# read from doris_cloud.conf
 while read -r line; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
