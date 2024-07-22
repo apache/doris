@@ -242,7 +242,9 @@ public class Tablet extends MetaObject {
 
             ReplicaState state = replica.getState();
             if (state.canLoad()
-                    || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
+                    || (state == ReplicaState.DECOMMISSION
+                            && replica.getPostWatermarkTxnId() < 0
+                            && replica.getLastFailedVersion() > 0)) {
                 map.put(backendId, replica.getPathHash());
             }
         }
