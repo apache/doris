@@ -2247,6 +2247,12 @@ public class Config extends ConfigBase {
     public static long stats_cache_size = 50_0000;
 
     /**
+     * This config used for ranger cache data mask/row policy
+     */
+    @ConfField
+    public static long ranger_cache_size = 10000;
+
+    /**
      * This configuration is used to enable the statistics of query information, which will record
      * the access status of databases, tables, and columns, and can be used to guide the
      * optimization of table structures

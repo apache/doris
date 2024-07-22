@@ -80,7 +80,7 @@ public abstract class CatalogCacheAccessController implements CatalogAccessContr
     @Override
     public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col) {
-        return getCache().getDatamask(new DatamaskCacheKey(currentUser, ctl, db, tbl, col));
+        return getCache().getDataMask(new DatamaskCacheKey(currentUser, ctl, db, tbl, col));
     }
 
     @Override

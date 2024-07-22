@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.authorizer.ranger.cache;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -35,20 +36,19 @@ import java.util.concurrent.ExecutionException;
 
 public class RangerCache {
     private static final Logger LOG = LoggerFactory.getLogger(RangerCache.class);
-    public static final long MAX_CACHE_NUM = 1000;
 
     private CatalogAccessController controller;
     private LoadingCache<DatamaskCacheKey, Optional<DataMaskPolicy>> datamaskCache = CacheBuilder.newBuilder()
-            .maximumSize(MAX_CACHE_NUM)
+            .maximumSize(Config.ranger_cache_size)
             .build(new CacheLoader<DatamaskCacheKey, Optional<DataMaskPolicy>>() {
                 @Override
                 public Optional<DataMaskPolicy> load(DatamaskCacheKey key) {
-                    return loadDatamask(key);
+                    return loadDataMask(key);
                 }
             });
 
     private LoadingCache<RowFilterCacheKey, List<? extends RowFilterPolicy>> rowFilterCache = CacheBuilder.newBuilder()
-            .maximumSize(MAX_CACHE_NUM)
+            .maximumSize(Config.ranger_cache_size)
             .build(new CacheLoader<RowFilterCacheKey, List<? extends RowFilterPolicy>>() {
                 @Override
                 public List<? extends RowFilterPolicy> load(RowFilterCacheKey key) {
@@ -63,20 +63,24 @@ public class RangerCache {
         this.controller = controller;
     }
 
-    private Optional<DataMaskPolicy> loadDatamask(DatamaskCacheKey key) {
+    private Optional<DataMaskPolicy> loadDataMask(DatamaskCacheKey key) {
         Objects.requireNonNull(controller, "controller can not be null");
-        LOG.info("load datamask: {}", key);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("load datamask: {}", key);
+        }
         return controller.evalDataMaskPolicy(key.getUserIdentity(), key.getCtl(), key.getDb(), key.getTbl(),
                 key.getCol());
     }
 
     private List<? extends RowFilterPolicy> loadRowFilter(RowFilterCacheKey key) {
         Objects.requireNonNull(controller, "controller can not be null");
-        LOG.info("load row filter: {}", key);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("load row filter: {}", key);
+        }
         return controller.evalRowFilterPolicies(key.getUserIdentity(), key.getCtl(), key.getDb(), key.getTbl());
     }
 
-    public void invalidateDatamaskCache() {
+    public void invalidateDataMaskCache() {
         datamaskCache.invalidateAll();
     }
 
@@ -84,7 +88,7 @@ public class RangerCache {
         rowFilterCache.invalidateAll();
     }
 
-    public Optional<DataMaskPolicy> getDatamask(DatamaskCacheKey key) {
+    public Optional<DataMaskPolicy> getDataMask(DatamaskCacheKey key) {
         try {
             return datamaskCache.get(key);
         } catch (ExecutionException e) {

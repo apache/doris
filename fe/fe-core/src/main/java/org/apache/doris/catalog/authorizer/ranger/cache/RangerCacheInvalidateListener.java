@@ -34,8 +34,8 @@ public class RangerCacheInvalidateListener implements RangerAuthContextListener 
 
     @Override
     public void contextChanged() {
-        LOG.info("ranget contextChanged");
-        cache.invalidateDatamaskCache();
+        LOG.info("ranger context changed");
+        cache.invalidateDataMaskCache();
         cache.invalidateRowFilterCache();
     }
 }
