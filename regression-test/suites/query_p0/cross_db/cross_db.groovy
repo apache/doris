@@ -47,14 +47,14 @@ suite("cross_db") {
     """
 
     sql """
-    INSERT INTO cross_db_2. VALUES
+    INSERT INTO cross_db_2.cnt_table VALUES
         (1, 10),
         (2, 32),
         (3, 40),
         (4, 40)
     """
 
-    sql """SELECT * FROM cross_db_1.,cross_db_2.cnt_table"""
+    sql """SELECT * FROM cross_db_1.cnt_table as x ,cross_db_2.cnt_table as y"""
 
     sql """DROP DATABASE cross_db_1"""
     sql """DROP DATABASE cross_db_2"""
