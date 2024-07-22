@@ -884,7 +884,6 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("dropIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
         }
     }
 

@@ -596,7 +596,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
 
     bool abort_compaction = false;
-    if (recorded_job.has_schema_change() &&
+    if (recorded_job.has_schema_change() && request->action() == FinishTabletJobRequest::COMMIT &&
         !check_compaction_input_verions(compaction, recorded_job)) {
         SS << "Check compaction input versions failed in schema change. input_version_start="
            << compaction.input_versions(0) << " input_version_end=" << compaction.input_versions(1)

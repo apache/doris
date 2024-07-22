@@ -134,8 +134,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
               << ", alter_version=" << start_resp.alter_version() << ", job_id=" << _job_id;
     sc_job->set_alter_version(start_resp.alter_version());
 
-    DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.sleep",
-                    { std::this_thread::sleep_for(std::chrono::seconds(120)); });
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
     // Create a new tablet schema, should merge with dropped columns in light weight schema change
@@ -351,6 +349,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     _output_cumulative_point = std::min(_output_cumulative_point, sc_job->alter_version() + 1);
     sc_job->set_output_cumulative_point(_output_cumulative_point);
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob.process_alter_tablet.sleep", DBUG_BLOCK);
     // process delete bitmap if the table is MOW
     if (_new_tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
