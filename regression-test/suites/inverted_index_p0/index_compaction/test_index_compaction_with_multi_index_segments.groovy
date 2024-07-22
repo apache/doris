@@ -144,7 +144,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         * 4. insert 10 rows, again
         * 5. full compaction
         */
-        table_name = "test_index_compaction_with_multi_index_segments_dups"
+        tableName = "test_index_compaction_with_multi_index_segments_dups"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (
@@ -263,7 +263,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         * 4. insert 10 rows, again
         * 5. full compaction
         */
-        table_name = "test_index_compaction_with_multi_index_segments_unique"
+        tableName = "test_index_compaction_with_multi_index_segments_unique"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (
