@@ -1997,8 +1997,11 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
     }
 
     permits = 0;
-    for (auto&& rowset : compaction->input_rowsets()) {
-        permits += rowset->rowset_meta()->get_compaction_score();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+        for (auto&& rowset : compaction->input_rowsets()) {
+            permits += rowset->rowset_meta()->get_compaction_score();
+        }
     }
     return Status::OK();
 }
