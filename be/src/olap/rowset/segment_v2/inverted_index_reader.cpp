@@ -517,49 +517,46 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                 break;
             }
 
-            // case InvertedIndexQueryType::LESS_THAN_QUERY:
-            // case InvertedIndexQueryType::LESS_EQUAL_QUERY:
-            // case InvertedIndexQueryType::GREATER_THAN_QUERY:
-            // case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
-            //     bool include_upper = query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY;
-            //     bool include_lower = query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+            case InvertedIndexQueryType::LESS_THAN_QUERY:
+            case InvertedIndexQueryType::LESS_EQUAL_QUERY:
+            case InvertedIndexQueryType::GREATER_THAN_QUERY:
+            case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
+                bool include_upper = query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY;
+                bool include_lower = query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY;
 
-            //     if (query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
-            //         query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
-            //         query = std::make_unique<lucene::search::RangeQuery>(nullptr, term.get(),
-            //                                                              include_upper);
-            //     } else { // GREATER_THAN_QUERY or GREATER_EQUAL_QUERY
-            //         query = std::make_unique<lucene::search::RangeQuery>(term.get(), nullptr,
-            //                                                              include_lower);
-            //     }
+                if (query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+                    query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
+                    query = std::make_unique<lucene::search::RangeQuery>(nullptr, term.get(),
+                                                                         include_upper);
+                } else { // GREATER_THAN_QUERY or GREATER_EQUAL_QUERY
+                    query = std::make_unique<lucene::search::RangeQuery>(term.get(), nullptr,
+                                                                         include_lower);
+                }
 
-            //     SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-            //     (*searcher_ptr)
-            //             ->_search(query.get(),
-            //                       [&result](const int32_t docid, const float_t /*score*/) {
-            //                           result.add(docid);
-            //                       });
-            //     break;
-            // }
+                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                (*searcher_ptr)
+                        ->_search(query.get(),
+                                  [&result](const int32_t docid, const float_t /*score*/) {
+                                      result.add(docid);
+                                  });
+                break;
+            }
             default:
                 return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                         "invalid query type when query untokenized inverted index");
             }
         } catch (const CLuceneError& e) {
-            //             if (is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
-            //                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-            //                         "range query term exceeds limits, try to downgrade from inverted index, "
-            //                         "column "
-            //                         "name:{}, search_str:{}",
-            //                         column_name, search_str);
-            //             } else {
-            //                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-            //                         "CLuceneError occured, error msg: {}, column name: {}, search_str: {}",
-            //                         e.what(), column_name, search_str);
-            //             }
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occured, error msg: {}, column name: {}, search_str: {}",
-                    e.what(), column_name, search_str);
+            if (is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "range query term exceeds limits, try to downgrade from inverted index, "
+                        "column "
+                        "name:{}, search_str:{}",
+                        column_name, search_str);
+            } else {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "CLuceneError occured, error msg: {}, column name: {}, search_str: {}",
+                        e.what(), column_name, search_str);
+            }
         }
 
         // add to cache
@@ -1217,10 +1214,6 @@ Status InvertedIndexIterator::read_from_inverted_index(
                         hit_count, query_bkd_limit_percent, segment_num_rows);
             }
         }
-    } else if (_reader->type() == InvertedIndexReaderType::STRING_TYPE &&
-               is_range_query(query_type)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                "StringTypeInvertedIndexReader not support for range query");
     }
 
     RETURN_IF_ERROR(
