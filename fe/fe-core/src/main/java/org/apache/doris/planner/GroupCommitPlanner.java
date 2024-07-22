@@ -62,6 +62,7 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -209,6 +210,7 @@ public class GroupCommitPlanner {
         } catch (LoadException e) {
             throw new DdlException("No suitable backend");
         }
+    }
 
     public Backend getBackend() {
         return backend;

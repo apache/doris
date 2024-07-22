@@ -89,33 +89,14 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
-    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
-        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
+    public long getGroupCommitLoadBeId(long tableId) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId));
         waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
         result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-        waitOnReplaying();
-    }
-
-    public void cancel() throws Exception {
-        TUniqueId queryId = ctx.queryId();
-        if (queryId == null) {
-            return;
-        }
-        Preconditions.checkNotNull(masterAddr, "query with id %s is not forwarded to master", queryId);
-        TMasterOpRequest request = new TMasterOpRequest();
-        request.setCancelQeury(true);
-        request.setQueryId(queryId);
-        request.setDb(ctx.getDatabase());
-        request.setUser(ctx.getQualifiedUser());
-        request.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        // just make the protocol happy
-        request.setSql("");
-        result = forward(masterAddr, request);
         waitOnReplaying();
     }
 
@@ -218,12 +199,10 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId) {
         final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
-        groupCommitParams.setCluster(cluster);
-        groupCommitParams.setIsCloud(isCloud);
 
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident

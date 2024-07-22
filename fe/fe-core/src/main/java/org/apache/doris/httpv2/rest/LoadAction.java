@@ -330,20 +330,6 @@ public class LoadAction extends RestBaseController {
         return index;
     }
 
-    private String getCloudClusterName(HttpServletRequest request) {
-        String cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
-        if (!Strings.isNullOrEmpty(cloudClusterName)) {
-            return cloudClusterName;
-        }
-
-        cloudClusterName = ConnectContext.get().getCloudCluster();
-        if (!Strings.isNullOrEmpty(cloudClusterName)) {
-            return cloudClusterName;
-        }
-
-        return "";
-    }
-
     private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit, long tableId)
             throws LoadException {
         long debugBackendId = DebugPointUtil.getDebugParamOrDefault("LoadAction.selectRedirectBackend.backendId", -1L);
@@ -351,15 +337,7 @@ public class LoadAction extends RestBaseController {
             Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
-        if (Config.isCloudMode()) {
-            String cloudClusterName = getCloudClusterName(request);
-            if (Strings.isNullOrEmpty(cloudClusterName)) {
-                throw new LoadException("No cloud cluster name selected.");
-            }
-            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit);
-        } else {
-            return selectLocalRedirectBackend(groupCommit, request, tableId);
-        }
+        return selectLocalRedirectBackend(groupCommit, request, tableId);
     }
 
     private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)

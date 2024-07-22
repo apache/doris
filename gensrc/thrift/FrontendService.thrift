@@ -517,11 +517,9 @@ struct TTxnLoadInfo {
 struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
-    3: optional string cluster
-    4: optional bool isCloud
-    5: optional bool updateLoadData
-    6: optional i64 tableId 
-    7: optional i64 receiveData
+    3: optional bool updateLoadData
+    4: optional i64 tableId 
+    5: optional i64 receiveData
 }
 
 struct TMasterOpRequest {
@@ -558,10 +556,6 @@ struct TMasterOpRequest {
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
-
-    // selectdb cloud
-    1000: optional string cloud_cluster
-    1001: optional bool noAuth;
 }
 
 struct TColumnDefinition {

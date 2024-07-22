@@ -19,11 +19,8 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.mysql.privilege.Auth;
@@ -36,7 +33,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -192,7 +188,7 @@ public class GroupCommitManager {
         if (!Env.getCurrentEnv().isMaster()) {
             try {
                 long backendId = new MasterOpExecutor(context)
-                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster(), isCloud);
+                        .getGroupCommitLoadBeId(tableId);
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
@@ -200,11 +196,11 @@ public class GroupCommitManager {
         } else {
             // Master FE will select BE by itself.
             return Env.getCurrentSystemInfo()
-                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster(), isCloud));
+                    .getBackend(selectBackendForGroupCommitInternal(tableId));
         }
     }
 
-    public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
+    public long selectBackendForGroupCommitInternal(long tableId)
             throws LoadException, DdlException {
         // Understanding Group Commit and Backend Selection Logic
         //
@@ -236,39 +232,7 @@ public class GroupCommitManager {
         // a BE is chosen at random. This BE is then recorded along with the mapping of table A and its load level.
         // This approach ensures that group commits can effectively batch data together
         // while managing the load on each BE efficiently.
-        return isCloud ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
-                : selectBackendForLocalGroupCommitInternal(tableId);
-    }
-
-    private long selectBackendForCloudGroupCommitInternal(long tableId, String cluster)
-            throws DdlException, LoadException {
-        LOG.debug("cloud group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
-                tablePressureMap.toString());
-        if (Strings.isNullOrEmpty(cluster)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NO_CLUSTER_ERROR);
-        }
-
-        Long cachedBackendId = getCachedBackend(tableId);
-        if (cachedBackendId != null) {
-            return cachedBackendId;
-        }
-
-        List<Backend> backends = new ArrayList<>(
-                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster)
-                        .values());
-        if (backends.isEmpty()) {
-            throw new LoadException("No alive backend");
-        }
-        // If the cached backend is not active or decommissioned, select a random new backend.
-        Long randomBackendId = getRandomBackend(tableId, backends);
-        if (randomBackendId != null) {
-            return randomBackendId;
-        }
-        List<String> backendsInfo = backends.stream()
-                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
-                        + ", decommission=" + be.isDecommissioned() + " }")
-                .collect(Collectors.toList());
-        throw new LoadException("No suitable backend for cloud cluster=" + cluster + ", backends = " + backendsInfo);
+        return selectBackendForLocalGroupCommitInternal(tableId);
     }
 
     private long selectBackendForLocalGroupCommitInternal(long tableId) throws LoadException {
@@ -290,7 +254,7 @@ public class GroupCommitManager {
             return randomBackendId;
         }
         List<String> backendsInfo = backends.stream()
-                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
+                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive()
                         + ", decommission=" + be.isDecommissioned() + " }")
                 .collect(Collectors.toList());
         throw new LoadException("No suitable backend " + ", backends = " + backendsInfo);
@@ -302,7 +266,7 @@ public class GroupCommitManager {
         if (tableToBeMap.containsKey(tableId)) {
             if (tablePressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(tableToBeMap.get(tableId));
-                if (backend.isActive() && !backend.isDecommissioned()) {
+                if (backend.isAlive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(tableId);
@@ -319,7 +283,7 @@ public class GroupCommitManager {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
-            if (backend.isActive() && !backend.isDecommissioned()) {
+            if (backend.isAlive() && !backend.isDecommissioned()) {
                 tableToBeMap.put(tableId, backend.getId());
                 tablePressureMap.put(tableId,
                         new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
