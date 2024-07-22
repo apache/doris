@@ -120,7 +120,7 @@ fi
 
 echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:true,prof_prefix:jeprof.out"
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
 
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     "${bin}" --version
