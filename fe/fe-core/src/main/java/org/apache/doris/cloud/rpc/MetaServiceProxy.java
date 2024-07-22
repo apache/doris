@@ -318,6 +318,15 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.checkKv(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) throws RpcException {
         try {
             final MetaServiceClient client = getProxy();

@@ -432,7 +432,7 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
     tablet->sample_infos[group_index].rows = 0;
 
     int64_t batch_size = block_mem_limit / group_data_size;
-    int64_t res = std::max(std::min(batch_size, int64_t(4096 - 32)), 32L);
+    int64_t res = std::max(std::min(batch_size, int64_t(4096 - 32)), int64_t(32L));
     LOG(INFO) << "estimate batch size for vertical compaction, tablet id: " << tablet->tablet_id()
               << " group data size: " << info.group_data_size << " row num: " << info.rows
               << " consume bytes: " << info.bytes << " way cnt: " << way_cnt

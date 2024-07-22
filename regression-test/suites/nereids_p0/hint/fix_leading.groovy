@@ -26,8 +26,10 @@ suite("fix_leading") {
     // setting planner to nereids
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=1'
+    sql "set parallel_pipeline_task_num=1"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
     sql "set ignore_shape_nodes='PhysicalProject, PhysicalDistribute'"

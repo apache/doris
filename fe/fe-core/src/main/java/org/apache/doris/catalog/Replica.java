@@ -88,37 +88,37 @@ public class Replica {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "backendId")
+    @SerializedName(value = "bid", alternate = {"backendId"})
     private long backendId;
     // the version could be queried
-    @SerializedName(value = "version")
+    @SerializedName(value = "v", alternate = {"version"})
     private volatile long version;
     @Deprecated
-    @SerializedName(value = "versionHash")
+    @SerializedName(value = "vh", alternate = {"versionHash"})
     private long versionHash = 0L;
     private int schemaHash = -1;
-    @SerializedName(value = "dataSize")
+    @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
-    @SerializedName(value = "remoteDataSize")
+    @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
-    @SerializedName(value = "rowCount")
+    @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
-    @SerializedName(value = "state")
+    @SerializedName(value = "st", alternate = {"state"})
     private volatile ReplicaState state;
 
     // the last load failed version
-    @SerializedName(value = "lastFailedVersion")
+    @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
     private long lastFailedVersion = -1L;
     @Deprecated
-    @SerializedName(value = "lastFailedVersionHash")
+    @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
     // the last load successful version
-    @SerializedName(value = "lastSuccessVersion")
+    @SerializedName(value = "lsv", alternate = {"lastSuccessVersion"})
     private long lastSuccessVersion = -1L;
     @Deprecated
-    @SerializedName(value = "lastSuccessVersionHash")
+    @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
     private long lastSuccessVersionHash = 0L;
 
     private volatile long totalVersionCount = -1;

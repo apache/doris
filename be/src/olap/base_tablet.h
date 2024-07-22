@@ -23,10 +23,12 @@
 
 #include "common/status.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
 #include "util/metrics.h"
 
@@ -42,6 +44,8 @@ struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
 };
+
+enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
 class BaseTablet {
@@ -249,6 +253,24 @@ public:
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int limit);
 
+    // Return the merged schema of all rowsets
+    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
+
+    Status calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                         int32_t* rowset_count, int64_t* file_count);
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -301,6 +323,7 @@ public:
     std::atomic<int64_t> write_count = 0;
     std::atomic<int64_t> compaction_count = 0;
 
+    CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
     std::mutex sample_info_lock;
     std::vector<CompactionSampleInfo> sample_infos;
     Status last_compaction_status = Status::OK();

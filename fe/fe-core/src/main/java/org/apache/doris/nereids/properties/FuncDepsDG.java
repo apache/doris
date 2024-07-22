@@ -68,6 +68,14 @@ public class FuncDepsDG {
             this.parents = new HashSet<>(dgItem.parents);
             this.children = new HashSet<>(dgItem.children);
         }
+
+        public void replace(Map<Slot, Slot> replaceMap) {
+            Set<Slot> newSlots = new HashSet<>();
+            for (Slot slot : slots) {
+                newSlots.add(replaceMap.getOrDefault(slot, slot));
+            }
+            this.slots = newSlots;
+        }
     }
 
     private final Map<Set<Slot>, Integer> itemMap; // Maps sets of slots to their indices in the dgItems list
@@ -209,6 +217,21 @@ public class FuncDepsDG {
                     addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
                 }
             }
+        }
+
+        public void replace(Map<Slot, Slot> replaceSlotMap) {
+            for (DGItem item : dgItems) {
+                item.replace(replaceSlotMap);
+            }
+            Map<Set<Slot>, Integer> newItemMap = new HashMap<>();
+            for (Entry<Set<Slot>, Integer> e : itemMap.entrySet()) {
+                Set<Slot> key = new HashSet<>();
+                for (Slot slot : e.getKey()) {
+                    key.add(replaceSlotMap.getOrDefault(slot, slot));
+                }
+                newItemMap.put(key, e.getValue());
+            }
+            this.itemMap = newItemMap;
         }
 
         private DGItem getOrCreateNode(Set<Slot> slots) {

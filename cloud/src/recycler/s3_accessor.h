@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
@@ -27,12 +28,24 @@ namespace Aws::S3 {
 class S3Client;
 } // namespace Aws::S3
 
-namespace doris::cloud {
-class ObjectStoreInfoPB;
+namespace doris {
+class S3RateLimiterHolder;
 
 enum class S3RateLimitType;
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                 size_t limit);
+namespace cloud {
+class ObjectStoreInfoPB;
+class SimpleThreadPool;
+
+struct AccessorRateLimiter {
+public:
+    ~AccessorRateLimiter() = default;
+    static AccessorRateLimiter& instance();
+    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+
+private:
+    AccessorRateLimiter();
+    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
+};
 
 struct S3Conf {
     std::string ak;
@@ -50,7 +63,8 @@ struct S3Conf {
 
     Provider provider;
 
-    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info);
+    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
+                                                     bool skip_aksk = false);
 };
 
 class S3Accessor : public StorageVaultAccessor {
@@ -113,4 +127,5 @@ private:
     int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0) override;
 };
 
-} // namespace doris::cloud
+} // namespace cloud
+} // namespace doris

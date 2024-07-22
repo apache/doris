@@ -36,19 +36,8 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
                 );"""
 
             sql """ switch ${catalog_name} """
-            sql """ create database if not exists ${catalog_name} """
-            sql """ use ${catalog_name} """
-
+            sql """ use multi_catalog """
             String tb_ts_filter = "tb_ts_filter";
-            sql """ drop table if exists ${tb_ts_filter} """
-            sql """ create table ${tb_ts_filter} (id int, ts datetime)"""
-            sql """ insert into ${tb_ts_filter} values (1, '2024-05-30 20:34:56') """
-            sql """ insert into ${tb_ts_filter} values (2, '2024-05-30 20:34:56.1') """
-            sql """ insert into ${tb_ts_filter} values (3, '2024-05-30 20:34:56.12') """
-            sql """ insert into ${tb_ts_filter} values (4, '2024-05-30 20:34:56.123') """
-            sql """ insert into ${tb_ts_filter} values (5, '2024-05-30 20:34:56.1234') """
-            sql """ insert into ${tb_ts_filter} values (6, '2024-05-30 20:34:56.12345') """
-            sql """ insert into ${tb_ts_filter} values (7, '2024-05-30 20:34:56.123456') """
 
             qt_qt01 """ select * from ${tb_ts_filter} order by id """
             qt_qt02 """ select * from ${tb_ts_filter} where ts = '2024-05-30 20:34:56' order by id """
@@ -72,38 +61,58 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
             qt_qt17 """ select * from ${tb_ts_ntz_filter} where ts > '2024-06-11 12:34:56.12345' """
             qt_qt18 """ select * from ${tb_ts_ntz_filter} where ts < '2024-06-11 12:34:56.123466' """
 
-            // TODO support filter
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56'")
-            //     contains "inputSplitNum=0"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.12'")
-            //     contains "inputSplitNum=1"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.1234'")
-            //     contains "inputSplitNum=2"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.0'")
-            //     contains "inputSplitNum=1"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts = '2024-05-30 20:34:56.123456'")
-            //     contains "inputSplitNum=1"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.123456'")
-            //     contains "inputSplitNum=5"
-            // }
-            // explain {
-            //     sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.123456'")
-            //     contains "inputSplitNum=0"
-            // }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56'")
+                contains "inputSplitNum=0"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.12'")
+                contains "inputSplitNum=2"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.1234'")
+                contains "inputSplitNum=2"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.0'")
+                contains "inputSplitNum=6"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts = '2024-05-30 20:34:56.123456'")
+                contains "inputSplitNum=1"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.123456'")
+                contains "inputSplitNum=6"
+            }
+            explain {
+                sql("select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.123456'")
+                contains "inputSplitNum=0"
+            }
 
         } finally {
         }
     }
 }
+
+/*
+
+CREATE TABLE tb_ts_filter (
+  id INT COMMENT '',
+  ts TIMESTAMP_NTZ COMMENT '')
+USING iceberg
+TBLPROPERTIES (
+  'format' = 'iceberg/parquet',
+  'format-version' = '2',
+  'write.parquet.compression-codec' = 'zstd');
+
+insert into tb_ts_filter values (1, timestamp '2024-05-30 20:34:56');
+insert into tb_ts_filter values (2, timestamp '2024-05-30 20:34:56.1');
+insert into tb_ts_filter values (3, timestamp '2024-05-30 20:34:56.12');
+insert into tb_ts_filter values (4, timestamp '2024-05-30 20:34:56.123');
+insert into tb_ts_filter values (5, timestamp '2024-05-30 20:34:56.1234');
+insert into tb_ts_filter values (6, timestamp '2024-05-30 20:34:56.12345');
+insert into tb_ts_filter values (7, timestamp '2024-05-30 20:34:56.123456');
+
+*/
 

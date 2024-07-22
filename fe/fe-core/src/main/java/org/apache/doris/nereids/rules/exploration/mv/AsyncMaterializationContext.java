@@ -71,8 +71,11 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> getMaterializationQualifier() {
-        return this.mtmv.getFullQualifiers();
+    List<String> generateMaterializationIdentifier() {
+        if (super.identifier == null) {
+            super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
+        }
+        return super.identifier;
     }
 
     @Override
@@ -88,7 +91,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             }
         }
         failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
+        return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }
@@ -100,7 +103,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
         } catch (AnalysisException e) {
             LOG.warn(String.format("get mv plan statistics fail, materialization qualifier is %s",
-                    getMaterializationQualifier()), e);
+                    generateMaterializationIdentifier()), e);
             return Optional.empty();
         }
         RelationId relationId = null;
@@ -116,7 +119,12 @@ public class AsyncMaterializationContext extends MaterializationContext {
         if (!(relation instanceof PhysicalCatalogRelation)) {
             return false;
         }
-        return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
+        if (!(((PhysicalCatalogRelation) relation).getTable() instanceof MTMV)) {
+            return false;
+        }
+        return ((PhysicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                this.generateMaterializationIdentifier()
+        );
     }
 
     public Plan getScanPlan() {

@@ -71,4 +71,81 @@ suite("check_before_quit", "nonConcurrent,p0") {
     }
 
     assertTrue(clear)
+
+    // check spill temporary files is cleared
+    // Function to parse the metrics
+    def getPrometheusMetric = { String data, String name -> {
+        def metricValues = []
+        data.eachLine { line ->
+            line = line.trim()
+
+            // Skip comment lines
+            if (line.startsWith('#')) return
+
+            // Regular expression to match metric lines
+            def matcher = (line =~ /^(\w+)(\{[^}]+\})?\s+(.+)$/)
+
+            if (matcher) {
+                def metricName = matcher[0][1]
+                def labels = matcher[0][2]
+                def value = matcher[0][3]
+                if (metricName == name) {
+                    metricValues << value
+                }
+            }
+        }
+        return metricValues
+    }
+
+    }
+    beginTime = System.currentTimeMillis();
+    timeoutMs = 30 * 1000 // 30s
+    clear = false
+
+    def command = "curl http://${beHost}:${bePort}/metrics"
+    while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
+        clear = true
+        logger.info("executing command: ${command}")
+        def process = command.execute()
+        def outputStream = new StringBuffer()
+        def errorStream = new StringBuffer()
+        process.consumeProcessOutput(outputStream, errorStream)
+        def code = process.waitFor()
+        def metrics = outputStream.toString()
+        logger.info("Request BE metrics: code=" + code + ", err=" + errorStream.toString())
+
+        def hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_data")
+        logger.info("has spill temporary files :${hasSpillData}")
+        for (int i = 0; i < hasSpillData.size(); i++) {
+            if (0 != Integer.valueOf(hasSpillData.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_gc_data")
+        logger.info("has spill temporary files :${hasSpillData}")
+        for (int i = 0; i < hasSpillData.size(); i++) {
+            if (0 != Integer.valueOf(hasSpillData.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def spill_data_sizes = getPrometheusMetric(metrics, "doris_be_spill_disk_data_size")
+        logger.info("spill data sizes :${spill_data_sizes}")
+        for (int i = 0; i < spill_data_sizes.size(); i++) {
+            if (0 != Integer.valueOf(spill_data_sizes.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        if (clear) {
+            break
+        }
+
+        Thread.sleep(2000)
+    }
+    assertTrue(clear)
 }

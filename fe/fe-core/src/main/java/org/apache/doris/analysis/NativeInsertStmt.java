@@ -102,6 +102,7 @@ import java.util.stream.Collectors;
  * The only difference is that non-streaming will record the load info in LoadManager and return label.
  * User can check the load info by show load stmt.
  */
+@Deprecated
 public class NativeInsertStmt extends InsertStmt {
 
     private static final Logger LOG = LogManager.getLogger(InsertStmt.class);

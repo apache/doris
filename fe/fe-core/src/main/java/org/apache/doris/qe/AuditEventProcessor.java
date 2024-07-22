@@ -70,12 +70,21 @@ public class AuditEventProcessor {
         }
     }
 
-    public void handleAuditEvent(AuditEvent auditEvent) {
+    public boolean handleAuditEvent(AuditEvent auditEvent) {
+        return handleAuditEvent(auditEvent, false);
+    }
+
+    public boolean handleAuditEvent(AuditEvent auditEvent, boolean ignoreQueueFullLog) {
+        boolean isAddSucc = true;
         try {
             eventQueue.add(auditEvent);
         } catch (Exception e) {
-            LOG.warn("encounter exception when handle audit event, ignore", e);
+            isAddSucc = false;
+            if (!ignoreQueueFullLog) {
+                LOG.warn("encounter exception when handle audit event {}, ignore", auditEvent.type, e);
+            }
         }
+        return isAddSucc;
     }
 
     public class Worker implements Runnable {

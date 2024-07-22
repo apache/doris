@@ -206,7 +206,7 @@ public class FileLoadScanNode extends FileScanNode {
             LoadScanProvider scanProvider = scanProviders.get(i);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider, localBackendPolicy);
-            this.inputSplitsNum += scanProvider.getInputSplitNum();
+            this.selectedSplitNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
     }

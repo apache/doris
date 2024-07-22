@@ -120,8 +120,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
-        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
-        int32_t schema_hash) {
+        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t table_id,
+        int64_t partition_id, int32_t schema_hash) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
@@ -151,6 +151,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (table_id > 0) {
+        new_tablet_meta_pb.set_table_id(table_id);
+    }
     if (partition_id != -1) {
         new_tablet_meta_pb.set_partition_id(partition_id);
     }

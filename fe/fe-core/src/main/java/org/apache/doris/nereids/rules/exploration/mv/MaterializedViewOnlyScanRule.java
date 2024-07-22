@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * MaterializedViewOnlyScanRule
  */
-public class MaterializedViewOnlyScanRule extends MaterializedViewScanRule {
+public class MaterializedViewOnlyScanRule extends AbstractMaterializedViewScanRule {
 
     public static final MaterializedViewOnlyScanRule INSTANCE = new MaterializedViewOnlyScanRule();
 

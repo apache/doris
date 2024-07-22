@@ -108,9 +108,7 @@ private:
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
-
-    // Use pointer to avoid memory allocation during construction
-    std::unique_ptr<Arena> _arena;
+    Arena _arena;
 
     std::vector<int> _normal_columns_idx;
     std::vector<int> _agg_columns_idx;

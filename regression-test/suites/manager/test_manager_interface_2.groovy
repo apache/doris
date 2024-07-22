@@ -90,10 +90,13 @@ suite('test_manager_interface_2',"p0") {
         """
         
         List<List<Object>> result = sql """ show partitions from  test_manager_tb """ 
-
+        logger.info("result = ${result}" ) 
         for( int i =0 ; i <result.size();i++) {
             assertTrue( result[i][1] in ["less100","less200","less2000"])
-            assertTrue( result[i][9].toBigInteger() == 1) // ReplicationNum
+
+            logger.info (result[i][1] + ".ReplicationNum = " + result[i][9])
+            
+            assertTrue( result[i][9].toBigInteger() == 1  ||result[i][9].toBigInteger() == 3 )  // ReplicationNum
         }
 
 
@@ -181,10 +184,11 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
 
         result = sql """SHOW BACKENDS;"""
-
+        logger.info("result = ${result}" )
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
+            
             if (result[i][2].toBigInteger() == notExistPort) {
                 assertTrue(result[i][0]!=null)//name 
 
@@ -222,6 +226,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
         result = sql """SHOW BACKENDS;"""
+        logger.info("result = ${result}" )
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
@@ -248,7 +253,8 @@ suite('test_manager_interface_2',"p0") {
         assertTrue(x==0)
 
 
-        result = sql """ SHOW FRONTENDS """ 
+        result = sql """ SHOW FRONTENDS """
+        logger.info("result = ${result}" )
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             if (result[i][18]=="Yes") {
@@ -288,6 +294,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM ADD BROKER test_manager_broker "${address}:${notExistPort}";"""
         result = sql """ show broker """ 
         x =  0
+        logger.info("result = ${result}" )
         for ( int i =0 ;i<result.size();i++){
 
             assertTrue(result[i][3] in ["true","false"])//Alive

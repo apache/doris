@@ -59,6 +59,30 @@ suite("test_create_with_null_type") {
 
     qt_desc "desc ${mvName} all"
 
-    sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT null as id FROM ${tableName};
+    """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO;
+    """
+
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+
+    order_qt_select "SELECT * FROM ${mvName}"
+
+    qt_desc "desc ${mvName} all"
+
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """drop table if exists `${tableName}`"""
 }

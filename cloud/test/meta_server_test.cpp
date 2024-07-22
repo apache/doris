@@ -34,7 +34,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
@@ -163,7 +163,7 @@ TEST(MetaServerTest, StartAndStop) {
     options.num_threads = 1;
     brpc::Server brpc_server;
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
 
     std::array<std::string, 3> sps {"MetaServer::start:1", "MetaServer::start:2",
                                     "MetaServer::start:3"};
@@ -177,7 +177,10 @@ TEST(MetaServerTest, StartAndStop) {
         sp->disable_processing();
     });
 
-    auto foo = [](void* ret) { *((int*)ret) = 1; };
+    auto foo = [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    };
 
     // failed to init resource mgr
     sp->set_call_back(meta_server_start_1, foo);

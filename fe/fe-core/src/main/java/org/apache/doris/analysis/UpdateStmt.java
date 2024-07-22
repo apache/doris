@@ -56,7 +56,8 @@ import java.util.TreeSet;
  * value:
  *     {expr}
  */
-public class UpdateStmt extends DdlStmt {
+@Deprecated
+public class UpdateStmt extends DdlStmt implements NotFallbackInParser {
     private TableRef targetTableRef;
     private TableName tableName;
     private final List<BinaryPredicate> setExprs;

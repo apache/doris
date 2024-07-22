@@ -145,8 +145,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             BitSet materializedViewTableSet) {
         List<StructInfo> validStructInfos = new ArrayList<>();
         // For every materialized view we should trigger refreshing struct info map
-        List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
-                materializedViewTableSet);
+        List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
+                cascadesContext, materializedViewTableSet);
         uncheckedStructInfos.forEach(queryStructInfo -> {
             boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
@@ -434,7 +434,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 .collect(Collectors.toSet());
 
         Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
-                cascadesContext.getConnectContext(), System.currentTimeMillis());
+                cascadesContext.getConnectContext(), System.currentTimeMillis(), false);
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();
@@ -754,7 +754,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
     // check mv plan is valid or not, this can use cache for performance
     private boolean isMaterializationValid(CascadesContext cascadesContext, MaterializationContext context) {
-        long materializationId = context.getMaterializationQualifier().hashCode();
+        long materializationId = context.generateMaterializationIdentifier().hashCode();
         Boolean cachedCheckResult = cascadesContext.getMemo().materializationHasChecked(this.getClass(),
                 materializationId);
         if (cachedCheckResult == null) {

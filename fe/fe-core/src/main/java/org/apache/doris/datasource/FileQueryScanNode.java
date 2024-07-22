@@ -326,7 +326,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (splitAssignment.getSampleSplit() == null && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }
-            inputSplitsNum = numApproximateSplits();
+            selectedSplitNum = numApproximateSplits();
 
             TFileType locationType;
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
@@ -336,7 +336,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             } else {
                 locationType = getLocationType(fileSplit.getPath().toString());
             }
-            totalFileSize = fileSplit.getLength() * inputSplitsNum;
+            totalFileSize = fileSplit.getLength() * selectedSplitNum;
             long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
             int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
@@ -364,7 +364,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            inputSplitsNum = inputSplits.size();
+            selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
                 return;
             }

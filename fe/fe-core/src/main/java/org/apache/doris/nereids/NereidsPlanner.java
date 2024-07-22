@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -103,7 +104,6 @@ public class NereidsPlanner extends Planner {
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
-    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -130,7 +130,7 @@ public class NereidsPlanner extends Planner {
         setParsedPlan(parsedPlan);
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
-        statementContext.getStopwatch().start();
+        statementContext.getStopwatch().reset().start();
         Plan resultPlan = null;
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
@@ -285,7 +285,7 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start analyze plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
-        getHooks().forEach(hook -> hook.afterAnalyze(this));
+        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -597,6 +597,8 @@ public class NereidsPlanner extends Planner {
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return Optional.empty();
         }
+
+        setFormatOptions();
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
@@ -622,6 +624,22 @@ public class NereidsPlanner extends Planner {
             return Optional.empty();
         } else {
             return Optional.empty();
+        }
+    }
+
+    private void setFormatOptions() {
+        ConnectContext ctx = statementContext.getConnectContext();
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        switch (sessionVariable.serdeDialect) {
+            case "presto":
+            case "trino":
+                statementContext.setFormatOptions(FormatOptions.getForPresto());
+                break;
+            case "doris":
+                statementContext.setFormatOptions(FormatOptions.getDefault());
+                break;
+            default:
+                throw new AnalysisException("Unsupported serde dialect: " + sessionVariable.serdeDialect);
         }
     }
 
@@ -682,14 +700,6 @@ public class NereidsPlanner extends Planner {
 
     public LogicalPlanAdapter getLogicalPlanAdapter() {
         return logicalPlanAdapter;
-    }
-
-    public List<PlannerHook> getHooks() {
-        return hooks;
-    }
-
-    public void addHook(PlannerHook hook) {
-        this.hooks.add(hook);
     }
 
     private String getTimeMetricString(Function<SummaryProfile, String> profileSupplier) {

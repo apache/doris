@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * MaterializedViewProjectScanRule
  */
-public class MaterializedViewProjectScanRule extends MaterializedViewScanRule {
+public class MaterializedViewProjectScanRule extends AbstractMaterializedViewScanRule {
 
     public static final MaterializedViewProjectScanRule INSTANCE = new MaterializedViewProjectScanRule();
 

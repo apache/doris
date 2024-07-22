@@ -846,9 +846,8 @@ public:
                 }
             }
         }
-        if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
-            return Status::BufferAllocFailed("concat output is too large to allocate");
-        }
+
+        ColumnString::check_chars_length(res_reserve_size, 0);
 
         res_data.resize(res_reserve_size);
 
@@ -1202,14 +1201,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
-    std::string error_msg(int default_value, int repeat_value) const {
-        auto error_msg = fmt::format(
-                "The second parameter of repeat function exceeded maximum default value, "
-                "default_value is {}, and now input is {} . you could try change default value "
-                "greater than value eg: set repeat_max_num = {}.",
-                default_value, repeat_value, repeat_value + 10);
-        return error_msg;
-    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -1225,22 +1216,18 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         argument_ptr[1] = block.get_by_position(arguments[1]).column;
 
-        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+        if (const auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (const auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
                                               col2->get_data(), res->get_chars(),
-                                              res->get_offsets(), null_map->get_data(),
-                                              context->state()->repeat_max_num()));
+                                              res->get_offsets(), null_map->get_data()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
-            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+            } else if (const auto* col2_const =
+                               check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = col2_const->get_int(0);
-                if (repeat > context->state()->repeat_max_num()) {
-                    return Status::InvalidArgument(
-                            error_msg(context->state()->repeat_max_num(), repeat));
-                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1260,8 +1247,8 @@ public:
 
     Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                         ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
-                         const int repeat_max_num) const {
+                         ColumnString::Offsets& res_offsets,
+                         ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1272,15 +1259,10 @@ public:
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
-            if (repeat > repeat_max_num) {
-                return Status::InvalidArgument(error_msg(repeat_max_num, repeat));
-            }
-
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
-            } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else {
+                ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
                 for (int j = 0; j < repeat; ++j) {
                     buffer.append(raw_str, raw_str + size);
                 }
@@ -1306,16 +1288,13 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
+            ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
 
-            if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            } else {
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
             }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
         }
     }
 };
@@ -1369,7 +1348,6 @@ public:
         const bool str_const = col_const[0];
         const bool len_const = col_const[1];
         const bool pad_const = col_const[2];
-        const int repeat_max_num = context->state()->repeat_max_num();
         for (size_t i = 0; i < input_rows_count; ++i) {
             str_index.clear();
             pad_index.clear();
@@ -1404,15 +1382,6 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
-                if (len > repeat_max_num) {
-                    return Status::InvalidArgument(
-                            " {} function the length argument is {} exceeded maximum default "
-                            "value: {}."
-                            "if you really need this length, you could change the session "
-                            "variable "
-                            "set repeat_max_num = xxx.",
-                            get_name(), len, repeat_max_num);
-                }
 
                 // make compatible with mysql. return empty string if pad is empty
                 if (pad_char_size == 0) {
@@ -1422,7 +1391,9 @@ public:
 
                 const int32_t pad_times = (len - str_char_size) / pad_char_size;
                 const int32_t pad_remainder = (len - str_char_size) % pad_char_size;
-                buffer.reserve(str_len + (pad_times + 1) * pad_len);
+                size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
+                ColumnString::check_chars_length(new_capacity, 0);
+                buffer.reserve(new_capacity);
                 auto* buffer_data = buffer.data();
                 int32_t buffer_len = 0;
                 if constexpr (!Impl::is_lpad) {
@@ -2454,7 +2425,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
-        std::vector<uint8_t> random_bytes;
+        std::vector<uint8_t, Allocator_<uint8_t>> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
@@ -2470,7 +2441,7 @@ public:
                 byte = distribution(gen);
             }
 
-            std::ostringstream oss;
+            std::basic_ostringstream<char, std::char_traits<char>, Allocator_<char>> oss;
             for (const auto& byte : random_bytes) {
                 oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
             }
@@ -2993,6 +2964,8 @@ private:
                     return str;
                 }
                 std::string result;
+                ColumnString::check_chars_length(
+                        str.length() * (new_str.length() + 1) + new_str.length(), 0);
                 result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
                 for (char c : str) {
                     result += new_str;
@@ -3211,6 +3184,7 @@ public:
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
         // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
+        ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
         res_chars.resize(str_chars.size() * 2 + input_rows_count);
 
         size_t in_len = 0, out_len = 0;
@@ -3493,7 +3467,7 @@ public:
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
             return Status::BufferAllocFailed("function char output is too large to allocate");
         }
-
+        ColumnString::check_chars_length(res_reserve_size, 0);
         res_data.resize(res_reserve_size);
         res_offset.resize(input_rows_count);
 

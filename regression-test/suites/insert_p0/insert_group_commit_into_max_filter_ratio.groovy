@@ -195,21 +195,19 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ set group_commit = sync_mode; """
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
             sql """ set group_commit = async_mode; """
-            group_commit_insert """ insert into ${dbTableName}(id) select 2; """, 1
+            group_commit_insert """ insert into ${dbTableName}(id) values(2); """, 1
             sql """ set group_commit = off_mode; """
             off_mode_group_commit_insert """ insert into ${dbTableName} values (3, 'a', 10); """, 1
 
+            sql """ set group_commit = async_mode; """
             if (item == "nereids") {
-                sql """ set group_commit = async_mode; """
-                normal_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
-                sql """ set enable_insert_strict = false; """
-                normal_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
+                group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
             } else {
-                sql """ set group_commit = async_mode; """
                 fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
-                sql """ set enable_insert_strict = false; """
-                group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
             }
+            sql """ set enable_insert_strict = false; """
+            group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
+
             // The row 6 and 7 is different between legacy and nereids
             try {
                 sql """ set group_commit = off_mode; """

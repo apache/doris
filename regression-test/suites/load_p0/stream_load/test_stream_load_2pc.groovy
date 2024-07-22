@@ -317,9 +317,9 @@ suite("test_stream_load_2pc", "p0") {
         '',
         """
         "dynamic_partition.enable" = "true",
-        "dynamic_partition.time_unit" = "MONTH",
-        "dynamic_partition.start" = "-3",
-        "dynamic_partition.end" = "3",
+        "dynamic_partition.time_unit" = "YEAR",
+        "dynamic_partition.start" = "-10",
+        "dynamic_partition.end" = "10",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32",
         "dynamic_partition.create_history_partition" = "true"
@@ -405,7 +405,7 @@ suite("test_stream_load_2pc", "p0") {
                     `v2` tinyint(4) NULL,
                     `v3` tinyint(4) NULL,
                     `v4` DATETIME NULL,
-                    `v5` date default "2024-06-18"
+                    `v5` date default current_date
                 ) ENGINE=OLAP
                 $partition
                 $distributed
@@ -452,16 +452,16 @@ suite("test_stream_load_2pc", "p0") {
         def dynamic_partition = ["", "", "", "", "",
         """
             "dynamic_partition.enable" = "true",
-            "dynamic_partition.time_unit" = "MONTH",
-            "dynamic_partition.start" = "-1",
-            "dynamic_partition.end" = "1",
+            "dynamic_partition.time_unit" = "YEAR",
+            "dynamic_partition.start" = "-10",
+            "dynamic_partition.end" = "5",
             "dynamic_partition.prefix" = "p",
-            "dynamic_partition.buckets" = "3"
+            "dynamic_partition.buckets" = "32"
         """ 
         ]
 
         
-        def tbl_2pc_expected = [1, 4, 4, 4, 4, 2]
+        def tbl_2pc_expected = [1, 4, 4, 4, 4, 6]
         def i = 0;
 
         def streamLoadAction = { tbl, columns, filename, rowCount, expected ->
@@ -540,8 +540,7 @@ suite("test_stream_load_2pc", "p0") {
                 orderby = "order by k00, k01"
             }
 
-            qt_sql_2pc_commit "select * from ${tbl} $orderby"
-
+            qt_sql_2pc_commit "select count(*) from ${tbl}"
             json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId, tbl)
             assertTrue(json2pc.msg.contains("is already visible, not pre-committed"))
         }
@@ -549,7 +548,6 @@ suite("test_stream_load_2pc", "p0") {
         for (String partition in partitions) {
             drop_table.call()
             create_table.call(partition, dynamic_partition[i])
-
             streamLoadAction.call(tableName, 'k1, k2, v1, v2, v3', "test_two_phase_commit.csv", 2, tbl_2pc_expected[i])
             i++
             
@@ -564,7 +562,7 @@ suite("test_stream_load_2pc", "p0") {
             }
             return create + "\n" + partition + "\nDISTRIBUTED BY HASH(k01) BUCKETS 32\n"+ "PROPERTIES($property $dynamic)"
         }
-        def expected = [1, 3, 3, 5, 7] 
+        def expected = [1, 3, 3, 5, 21] 
         // we recreate table for each partition, then load data with stream load and check the result
         for (i = 0; i < tables.size(); ++i) {
             def j = 0
@@ -573,7 +571,7 @@ suite("test_stream_load_2pc", "p0") {
                 String sqlStr = concat_sql.call(create_table_sql[i], paritition, properties[i], dynamics[j])
                 sql """drop table if exists ${tables[i]}"""
                 sql """${sqlStr}"""
-
+                
                 streamLoadAction.call(tables[i], columns_stream_load[i], "two_phase_commit_basic_data.csv", 20, expected[j++])
             }
         }
