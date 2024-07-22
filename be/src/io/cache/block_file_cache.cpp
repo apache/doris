@@ -38,6 +38,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "runtime/exec_env.h"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
@@ -725,6 +726,196 @@ size_t BlockFileCache::try_release() {
     }
     LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << _cache_base_path;
     return trash.size();
+}
+
+std::pair<size_t, size_t> LRUFileCache::try_merge() {
+    std::unordered_map<UInt128Wrapper, std::vector<std::vector<size_t>>, KeyHash> merged_files;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        for (auto& [key, segments] : _files) {
+            std::vector<std::vector<size_t>> merged_blocks = find_continuous_cells(segments);
+            if (!merged_blocks.empty()) {
+                merged_files[key] = merged_blocks;
+            }
+        }
+    }
+    if (!merged_files.empty()) {
+        return merge_continuous_cells(merged_files);
+    }
+    return {0, 0};
+}
+
+Status LRUFileCache::async_merge(const UInt128Wrapper& key) {
+    ThreadPool* merge_pool = ExecEnv::GetInstance()->file_cache_thread_pool();
+    return merge_pool->submit_func([file_key = key, this]() {
+        std::unordered_map<UInt128Wrapper, std::vector<std::vector<size_t>>, KeyHash> merged_files;
+        {
+            std::lock_guard<std::mutex> l(_mutex);
+            if (_files.contains(file_key)) {
+                std::vector<std::vector<size_t>> merged_blocks =
+                        find_continuous_cells(_files[file_key]);
+                if (!merged_blocks.empty()) {
+                    merged_files[file_key] = merged_blocks;
+                }
+            }
+        }
+        if (!merged_files.empty()) {
+            merge_continuous_cells(merged_files);
+        }
+    });
+}
+
+std::vector<std::vector<size_t>> LRUFileCache::find_continuous_cells(
+        const FileBlocksByOffset& segments) {
+    // vector<vector<offset>>, continuous file segments
+    std::vector<std::vector<size_t>> merged_blocks;
+    std::vector<size_t> continuous_blocks;
+    size_t end_offset;
+    size_t merged_size = 0;
+    for (auto& [offset, cell] : segments) {
+        if (cell.file_block->cache_type() != CacheType::NORMAL) {
+            // Only try to merge the normal segments
+            break;
+        }
+        if (cell.releasable()) {
+            // The segment file is not reading currently
+            if (continuous_blocks.empty()) {
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+                merged_size = cell.size();
+            } else if (offset == end_offset) {
+                if (merged_size >= MAX_MERGED_SIZE) {
+                    if (continuous_blocks.size() > 1) {
+                        merged_blocks.push_back(continuous_blocks);
+                    }
+                    continuous_blocks.clear();
+                    merged_size = cell.size();
+                } else {
+                    merged_size += cell.size();
+                }
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+            } else {
+                if (continuous_blocks.size() > 1) {
+                    merged_blocks.push_back(continuous_blocks);
+                }
+                continuous_blocks.clear();
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+                merged_size = cell.size();
+            }
+        }
+    }
+    if (continuous_blocks.size() > 1) {
+        merged_blocks.push_back(continuous_blocks);
+    }
+    return merged_blocks;
+}
+
+std::pair<size_t, size_t> BlockFileCache::merge_continuous_cells(
+        const std::unordered_map<UInt128Wrapper, std::vector<std::vector<size_t>>, KeyHash>&
+                merged_files) {
+    size_t buffer_size = 1024 * 1024;
+    char buffer[buffer_size];
+    std::pair<size_t, size_t> origin_to_merged(0, 0);
+    for (auto& [key, continuous_blocks] : merged_files) {
+        std::lock_guard<std::mutex> l(_mutex);
+        if (!_files.contains(key)) {
+            continue;
+        }
+        FileBlocksByOffset& offset_cells = _files[key];
+        bool has_deleted = false;
+        for (auto& offsets : continuous_blocks) {
+            for (auto& offset : offsets) {
+                if (!offset_cells.contains(offset)) {
+                    // lock for each file, some files maybe deleted
+                    has_deleted = true;
+                }
+            }
+        }
+        if (has_deleted) {
+            continue;
+        }
+        for (auto& offsets : continuous_blocks) {
+            size_t merged_cell_offset = offsets[0];
+            size_t merged_size = offset_cells.at(offsets.back()).file_block->range().right + 1 -
+                                 merged_cell_offset;
+            auto cache_type = offset_cells.at(merged_cell_offset).file_block->cache_type();
+            auto expiration_time = offset_cells.at(merged_cell_offset).file_block->expiration_time();
+            CacheContext mock_ctx;
+            mock_ctx.cache_type = cache_type;
+            if (!try_reserve(key, mock_ctx, merged_cell_offset, merged_size, l)) {
+                return origin_to_merged;
+            }
+            FileCacheKey cache_key;
+            cache_key.hash = key;
+            cache_key.offset = merged_cell_offset;
+            cache_key.meta.type = cache_type;
+            cache_key.meta.expiration_time = expiration_time;
+            cache_key.is_merged_file = true;
+            FileBlockCell merged_cell(std::make_shared<FileBlock>(cache_key, merged_size, this,
+                                                                  FileBlock::State::EMPTY),
+                                      l);
+            merged_cell.file_block->get_or_set_downloader();
+            bool success_merged = true;
+            for (auto& offset : offsets) {
+                FileBlockCell& cell = offset_cells.at(offset);
+                size_t cell_offset = 0;
+                size_t remaining_size = cell.size();
+                while (remaining_size > 0) {
+                    size_t bytes_read = std::min(buffer_size, remaining_size);
+                    Slice data(buffer, bytes_read);
+                    // read the origin segment file
+                    if (!cell.file_block->read_at(data, cell_offset)) {
+                        break;
+                    }
+                    // merge into the destination file
+                    if (!merged_cell.file_block->append(data)) {
+                        break;
+                    }
+                    cell_offset += bytes_read;
+                    remaining_size -= bytes_read;
+                }
+                if (remaining_size != 0) {
+                    success_merged = false;
+                    break;
+                }
+            }
+            if (success_merged) {
+                std::ostringstream offsets_info;
+                for (auto& offset : offsets) {
+                    FileBlockCell& cell = offset_cells.at(offset);
+                    offsets_info << offset << " ";
+                    // delete the origin segment file
+                    // get the file block to prevent the reading operation
+                    std::lock_guard<std::mutex> lc(cell.file_block->_mutex);
+                    remove(cell.file_block, l, lc);
+                }
+                if (merged_cell.file_block->finalize_write()) {
+                    auto& queue = get_queue(cache_type);
+                    merged_cell.queue_iterator = queue.add(key, merged_cell_offset, merged_size, l);
+                    auto [it, inserted] =
+                            offset_cells.insert({merged_cell_offset, std::move(merged_cell)});
+                    if (inserted) {
+                        _cur_cache_size += merged_size;
+                        it->second.update_atime();
+                        origin_to_merged.first += offsets.size();
+                        origin_to_merged.second += 1;
+                        LOG(INFO) << "Success to merge " << offsets.size()
+                                  << " small cells, key=" << key.to_string()
+                                  << ", offsets=" << offsets_info.str();
+                    } else {
+                        merged_cell.file_block->remove_merged_file();
+                    }
+                } else {
+                    merged_cell.file_block->remove_merged_file();
+                }
+            } else {
+                merged_cell.file_block->remove_merged_file();
+            }
+        }
+    }
+    return origin_to_merged;
 }
 
 BlockFileCache::LRUQueue& BlockFileCache::get_queue(FileCacheType type) {

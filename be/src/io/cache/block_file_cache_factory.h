@@ -46,6 +46,12 @@ public:
 
     size_t try_release(const std::string& base_path);
 
+    /// Merge continuous small segment files into a larger one
+    /// Return the number of origin segment files and the merged files
+    std::pair<size_t, size_t> try_merge();
+
+    std::pair<size_t, size_t> try_merge(const std::string& base_path);
+
     const std::string& get_cache_path() {
         size_t cur_index = _next_index.fetch_add(1);
         return _caches[cur_index % _caches.size()]->get_base_path();

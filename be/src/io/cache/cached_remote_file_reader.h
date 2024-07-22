@@ -61,6 +61,8 @@ protected:
 private:
     void _insert_file_reader(FileBlockSPtr file_block);
     bool _is_doris_table;
+    bool _is_remote_oss;
+    size_t _num_write_blocks = 0;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;

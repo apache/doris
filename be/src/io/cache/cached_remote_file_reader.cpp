@@ -50,6 +50,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
                                                const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
     _is_doris_table = opts.is_doris_table;
+    _is_remote_oss = typeid_cast<io::S3FileReader*>(_remote_file_reader.get()) != nullptr;
     if (_is_doris_table) {
         _cache_hash = BlockFileCache::hash(path().filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
@@ -84,6 +85,14 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
+    if (_num_write_blocks > 0 && !_is_doris_table) {
+        // try to merge small blocks for external table
+        // can't merge the blocks for internal table
+        Status st = _cache->async_merge(_cache_key);
+        if (!st) {
+            LOG(WARNING) << "Failed to merge small blocks: " << st;
+        }
+    }
     static_cast<void>(close());
 }
 
@@ -95,15 +104,29 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
                                                                size_t length) {
     size_t left = offset;
     size_t right = offset + read_size - 1;
-    size_t align_left =
-            (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
-    size_t align_right =
-            (right / config::file_cache_each_block_size + 1) * config::file_cache_each_block_size;
-    align_right = align_right < length ? align_right : length;
-    size_t align_size = align_right - align_left;
-    if (align_size < config::file_cache_each_block_size && align_left != 0) {
-        align_size += config::file_cache_each_block_size;
-        align_left -= config::file_cache_each_block_size;
+    size_t align_left, align_right, align_size;
+    if (_is_doris_table) {
+        align_left =
+                (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
+        align_right = (right / config::file_cache_each_block_size + 1) *
+                      config::file_cache_each_block_size;
+        align_right = align_right < length ? align_right : length;
+        align_size = align_right - align_left;
+        if (align_size < config::file_cache_each_block_size && align_left != 0) {
+            align_size += config::file_cache_each_block_size;
+            align_left -= config::file_cache_each_block_size;
+        }
+    } else {
+        // larger block size for oss(default 1MB)
+        // smaller block size for hdfs(default 4KB)
+        // to make better performance, and minimize the unnecessary reading of extra data in hdfs
+        size_t min_size = _is_remote_oss ? config::file_cache_each_block_size
+                                         : config::file_cache_hdfs_block_size;
+        size_t segment_size = std::max(read_size, min_size);
+        align_left = left;
+        align_right = left + segment_size;
+        align_right = align_right < length ? align_right : length;
+        align_size = align_right - align_left;
     }
     return std::make_pair(align_left, align_size);
 }
@@ -205,7 +228,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_start = empty_blocks.front()->range().left;
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
-        std::unique_ptr<char[]> buffer(new char[size]);
+        std::shared_ptr<char[]> buffer(new char[size]);
         {
             s3_read_counter << 1;
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
@@ -217,19 +240,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 continue;
             }
             SCOPED_RAW_TIMER(&stats.local_write_timer);
-            char* cur_ptr = buffer.get() + block->range().left - empty_start;
             size_t block_size = block->range().size();
-            Status st = block->append(Slice(cur_ptr, block_size));
-            if (st.ok()) {
-                st = block->finalize();
-            }
-            if (!st.ok()) {
-                LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
-            } else {
-                _insert_file_reader(block);
-            }
+            RETURN_IF_ERROR(
+                    block->async_write(buffer, block->range().left - empty_start, block_size));
             stats.bytes_write_into_file_cache += block_size;
         }
+        _num_write_blocks = empty_segments.size();
         // copy from memory directly
         size_t right_offset = offset + bytes_req - 1;
         if (empty_start <= right_offset && empty_end >= offset) {

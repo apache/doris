@@ -61,6 +61,24 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
+std::pair<size_t, size_t> FileCacheFactory::try_merge() {
+    std::pair<size_t, size_t> origin_to_merge(0, 0);
+    for (auto& cache : _caches) {
+        auto res = cache->try_merge();
+        origin_to_merge.first += res.first;
+        origin_to_merge.second += res.second;
+    }
+    return origin_to_merge;
+}
+
+std::pair<size_t, size_t> FileCacheFactory::try_merge(const std::string& base_path) {
+    auto iter = _path_to_cache.find(base_path);
+    if (iter != _path_to_cache.end()) {
+        return iter->second->try_merge();
+    }
+    return {0, 0};
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
     const auto& fs = global_local_filesystem();

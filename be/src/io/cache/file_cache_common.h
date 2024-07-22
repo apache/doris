@@ -83,6 +83,7 @@ struct FileCacheKey {
     UInt128Wrapper hash;
     size_t offset;
     KeyMeta meta;
+    bool is_merged_file {false};
 };
 
 struct FileCacheSettings {

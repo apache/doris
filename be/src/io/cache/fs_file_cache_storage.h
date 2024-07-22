@@ -71,6 +71,7 @@ public:
 
     [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
                                                              FileCacheType type,
+                                                             bool is_merged_file = false,
                                                              bool is_tmp = false);
 
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
