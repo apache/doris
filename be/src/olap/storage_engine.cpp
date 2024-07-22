@@ -171,12 +171,10 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
         root.AddMember(key, path_obj, root.GetAllocator());
     };
 
-    {
-        std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
-        add_node("BaseCompaction", _tablet_submitted_base_compaction);
-        add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
-        add_node("FullCompaction", _tablet_submitted_full_compaction);
-    }
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    add_node("BaseCompaction", _tablet_submitted_base_compaction);
+    add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
+    add_node("FullCompaction", _tablet_submitted_full_compaction);
 
     rapidjson::StringBuffer str_buf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
