@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -38,7 +39,7 @@ namespace io {
 struct FileBlocksHolder;
 class BlockFileCache;
 
-class FileBlock {
+class FileBlock : public std::enable_shared_from_this<FileBlock> {
     friend struct FileBlocksHolder;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
@@ -62,6 +63,9 @@ public:
     };
 
     FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state);
+
+    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state,
+              bool is_merged_file);
 
     ~FileBlock() = default;
 
@@ -90,6 +94,11 @@ public:
     size_t offset() const { return range().left; }
 
     State wait();
+
+    /// Write the cached data asynchronously
+    Status async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length);
+
+    void async_remove();
 
     // append data to cache file
     [[nodiscard]] Status append(Slice data);
@@ -125,6 +134,8 @@ public:
 
     State state_unlock(std::lock_guard<std::mutex>&) const;
 
+    void remove_merged_file();
+
     FileBlock& operator=(const FileBlock&) = delete;
     FileBlock(const FileBlock&) = delete;
 
@@ -137,6 +148,8 @@ private:
     void complete_unlocked(std::lock_guard<std::mutex>& block_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& block_lock);
+
+    ThreadPool* _async_write_pool;
 
     Range _block_range;
 
@@ -153,6 +166,7 @@ private:
     std::condition_variable _cv;
     FileCacheKey _key;
     size_t _downloaded_size {0};
+    Status _status = Status::OK();
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

@@ -44,6 +44,8 @@ class BlockFileCache {
     friend struct FileBlocksHolder;
 
 public:
+    static constexpr size_t MAX_MERGED_SIZE = 16 * 1024 * 1024; // 16MB
+
     static std::string cache_type_to_string(FileCacheType type);
     static FileCacheType string_to_cache_type(const std::string& str);
     // hash the file_name to uint128
@@ -71,6 +73,20 @@ public:
     // try to release all releasable block
     // it maybe hang the io/system
     size_t try_release();
+
+    /// Merge continuous small segment files into a larger one
+    /// Return the number of origin segment files and the merged files
+    std::pair<size_t, size_t> try_merge();
+
+    Status async_merge(const UInt128Wrapper& key);
+
+    /// Find the continuous segment files for a remote file
+    /// Return the offsets of the continuous files.
+    std::vector<std::vector<size_t>> find_continuous_cells(const FileBlocksByOffset& segments);
+
+    std::pair<size_t, size_t> merge_continuous_cells(
+            const std::unordered_map<UInt128Wrapper, std::vector<std::vector<size_t>>, KeyHash>&
+                    merged_files);
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
 

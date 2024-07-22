@@ -240,6 +240,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("FileCacheThreadPool")
+                              .set_min_threads(16)
+                              .set_max_threads(64)
+                              .set_max_queue_size(256)
+                              .build(&_file_cache_thread_pool));
+
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
@@ -665,6 +671,7 @@ void ExecEnv::destroy() {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_file_cache_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
@@ -717,6 +724,7 @@ void ExecEnv::destroy() {
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _file_cache_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _file_cache_open_fd_cache.reset(nullptr);

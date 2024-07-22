@@ -122,7 +122,8 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
                 return st;
             }
-            std::string tmp_file = get_path_in_local_cache(dir, key.offset, key.meta.type, true);
+            std::string tmp_file = get_path_in_local_cache(dir, key.offset, key.meta.type,
+                                                           key.is_merged_file, true);
             FileWriterPtr file_writer;
             FileWriterOptions opts {.sync_file_data = false};
             RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
@@ -148,7 +149,7 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
         RETURN_IF_ERROR(file_writer->close());
     }
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-    std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+    std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type, false);
     return fs->rename(file_writer->path(), true_file);
 }
 
@@ -170,7 +171,7 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-    std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+    std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type, key.is_merged_file);
     RETURN_IF_ERROR(fs->delete_file(file));
     std::vector<FileInfo> files;
     bool exists {false};
@@ -203,7 +204,11 @@ Status FSFileCacheStorage::change_key_meta(const FileCacheKey& key, const KeyMet
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
-                                                        FileCacheType type, bool is_tmp) {
+                                                        FileCacheType type, bool is_merged_file,
+                                                        bool is_tmp) {
+    if (is_merged_file) {
+        return Path(dir) / (std::to_string(offset) + "_merged");
+    }
     return Path(dir) / (std::to_string(offset) +
                         (is_tmp ? "_tmp" : BlockFileCache::cache_type_to_string(type)));
 }

@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 namespace io {
@@ -41,6 +42,7 @@ FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr,
           _download_state(download_state),
           _mgr(mgr),
           _key(key) {
+    _async_write_pool = ExecEnv::GetInstance()->file_cache_thread_pool();
     /// On creation, file block state can be EMPTY, DOWNLOADED, SKIP_CACHE.
     switch (_download_state) {
     case State::DOWNLOADING: {
@@ -99,7 +101,7 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
         if (!st.ok()) {
             LOG(WARNING) << "reset downloader error" << st;
         }
-    } else {
+    } else if (_download_state != State::DOWNLOADING) {
         _downloaded_size = 0;
         _download_state = State::EMPTY;
         _downloader_id = 0;
@@ -118,6 +120,10 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) 
     }
     _downloader_id = 0;
     return status;
+}
+
+void FileBlock::remove_merged_file() {
+    _mgr->_storage->remove(_key);
 }
 
 uint64_t FileBlock::get_downloader() const {
@@ -156,7 +162,53 @@ Status FileBlock::finalize() {
     return st;
 }
 
+Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length) {
+    Status st = _async_write_pool->submit_func(
+            [block_ptr = shared_from_this(), buffer_ptr = buffer, off = offset, size = length]() {
+                if (!block_ptr->_status) {
+                    return;
+                }
+                Status append_st = block_ptr->append(Slice(buffer_ptr.get() + off, size));
+                if (!append_st) {
+                    block_ptr->_status = append_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
+                    return;
+                }
+                Status final_st = block_ptr->finalize();
+                if (!final_st) {
+                    block_ptr->_status = final_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
+                }
+            });
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async write file cache: " << st;
+        _download_state = State::EMPTY;
+    }
+    return st;
+}
+
+void FileBlock::async_remove() {
+    Status st = _async_write_pool->submit_func([block_ptr = shared_from_this()]() {
+        std::lock_guard cache_lock(block_ptr->_mgr->_mutex);
+        std::lock_guard segment_lock(block_ptr->_mutex);
+        block_ptr->complete_unlocked(segment_lock);
+        block_ptr->_mgr->remove(block_ptr, cache_lock, segment_lock);
+    });
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async remove file cache: " << st;
+        std::lock_guard cache_lock(block_ptr->_mgr->_mutex);
+        std::lock_guard segment_lock(_mutex);
+        complete_unlocked(segment_lock);
+        block_ptr->_mgr->remove(shared_from_this(), cache_lock, segment_lock);
+    }
+}
+
 Status FileBlock::read(Slice buffer, size_t read_offset) {
+    if (!_status) {
+        return _status;
+    }
     return _mgr->_storage->read(_key, read_offset, buffer);
 }
 
