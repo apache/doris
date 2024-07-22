@@ -149,7 +149,6 @@ public class ExecutionProfile {
     }
 
     public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
-        // TODO: Maybe not right.
         for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
             fragmentProfile.sortChildren();
         }
