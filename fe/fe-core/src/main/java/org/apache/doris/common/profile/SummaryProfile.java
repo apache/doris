@@ -61,6 +61,7 @@ public class SummaryProfile {
     public static final String WORKLOAD_GROUP = "Workload Group";
     public static final String PHYSICAL_PLAN = "Physical Plan";
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
+    public static final String SYSTEM_MESSAGE = "System Message";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -156,12 +157,13 @@ public class SummaryProfile {
             WRITE_RESULT_TIME,
             DORIS_VERSION,
             IS_NEREIDS,
-                    IS_CACHED,
+            IS_CACHED,
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
             TRACE_ID,
-            TRANSACTION_COMMIT_TIME
+            TRANSACTION_COMMIT_TIME,
+            SYSTEM_MESSAGE
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -827,6 +829,10 @@ public class SummaryProfile {
 
     public void incDeleteFileCnt() {
         this.filesystemDeleteFileCnt += 1;
+    }
+
+    public void setSystemMessage(String msg) {
+        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
     }
 
     public void write(DataOutput output) throws IOException {

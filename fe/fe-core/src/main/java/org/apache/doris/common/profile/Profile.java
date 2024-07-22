@@ -104,7 +104,7 @@ public class Profile {
     // Need default constructor for read from storage
     public Profile() {}
 
-    public Profile(boolean isEnable, int profileLevel, long autoProfileDurationMs) {
+    public Profile(boolean isEnable, int profileLeve, long autoProfileDurationMs) {
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isQueryFinished = !isEnable;
@@ -416,12 +416,14 @@ public class Profile {
             // it is hard to write a parse function.
             long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
             // time cost of this query is large enough.
-            if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs > autoProfileDurationMs) {
-                LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                        id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
+            if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs >
+                this.executionProfiles.size() * autoProfileDurationMs) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
+                        id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);   
+                }
                 return true;
             }
-
             return false;
         }
 
@@ -431,10 +433,15 @@ public class Profile {
         }
 
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && System.currentTimeMillis() - this.queryFinishTimestamp > 5000) {
-            LOG.info("Profile {} should be stored to storage without waiting for incoming profile,"
+                    && System.currentTimeMillis() - this.queryFinishTimestamp > autoProfileDurationMs) {
+            LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}",
                     id, System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
+
+            this.summaryProfile.setSystemMessage(
+                            "This profile is not complete, since its collection does not finish in time."
+                            + " Maybe increase auto_profile_threshold_ms current val: " +
+                            String.valueOf(autoProfileDurationMs));
             return true;
         }
 
