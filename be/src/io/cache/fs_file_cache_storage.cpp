@@ -171,6 +171,7 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+    FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
     RETURN_IF_ERROR(fs->delete_file(file));
     std::vector<FileInfo> files;
     bool exists {false};
@@ -179,7 +180,6 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     if (files.empty()) {
         RETURN_IF_ERROR(fs->delete_directory(dir));
     }
-    FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
     return Status::OK();
 }
 
