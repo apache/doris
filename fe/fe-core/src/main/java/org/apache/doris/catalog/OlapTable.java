@@ -1989,7 +1989,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public int hashCode() {
-        return (int) id;
+        return (int) baseIndexId;
     }
 
     public Column getBaseColumn(String columnName) {
