@@ -152,7 +152,6 @@ public:
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
 
-    [[nodiscard]] bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
