@@ -290,6 +290,11 @@ public abstract class ExternalCatalog
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
         }
+
+        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+        }
     }
 
     /**
