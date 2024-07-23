@@ -348,7 +348,6 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             }
         }
-        LOG.info("[lxr] set row store page size: {}", pageSize);
         schemaBuilder.setRowStorePageSize(pageSize);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
