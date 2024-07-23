@@ -47,7 +47,6 @@ import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -164,15 +163,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // 2. key column slot is distribution column and first column
     protected boolean isKeySearch() {
         return false;
-    }
-
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
