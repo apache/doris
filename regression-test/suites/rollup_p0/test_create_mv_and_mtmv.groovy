@@ -1,3 +1,5 @@
+import java.text.SimpleDateFormat
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -20,17 +22,17 @@ suite("test_create_mv_and_mtmt") {
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
     def mtmvName = "test_create_mv_and_mtmt_advertiser_uv_mtmv"
     sql """
-            CREATE TABLE ${tableName}(
+            CREATE TABLE  ${tableName}(
               time date not null,
               advertiser varchar(10),
               dt date not null,
               channel varchar(10),
               user_id int) 
             DUPLICATE KEY(`time`, `advertiser`)
-              PARTITION BY RANGE (dt)(FROM ("2024-07-02") TO ("2024-07-04") INTERVAL 1 DAY)
+              PARTITION BY RANGE (dt)(FROM ("2024-07-02") TO ("2024-07-05") INTERVAL 1 DAY)
               -- AUTO PARTITION BY RANGE (date_trunc(`time`, 'day'))()
               distributed BY hash(time) 
-              properties("replication_num" = "1");
+              properties("replication_allocation" = "tag.location.default: 1");
     """
     sql """ insert into ${tableName} values("2024-07-02",'a', "2024-07-02", 'a',1); """
     sql """ insert into ${tableName} values("2024-07-03",'b', "2024-07-03", 'b',1); """
@@ -57,9 +59,10 @@ suite("test_create_mv_and_mtmt") {
                     GROUP BY dt,advertiser""")
         contains "(${mvName})"
     }
+    def refreshTime = System.currentTimeMillis() / 1000L
     sql """
             CREATE MATERIALIZED VIEW ${mtmvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
             partition by(dt)
             DISTRIBUTED BY RANDOM BUCKETS 1
             PROPERTIES ('replication_num' = '1') 
@@ -68,6 +71,40 @@ suite("test_create_mv_and_mtmt") {
                 from ${tableName}
                 group by dt, advertiser;
     """
+    def wait_mtmv_refresh_finish = { refreshMode->
+        for (int loop = 0; loop < 300; loop++) {
+            Thread.sleep(1200)
+            boolean finished = true;
+            def result = sql """
+select * from tasks('type'='mv') 
+where MvName='${mtmvName}' 
+AND Status = 'SUCCESS' 
+AND CreateTime >= from_unixtime(${refreshTime}) 
+AND RefreshMode = '${refreshMode}';"""
+            finished = (result.size() == 1)
+            if (finished) {
+                def sqlResult = result[0]
+                log.info("refresh result: ${sqlResult}")
+                return;
+            }
+        }
+        throw new Exception("Wait mtmv ${mtmvName} finish timeout.")
+    }
+    wait_mtmv_refresh_finish("COMPLETE")
+    qt_mtmv_init """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
+
+    sql """INSERT INTO ${tableName} VALUES("2024-07-03",'b', "2024-07-03", 'b',2);"""
+    refreshTime = System.currentTimeMillis() / 1000L
+    sql """REFRESH MATERIALIZED VIEW ${mtmvName} AUTO;"""
+    wait_mtmv_refresh_finish("PARTIAL")
+    qt_insert_into_partial_old_partition """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
+
+    sql """INSERT INTO ${tableName} VALUES("2024-07-04",'b', "2024-07-04", 'a',1);"""
+    refreshTime = System.currentTimeMillis() / 1000L
+    sql """REFRESH MATERIALIZED VIEW ${mtmvName} AUTO;"""
+    wait_mtmv_refresh_finish("PARTIAL")
+    qt_insert_into_partial_new_partition """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ DROP MATERIALIZED VIEW ${mtmvName} """
 
