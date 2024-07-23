@@ -404,15 +404,15 @@ Status CompactionMixin::execute_compact() {
         Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
         {
             Status st = execute_compact_impl(permits);
-            _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
-
-            data_dir->disks_compaction_score_increment(-permits);
-            data_dir->disks_compaction_num_increment(-1);
             if (UNLIKELY(!st.ok())) {
                 return st;
             }
         }
     } catch (const doris::Exception& e) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+
         if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
@@ -420,6 +420,9 @@ Status CompactionMixin::execute_compact() {
         }
         return Status::Error<false>(e.code(), e.to_string());
     }
+    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    data_dir->disks_compaction_score_increment(-permits);
+    data_dir->disks_compaction_num_increment(-1);
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -1194,7 +1197,6 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    //    Status st = execute_compact_impl(permits);
     try {
         doris::enable_thread_catch_bad_alloc++;
         Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
@@ -1206,6 +1208,7 @@ Status CloudCompactionMixin::execute_compact() {
             }
         }
     } catch (const doris::Exception& e) {
+        garbage_collection();
         if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
