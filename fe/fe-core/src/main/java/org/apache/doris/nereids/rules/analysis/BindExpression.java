@@ -632,9 +632,6 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        System.out.println(filter);
-        System.out.println(111);
-
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 filter, cascadesContext, filter.children(), true, true);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
