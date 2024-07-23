@@ -1,0 +1,5 @@
+/mnt/disk1/lingxiangrong/codes/doris/cloud/output/lib/doris_cloud
+/mnt/disk1/lingxiangrong/codes/doris/cloud/output/bin/start.sh
+/mnt/disk1/lingxiangrong/codes/doris/cloud/output/bin/stop.sh
+/mnt/disk1/lingxiangrong/codes/doris/cloud/output/conf/doris_cloud.conf
+/mnt/disk1/lingxiangrong/codes/doris/cloud/output/lib/libfdb_c.so
