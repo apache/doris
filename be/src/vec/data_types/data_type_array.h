@@ -78,7 +78,8 @@ public:
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for array";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for array");
         __builtin_unreachable();
     }
 
