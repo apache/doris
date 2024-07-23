@@ -33,7 +33,12 @@ suite ("test_row_store_page_size_cloud") {
             properties("replication_num" = "1", "store_row_column" = "true");
         """
 
-    qt_show_create "show create table ps_table_1;"
+    test {
+        sql "show create table ps_table_1;"
+        check { result, exception, startTime, endTime ->
+            assertTrue(result[0][1].contains("\"row_store_page_size\" = \"16384\""))
+        }
+    }
 
     sql "insert into ps_table_1 select 1,1,1,'a';"
     sql "insert into ps_table_1 select 2,2,2,'b';"
@@ -63,8 +68,13 @@ suite ("test_row_store_page_size_cloud") {
             properties("replication_num" = "1", "store_row_column" = "true", "row_store_page_size" = "8190");
         """
 
-    qt_show_create "show create table ps_table_2;"
-
+    test {
+        sql "show create table ps_table_2;"
+        check { result, exception, startTime, endTime ->
+            assertTrue(result[0][1].contains("\"row_store_page_size\" = \"8192\""))
+        }
+    }
+    
     sql "insert into ps_table_2 select 1,1,1,'a';"
     sql "insert into ps_table_2 select 2,2,2,'b';"
     sql "insert into ps_table_2 select 3,3,null,'c';"
