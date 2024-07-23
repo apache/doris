@@ -143,6 +143,21 @@ public:
 
     const Container& get_data() const { return _codes; }
 
+    // it's impossible to use ComplexType as key , so we don't have to implement them
+    [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
+                                                      char const*& begin) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "serialize_value_into_arena not supported in ColumnDictionary");
+        __builtin_unreachable();
+    }
+
+    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "deserialize_and_insert_from_arena not supported in ColumnDictionary");
+        __builtin_unreachable();
+    }
+
     bool is_fixed_and_contiguous() const override { return true; }
 
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
