@@ -120,6 +120,9 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         std::unique_lock<std::mutex> lc(_dependency_lock);
         filter_dependencies.swap(_filter_dependencies);
     }
+    if (query_context()->is_cancelled()) {
+        clear_blocking_state();
+    }
     return Status::OK();
 }
 
