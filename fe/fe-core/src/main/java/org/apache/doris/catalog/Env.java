@@ -4466,7 +4466,7 @@ public class Env {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
-    // Switch catalog of this sesseion.
+    // Switch catalog of this session.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
         if (catalogIf == null) {
@@ -4478,11 +4478,11 @@ public class Env {
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.
             if (ctx.getCurrentCatalog() != null) {
-                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+                ctx.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
             }
         }
         ctx.changeDefaultCatalog(catalogName);
-        String lastDb = catalogMgr.getLastDB(catalogName);
+        String lastDb = ctx.getLastDBOfCatalog(catalogName);
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
