@@ -919,6 +919,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
+    // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
         _inverted_index_iterators[pred_column_id] != nullptr &&
         _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
