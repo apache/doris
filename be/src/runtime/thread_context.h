@@ -45,8 +45,6 @@
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
 #define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Used after SCOPED_ATTACH_TASK, in order to count the memory into another
@@ -74,8 +72,6 @@
 // thread context need to be initialized, required by Allocator and elsewhere.
 #define SCOPED_ATTACH_TASK(arg1, ...) \
     auto VARNAME_LINENUM(scoped_tls_at) = doris::ScopedInitThreadContext()
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
-    auto VARNAME_LINENUM(scoped_tls_atwi) = doris::ScopedInitThreadContext()
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
     auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
@@ -124,6 +120,7 @@ class ThreadContext;
 class MemTracker;
 class RuntimeState;
 class QueryThreadContext;
+class WorkloadGroup;
 
 extern bthread_key_t btls_key;
 
@@ -158,7 +155,8 @@ public:
     ~ThreadContext() = default;
 
     void attach_task(const TUniqueId& task_id,
-                     const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+                     const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                     const std::weak_ptr<WorkloadGroup>& wg_wptr) {
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(mem_tracker);
         // Orphan is thread default tracker.
@@ -166,16 +164,20 @@ public:
                 << ", thread mem tracker label: " << thread_mem_tracker()->label()
                 << ", attach mem tracker label: " << mem_tracker->label();
         _task_id = task_id;
+        _wg_wptr = wg_wptr;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
         thread_mem_tracker_mgr->set_query_id(_task_id);
+        thread_mem_tracker_mgr->set_wg_wptr(_wg_wptr);
         thread_mem_tracker_mgr->enable_wait_gc();
         thread_mem_tracker_mgr->reset_query_cancelled_flag(false);
     }
 
     void detach_task() {
         _task_id = TUniqueId();
+        _wg_wptr.reset();
         thread_mem_tracker_mgr->detach_limiter_tracker();
         thread_mem_tracker_mgr->set_query_id(TUniqueId());
+        thread_mem_tracker_mgr->reset_wg_wptr();
         thread_mem_tracker_mgr->disable_wait_gc();
     }
 
@@ -226,12 +228,15 @@ public:
         thread_mem_tracker_mgr->release_reserved();
     }
 
+    std::weak_ptr<WorkloadGroup> workload_group() { return _wg_wptr; }
+
     int thread_local_handle_count = 0;
     int skip_memory_check = 0;
     int skip_large_memory_check = 0;
 
 private:
     TUniqueId _task_id;
+    std::weak_ptr<WorkloadGroup> _wg_wptr;
 };
 
 class ThreadLocalHandle {
@@ -314,6 +319,11 @@ class QueryThreadContext {
 public:
     QueryThreadContext() = default;
     QueryThreadContext(const TUniqueId& query_id,
+                       const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                       const std::weak_ptr<WorkloadGroup>& wg_wptr)
+            : query_id(query_id), query_mem_tracker(mem_tracker), wg_wptr(wg_wptr) {}
+    // If use WorkloadGroup and can get WorkloadGroup ptr, must as a parameter.
+    QueryThreadContext(const TUniqueId& query_id,
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
             : query_id(query_id), query_mem_tracker(mem_tracker) {}
 
@@ -324,6 +334,7 @@ public:
         ORPHAN_TRACKER_CHECK();
         query_id = doris::thread_context()->task_id();
         query_mem_tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        wg_wptr = doris::thread_context()->workload_group();
 #else
         query_id = TUniqueId();
         query_mem_tracker = doris::ExecEnv::GetInstance()->orphan_mem_tracker();
@@ -332,6 +343,7 @@ public:
 
     TUniqueId query_id;
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
+    std::weak_ptr<WorkloadGroup> wg_wptr;
 };
 
 class ScopeMemCountByHook {
@@ -363,14 +375,17 @@ public:
 
 class AttachTask {
 public:
-    explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const TUniqueId& task_id);
-
+    // not query or load, initialize with memory tracker, empty query id and default normal workload group.
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
+    // is query or load, initialize with memory tracker, query id and workload group wptr.
     explicit AttachTask(RuntimeState* runtime_state);
 
+    explicit AttachTask(QueryContext* query_ctx);
+
     explicit AttachTask(const QueryThreadContext& query_thread_context);
+
+    void init(const QueryThreadContext& query_thread_context);
 
     ~AttachTask();
 };
@@ -386,7 +401,8 @@ public:
 
     explicit SwitchThreadMemTrackerLimiter(const QueryThreadContext& query_thread_context) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
-        DCHECK(thread_context()->task_id() == query_thread_context.query_id);
+        DCHECK(thread_context()->task_id() ==
+               query_thread_context.query_id); // workload group alse not change
         DCHECK(query_thread_context.query_mem_tracker);
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(

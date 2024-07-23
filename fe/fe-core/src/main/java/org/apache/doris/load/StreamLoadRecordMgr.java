@@ -150,16 +150,19 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public List<StreamLoadItem> getStreamLoadRecords() {
+        LOG.info("test log: {}", streamLoadRecordHeap);
         return new ArrayList<>(streamLoadRecordHeap);
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(
             long dbId, String label, boolean accurateMatch, StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
+        LOG.info("test log: {}", dbId);
 
         readLock();
         try {
             if (!dbIdToLabelToStreamLoadRecord.containsKey(dbId)) {
+                LOG.info("test log: {}", dbId);
                 return streamLoadRecords;
             }
 
@@ -202,6 +205,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 }
 
             }
+            LOG.info("test log: {}", streamLoadRecords);
             return streamLoadRecords;
         } finally {
             readUnlock();
@@ -263,19 +267,17 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                             TimeUtils.getDatetimeMsFormatWithTimeZone());
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
                             TimeUtils.getDatetimeMsFormatWithTimeZone());
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("receive stream load record info from backend: {}."
-                                        + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
-                                        + " status: {}, message: {}, error_url: {},"
-                                        + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
-                                        + " load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
-                                streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
-                                streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
-                                streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
-                                streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
-                                streamLoadItem.getLoadBytes(), startTime, finishTime);
-                    }
+                    LOG.info("receive stream load record info from backend: {}."
+                                    + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
+                                    + " status: {}, message: {}, error_url: {},"
+                                    + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
+                                    + " load_bytes: {}, start_time: {}, finish_time: {}.",
+                            backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
+                            streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
+                            streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
+                            streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
+                            streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
+                            streamLoadItem.getLoadBytes(), startTime, finishTime);
 
                     AuditEvent auditEvent =
                             new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
