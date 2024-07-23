@@ -163,11 +163,10 @@ else()
 endif()
 
 # Set if use libazure or not
-if(DEFINED ENV{USE_AZURE})
-    set(USE_AZURE $ENV{USE_AZURE})
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE)
     add_definitions(-DUSE_AZURE)
-else()
-    set(USE_AZURE OFF)
 endif()
 
 
