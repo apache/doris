@@ -619,6 +619,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
+    public static final String WG_QUERY_SLOT_COUNT = "wg_query_slot_count";
+
+    public static final String ENABLE_QUERY_SLOT_HARD_LIMIT = "enable_query_slot_hard_limit";
+
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
@@ -760,6 +764,17 @@ public class SessionVariable implements Serializable, Writable {
             "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
+
+    @VariableMgr.VarAttr(name = WG_QUERY_SLOT_COUNT, needForward = true, description = {
+            "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
+            "Number of slots occupied by each query, the total number of query slots "
+            + "of the workload group equals the maximum number of concurrent requests"})
+    public int wgQuerySlotCount = 1;
+
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_SLOT_HARD_LIMIT, needForward = true, description = {
+            "是否通过硬限的方式来计算每个Slot的内存资源",
+            "Whether to calculate the memory resources of each Slot by hard limit"})
+    public boolean enableQuerySlotHardLimit = false;
 
     @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
     public int maxColumnReaderNum = 20000;
@@ -3681,6 +3696,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
+        tResult.setQuerySlotCount(wgQuerySlotCount);
+        tResult.setEnableQuerySlotHardLimit(enableQuerySlotHardLimit);
+
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 
         tResult.setEnableSegmentCache(enableSegmentCache);

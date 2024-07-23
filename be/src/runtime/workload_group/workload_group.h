@@ -94,8 +94,13 @@ public:
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
     }
+
     int spill_threashold_high_water_mark() const {
         return _spill_high_watermark.load(std::memory_order_relaxed);
+    }
+
+    int total_query_slot_count() const {
+        return _total_query_slot_count.load(std::memory_order_relaxed);
     }
 
     void set_weighted_memory_ratio(double ratio);
@@ -230,6 +235,7 @@ private:
     std::atomic<int> _spill_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
+    std::atomic<int> _total_query_slot_count = 0;
 
     // means workload group is mark dropped
     // new query can not submit
@@ -271,8 +277,12 @@ struct WorkloadGroupInfo {
     const int min_remote_scan_thread_num = 0;
     const int spill_low_watermark = 0;
     const int spill_high_watermark = 0;
+<<<<<<< HEAD
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
+=======
+    const int total_query_slot_count = 0;
+>>>>>>> 5ad0005a4d ([feature](workloadgroup) use slot num to control memory distribution among queries)
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

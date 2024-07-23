@@ -242,6 +242,15 @@ public:
 
     void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
     int64_t spill_threshold() { return _spill_threshold; }
+    int32_t get_slot_count() {
+        return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
+    }
+
+    bool enable_query_slot_hard_limit() {
+        return _query_options.__isset.enable_query_slot_hard_limit
+                       ? _query_options.enable_query_slot_hard_limit
+                       : false;
+    }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
