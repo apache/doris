@@ -907,7 +907,9 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
     ctx.version = _output_version;
@@ -1199,7 +1201,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
 
