@@ -86,6 +86,8 @@ RUN=0
 FILTER=""
 FDB=""
 ENABLE_CLANG_COVERAGE=OFF
+BUILD_AZURE="OFF"
+
 echo "===================== filter: ${FILTER}"
 if [[ $# != 1 ]]; then
     while true; do
@@ -164,6 +166,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF=OFF
 fi
 
+if [[ -n "${BUILD_AZURE}" ]]; then
+    BUILD_AZURE='ON'
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 
@@ -182,6 +188,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DSTRICT_MEMORY_USE=OFF \
     -DENABLE_CLANG_COVERAGE="${ENABLE_CLANG_COVERAGE}" \
     "${CMAKE_USE_CCACHE}" \
+    -DBUILD_AZURE="${BUILD_AZURE}" \
     "${DORIS_HOME}/cloud/"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 "${BUILD_SYSTEM}" install
