@@ -1466,6 +1466,14 @@ public class Config extends ConfigBase {
     public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
+     * sets the time without read activity before sending a keepalive ping
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     */
+    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+            "The time without grpc read activity before sending a keepalive ping" })
+    public static int grpc_keep_alive_second = 10;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1758,6 +1766,17 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
+
+    @ConfField(mutable = true, description = {
+            "当BE内存用量大于该值时，查询会进入排队逻辑，默认值为-1，代表该值不生效。取值范围0~1的小数",
+            "When be memory usage bigger than this value, query could queue, "
+                    + "default value is -1, means this value not work. Decimal value range from 0 to 1"})
+    public static double query_queue_by_be_used_memory = -1;
+
+    @ConfField(mutable = true, description = {"基于内存反压场景FE定时拉取BE内存用量的时间间隔",
+            "In the scenario of memory backpressure, "
+                    + "the time interval for obtaining BE memory usage at regular intervals"})
+    public static long get_be_resource_usage_interval_ms = 10000;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min

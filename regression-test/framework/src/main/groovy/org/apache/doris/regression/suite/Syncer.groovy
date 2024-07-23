@@ -909,8 +909,7 @@ class Syncer {
             "s3.endpoint" = "http://${endpoint}",
             "s3.region" = "${region}",
             "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
-            "delete_if_exists" = "true"
+            "s3.secret_key" = "${sk}"
         )
             """
     }

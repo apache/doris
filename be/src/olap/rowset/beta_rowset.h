@@ -84,7 +84,7 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
-    Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
+    Status calc_file_crc(uint32_t* crc_value, int64_t* file_count);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

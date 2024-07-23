@@ -503,7 +503,8 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                 _shared_state->reach_limit =
                         hash_table_size >=
                         (_shared_state->do_sort_limit
-                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit *
+                                           config::topn_agg_limit_multiplier
                                  : Base::_parent->template cast<AggSinkOperatorX>()._limit);
                 if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
                     _shared_state->build_limit_heap(hash_table_size);

@@ -529,6 +529,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
         }
 
+        if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
+                || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
+        }
         if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.OK
                 && commitTxnResponse.getStatus().getCode() != MetaServiceCode.TXN_ALREADY_VISIBLE) {
             LOG.warn("commitTxn failed, transactionId:{}, retryTime:{}, commitTxnResponse:{}",
@@ -544,9 +548,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             internalMsgBuilder.append(" code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
-        }
-        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
-            throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());

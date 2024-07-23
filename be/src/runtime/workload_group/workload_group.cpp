@@ -107,39 +107,59 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     }
 }
 
-int64_t WorkloadGroup::memory_used() {
+int64_t WorkloadGroup::make_memory_tracker_snapshots(
+        std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots) {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
+            if (tracker_snapshots != nullptr) {
+                tracker_snapshots->insert(tracker_snapshots->end(), tracker);
+            }
             used_memory += tracker->consumption();
         }
     }
+    refresh_memory(used_memory);
     return used_memory;
 }
 
-void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
-    _weighted_mem_used.store(int64_t(wg_total_mem_used * ratio), std::memory_order_relaxed);
+int64_t WorkloadGroup::memory_used() {
+    return make_memory_tracker_snapshots(nullptr);
+}
+
+void WorkloadGroup::refresh_memory(int64_t used_memory) {
+    // refresh total memory used.
+    _total_mem_used = used_memory;
+    // reserve memory is recorded in the query mem tracker
+    // and _total_mem_used already contains all the current reserve memory.
+    // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
+    _wg_refresh_interval_memory_growth.store(0.0);
+}
+
+void WorkloadGroup::set_weighted_memory_ratio(double ratio) {
+    _weighted_mem_ratio = ratio;
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    mem_tracker_ptr->tg_tracker_limiter_group_it =
+    mem_tracker_ptr->wg_tracker_limiter_group_it =
             _mem_tracker_limiter_pool[group_num].trackers.insert(
                     _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
 void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    if (mem_tracker_ptr->tg_tracker_limiter_group_it !=
+    if (mem_tracker_ptr->wg_tracker_limiter_group_it !=
         _mem_tracker_limiter_pool[group_num].trackers.end()) {
         _mem_tracker_limiter_pool[group_num].trackers.erase(
-                mem_tracker_ptr->tg_tracker_limiter_group_it);
-        mem_tracker_ptr->tg_tracker_limiter_group_it =
+                mem_tracker_ptr->wg_tracker_limiter_group_it);
+        mem_tracker_ptr->wg_tracker_limiter_group_it =
                 _mem_tracker_limiter_pool[group_num].trackers.end();
     }
 }
@@ -252,7 +272,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.id) {
         tg_id = tworkload_group_info.id;
     } else {
-        return {.valid = false};
+        return {.name = "", .valid = false};
     }
 
     // 2 name
@@ -266,7 +286,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.version) {
         version = tworkload_group_info.version;
     } else {
-        return {.valid = false};
+        return {.name {}, .valid = false};
     }
 
     // 4 cpu_share
@@ -316,7 +336,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 11 min remote scan thread num
-    int min_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+    int min_remote_scan_thread_num = config::doris_scanner_min_thread_pool_thread_num;
     if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
         tworkload_group_info.min_remote_scan_thread_num > 0) {
         min_remote_scan_thread_num = tworkload_group_info.min_remote_scan_thread_num;
@@ -415,7 +435,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
                                                                       cg_cpu_ctl_ptr);
-        Status ret = remote_scan_scheduler->start(remote_max_thread_num, remote_max_thread_num,
+        Status ret = remote_scan_scheduler->start(remote_max_thread_num,
+                                                  config::doris_scanner_min_thread_pool_thread_num,
                                                   remote_scan_thread_queue_size);
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
