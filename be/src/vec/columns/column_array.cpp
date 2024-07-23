@@ -234,9 +234,11 @@ bool ColumnArray::is_default_at(size_t n) const {
 void ColumnArray::insert_data(const char* pos, size_t length) {
     /** Similarly - only for arrays of fixed length values.
       */
-    if (!data->is_fixed_and_contiguous())
+    if (!data->is_fixed_and_contiguous()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data is not supported for {}", get_name());
+                               "Method insert_data should have_fixed_size, {} is not suitable",
+                               get_name());
+    }
 
     size_t field_size = data->size_of_value_if_fixed();
 
