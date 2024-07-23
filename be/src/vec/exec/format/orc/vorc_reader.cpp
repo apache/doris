@@ -262,8 +262,8 @@ Status OrcReader::_create_file_reader() {
             return Status::EndOfFile("stop");
         }
         // one for fs, the other is for oss.
-        if (_err_msg.find("No such file or directory") != std::string::npos
-            || _err_msg.find("NoSuchKey") != std::string::npos) {
+        if (_err_msg.find("No such file or directory") != std::string::npos ||
+            _err_msg.find("NoSuchKey") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);

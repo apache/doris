@@ -951,7 +951,7 @@ Status VFileScanner::_get_next_reader() {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             }
-            return Status::InternalError("failed to find reader, err: {}", init_status.to_string()); 
+            return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }
