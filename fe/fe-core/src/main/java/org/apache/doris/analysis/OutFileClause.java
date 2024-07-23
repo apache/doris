@@ -30,7 +30,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
@@ -38,7 +37,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -57,6 +55,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -537,6 +537,12 @@ public class OutFileClause {
                 filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
             }
         }
+        // delete repeated '/'
+        try {
+            filePath = new URI(filePath).normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new AnalysisException("Can not normalize the URI, error: " + e.getMessage());
+        }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }
@@ -672,12 +678,6 @@ public class OutFileClause {
             }
         }
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
-        try {
-            List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-            BrokerUtil.parseFile(filePath, brokerDesc, fileStatuses);
-        } catch (UserException e) {
-            throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
-        }
     }
 
     public static String getFsName(String path) {
