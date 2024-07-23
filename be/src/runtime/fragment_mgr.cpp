@@ -708,6 +708,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
+#ifndef NDEBUG
+    std::string str = apache::thrift::ThriftDebugString(params);
+    if (str.find("partial_histogram") != std::string::npos) {
+        LOG_INFO("Query {}, plan\n{}", print_id(params.query_id), str);
+    }
+#endif
+
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
     SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
