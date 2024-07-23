@@ -122,7 +122,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
                 // if we replaced it. then return new one.
                 newIds.add(relations.get(id));
             } else {
-                newIds.add(oldPartitionIds.get(i));
+                newIds.add(id);
                 needReplace = true;
             }
         }
@@ -141,17 +141,26 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
     }
 
+    // lock is a symbol of TaskGroup exist. if not, means already failed.
     public ReentrantLock getLock(long groupId) {
         return taskLocks.get(groupId);
     }
 
+    // When goes into failure, some BE may still not know and send new request.
+    // it will cause ConcurrentModification or NullPointer.
     public void taskGroupFail(long groupId) {
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] failed");
-        // will rollback temp partitions in `taskFail`
-        for (Long taskId : taskGroups.get(groupId)) {
-            taskFail(taskId);
+        ReentrantLock lock = getLock(groupId);
+        lock.lock();
+        try {
+            // will rollback temp partitions in `taskFail`
+            for (Long taskId : taskGroups.get(groupId)) {
+                taskFail(taskId);
+            }
+            cleanTaskGroup(groupId);
+        } finally {
+            lock.unlock();
         }
-        cleanTaskGroup(groupId);
     }
 
     // here we will make all raplacement of this group visiable. if someone fails, nothing happen.

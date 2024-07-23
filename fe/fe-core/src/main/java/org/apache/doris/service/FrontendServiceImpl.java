@@ -3521,6 +3521,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable olapTable = (OlapTable) table;
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
+        if (taskLock == null) {
+            errorStatus.setErrorMsgs(Lists
+                    .newArrayList(new String("cannot find task group " + taskGroupId + ", maybe already failed.")));
+            result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
+            return result;
+        }
 
         ArrayList<Long> resultPartitionIds = new ArrayList<>(); // [1 2 5 6] -> [7 8 5 6]
         ArrayList<Long> pendingPartitionIds = new ArrayList<>(); // pending: [1 2]
@@ -3528,6 +3535,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         boolean needReplace = false;
         try {
             taskLock.lock();
+            // double check lock. maybe taskLock is not null, but has been removed from the Map. means the task failed.
+            if (overwriteManager.getLock(taskGroupId) == null) {
+                errorStatus.setErrorMsgs(Lists
+                        .newArrayList(new String("cannot find task group " + taskGroupId + ", maybe already failed.")));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
+
             // we dont lock the table. other thread in this txn will be controled by taskLock.
             // if we have already replaced, dont do it again, but acquire the recorded new partition directly.
             // if not by this txn, just let it fail naturally is ok.
