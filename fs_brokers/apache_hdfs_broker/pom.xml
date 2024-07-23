@@ -73,6 +73,7 @@ under the License.
         <netty.version>4.1.65.Final</netty.version>
         <gcs.version>hadoop2-2.2.15</gcs.version>
         <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
+        <skip.plugin>false</skip.plugin>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -381,7 +382,6 @@ under the License.
                             <arguments>
                                 <argument>-p</argument>
                                 <argument>${basedir}/src/main/resources/thrift</argument>
-                                <argument>${basedir}/src/main/thrift</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
                         </configuration>
@@ -409,11 +409,9 @@ under the License.
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
-                    <thriftExecutable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</thriftExecutable>
+                    <thriftExecutable>${doris.home}/thirdparty/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${basedir}/src/main/resources/thrift/</thriftSourceRoot>
-                    <outputDirectory>${basedir}/src/main/thrift/</outputDirectory>
                     <generator>java:fullcamel</generator>
-                    <skip>${skip.plugin}</skip>
                 </configuration>
                 <executions>
                     <execution>
