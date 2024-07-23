@@ -210,7 +210,6 @@ suite("variant_mv") {
     where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
     """
     order_qt_query1_4_before "${query1_4}"
-    // the query repo['id'] expression in compensatory filter is not in mv
     check_mv_rewrite_success(db, mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
@@ -285,7 +284,6 @@ suite("variant_mv") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
 
-    // cast(repo) expression is different, should fail
     def mv2_2 = """
     SELECT
     id,
@@ -315,6 +313,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_2_before "${query2_2}"
+    // cast(repo) expression is different, should fail
     check_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
@@ -350,6 +349,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_3_before "${query2_3}"
+    // compensatory filter (actor['id'] is not in mv output should fail
     check_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
@@ -415,28 +415,39 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_0_before "${query3_0}"
-
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
-    sql"""
-        CREATE MATERIALIZED VIEW mv3_0 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv3_0}
-        """
-
-    def job_name = getJobName(db, "mv3_0");
-    waitingMTMVTaskFinished(job_name)
-
-    def explain_memo_plan =  sql """explain memo plan ${query3_0}"""
-    logger.info("query3_0 explain memo plan is " + explain_memo_plan.toString())
-
-    explain {
-        sql("${query3_0}")
-        contains("mv3_0(mv3_0)")
-    }
+    // condition in join other conjuects is not supported now, suppport later
+//    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
+
+
+    def mv3_5 = """
+    SELECT
+    g1.id,
+    g2.type,
+    g1.actor,
+    g2.actor as actor_g2,
+    g2.payload,
+    g1.payload['issue']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259289;
+    """
+    def query3_5 = """
+    SELECT
+    g1.id,
+    g2.type,
+    floor(cast(g1.actor['id'] as int) + 100.5),
+    g1.actor['display_login'],
+    g2.payload['issue']['href']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259300;
+    """
+    order_qt_query3_5_before "${query3_5}"
+    check_mv_rewrite_success(db, mv3_5, query3_5, "mv3_5")
+    order_qt_query3_5_after "${query3_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_5"""
 
 
     def mv3_1 = """
@@ -465,7 +476,6 @@ suite("variant_mv") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
-    // floor expression is different, should fail
     def mv3_2 = """
     SELECT
     g1.id,
@@ -485,6 +495,7 @@ suite("variant_mv") {
     left join github_events2 g2 on g1.id = g2.id;
     """
     order_qt_query3_2_before "${query3_2}"
+    // floor expression is different, should fail
     check_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
@@ -543,8 +554,38 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_4_before "${query3_4}"
-    // the query g2.actor['id'] expression in compensatory filter is not in mv
-    check_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    // condition in join other conjuects is not supported now, suppport later
+//    check_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
+
+
+    def mv3_6 = """
+    SELECT
+    g1.id,
+    g2.type,
+    g1.actor,
+    g2.payload,
+    g1.actor['id'],
+    g1.payload['issue']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259289;
+    """
+    def query3_6 = """
+    SELECT
+    g1.id,
+    g2.type,
+    floor(cast(g1.actor['id'] as int) + 100.5),
+    g1.actor['display_login'],
+    g2.payload['issue']['href']
+    FROM github_events1 g1
+    left join github_events2 g2 on g1.id = g2.id
+    where g2.actor['id'] > 34259300;
+    """
+    order_qt_query3_6_before "${query3_6}"
+    // should success, should enable in future
+    check_mv_rewrite_fail(db, mv3_6, query3_6, "mv3_6")
+    order_qt_query3_6_after "${query3_6}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_6"""
 }

@@ -849,7 +849,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         "View struct info is invalid", () -> String.format("view plan is %s",
                                 context.getStructInfo().getOriginalPlan().treeString()));
                 // tmp to location question
-                LOG.info(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
                                 + "view plan is %s",
                         context.generateMaterializationIdentifier(), queryPlan.treeString(),
                         context.getStructInfo().getTopPlan().treeString()));
@@ -864,7 +864,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             context.recordFailReason(context.getStructInfo(),
                     "View struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.info(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
+            LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
                             + "view plan is %s",
                     context.generateMaterializationIdentifier(), queryPlan.treeString(),
                     context.getStructInfo().getTopPlan().treeString()));
@@ -874,7 +874,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             context.recordFailReason(context.getStructInfo(),
                     "View original struct info is invalid", () -> String.format("view plan is %s",
                             context.getStructInfo().getOriginalPlan().treeString()));
-            LOG.info(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
+            LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
                             + "view plan is %s",
                     context.generateMaterializationIdentifier(), queryPlan.treeString(),
                     context.getStructInfo().getTopPlan().treeString()));

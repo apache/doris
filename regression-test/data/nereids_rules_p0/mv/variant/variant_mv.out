@@ -539,6 +539,60 @@
 25061821923	CreateEvent	49699433	dependabot	\N
 25061821927	PushEvent	40019036	ramachandrasai7	\N
 
+-- !query3_5_before --
+25061821745	PushEvent	99616694	nahuel3223	\N
+25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
+25061821752	PullRequestEvent	49699433	dependabot	\N
+25061821761	CreateEvent	114388403	nicolas-brement	\N
+25061821772	PushEvent	62139223	betonucon	\N
+25061821783	PushEvent	113555710	proxylist-to-bot	\N
+25061821788	CreateEvent	49699433	dependabot	\N
+25061821791	PullRequestEvent	41898382	github-actions	\N
+25061821797	PullRequestReviewEvent	114601337	AntonellaTortoza18	\N
+25061821803	CreateEvent	74837452	RodrigoNOliveira	\N
+25061821806	PushEvent	102448538	goodstudy2022327	\N
+25061821810	PushEvent	41898382	github-actions	\N
+25061821814	PushEvent	41898382	github-actions	\N
+25061821817	ForkEvent	45201968	ZhxJia	\N
+25061821824	CreateEvent	110168374	itigoame	\N
+25061821843	PushEvent	73926467	armenfesliyan	\N
+25061821852	PullRequestEvent	98024458	jfrog-pipelie-intg	\N
+25061821874	PushEvent	97817772	alawrence30	\N
+25061821893	PullRequestReviewEvent	108444435	filiphsps	\N
+25061821900	CreateEvent	88118767	KidBourbon	\N
+25061821904	PushEvent	41898382	github-actions	\N
+25061821908	PushEvent	77421350	mikaelaslade	\N
+25061821910	PullRequestEvent	49699433	dependabot	\N
+25061821923	CreateEvent	49699433	dependabot	\N
+25061821927	PushEvent	40019036	ramachandrasai7	\N
+
+-- !query3_5_after --
+25061821745	PushEvent	99616694	nahuel3223	\N
+25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
+25061821752	PullRequestEvent	49699433	dependabot	\N
+25061821761	CreateEvent	114388403	nicolas-brement	\N
+25061821772	PushEvent	62139223	betonucon	\N
+25061821783	PushEvent	113555710	proxylist-to-bot	\N
+25061821788	CreateEvent	49699433	dependabot	\N
+25061821791	PullRequestEvent	41898382	github-actions	\N
+25061821797	PullRequestReviewEvent	114601337	AntonellaTortoza18	\N
+25061821803	CreateEvent	74837452	RodrigoNOliveira	\N
+25061821806	PushEvent	102448538	goodstudy2022327	\N
+25061821810	PushEvent	41898382	github-actions	\N
+25061821814	PushEvent	41898382	github-actions	\N
+25061821817	ForkEvent	45201968	ZhxJia	\N
+25061821824	CreateEvent	110168374	itigoame	\N
+25061821843	PushEvent	73926467	armenfesliyan	\N
+25061821852	PullRequestEvent	98024458	jfrog-pipelie-intg	\N
+25061821874	PushEvent	97817772	alawrence30	\N
+25061821893	PullRequestReviewEvent	108444435	filiphsps	\N
+25061821900	CreateEvent	88118767	KidBourbon	\N
+25061821904	PushEvent	41898382	github-actions	\N
+25061821908	PushEvent	77421350	mikaelaslade	\N
+25061821910	PullRequestEvent	49699433	dependabot	\N
+25061821923	CreateEvent	49699433	dependabot	\N
+25061821927	PushEvent	40019036	ramachandrasai7	\N
+
 -- !query3_1_before --
 25061821745	PushEvent	99616694	nahuel3223	\N
 25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
@@ -741,6 +795,60 @@
 25061821927	PushEvent	40019036	ramachandrasai7	\N
 
 -- !query3_4_after --
+25061821745	PushEvent	99616694	nahuel3223	\N
+25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
+25061821752	PullRequestEvent	49699433	dependabot	\N
+25061821761	CreateEvent	114388403	nicolas-brement	\N
+25061821772	PushEvent	62139223	betonucon	\N
+25061821783	PushEvent	113555710	proxylist-to-bot	\N
+25061821788	CreateEvent	49699433	dependabot	\N
+25061821791	PullRequestEvent	41898382	github-actions	\N
+25061821797	PullRequestReviewEvent	114601337	AntonellaTortoza18	\N
+25061821803	CreateEvent	74837452	RodrigoNOliveira	\N
+25061821806	PushEvent	102448538	goodstudy2022327	\N
+25061821810	PushEvent	41898382	github-actions	\N
+25061821814	PushEvent	41898382	github-actions	\N
+25061821817	ForkEvent	45201968	ZhxJia	\N
+25061821824	CreateEvent	110168374	itigoame	\N
+25061821843	PushEvent	73926467	armenfesliyan	\N
+25061821852	PullRequestEvent	98024458	jfrog-pipelie-intg	\N
+25061821874	PushEvent	97817772	alawrence30	\N
+25061821893	PullRequestReviewEvent	108444435	filiphsps	\N
+25061821900	CreateEvent	88118767	KidBourbon	\N
+25061821904	PushEvent	41898382	github-actions	\N
+25061821908	PushEvent	77421350	mikaelaslade	\N
+25061821910	PullRequestEvent	49699433	dependabot	\N
+25061821923	CreateEvent	49699433	dependabot	\N
+25061821927	PushEvent	40019036	ramachandrasai7	\N
+
+-- !query3_6_before --
+25061821745	PushEvent	99616694	nahuel3223	\N
+25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
+25061821752	PullRequestEvent	49699433	dependabot	\N
+25061821761	CreateEvent	114388403	nicolas-brement	\N
+25061821772	PushEvent	62139223	betonucon	\N
+25061821783	PushEvent	113555710	proxylist-to-bot	\N
+25061821788	CreateEvent	49699433	dependabot	\N
+25061821791	PullRequestEvent	41898382	github-actions	\N
+25061821797	PullRequestReviewEvent	114601337	AntonellaTortoza18	\N
+25061821803	CreateEvent	74837452	RodrigoNOliveira	\N
+25061821806	PushEvent	102448538	goodstudy2022327	\N
+25061821810	PushEvent	41898382	github-actions	\N
+25061821814	PushEvent	41898382	github-actions	\N
+25061821817	ForkEvent	45201968	ZhxJia	\N
+25061821824	CreateEvent	110168374	itigoame	\N
+25061821843	PushEvent	73926467	armenfesliyan	\N
+25061821852	PullRequestEvent	98024458	jfrog-pipelie-intg	\N
+25061821874	PushEvent	97817772	alawrence30	\N
+25061821893	PullRequestReviewEvent	108444435	filiphsps	\N
+25061821900	CreateEvent	88118767	KidBourbon	\N
+25061821904	PushEvent	41898382	github-actions	\N
+25061821908	PushEvent	77421350	mikaelaslade	\N
+25061821910	PullRequestEvent	49699433	dependabot	\N
+25061821923	CreateEvent	49699433	dependabot	\N
+25061821927	PushEvent	40019036	ramachandrasai7	\N
+
+-- !query3_6_after --
 25061821745	PushEvent	99616694	nahuel3223	\N
 25061821748	PushEvent	98024458	jfrog-pipelie-intg	\N
 25061821752	PullRequestEvent	49699433	dependabot	\N
