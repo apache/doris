@@ -1746,13 +1746,13 @@ alter_table_clause ::=
     {:
         RESULT = new ModifyEngineClause(engine, properties);
     :}
-    | KW_ADD KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit opt_properties:properties
+    | KW_ADD opt_tmp:isTempPartition KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit opt_properties:properties
     {:
-        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit), properties);
+        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit), properties, isTempPartition);
     :}
-    | KW_ADD KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval opt_properties:properties
+    | KW_ADD opt_tmp:isTempPartition KW_PARTITIONS KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval opt_properties:properties
     {:
-        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, num_interval), properties);
+        RESULT = new AlterMultiPartitionClause(PartitionKeyDesc.createMultiFixed(lower, upper, num_interval), properties, isTempPartition);
     :}
     ;
 

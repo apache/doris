@@ -1853,7 +1853,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
             AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc, null,
                     multiPartitionClause.getProperties(), false);
-            addPartition(db, tableName, addPartitionClause);
+            addPartition(db, tableName, addPartitionClause, false, 0, true);
         }
     }
 

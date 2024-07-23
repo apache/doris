@@ -25,11 +25,14 @@ import java.util.Map;
 public class AlterMultiPartitionClause extends AlterTableClause {
     private PartitionKeyDesc partitionKeyDesc;
     private Map<String, String> properties;
+    private boolean isTempPartition;
 
-    public AlterMultiPartitionClause(PartitionKeyDesc partitionKeyDesc, Map<String, String> properties) {
+    public AlterMultiPartitionClause(PartitionKeyDesc partitionKeyDesc, Map<String, String> properties,
+                                     boolean isTempPartition) {
         super(AlterOpType.ADD_PARTITION);
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
+        this.isTempPartition = isTempPartition;
     }
 
     @Override
@@ -64,4 +67,7 @@ public class AlterMultiPartitionClause extends AlterTableClause {
         return properties;
     }
 
+    public boolean isTempPartition() {
+        return isTempPartition;
+    }
 }

@@ -509,6 +509,10 @@ public class Alter {
                 Map<String, String> properties = alterClause.getProperties();
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else if (alterClause instanceof AlterMultiPartitionClause) {
+                if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed(
+                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                }
                 Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
