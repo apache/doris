@@ -551,7 +551,6 @@ public class BindExpression implements AnalysisRuleFactory {
                 checkAlias.accept(((LogicalSubQueryAlias<?>) p).getAlias());
                 return stopCheckChildren;
             } else if (p instanceof LogicalCatalogRelation) {
-                // 获取包含catalog和database的完整表名
                 String table = ((LogicalCatalogRelation) p).qualifiedName().toString();
                 checkAlias.accept(table);
                 return stopCheckChildren;
