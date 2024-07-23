@@ -241,7 +241,7 @@ public abstract class ExternalCatalog
                             Config.max_hive_table_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genTableIdByName(dbName), logType)),
+                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -503,7 +503,7 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObj(realDbName).orElse(null);
+            return metaCache.getMetaObj(getQualifiedName(realDbName)).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -863,5 +863,9 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop a table", e);
             throw e;
         }
+    }
+
+    public String getQualifiedName(String dbName) {
+        return String.join(".", name, dbName);
     }
 }

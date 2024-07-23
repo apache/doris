@@ -34,6 +34,8 @@ import java.util.concurrent.ExecutorService;
 
 public class MetaCache<T> {
     private LoadingCache<String, List<String>> namesCache;
+    // The value of this map is the full qualified name of the object.
+    // eg: ctl.db, ctl.db.tbl
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -75,12 +77,12 @@ public class MetaCache<T> {
         return namesCache.get("");
     }
 
-    public Optional<T> getMetaObj(String name) {
-        Optional<T> val = metaObjCache.getIfPresent(name);
+    public Optional<T> getMetaObj(String fullQualifiedName) {
+        Optional<T> val = metaObjCache.getIfPresent(fullQualifiedName);
         if (val == null) {
             synchronized (metaObjCache) {
-                val = metaObjCache.get(name);
-                idToName.put(Util.genTableIdByName(name), name);
+                val = metaObjCache.get(fullQualifiedName);
+                idToName.put(Util.genIdByName(fullQualifiedName), fullQualifiedName);
             }
         }
         return val;
