@@ -762,9 +762,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = WG_QUERY_SLOT_COUNT, needForward = true, description = {
             "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
-            "Number of slots occupied by each query, the total number of query slots of the workload group equals the maximum number of concurrent requests"})
+            "Number of slots occupied by each query, the total number of query slots "
+            + "of the workload group equals the maximum number of concurrent requests"})
     public int wgQuerySlotCount = 1;
-    
+
     @VariableMgr.VarAttr(name = ENABLE_QUERY_SLOT_HARD_LIMIT, needForward = true, description = {
             "是否通过硬限的方式来计算每个Slot的内存资源",
             "Whether to calculate the memory resources of each Slot by hard limit"})
