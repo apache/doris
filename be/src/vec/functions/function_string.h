@@ -3697,6 +3697,7 @@ public:
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
         }
+        // There is no need to check if the 2-th,3-th parameters are const here because fe has already checked them.
         auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
         auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
         const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
@@ -3712,67 +3713,91 @@ public:
     }
 
 private:
+    using NgramMap = phmap::flat_hash_map<uint32_t, uint8_t>;
+    // In the map, the key is the CRC32 hash result of a substring in the string,
+    // and the value indicates whether this hash is found in the text or pattern.
+    constexpr static auto not_found = 0b00;
+    constexpr static auto found_in_pattern = 0b01;
+    constexpr static auto found_in_text = 0b10;
+    constexpr static auto found_in_pattern_and_text = 0b11;
+
+    uint32_t sub_str_hash(const char* data, int32_t length) const {
+        constexpr static uint32_t seed = 0;
+        return HashUtil::crc_hash(data, length, seed);
+    }
+
     template <bool column_const>
     void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
                        ColumnFloat64& res, size_t size) const {
         auto& res_data = res.get_data();
         res_data.resize_fill(size, 0);
+        // If the length of the pattern is less than gram_num, return 0.
         if (pattern.size < gram_num) {
             return;
         }
-        phmap::flat_hash_map<uint32_t, int> pattern_map;
+
+        // Build a map by pattern string, which will be used repeatedly in the following loop.
+        NgramMap pattern_map;
         int pattern_count = get_pattern_set(pattern_map, pattern, gram_num);
+        // Each time a loop is executed, the map will be modified, so it needs to be restored afterward.
         std::vector<uint32_t> restore_map;
+
         for (int i = 0; i < size; i++) {
             auto text = text_col->get_data_at(index_check_const<column_const>(i));
             if (text.size < gram_num) {
+                // If the length of the text is less than gram_num, return 0.
                 continue;
             }
             restore_map.reserve(text.size);
-            auto [text_count, union_count] = get_text_set(text, gram_num, pattern_map, restore_map);
+            auto [text_count, intersection_count] =
+                    get_text_set(text, gram_num, pattern_map, restore_map);
 
-            res_data[i] = 2.0F * union_count / (text_count + pattern_count);
+            // 2 * |Intersection| / (|text substr set| + |pattern substr set|)
+            res_data[i] = 2.0 * intersection_count / (text_count + pattern_count);
         }
     }
 
-    int get_pattern_set(phmap::flat_hash_map<uint32_t, int>& pattern_map, StringRef& pattern,
-                        int gram_num) const {
-        int pattern_count = 0;
+    size_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
+        size_t pattern_count = 0;
         for (int i = 0; i + gram_num <= pattern.size; i++) {
-            uint32_t cur_hash = HashUtil::crc_hash(pattern.data + i, gram_num, 0);
+            uint32_t cur_hash = sub_str_hash(pattern.data + i, gram_num);
             if (!pattern_map.contains(cur_hash)) {
-                pattern_map[cur_hash] = 0b01;
+                pattern_map[cur_hash] = found_in_pattern;
                 pattern_count++;
             }
         }
         return pattern_count;
     }
 
-    pair<int, int> get_text_set(StringRef& text, int gram_num,
-                                phmap::flat_hash_map<uint32_t, int>& pattern_map,
-                                std::vector<uint32_t>& restore_map) const {
+    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                      std::vector<uint32_t>& restore_map) const {
         restore_map.clear();
-        int text_count = 0, union_count = 0;
+        //intersection_count indicates a substring both in pattern and text.
+        size_t text_count = 0, intersection_count = 0;
         for (int i = 0; i + gram_num <= text.size; i++) {
-            uint32_t cur_hash = HashUtil::crc_hash(text.data + i, gram_num, 0);
+            uint32_t cur_hash = sub_str_hash(text.data + i, gram_num);
             auto& val = pattern_map[cur_hash];
-            if (val == 0b00) {
-                val ^= 0b10;
+            if (val == not_found) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_text);
+                // only found in text
                 text_count++;
                 restore_map.push_back(cur_hash);
-            } else if (val == 0b01) {
-                val ^= 0b10;
+            } else if (val == found_in_pattern) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_pattern_and_text);
+                // found in text and pattern
                 text_count++;
-                union_count++;
+                intersection_count++;
                 restore_map.push_back(cur_hash);
             }
         }
-
-        for (auto& reset_hash : restore_map) {
-            pattern_map[reset_hash] ^= 0b10;
+        // Restore the pattern_map.
+        for (auto& restore_hash : restore_map) {
+            pattern_map[restore_hash] ^= found_in_text;
         }
 
-        return {text_count, union_count};
+        return {text_count, intersection_count};
     }
 };
 
