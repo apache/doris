@@ -102,7 +102,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
                                                    boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes, long pageSize)
+                                                   List<Integer> clusterKeyIndexes)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -348,6 +348,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             }
         }
+        LOG.info("[lxr] set row store page size: {}", pageSize);
         schemaBuilder.setRowStorePageSize(pageSize);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
