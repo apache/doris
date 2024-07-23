@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.util.Util;
 
@@ -35,6 +36,8 @@ import java.util.concurrent.ExecutorService;
 public class MetaCache<T> {
     private LoadingCache<String, List<String>> namesCache;
     private Map<Long, String> idToName = Maps.newConcurrentMap();
+    // table name lower cast -> table name
+    private Map<String, String> lowerCaseToTableName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
     private String name;
@@ -75,12 +78,21 @@ public class MetaCache<T> {
         return namesCache.get("");
     }
 
-    public Optional<T> getMetaObj(String name) {
-        Optional<T> val = metaObjCache.getIfPresent(name);
+    public Optional<T> getMetaObj(String tableName) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.getOrDefault(tableName.toLowerCase(), tableName);
+        }
+
+        Optional<T> val = metaObjCache.getIfPresent(tableName);
         if (val == null) {
             synchronized (metaObjCache) {
-                val = metaObjCache.get(name);
-                idToName.put(Util.genTableIdByName(name), name);
+                val = metaObjCache.get(tableName);
+                idToName.put(Util.genTableIdByName(tableName), tableName);
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             }
         }
         return val;
@@ -91,33 +103,50 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name);
     }
 
-    public void updateCache(String objName, T obj) {
-        metaObjCache.put(objName, Optional.of(obj));
+    public void updateCache(String tableName, T obj) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.getOrDefault(tableName.toLowerCase(), tableName);
+        }
+
+        metaObjCache.put(tableName, Optional.of(obj));
+        String finalTableName = tableName;
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
-                return Lists.newArrayList(objName);
+                return Lists.newArrayList(finalTableName);
             } else {
-                v.add(objName);
+                v.add(finalTableName);
                 return v;
             }
         });
     }
 
-    public void invalidate(String objName) {
+    public void invalidate(String tableName) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.getOrDefault(tableName.toLowerCase(), tableName);
+        }
+
+        String finalTableName = tableName;
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.remove(objName);
+                v.remove(finalTableName);
                 return v;
             }
         });
-        metaObjCache.invalidate(objName);
+        metaObjCache.invalidate(tableName);
     }
 
     public void invalidateAll() {
         namesCache.invalidateAll();
         metaObjCache.invalidateAll();
     }
-
 }
