@@ -110,9 +110,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     /**
      * this func should in lock scope of getLock(groupId)
      *
-     * @param groupId
-     * @param oldPartitionIds
-     * @param newIds          if have replaced, replace with new. otherwise itself.
+     * @param newIds if have replaced, replace with new. otherwise itself.
      * @return
      */
     public boolean tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds, List<Long> newIds) {
@@ -149,6 +147,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
 
     public void taskGroupFail(long groupId) {
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] failed");
+        // will rollback temp partitions in `taskFail`
         for (Long taskId : taskGroups.get(groupId)) {
             taskFail(taskId);
         }
@@ -173,6 +172,8 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] succeed");
         for (Long taskId : taskGroups.get(groupId)) {
+            Env.getCurrentEnv().getEditLog()
+                    .logInsertOverwrite(new InsertOverwriteLog(taskId, tasks.get(taskId), InsertOverwriteOpType.ADD));
             taskSuccess(taskId);
         }
         cleanTaskGroup(groupId);
@@ -192,6 +193,9 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     public void taskFail(long taskId) {
         LOG.info("insert overwrite task [" + taskId + "] failed");
         boolean rollback = rollback(taskId);
+        if (!rollback) {
+            LOG.warn("roll back task [" + taskId + "] failed");
+        }
         if (rollback) {
             removeTask(taskId);
         } else {
@@ -220,6 +224,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
     }
 
+    // cancel it. should try to remove them after.
     private void cancelTask(long taskId) {
         if (tasks.containsKey(taskId)) {
             LOG.info("cancel insert overwrite task: {}", tasks.get(taskId));
@@ -229,6 +234,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
     }
 
+    // task and partitions has been removed. it's safe to remove task.
     private void removeTask(long taskId) {
         if (tasks.containsKey(taskId)) {
             LOG.info("remove insert overwrite task: {}", tasks.get(taskId));
@@ -250,7 +256,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         try {
             olapTable = task.getTable();
         } catch (DdlException e) {
-            LOG.warn("can not get table, task: {}", task);
+            LOG.warn("can not get table, task: {}, reason: {}", task, e.getMessage());
             return true;
         }
         return InsertOverwriteUtil.dropPartitions(olapTable, task.getTempPartitionNames());

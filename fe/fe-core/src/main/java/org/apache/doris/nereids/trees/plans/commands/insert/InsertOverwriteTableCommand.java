@@ -185,7 +185,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
             }
         } catch (Exception e) {
-            LOG.warn("insert into overwrite failed");
+            LOG.warn("insert into overwrite failed with task(or group) id " + taskId);
             if (isAutoDetectOverwrite()) {
                 Env.getCurrentEnv().getInsertOverwriteManager().taskGroupFail(taskId);
             } else {

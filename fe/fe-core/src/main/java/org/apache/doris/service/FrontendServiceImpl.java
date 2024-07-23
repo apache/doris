@@ -3557,7 +3557,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("partition replacement: ");
                     for (int i = 0; i < pendingPartitionIds.size(); i++) {
-                        LOG.debug("[" + pendingPartitionIds.get(i) + ", " + newPartitionIds.get(i) + "], ");
+                        LOG.debug("[" + pendingPartitionIds.get(i) + " - " + pendingPartitionNames.get(i) + ", "
+                                + newPartitionIds.get(i) + " - " + newTempNames.get(i) + "], ");
                     }
                 }
             }
