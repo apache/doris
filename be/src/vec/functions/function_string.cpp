@@ -82,7 +82,7 @@ struct NameQuoteImpl {
     }
 };
 
-struct NameStringLenght {
+struct NameStringLength {
     static constexpr auto name = "length";
 };
 
@@ -99,6 +99,28 @@ struct StringLengthImpl {
         for (int i = 0; i < size; ++i) {
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
+        }
+        return Status::OK();
+    }
+};
+
+struct NameCrc32 {
+    static constexpr auto name = "crc32";
+};
+
+struct Crc32Impl {
+    using ReturnType = DataTypeInt64;
+    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    using Type = String;
+    using ReturnColumnType = ColumnVector<Int64>;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int64>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            res[i] = crc32_z(0L, (const unsigned char*)data.data() + offsets[i - 1],
+                             offsets[i] - offsets[i - 1]);
         }
         return Status::OK();
     }
@@ -942,7 +964,8 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
-using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLenght>;
+using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
+using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionStringStartsWith =
@@ -977,6 +1000,7 @@ using FunctionStringRPad = FunctionStringPad<StringRPad>;
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
+    factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
     factory.register_function<FunctionStringSpace>();
     factory.register_function<FunctionStringStartsWith>();
