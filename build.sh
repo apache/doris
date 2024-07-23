@@ -159,7 +159,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
-BUILD_AZURE='OFF'
+CBUILD_AZURE='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -435,7 +435,7 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
 fi
 
 if [[ -n "${BUILD_AZURE}" ]]; then
-    BUILD_AZURE='ON'
+    CBUILD_AZURE='ON'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
@@ -593,7 +593,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
-        -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_AZURE="${CBUILD_AZURE}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -632,7 +632,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
-        -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_AZURE="${CBUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
