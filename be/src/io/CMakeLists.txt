@@ -22,7 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
-if(NOT BUILD_AZURE)
+if(BUILD_AZURE STREQUAL "OFF")
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/azure_obj_storage_client.cpp")
 endif()
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
