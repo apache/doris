@@ -560,7 +560,6 @@ public class BindExpression implements AnalysisRuleFactory {
         });
     }
 
-
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
         UsingJoin<Plan, Plan> using = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
