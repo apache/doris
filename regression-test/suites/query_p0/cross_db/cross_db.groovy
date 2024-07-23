@@ -54,7 +54,7 @@ suite("cross_db") {
         (4, 40)
     """
 
-    sql """SELECT * FROM cross_db_1.cnt_table , cross_db_2.cnt_table """
+    sql """SELECT * FROM cross_db_1.cnt_table,cross_db_2.cnt_table"""
 
     sql """DROP DATABASE cross_db_1"""
     sql """DROP DATABASE cross_db_2"""
