@@ -24,7 +24,7 @@ suite("test_tvf_csv_with_enclose_escape", "p0") {
     def be_id = backends[0][0]
 
     //reuse stream load case.
-    def  load_case_path = context.config.dataPath + "/load_p0/stream_load/"
+    def  load_case_path = context.config.dataPath + "/external_table_p0/tvf/"
     def load_cases = [
         'enclose_normal.csv',
         'enclose_with_escape.csv',
