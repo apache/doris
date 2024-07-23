@@ -346,8 +346,6 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             // do nothing, will be analyzed when creating alter job
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
             // do nothing, will be analyzed when creating alter job
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE)) {
-            // do nothing, will be analyzed when creating alter job
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
