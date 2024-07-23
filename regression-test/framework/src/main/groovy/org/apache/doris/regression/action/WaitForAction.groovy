@@ -18,9 +18,13 @@
 package org.apache.doris.regression.action
 
 import groovy.util.logging.Slf4j
+import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
+
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 @Slf4j
 class WaitForAction implements SuiteAction{
@@ -50,21 +54,18 @@ class WaitForAction implements SuiteAction{
 
     @Override
     void run() {
-        while (time--) {
-            log.info("sql is :\n${sql}")
+        if (ObjectUtils.isEmpty(time) || time <= 0) {
+            time = 600
+        }
+        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
             String res = result.get(0).get(9)
             if (res == "FINISHED" || res == "CANCELLED") {
                 Assert.assertEquals("FINISHED", res)
-                sleep(3000)
-                break
-            } else {
-                Thread.sleep(2000)
-                if (time < 1) {
-                    log.info("test timeout," + "state:" + res)
-                    Assert.assertEquals("FINISHED",res)
-                }
+                return true;
             }
-        }
+            return false;
+        });
+
     }
 }
