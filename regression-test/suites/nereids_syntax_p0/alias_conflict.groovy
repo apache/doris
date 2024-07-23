@@ -20,6 +20,11 @@ suite("alias_conflict") {
     sql """ DROP TABLE IF EXISTS `test_alias_conflict1` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict2` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict3` """
+    sql """ DROP DATABASE IF EXISTS `alias_conflict1` """
+    sql """ DROP DATABASE IF EXISTS `alias_conflict2` """
+
+    sql """ CREATE DATABASE IF NOT EXISTS `alias_conflict1` """
+    sql """ CREATE DATABASE IF NOT EXISTS `alias_conflict2` """
 
     sql """
         CREATE TABLE `test_alias_conflict1` (
@@ -72,9 +77,45 @@ suite("alias_conflict") {
         );
     """
 
+    sql """
+        CREATE TABLE `alias_conflict1`.`test_alias_conflict1` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `alias_conflict2`.`test_alias_conflict1` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
     sql """insert into test_alias_conflict1 values('1','a',12);"""
     sql """insert into test_alias_conflict2 values('1','a',12);"""
     sql """insert into test_alias_conflict3 values('1','a',12);"""
+    sql """insert into alias_conflict1.test_alias_conflict1 values('1','a',12);"""
+    sql """insert into alias_conflict2.test_alias_conflict1 values('1','a',12);"""
 
     // Valid query
     qt_select_normal """select t3.id from test_alias_conflict1 t1 inner join test_alias_conflict2 t2 on true inner join test_alias_conflict3 t3 on t3.id = t2.id;"""
@@ -114,6 +155,8 @@ suite("alias_conflict") {
     // Test for no conflict
     qt_select_no_conflict """select * from test_alias_conflict1 t1, test_alias_conflict2 t2 where t1.id = t2.id;"""
 
+    qt_select_no_conflict "select * from alias_conflict1.test_alias_conflict1, alias_conflict2.test_alias_conflict1;"
+
 
     // Test case where alias are different
     qt_select_diff_alias """select * from test_alias_conflict2 a, test_alias_conflict2 b;"""
@@ -129,7 +172,21 @@ suite("alias_conflict") {
     ) c
     on b.id = c.id;"""
 
+
+    test {
+        sql "select * from alias_conflict1.test_alias_conflict1 t, alias_conflict2.test_alias_conflict1 t;"
+        exception "Not unique table/alias: 't'"
+    }
+
+    // Test case for cross database table names with no conflict
+    qt_select_cross_db_no_conflict """select * from alias_conflict1.test_alias_conflict1 a, alias_conflict2.test_alias_conflict1 b where a.id = b.id;"""
+
     sql """ DROP TABLE IF EXISTS `test_alias_conflict1` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict2` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict3` """
+    sql """ DROP TABLE IF EXISTS `alias_conflict1`.`test_alias_conflict1` """
+    sql """ DROP TABLE IF EXISTS `alias_conflict2`.`test_alias_conflict1` """
+    sql """ DROP DATABASE IF EXISTS `alias_conflict1` """
+    sql """ DROP DATABASE IF EXISTS `alias_conflict2` """
 }
+

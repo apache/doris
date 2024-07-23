@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -541,7 +540,8 @@ public class BindExpression implements AnalysisRuleFactory {
         Set<String> existsTableNames = Sets.newLinkedHashSet();
         Consumer<String> checkAlias = tableAliasName -> {
             if (!existsTableNames.add(tableAliasName)) {
-                throw new AnalysisException("Not unique table/alias: '" + tableAliasName + "'");
+                String tableName = tableAliasName.substring(tableAliasName.lastIndexOf('.') + 1);
+                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
             }
         };
 
@@ -551,14 +551,16 @@ public class BindExpression implements AnalysisRuleFactory {
                 checkAlias.accept(((LogicalSubQueryAlias<?>) p).getAlias());
                 return stopCheckChildren;
             } else if (p instanceof LogicalCatalogRelation) {
-                TableIf table = ((LogicalCatalogRelation) p).getTable();
-                checkAlias.accept(table.getName());
+                // 获取包含catalog和database的完整表名
+                String table = ((LogicalCatalogRelation) p).qualifiedName().toString();
+                checkAlias.accept(table);
                 return stopCheckChildren;
             } else {
                 return !stopCheckChildren;
             }
         });
     }
+
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
         UsingJoin<Plan, Plan> using = ctx.root;

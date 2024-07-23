@@ -5,9 +5,15 @@
 -- !select_no_conflict --
 1	a	12	1	a	12
 
+-- !select_no_conflict --
+1	a	12	1	a	12
+
 -- !select_diff_alias --
 1	a	12	1	a	12
 
 -- !select_nested_no_conflict --
+1	a	12	1	a	12
+
+-- !select_cross_db_no_conflict --
 1	a	12	1	a	12
 
