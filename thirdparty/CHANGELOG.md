@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20240716
+
+- Modified: curl 7.79.0 -> 8.2.1
+
 ## v20231008
 
 - Modified: aws sdk 1.9.211 -> 1.11.119

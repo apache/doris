@@ -196,6 +196,9 @@ public:
 
     void close() override;
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     bool update_eof();
 

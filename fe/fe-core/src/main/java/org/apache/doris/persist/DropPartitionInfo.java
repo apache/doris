@@ -32,6 +32,8 @@ public class DropPartitionInfo implements Writable {
     private Long dbId;
     @SerializedName(value = "tableId")
     private Long tableId;
+    @SerializedName(value = "pid")
+    private Long partitionId;
     @SerializedName(value = "partitionName")
     private String partitionName;
     @SerializedName(value = "isTempPartition")
@@ -46,10 +48,11 @@ public class DropPartitionInfo implements Writable {
     private DropPartitionInfo() {
     }
 
-    public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
+    public DropPartitionInfo(Long dbId, Long tableId, Long partitionId, String partitionName,
             boolean isTempPartition, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.partitionId = partitionId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
@@ -75,6 +78,10 @@ public class DropPartitionInfo implements Writable {
         return tableId;
     }
 
+    public Long getPartitionId() {
+        return partitionId;
+    }
+
     public String getPartitionName() {
         return partitionName;
     }
@@ -91,13 +98,6 @@ public class DropPartitionInfo implements Writable {
         return  recycleTime;
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionName = Text.readString(in);
-    }
-
     public static DropPartitionInfo read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DropPartitionInfo.class);
@@ -107,6 +107,10 @@ public class DropPartitionInfo implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public static DropPartitionInfo fromJson(String data) {
+        return GsonUtils.GSON.fromJson(data, DropPartitionInfo.class);
     }
 
     public String toJson() {
@@ -131,6 +135,7 @@ public class DropPartitionInfo implements Writable {
 
         return (dbId.equals(info.dbId))
                 && (tableId.equals(info.tableId))
+                && (partitionId.equals(info.partitionId))
                 && (partitionName.equals(info.partitionName))
                 && (isTempPartition == info.isTempPartition)
                 && (forceDrop == info.forceDrop)

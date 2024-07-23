@@ -45,7 +45,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url);
+    Status init(const std::string& url, bool set_fail_on_error = true);
 
     void set_method(HttpMethod method);
 

@@ -196,6 +196,9 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* read_time;
@@ -564,7 +567,7 @@ private:
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 };
 
-class ORCFileInputStream : public orc::InputStream {
+class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
@@ -588,6 +591,10 @@ public:
 
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
+
+protected:
+    void _collect_profile_at_runtime() override {};
+    void _collect_profile_before_close() override;
 
 private:
     const std::string& _file_name;

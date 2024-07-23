@@ -1130,16 +1130,22 @@ public class Config extends ConfigBase {
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 256;
 
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 1024;
+
+    /**
+     * the max timeout of get kafka meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_get_kafka_meta_timeout_second = 60;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1225,7 +1231,7 @@ public class Config extends ConfigBase {
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int period_of_auto_resume_min = 5;
+    public static int period_of_auto_resume_min = 10;
 
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
@@ -2372,6 +2378,15 @@ public class Config extends ConfigBase {
     })
     public static int label_num_threshold = 2000;
 
+    /* https://forums.oracle.com/ords/apexds/post/je-log-checksumexception-2812
+      when meeting disk damage or other reason described in the oracle forums
+      and fe cannot start due to `com.sleepycat.je.log.ChecksumException`, we
+      add a param `ignore_bdbje_log_checksum_read` to ignore the exception, but
+      there is no guarantee of correctness for bdbje kv data
+    */
+    @ConfField
+    public static boolean ignore_bdbje_log_checksum_read = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2393,4 +2408,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
+    @ConfField(mutable = true)
+    public static boolean fix_tablet_partition_id_eq_0 = false;
 }

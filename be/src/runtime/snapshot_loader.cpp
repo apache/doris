@@ -81,7 +81,7 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
         RETURN_IF_ERROR(s3_uri.parse());
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(_prop, s3_uri, &s3_conf));
         std::shared_ptr<io::S3FileSystem> fs;
-        RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
+        RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", nullptr, &fs));
         _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
@@ -699,7 +699,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     // rename the rowset ids and tabletid info in rowset meta
     Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->table_id(),
+            tablet->partition_id(), schema_hash);
     if (!convert_status.ok()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

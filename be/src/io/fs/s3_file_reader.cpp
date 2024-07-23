@@ -33,6 +33,8 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
 #include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
+#include "util/s3_util.h"
 
 namespace doris {
 namespace io {
@@ -41,14 +43,23 @@ bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
+bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
+bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
+                                                           &s3_bytes_read_total);
+// Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
+// record successfull request, and s3_get_request_qps will record all request.
+bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
+                                                          &s3_file_reader_read_counter);
 
 S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
-                           std::shared_ptr<S3FileSystem> fs)
+                           std::shared_ptr<S3FileSystem> fs, RuntimeProfile* profile)
         : _path(std::move(path)),
           _file_size(file_size),
           _fs(std::move(fs)),
           _bucket(std::move(bucket)),
-          _key(std::move(key)) {
+          _key(std::move(key)),
+          _profile(profile) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
@@ -94,23 +105,87 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    auto outcome = client->GetObject(request);
-    if (!outcome.IsSuccess()) {
-        return Status::IOError(
-                "failed to read from {}: {}, exception {}, error code {}, request id {}",
-                _path.native(), outcome.GetError().GetMessage(),
-                outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
-                outcome.GetError().GetRequestId());
+    // auto outcome = client->GetObject(request);
+    // if (!outcome.IsSuccess()) {
+    //     return Status::IOError(
+    //             "failed to read from {}: {}, exception {}, error code {}, request id {}",
+    //             _path.native(), outcome.GetError().GetMessage(),
+    //             outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
+    //             outcome.GetError().GetRequestId());
+    // }
+    // *bytes_read = outcome.GetResult().GetContentLength();
+    // if (*bytes_read != bytes_req) {
+    //     return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
+    //                            _path.native(), *bytes_read, bytes_req);
+    // SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
+
+    int retry_count = 0;
+    const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
+    const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
+    const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
+
+    int total_sleep_time = 0;
+    while (retry_count <= max_retries) {
+        s3_file_reader_read_counter << 1;
+        auto outcome = client->GetObject(request);
+        _s3_stats.total_get_request_counter++;
+        if (!outcome.IsSuccess()) {
+            auto error = outcome.GetError();
+            if (error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+                s3_file_reader_too_many_request_counter << 1;
+                retry_count++;
+                int wait_time = std::min(base_wait_time * (1 << retry_count),
+                                         max_wait_time); // Exponential backoff
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
+                _s3_stats.too_many_request_err_counter++;
+                _s3_stats.too_many_request_sleep_time_ms += wait_time;
+                total_sleep_time += wait_time;
+                continue;
+            } else {
+                // Handle other errors
+                return Status::IOError(
+                        "failed to read. msg: {}, exception: {}, error code: {}, request id: {}",
+                        _path.native(), outcome.GetError().GetMessage(),
+                        outcome.GetError().GetExceptionName(), outcome.GetError().GetResponseCode(),
+                        outcome.GetError().GetRequestId());
+            }
+        }
+        *bytes_read = outcome.GetResult().GetContentLength();
+        if (*bytes_read != bytes_req) {
+            return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
+                                         *bytes_read, bytes_req);
+        }
+        _s3_stats.total_bytes_read += bytes_req;
+        s3_bytes_read_total << bytes_req;
+        s3_bytes_per_read << bytes_req;
+        DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
+        if (retry_count > 0) {
+            LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
+                                     _path.native(), retry_count, total_sleep_time);
+        }
+        return Status::OK();
     }
-    *bytes_read = outcome.GetResult().GetContentLength();
-    if (*bytes_read != bytes_req) {
-        return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
-                               _path.native(), *bytes_read, bytes_req);
+    return Status::InternalError("failed to read from s3, exceeded maximum retries");
+}
+
+void S3FileReader::_collect_profile_before_close() {
+    if (_profile != nullptr) {
+        const char* s3_profile_name = "S3Profile";
+        ADD_TIMER(_profile, s3_profile_name);
+        RuntimeProfile::Counter* total_get_request_counter =
+                ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, s3_profile_name);
+        RuntimeProfile::Counter* too_many_request_err_counter =
+                ADD_CHILD_COUNTER(_profile, "TooManyRequestErr", TUnit::UNIT, s3_profile_name);
+        RuntimeProfile::Counter* too_many_request_sleep_time = ADD_CHILD_COUNTER(
+                _profile, "TooManyRequestSleepTime", TUnit::TIME_MS, s3_profile_name);
+        RuntimeProfile::Counter* total_bytes_read =
+                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, s3_profile_name);
+
+        COUNTER_UPDATE(total_get_request_counter, _s3_stats.total_get_request_counter);
+        COUNTER_UPDATE(too_many_request_err_counter, _s3_stats.too_many_request_err_counter);
+        COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
+        COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
     }
-    s3_bytes_read_total << *bytes_read;
-    s3_file_reader_read_counter << 1;
-    DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
-    return Status::OK();
 }
 
 } // namespace io

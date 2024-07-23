@@ -461,6 +461,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
 
+    public static final String ENABLE_ES_SHARD_SCROLL = "enable_es_shard_scroll";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1458,6 +1460,24 @@ public class SessionVariable implements Serializable, Writable {
                     + " like \"MaxMessageSize reached\"",
                     "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
     public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
+
+    /**
+     * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
+     * Otherwise, FE will plan a single query to ES.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_ES_SHARD_SCROLL, description = {
+        "ES catalog 是否开启 shard 级别的 scroll 请求，默认开启。",
+        "Whether to enable shard-level scroll requests for ES catalog, enabled by default."
+    })
+    public boolean enableESShardScroll = true;
+
+    public void setEnableEsShardScroll(boolean enableESShardScroll) {
+        this.enableESShardScroll = enableESShardScroll;
+    }
+
+    public boolean isEnableESShardScroll() {
+        return enableESShardScroll;
+    }
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.

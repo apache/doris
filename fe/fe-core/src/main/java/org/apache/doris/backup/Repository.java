@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
@@ -219,26 +218,6 @@ public class Repository implements Writable {
     public Status initRepository() {
         if (FeConstants.runningUnitTest) {
             return Status.OK;
-        }
-
-        // A temporary solution is to delete all stale snapshots before creating an S3 repository
-        // so that we can add regression tests about backup/restore.
-        //
-        // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem) {
-            String deleteStaledSnapshots = fileSystem.getProperties()
-                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
-            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
-                // delete with prefix:
-                // eg. __palo_repository_repo_name/
-                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
-                LOG.info("property {} is set, delete snapshots with prefix: {}",
-                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = ((S3FileSystem) fileSystem).deleteDirectory(snapshotPrefix);
-                if (!st.ok()) {
-                    return st;
-                }
-            }
         }
 
         String repoInfoFilePath = assembleRepoInfoFilePath();
