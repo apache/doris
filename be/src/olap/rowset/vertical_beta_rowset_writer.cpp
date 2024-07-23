@@ -104,7 +104,8 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
             left -= to_write;
             CHECK_GE(left, 0);
 
-            if (num_rows_key_group == num_rows_written + to_write && _cur_writer_idx < _segment_writers.size() - 1) {
+            if (num_rows_key_group == num_rows_written + to_write &&
+                _cur_writer_idx < _segment_writers.size() - 1) {
                 ++_cur_writer_idx;
             }
         }
