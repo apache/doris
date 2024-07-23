@@ -155,18 +155,18 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
         for (const auto& it : registry) {
             const auto& dir = it.first->path();
             rapidjson::Value path_key;
-            path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
+            path_key.SetString(dir.c_str(), dir.length(), root.GetAllocator());
 
             rapidjson::Document arr;
             arr.SetArray();
 
             for (const auto& tablet : it.second) {
                 rapidjson::Value key;
-                const std::string& key_str = std::to_string(tablet->tablet_id());
-                key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
+                auto key_str = std::to_string(tablet->tablet_id());
+                key.SetString(key_str.c_str(), key_str.length(), root.GetAllocator());
                 arr.PushBack(key, root.GetAllocator());
             }
-            path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
+            path_obj.AddMember(path_key, arr, root.GetAllocator());
         }
         root.AddMember(key, path_obj, root.GetAllocator());
     };
