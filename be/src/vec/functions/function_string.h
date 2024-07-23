@@ -34,6 +34,7 @@
 #include <memory>
 #include <ostream>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
@@ -70,6 +71,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
 #include "vec/utils/template_helpers.hpp"
@@ -401,9 +403,14 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        int argument_size = arguments.size();
+        size_t argument_size = arguments.size();
+        if (argument_size < 2) {
+            return Status::InvalidArgument(
+                    "auto_partition_name must contains at least two arguments");
+        }
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
+        std::vector<bool> is_const_args(argument_size);
 
         for (int i = 0; i < argument_size; ++i) {
             const auto& [col, is_const] =
@@ -412,112 +419,24 @@ public:
             const auto* col_str = assert_cast<const ColumnString*>(col.get());
             chars_list[i] = &col_str->get_chars();
             offsets_list[i] = &col_str->get_offsets();
+            is_const_args[i] = is_const;
         }
-
         auto res = ColumnString::create();
         auto& res_data = res->get_chars();
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
+
         const char* partition_type = chars_list[0]->raw_data();
-        size_t type_size = chars_list[0]->size();
-        if (std::strncmp(partition_type, "list", 4) == 0 && type_size == 4) {
-            std::string res_p = "p";
-            int curr_size = 0;
-            for (int i = 0; i < input_rows_count; i++) {
-                for (int j = 1; j < argument_size; j++) {
-                    const std::string string_to_unicode(chars_list[j]->raw_data(),
-                                                        chars_list[j]->size());
-                    auto unicode_to_string = _string_to_u16string(string_to_unicode);
-                    res_p += _string_to_unicode(unicode_to_string) +
-                             std::to_string(unicode_to_string.size());
-                }
-                int len = res_p.size();
-                if (len > 50) {
-                    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                            "The list partition name cannot exceed 50 characters");
-                }
-                curr_size += len;
-                res_data.resize(curr_size);
-                memcpy(&res_data[res_offset[i - 1]], res_p.c_str(), len);
-                res_offset[i] = res_offset[i - 1] + len;
-            }
-
-            block.get_by_position(result).column = std::move(res);
-            return Status::OK();
-        } else if (std::strncmp(partition_type, "range", 5) == 0 && type_size == 5) {
-            if (argument_size != 3) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "The partition type is range, the argument of size must be 3");
-            }
-
-            const char* range_type = chars_list[1]->raw_data();
-            size_t range_type_size = chars_list[1]->size();
-
-            std::string to_split_s(chars_list[2]->raw_data(), chars_list[2]->size());
-            std::vector<std::string> str_v;
-            // split date with different way [2022-12-12 00:00:00] or [2022-12-12]
-            if (to_split_s.size() == input_rows_count * 19) {
-                for (int i = 0; i < to_split_s.size(); i += 19) {
-                    auto vec_res = split(to_split_s.substr(i, 10), "-");
-                    for (const auto& s : vec_res) {
-                        str_v.emplace_back(s);
-                    }
-                }
-            } else {
-                for (int i = 0; i < to_split_s.size(); i += 10) {
-                    auto vec_res = split(to_split_s.substr(i, 10), "-");
-                    for (const auto& s : vec_res) {
-                        str_v.emplace_back(s);
-                    }
-                }
-            }
-            if (str_v.size() != 3 * input_rows_count) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "The range partition only support DATE/DATETIME");
-            }
-            res_data.resize(15 * input_rows_count);
-            for (int i = 0; i < input_rows_count; i++) {
-                int curr_len = 1;
-
-                res_data[res_offset[i - 1]] = 'p';
-
-                if (std::strncmp(range_type, "day", 3) == 0 && range_type_size == 3) {
-                    for (int j = i * 3; j < i * 3 + 3; j++) {
-                        memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[j].c_str(),
-                               str_v[j].size());
-                        curr_len += str_v[j].size();
-                    }
-                } else if (std::strncmp(range_type, "month", 5) == 0 && range_type_size == 5) {
-                    for (int j = i * 3; j < i * 3 + 2; j++) {
-                        memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[j].c_str(),
-                               str_v[j].size());
-                        curr_len += str_v[j].size();
-                    }
-                    memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
-                    curr_len += 2;
-                } else if (std::strncmp(range_type, "year", 4) == 0 && range_type_size == 4) {
-                    memcpy(&res_data[res_offset[i - 1]] + curr_len, str_v[i * 3].c_str(),
-                           str_v[i * 3].size());
-                    curr_len += str_v[i * 3].size();
-                    memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
-                    curr_len += 4;
-                } else {
-                    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                            "The first argument is range, the second argument muse be "
-                            "day, month or year ");
-                }
-                memcpy(&res_data[res_offset[i - 1]] + curr_len, "000000", 6);
-                curr_len += 6;
-                res_offset[i] = res_offset[i - 1] + curr_len;
-            }
-
-            block.get_by_position(result).column = std::move(res);
-            return Status::OK();
+        // partition type is list|range
+        if (std::strncmp(partition_type, "list", 4) == 0) {
+            return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, res_data,
+                                                res_offset, input_rows_count, argument_size, block,
+                                                result, res);
         } else {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "Partition type must be range or list");
+            return _auto_partition_type_of_range(chars_list, offsets_list, is_const_args, res_data,
+                                                 res_offset, input_rows_count, argument_size, block,
+                                                 result, res);
         }
-
         return Status::OK();
     }
 
@@ -529,6 +448,7 @@ private:
 
     std::string _string_to_unicode(const std::u16string& s) const {
         std::string res_s;
+        res_s.reserve(s.size());
         if (s.length() > 0 && s[0] == '-') {
             res_s += '_';
         }
@@ -537,16 +457,14 @@ private:
             if (std::isalnum(ch)) {
                 res_s += ch;
             } else {
-                int unicodeValue = _get_code_foint_at(s, i);
-                char buffer[18];
-                sprintf(buffer, "%x", unicodeValue);
-                res_s += buffer;
+                int unicodeValue = _get_code_point_at(s, i);
+                res_s += fmt::format("{:02x}", static_cast<uint32_t>(unicodeValue));
             }
         }
         return res_s;
     }
 
-    int _get_code_foint_at(const std::u16string& str, std::size_t index) const {
+    int _get_code_point_at(const std::u16string& str, std::size_t index) const {
         char16_t first = str[index];
         // [0xD800,0xDBFF] is the scope of the first code unit
         if ((first >= 0xD800 && first <= 0xDBFF) && (index + 1 < str.size())) {
@@ -558,6 +476,128 @@ private:
         }
 
         return first;
+    }
+    Status _auto_partition_type_of_list(std::vector<const ColumnString::Chars*>& chars_list,
+                                        std::vector<const ColumnString::Offsets*>& offsets_list,
+                                        std::vector<bool>& is_const_args, auto& res_data,
+                                        auto& res_offset, size_t input_rows_count,
+                                        size_t argument_size, Block& block, size_t result,
+                                        auto& res) const {
+        int curr_len = 0;
+        for (int row = 0; row < input_rows_count; row++) {
+            std::string res_p;
+            res_p.reserve(argument_size * 5);
+            res_p += 'p';
+            for (int col = 1; col < argument_size; col++) {
+                const auto& current_offsets = *offsets_list[col];
+                const auto& current_chars = *chars_list[col];
+
+                auto idx = index_check_const(row, is_const_args[col]);
+                int size = current_offsets[idx] - current_offsets[idx - 1];
+                const char* raw_chars =
+                        reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+
+                // convert string to u16string in order to convert to unicode strings
+                const std::string raw_str(raw_chars, size);
+                auto u16string = _string_to_u16string(raw_str);
+                res_p += _string_to_unicode(u16string) + std::to_string(u16string.size());
+            }
+
+            // check the name of length
+            int len = res_p.size();
+            if (len > 50) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "The list partition name cannot exceed 50 characters");
+            }
+            curr_len += len;
+            res_data.resize(curr_len);
+            memcpy(&res_data[res_offset[row - 1]], res_p.c_str(), len);
+            res_offset[row] = res_offset[row - 1] + len;
+        }
+        block.get_by_position(result).column = std::move(res);
+        return Status::OK();
+    }
+
+    size_t _copy_date_str_of_len_to_res_data(auto& res_data, auto& res_offset,
+                                             std::vector<std::string>& date_str, size_t row,
+                                             size_t len) const {
+        size_t curr_len = 1;
+        for (int j = 0; j < len; j++) {
+            memcpy(&res_data[res_offset[row - 1]] + curr_len, date_str[j].c_str(),
+                   date_str[j].size());
+            curr_len += date_str[j].size();
+        }
+        return curr_len;
+    }
+
+    Status _auto_partition_type_of_range(std::vector<const ColumnString::Chars*>& chars_list,
+                                         std::vector<const ColumnString::Offsets*>& offsets_list,
+                                         std::vector<bool>& is_const_args, auto& res_data,
+                                         auto& res_offset, size_t input_rows_count,
+                                         size_t argument_size, Block& block, size_t result,
+                                         auto& res) const {
+        const char* range_type = chars_list[1]->raw_data();
+
+        res_data.resize(15 * input_rows_count);
+        for (int i = 0; i < input_rows_count; i++) {
+            const auto& current_offsets = *offsets_list[2];
+            const auto& current_chars = *chars_list[2];
+
+            auto idx = index_check_const(i, is_const_args[2]);
+            int size = current_offsets[idx] - current_offsets[idx - 1];
+            const char* tmp =
+                    reinterpret_cast<const char*>(&current_chars[current_offsets[idx - 1]]);
+            std::string to_split_s(tmp, size);
+
+            // check the str if it is date|datetime
+            RE2 date_regex(R"(^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$)");
+            if (!RE2::FullMatch(to_split_s, date_regex)) {
+                return Status::InvalidArgument("The range partition only support DATE|DATETIME");
+            }
+
+            // split date_str from (yyyy-mm-dd hh:mm:ss) to ([yyyy, mm, dd, hh, mm, ss])
+            std::vector<std::string> date_str(6);
+            date_str[0] = to_split_s.substr(0, 4);
+            for (int i = 5, j = 1; i <= size; i += 3, j++) {
+                date_str[j] = to_split_s.substr(i, 2);
+            }
+            int curr_len = 0;
+
+            res_data[res_offset[i - 1]] = 'p';
+            // raw => 2022-12-12 11:30:20
+            // year => 2022 01 01 00 00 00
+            // month => 2022 12 01 00 00 00
+            // day => 2022 12 12 00 00 00
+            // hour => 2022 12 12 11 00 00
+            // minute => 2022 12  11 30 00
+            // second => 2022 12 12 12 30 20
+
+            if (!strncmp(range_type, "year", 4)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 1);
+                memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
+                curr_len += 4;
+            } else if (!strncmp(range_type, "month", 5)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 2);
+                memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
+                curr_len += 2;
+            } else if (!strncmp(range_type, "day", 3)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 3);
+            } else if (!strncmp(range_type, "hour", 4)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 4);
+            } else if (!strncmp(range_type, "minute", 6)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 5);
+            } else if (!strncmp(range_type, "second", 6)) {
+                curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 6);
+            }
+
+            // fill in zero
+            int zero = 15 - curr_len;
+            std::fill_n(&res_data[res_offset[i - 1]] + curr_len, zero, '0');
+            curr_len += zero;
+            res_offset[i] = res_offset[i - 1] + curr_len;
+        }
+        block.get_by_position(result).column = std::move(res);
+        return Status::OK();
     }
 };
 
