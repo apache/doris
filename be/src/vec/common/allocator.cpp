@@ -238,16 +238,7 @@ template class Allocator<false, true, true, ORCMemoryAllocator>;
 template class Allocator<false, true, false, ORCMemoryAllocator>;
 template class Allocator<false, false, true, ORCMemoryAllocator>;
 template class Allocator<false, false, false, ORCMemoryAllocator>;
-#if defined(USE_JEMALLOC)
-template class Allocator<true, true, true, ArrowJemallocMemoryAllocator>;
-template class Allocator<true, true, false, ArrowJemallocMemoryAllocator>;
-template class Allocator<true, false, true, ArrowJemallocMemoryAllocator>;
-template class Allocator<true, false, false, ArrowJemallocMemoryAllocator>;
-template class Allocator<false, true, true, ArrowJemallocMemoryAllocator>;
-template class Allocator<false, true, false, ArrowJemallocMemoryAllocator>;
-template class Allocator<false, false, true, ArrowJemallocMemoryAllocator>;
-template class Allocator<false, false, false, ArrowJemallocMemoryAllocator>;
-#endif // #if defined(USE_JEMALLOC)
+
 template class Allocator<true, true, true, RecordSizeMemoryAllocator>;
 template class Allocator<true, true, false, RecordSizeMemoryAllocator>;
 template class Allocator<true, false, true, RecordSizeMemoryAllocator>;

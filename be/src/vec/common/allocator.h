@@ -23,6 +23,9 @@
 // TODO: Readable
 
 #include <fmt/format.h>
+#if defined(USE_JEMALLOC)
+#include <jemalloc/jemalloc.h>
+#endif // defined(USE_JEMALLOC)
 #include <malloc.h>
 #include <stdint.h>
 #include <string.h>
@@ -85,9 +88,11 @@ public:
 
     static void free(void* p) __THROW { std::free(p); }
 
-    static void release_unused() {}
-
-private:
+    static void release_unused() {
+#if defined(USE_JEMALLOC)
+        jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), NULL, NULL, NULL, 0);
+#endif // defined(USE_JEMALLOC)
+    }
 };
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
@@ -159,11 +164,18 @@ public:
 
     static void* realloc(void* ptr, size_t size) __THROW {
         std::lock_guard<std::mutex> lock(_mutex);
+
+        auto it = _allocated_sizes.find(ptr);
+        if (it != _allocated_sizes.end()) {
+            _allocated_sizes.erase(it);
+        }
+
         void* p = std::realloc(ptr, size);
+
         if (p) {
-            _allocated_sizes.erase(ptr);
             _allocated_sizes[p] = size;
         }
+
         return p;
     }
 
@@ -181,30 +193,6 @@ private:
     static std::unordered_map<void*, size_t> _allocated_sizes;
     static std::mutex _mutex;
 };
-
-#if defined(USE_JEMALLOC)
-#include <jemalloc/jemalloc.h>
-class ArrowJemallocMemoryAllocator {
-public:
-    static void* malloc(size_t size) __THROW { return je_malloc(size); }
-
-    static void* calloc(size_t n, size_t size) __THROW { return je_calloc(n, size); }
-
-    static constexpr bool need_record_actual_size() { return false; }
-
-    static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
-        return je_posix_memalign(ptr, alignment, size);
-    }
-
-    static void* realloc(void* ptr, size_t size) __THROW { return je_realloc(ptr, size); }
-
-    static void free(void* p) __THROW { je_free(p); }
-
-    static void release_unused() {
-        je_mallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), NULL, NULL, NULL, 0);
-    }
-};
-#endif // defined(USE_JEMALLOC)
 
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
@@ -279,6 +267,9 @@ public:
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
+
+                if constexpr (clear_memory) memset(buf, 0, size);
+
                 if constexpr (MemoryAllocator::need_record_actual_size()) {
                     record_size = MemoryAllocator::allocated_size(buf);
                 }
@@ -292,12 +283,6 @@ public:
 
     /// Free memory range.
     void free(void* buf, size_t size) {
-        /*size_t record_size = 0;
-        if (size) {
-            record_size = size;
-        } else {
-            record_size = MemoryAllocator::allocated_size(buf);
-        }*/
         if (use_mmap && size >= doris::config::mmap_threshold) {
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
@@ -305,7 +290,6 @@ public:
         } else {
             MemoryAllocator::free(buf);
         }
-        //release_memory(record_size);
         release_memory(size);
     }
 

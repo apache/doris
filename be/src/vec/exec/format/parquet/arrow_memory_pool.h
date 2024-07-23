@@ -38,12 +38,7 @@ static constexpr uint8_t kDeallocPoison = 0xBE;
 extern int64_t zero_size_area[1];
 static uint8_t* const kZeroSizeArea = reinterpret_cast<uint8_t*>(&zero_size_area);
 
-#if defined(USE_JEMALLOC)
-#include <jemalloc/jemalloc.h>
-using ARROW_MEMORY_ALLOCATOR = ArrowJemallocMemoryAllocator;
-#else
 using ARROW_MEMORY_ALLOCATOR = DefaultMemoryAllocator;
-#endif // #if defined(USE_JEMALLOC)
 
 class ArrowAllocator {
 public:
