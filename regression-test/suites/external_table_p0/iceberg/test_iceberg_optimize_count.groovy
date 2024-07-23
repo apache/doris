@@ -18,6 +18,7 @@
 suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Iceberg test.")
         return
     }
 
@@ -46,6 +47,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         sqlstr2 = """ select count(*) from sample_cow_parquet; """
         sqlstr3 = """ select count(*) from sample_mor_orc; """
         sqlstr4 = """ select count(*) from sample_mor_parquet; """
+        sqlstr4_limit = """ select count(*) from sample_mor_parquet limit 1; """
 
         // use push down count
         sql """ set enable_count_push_down_for_external_table=true; """
@@ -53,7 +55,8 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         qt_q01 """${sqlstr1}""" 
         qt_q02 """${sqlstr2}""" 
         qt_q03 """${sqlstr3}""" 
-        qt_q04 """${sqlstr4}""" 
+        qt_q04 """${sqlstr4}"""
+        qt_q04_limit """${sqlstr4_limit}"""
 
         explain {
             sql("""${sqlstr1}""")
