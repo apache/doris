@@ -101,8 +101,7 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
-    // Set default value to false to be compatible with older version meta data.
-    public static final boolean DEFAULT_USE_META_CACHE = false;
+    public static final boolean DEFAULT_USE_META_CACHE = true;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")

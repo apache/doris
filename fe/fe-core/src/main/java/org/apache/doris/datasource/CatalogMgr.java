@@ -703,7 +703,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
