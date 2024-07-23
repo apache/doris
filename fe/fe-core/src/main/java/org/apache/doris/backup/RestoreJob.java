@@ -783,7 +783,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteView.resetIdsForRestore(env);
+                    String srcDbName = backupMeta.getDbName();
+                    remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
                     restoredTbls.add(remoteView);
                 }
             }

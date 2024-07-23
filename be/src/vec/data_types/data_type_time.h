@@ -68,7 +68,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Float64& num) const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -82,7 +82,7 @@ class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {
             _scale = 0;
@@ -103,7 +103,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Float64& num) const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;

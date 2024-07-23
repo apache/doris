@@ -36,21 +36,13 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(2000)
-            def state = sql "show alter table column where tablename = '${table}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            if (state.size()> 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 10) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${table}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
+
     for (item in ["legacy", "nereids"]) {
         try {
             // create table

@@ -44,7 +44,7 @@ bool DataTypeDate::equals(const IDataType& rhs) const {
 size_t DataTypeDate::number_length() const {
     return 10;
 }
-void DataTypeDate::push_bumber(ColumnString::Chars& chars, const Int64& num) const {
+void DataTypeDate::push_number(ColumnString::Chars& chars, const Int64& num) const {
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(num);
     char buf[64];
     char* pos = value.to_string(buf);

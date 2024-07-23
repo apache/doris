@@ -182,6 +182,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return new LogicalProject<>(projects, excepts, isDistinct, ImmutableList.of(child));
     }
 
+    public LogicalProject<Plan> withDistinct(boolean isDistinct) {
+        return new LogicalProject<>(projects, excepts, isDistinct, children);
+    }
+
     public boolean isDistinct() {
         return isDistinct;
     }
