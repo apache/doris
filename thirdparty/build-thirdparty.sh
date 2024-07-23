@@ -73,7 +73,7 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
-CBUILD_AZURE="OFF"
+BUILD_AZURE="ON"
 
 while true; do
     case "$1" in
@@ -121,8 +121,8 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ -n "${BUILD_AZURE}" ]]; then
-    CBUILD_AZURE='ON'
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 echo "Get params:
@@ -1786,7 +1786,7 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${CBUILD_AZURE}" == "OFF" ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
         echo "Skip build azure"
     else
         check_if_source_exist "${AZURE_SOURCE}"

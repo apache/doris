@@ -80,7 +80,7 @@ CLEAN=0
 RUN=0
 BUILD_BENCHMARK_TOOL='OFF'
 DENABLE_CLANG_COVERAGE='OFF'
-CBUILD_AZURE='OFF'
+BUILD_AZURE='ON'
 FILTER=""
 if [[ "$#" != 1 ]]; then
     while true; do
@@ -164,8 +164,8 @@ if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
 fi
 
-if [[ -n "${BUILD_AZURE}" ]]; then
-    CBUILD_AZURE='ON'
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 if [[ -z ${CMAKE_BUILD_DIR} ]]; then
@@ -250,7 +250,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
-    -DBUILD_AZURE="${CBUILD_AZURE}" \
+    -DBUILD_AZURE="${BUILD_AZURE}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
