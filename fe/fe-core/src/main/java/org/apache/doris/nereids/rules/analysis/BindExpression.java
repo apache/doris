@@ -551,7 +551,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 checkAlias.accept(((LogicalSubQueryAlias<?>) p).getAlias());
                 return stopCheckChildren;
             } else if (p instanceof LogicalCatalogRelation) {
-                String table = ((LogicalCatalogRelation) p).qualifiedName().toString();
+                String table = ((LogicalCatalogRelation) p).qualifiedName();
                 checkAlias.accept(table);
                 return stopCheckChildren;
             } else {
@@ -632,6 +632,9 @@ public class BindExpression implements AnalysisRuleFactory {
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
+
+        System.out.println(filter);
+        System.out.println(111);
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 filter, cascadesContext, filter.children(), true, true);
