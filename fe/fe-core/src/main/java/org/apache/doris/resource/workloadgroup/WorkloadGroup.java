@@ -555,6 +555,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
         }
 
+        String totalQuerySlotCountStr = properties.get(MAX_CONCURRENCY);
+        if (totalQuerySlotCountStr != null) {
+            tWorkloadGroupInfo.setTotalQuerySlotCount(Integer.parseInt(totalQuerySlotCountStr));
+        }
+
         TopicInfo topicInfo = new TopicInfo();
         topicInfo.setWorkloadGroupInfo(tWorkloadGroupInfo);
         return topicInfo;

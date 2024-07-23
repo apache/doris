@@ -230,6 +230,16 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
+    int32_t get_slot_count() {
+        return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
+    }
+
+    bool enable_query_slot_hard_limit() {
+        return _query_options.__isset.enable_query_slot_hard_limit
+                       ? _query_options.enable_query_slot_hard_limit
+                       : false;
+    }
+
     void set_weighted_memory(int64_t weighted_limit, double weighted_ratio) {
         std::lock_guard<std::mutex> l(_weighted_mem_lock);
         _weighted_limit = weighted_limit;

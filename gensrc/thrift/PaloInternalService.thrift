@@ -322,6 +322,8 @@ struct TQueryOptions {
   120: optional bool enable_fallback_on_missing_inverted_index = true;
 
   121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV. 
+  122: optional i32 query_slot_count = 0;
+  123: optional bool enable_query_slot_hard_limit = false;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
