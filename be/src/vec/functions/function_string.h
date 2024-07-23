@@ -38,6 +38,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -70,6 +71,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
+#include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
 #include <memory_resource>
@@ -138,6 +140,30 @@ struct StringOP {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
         offsets[index] = chars.size();
+    }
+
+    static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
+                            int32_t repeat_times) {
+        if (UNLIKELY(repeat_times <= 0)) {
+            return;
+        }
+        uint8_t* dst_begin = dst;
+        uint8_t* dst_curr = dst;
+        int32_t k = 0;
+        int32_t is_odd = repeat_times & 1;
+        repeat_times >>= 1;
+
+        memcpy(dst_curr, src, src_size);
+        dst_curr += src_size;
+        for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
+            int32_t len = src_size * (1 << k);
+            memcpy(dst_curr, dst_begin, len);
+            dst_curr += len;
+            if (is_odd) {
+                memcpy(dst_curr, dst_begin, len);
+                dst_curr += len;
+            }
+        }
     }
 };
 
@@ -820,9 +846,8 @@ public:
                 }
             }
         }
-        if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
-            return Status::BufferAllocFailed("concat output is too large to allocate");
-        }
+
+        ColumnString::check_chars_length(res_reserve_size, 0);
 
         res_data.resize(res_reserve_size);
 
@@ -1176,14 +1201,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
-    std::string error_msg(int default_value, int repeat_value) const {
-        auto error_msg = fmt::format(
-                "The second parameter of repeat function exceeded maximum default value, "
-                "default_value is {}, and now input is {} . you could try change default value "
-                "greater than value eg: set repeat_max_num = {}.",
-                default_value, repeat_value, repeat_value + 10);
-        return error_msg;
-    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -1199,22 +1216,18 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         argument_ptr[1] = block.get_by_position(arguments[1]).column;
 
-        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+        if (const auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (const auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
                                               col2->get_data(), res->get_chars(),
-                                              res->get_offsets(), null_map->get_data(),
-                                              context->state()->repeat_max_num()));
+                                              res->get_offsets(), null_map->get_data()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
-            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+            } else if (const auto* col2_const =
+                               check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = col2_const->get_int(0);
-                if (repeat > context->state()->repeat_max_num()) {
-                    return Status::InvalidArgument(
-                            error_msg(context->state()->repeat_max_num(), repeat));
-                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1234,8 +1247,8 @@ public:
 
     Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                         ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
-                         const int repeat_max_num) const {
+                         ColumnString::Offsets& res_offsets,
+                         ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1246,15 +1259,10 @@ public:
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
-            if (repeat > repeat_max_num) {
-                return Status::InvalidArgument(error_msg(repeat_max_num, repeat));
-            }
-
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
-            } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else {
+                ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
                 for (int j = 0; j < repeat; ++j) {
                     buffer.append(raw_str, raw_str + size);
                 }
@@ -1280,16 +1288,13 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
+            ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
 
-            if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            } else {
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
             }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
         }
     }
 };
@@ -1314,35 +1319,25 @@ public:
         auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
-        size_t argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-        for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
-                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+        ColumnPtr col[3];
+        bool col_const[3];
+        for (size_t i = 0; i < 3; ++i) {
+            std::tie(col[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-
         auto& null_map_data = null_map->get_data();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        const auto* strcol = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* strcol = assert_cast<const ColumnString*>(col[0].get());
         const auto& strcol_offsets = strcol->get_offsets();
         const auto& strcol_chars = strcol->get_chars();
 
-        const auto* col_len = assert_cast<const ColumnInt32*>(argument_columns[1].get());
+        const auto* col_len = assert_cast<const ColumnInt32*>(col[1].get());
         const auto& col_len_data = col_len->get_data();
 
-        const auto* padcol = assert_cast<const ColumnString*>(argument_columns[2].get());
+        const auto* padcol = assert_cast<const ColumnString*>(col[2].get());
         const auto& padcol_offsets = padcol->get_offsets();
         const auto& padcol_chars = padcol->get_chars();
 
@@ -1350,33 +1345,35 @@ public:
         std::vector<size_t> pad_index;
 
         fmt::memory_buffer buffer;
-
+        const bool str_const = col_const[0];
+        const bool len_const = col_const[1];
+        const bool pad_const = col_const[2];
         for (size_t i = 0; i < input_rows_count; ++i) {
             str_index.clear();
             pad_index.clear();
             buffer.clear();
-            if (null_map_data[i] || col_len_data[i] < 0) {
-                // return NULL when input string is NULL or input length is invalid number
+            const auto len = col_len_data[index_check_const(i, len_const)];
+            if (len < 0) {
+                // return NULL when input length is invalid number
                 null_map_data[i] = true;
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                int str_len = strcol_offsets[i] - strcol_offsets[i - 1];
-                const char* str_data =
-                        reinterpret_cast<const char*>(&strcol_chars[strcol_offsets[i - 1]]);
+                const auto str_idx = index_check_const(i, str_const);
+                const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
+                const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
+                const auto pad_idx = index_check_const(i, pad_const);
+                const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
+                const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
+                // get utf8 len
+                size_t str_char_size = simd::VStringFunctions::get_char_len((const char*)str_data,
+                                                                            str_len, str_index);
+                size_t pad_char_size = simd::VStringFunctions::get_char_len((const char*)pad_data,
+                                                                            pad_len, pad_index);
 
-                int pad_len = padcol_offsets[i] - padcol_offsets[i - 1];
-                const char* pad_data =
-                        reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
-
-                size_t str_char_size =
-                        simd::VStringFunctions::get_char_len(str_data, str_len, str_index);
-                size_t pad_char_size =
-                        simd::VStringFunctions::get_char_len(pad_data, pad_len, pad_index);
-
-                if (col_len_data[i] <= str_char_size) {
+                if (len <= str_char_size) {
                     // truncate the input string
-                    if (col_len_data[i] < str_char_size) {
-                        buffer.append(str_data, str_data + str_index[col_len_data[i]]);
+                    if (len < str_char_size) {
+                        buffer.append(str_data, str_data + str_index[len]);
                     } else {
                         buffer.append(str_data, str_data + str_len);
                     }
@@ -1385,14 +1382,6 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
-                if (col_len_data[i] > context->state()->repeat_max_num()) {
-                    return Status::InvalidArgument(
-                            " {} function the length argument is {} exceeded maximum default "
-                            "value: {}."
-                            "if you really need this length, you could change the session variable "
-                            "set repeat_max_num = xxx.",
-                            get_name(), col_len_data[i], context->state()->repeat_max_num());
-                }
 
                 // make compatible with mysql. return empty string if pad is empty
                 if (pad_char_size == 0) {
@@ -1400,42 +1389,31 @@ public:
                     continue;
                 }
 
-                int32_t pad_byte_len = 0;
-                int32_t pad_times = (col_len_data[i] - str_char_size) / pad_char_size;
-                int32_t pad_remainder = (col_len_data[i] - str_char_size) % pad_char_size;
-                pad_byte_len = pad_times * pad_len;
-                pad_byte_len += pad_index[pad_remainder];
-                int32_t byte_len = str_len + pad_byte_len;
-                // StringRef result(context, byte_len);
-                if constexpr (Impl::is_lpad) {
-                    int result_index = 0;
-
-                    // Prepend chars of pad.
-                    while (result_index < pad_byte_len) {
-                        int remain = std::min(pad_len, pad_byte_len - result_index);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_index += remain;
-                    }
-
-                    // Append given string.
-                    buffer.append(str_data, str_data + str_len);
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
-
-                } else {
-                    // is rpad
-                    buffer.append(str_data, str_data + str_len);
-
-                    // Append chars of pad until desired length
-                    int result_len = str_len;
-                    while (result_len < byte_len) {
-                        int remain = std::min(pad_len, byte_len - result_len);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_len += remain;
-                    }
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
+                const int32_t pad_times = (len - str_char_size) / pad_char_size;
+                const int32_t pad_remainder = (len - str_char_size) % pad_char_size;
+                size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
+                ColumnString::check_chars_length(new_capacity, 0);
+                buffer.reserve(new_capacity);
+                auto* buffer_data = buffer.data();
+                int32_t buffer_len = 0;
+                if constexpr (!Impl::is_lpad) {
+                    memcpy(buffer_data, str_data, str_len);
+                    buffer_len += str_len;
                 }
+                // Prepend chars of pad.
+                StringOP::fast_repeat((uint8_t*)buffer.data() + buffer_len, pad_data, pad_len,
+                                      pad_times);
+                buffer_len += pad_times * pad_len;
+
+                memcpy(buffer_data + buffer_len, pad_data, pad_index[pad_remainder]);
+                buffer_len += pad_index[pad_remainder];
+
+                if constexpr (Impl::is_lpad) {
+                    memcpy(buffer_data + buffer_len, str_data, str_len);
+                    buffer_len += str_len;
+                }
+                StringOP::push_value_string(std::string_view(buffer_data, buffer_len), i, res_chars,
+                                            res_offsets);
             }
         }
 
@@ -2270,77 +2248,109 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
-
+        DCHECK_GE(3, arguments.size());
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
         size_t argument_size = arguments.size();
-        bool has_key = argument_size >= 3;
+        const bool has_key = argument_size == 3;
 
         std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<UInt8> col_const(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
 
-        const auto* url_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* part_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const ColumnString* key_col = nullptr;
+        const auto* url_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* part_col = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const bool part_const = col_const[1];
+        std::vector<UrlParser::UrlPart> url_parts;
+        const int part_nums = part_const ? 1 : input_rows_count;
+
+        url_parts.resize(part_nums);
+        for (int i = 0; i < part_nums; i++) {
+            StringRef part = part_col->get_data_at(i);
+            UrlParser::UrlPart url_part = UrlParser::get_url_part(part);
+            if (url_part == UrlParser::INVALID) {
+                return Status::RuntimeError("Invalid URL part: {}\n{}",
+                                            std::string(part.data, part.size),
+                                            "(Valid URL parts are 'PROTOCOL', 'HOST', "
+                                            "'PATH', 'REF', 'AUTHORITY', "
+                                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
+            }
+            url_parts[i] = url_part;
+        }
+
         if (has_key) {
-            key_col = check_and_get_column<ColumnString>(argument_columns[2].get());
-        }
-
-        if (!url_col || !part_col || (has_key && !key_col)) {
-            return Status::InternalError("Not supported input arguments types");
-        }
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_data[i]) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
-            }
-
-            auto part = part_col->get_data_at(i);
-            StringRef p(const_cast<char*>(part.data), part.size);
-            UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringRef url_key;
-            if (has_key) {
-                auto key = key_col->get_data_at(i);
-                url_key = StringRef(const_cast<char*>(key.data), key.size);
-            }
-
-            auto source = url_col->get_data_at(i);
-            StringRef url_val(const_cast<char*>(source.data), source.size);
-
-            StringRef parse_res;
-            bool success = false;
-            if (has_key) {
-                success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
-            } else {
-                success = UrlParser::parse_url(url_val, url_part, &parse_res);
-            }
-
-            if (!success) {
-                // url is malformed, or url_part is invalid.
-                if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError("Invalid URL part: {}\n{}",
-                                                std::string(part.data, part.size),
-                                                "(Valid URL parts are 'PROTOCOL', 'HOST', "
-                                                "'PATH', 'REF', 'AUTHORITY', "
-                                                "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
-                } else {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                    continue;
-                }
-            }
-
-            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
-                                        res_chars, res_offsets);
+            const bool url_const = col_const[0];
+            const bool key_const = col_const[2];
+            const auto* key_col = assert_cast<const ColumnString*>(argument_columns[2].get());
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const, auto key_const) {
+                        return vector_parse_key<url_const, part_const, key_const>(
+                                url_col, url_parts, key_col, input_rows_count, null_map_data,
+                                res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const),
+                    vectorized::make_bool_variant(key_const)));
+        } else {
+            const bool url_const = col_const[0];
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const) {
+                        return vector_parse<url_const, part_const>(url_col, url_parts,
+                                                                   input_rows_count, null_map_data,
+                                                                   res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const)));
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const>
+    static Status vector_parse(const ColumnString* url_col,
+                               std::vector<UrlParser::UrlPart>& url_parts, const int size,
+                               ColumnUInt8::Container& null_map_data,
+                               ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
+            StringRef parse_res;
+            if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const, bool key_const>
+    static Status vector_parse_key(const ColumnString* url_col,
+                                   std::vector<UrlParser::UrlPart>& url_parts,
+                                   const ColumnString* key_col, const int size,
+                                   ColumnUInt8::Container& null_map_data,
+                                   ColumnString::Chars& res_chars,
+                                   ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
+            StringRef url_key = key_col->get_data_at(index_check_const<key_const>(i));
+            StringRef parse_res;
+            if (UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
         return Status::OK();
     }
 };
@@ -2415,7 +2425,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
-        std::vector<uint8_t> random_bytes;
+        std::vector<uint8_t, Allocator_<uint8_t>> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
@@ -2431,7 +2441,7 @@ public:
                 byte = distribution(gen);
             }
 
-            std::ostringstream oss;
+            std::basic_ostringstream<char, std::char_traits<char>, Allocator_<char>> oss;
             for (const auto& byte : random_bytes) {
                 oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
             }
@@ -2954,6 +2964,8 @@ private:
                     return str;
                 }
                 std::string result;
+                ColumnString::check_chars_length(
+                        str.length() * (new_str.length() + 1) + new_str.length(), 0);
                 result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
                 for (char c : str) {
                     result += new_str;
@@ -3172,6 +3184,7 @@ public:
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
         // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
+        ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
         res_chars.resize(str_chars.size() * 2 + input_rows_count);
 
         size_t in_len = 0, out_len = 0;
@@ -3454,7 +3467,7 @@ public:
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
             return Status::BufferAllocFailed("function char output is too large to allocate");
         }
-
+        ColumnString::check_chars_length(res_reserve_size, 0);
         res_data.resize(res_reserve_size);
         res_offset.resize(input_rows_count);
 

@@ -414,6 +414,7 @@ message TabletSchemaCloudPB {
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
 
+    optional bool enable_mow_light_delete = 28 [default=false];
     optional bool is_dynamic_schema = 100 [default=false];
 }
 

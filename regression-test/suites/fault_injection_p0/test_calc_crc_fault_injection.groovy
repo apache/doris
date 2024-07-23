@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_calc_crc") {
+suite("test_calc_crc", "nonConcurrent") {
     if (isCloudMode()) {
         return;
     }

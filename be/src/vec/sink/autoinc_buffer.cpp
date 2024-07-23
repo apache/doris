@@ -64,37 +64,42 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
                         client->getAutoIncrementRange(result, request);
                     });
         }
-        LOG(INFO) << "[auto-inc-range][start=" << result.start << ",length=" << result.length
-                  << "][elapsed=" << get_auto_inc_range_rpc_ns / 1000000 << " ms]";
 
         if (_rpc_status.is<ErrorCode::NOT_MASTER>()) {
             LOG_WARNING(
-                    "Failed to fetch auto-incremnt range, request to non-master FE, discard all "
-                    "auto_increment ranges in _buffers. retry_time={}",
-                    retry_times);
+                    "Failed to fetch auto-incremnt range, requested to non-master FE@{}:{}, change "
+                    "to request to FE@{}:{}. retry_time={}, db_id={}, table_id={}, column_id={}",
+                    master_addr.hostname, master_addr.port, result.master_address.hostname,
+                    result.master_address.port, retry_times, _db_id, _table_id, _column_id);
             master_addr = result.master_address;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
         if (!_rpc_status.ok()) {
-            LOG(WARNING)
-                    << "Failed to fetch auto-incremnt range, encounter rpc failure. retry_time="
-                    << retry_times << ", errmsg=" << _rpc_status.to_string();
+            LOG_WARNING(
+                    "Failed to fetch auto-incremnt range, encounter rpc failure. "
+                    "errmsg={}, retry_time={}, db_id={}, table_id={}, column_id={}",
+                    _rpc_status.to_string(), retry_times, _db_id, _table_id, _column_id);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
         if (result.length != length) [[unlikely]] {
             auto msg = fmt::format(
                     "Failed to fetch auto-incremnt range, request length={}, but get "
-                    "result.length={}, retry_time={}",
-                    length, result.length, retry_times);
+                    "result.length={}, retry_time={}, db_id={}, table_id={}, column_id={}",
+                    length, result.length, retry_times, _db_id, _table_id, _column_id);
             LOG(WARNING) << msg;
             _rpc_status = Status::RpcError<true>(msg);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
+        LOG_INFO(
+                "get auto-incremnt range from FE@{}:{}, start={}, length={}, elapsed={}ms, "
+                "retry_time={}, db_id={}, table_id={}, column_id={}",
+                master_addr.hostname, master_addr.port, result.start, result.length,
+                get_auto_inc_range_rpc_ns / 1000000, retry_times, _db_id, _table_id, _column_id);
         return result.start;
     }
     CHECK(!_rpc_status.ok());

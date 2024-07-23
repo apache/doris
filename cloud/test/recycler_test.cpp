@@ -29,8 +29,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
@@ -647,9 +647,8 @@ TEST(RecyclerTest, recycle_rowsets) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InvertedIndexIdCache::insert1",
-                      [&](void* p) { ++insert_no_inverted_index; });
-    sp->set_call_back("InvertedIndexIdCache::insert2", [&](void* p) { ++insert_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
     InstanceRecycler recycler(txn_kv, instance);
@@ -720,17 +719,18 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("memkv::Transaction::get", [](void* limit) {
-        *((int*)limit) = 100;
+    sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
+        auto* limit = try_any_cast<int*>(args[0]);
+        *limit = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_files", [&](void* p) {
+    sp->set_call_back("MockAccessor::delete_files", [&](auto&& args) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         bool found = recycler.check_recycle_tasks();
         ASSERT_EQ(found, true);
     });
     sp->set_call_back("MockAccessor::delete_prefix",
-                      [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+                      [&](auto&&) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -789,9 +789,8 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InvertedIndexIdCache::insert1",
-                      [&](void* p) { ++insert_no_inverted_index; });
-    sp->set_call_back("InvertedIndexIdCache::insert2", [&](void* p) { ++insert_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
     InstanceRecycler recycler(txn_kv, instance);
@@ -1761,7 +1760,11 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("MockAccessor::delete_files::pred", [](void* p) { *((bool*)p) = true; });
+    sp->set_call_back("MockAccessor::delete_files", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
     sp->enable_processing();
     using namespace std::chrono;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
@@ -1839,7 +1842,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
         EXPECT_EQ(expected_job_exists, exist) << table_id;
     }
 
-    sp->clear_call_back("MockAccessor::delete_files::pred");
+    sp->clear_call_back("MockAccessor::delete_files");
     ASSERT_EQ(recycler.recycle_copy_jobs(), 0);
 
     // check object files
@@ -1896,9 +1899,17 @@ TEST(RecyclerTest, recycle_stage) {
     for (int i = 0; i < 10; ++i) {
         accessor->put_file(std::to_string(i) + ".csv", "");
     }
-    sp->set_call_back("recycle_stage:get_accessor", [&](void* ret) {
-        *reinterpret_cast<std::shared_ptr<StorageVaultAccessor>*>(ret) = accessor;
-    });
+
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "recycle_stage:get_accessor",
+            [&](auto&& args) {
+                *try_any_cast<std::shared_ptr<StorageVaultAccessor>*>(args[0]) = accessor;
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
 
     std::string key;
@@ -2059,12 +2070,15 @@ TEST(RecyclerTest, multi_recycler) {
 
     std::atomic_int count {0};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceRecycler.do_recycle", [&count](void*) {
-        sleep(1);
-        ++count;
-    });
+
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle",
+            [&count](auto&&) {
+                sleep(1);
+                ++count;
+            },
+            &guard);
     sp->enable_processing();
 
     std::unique_ptr<Transaction> txn;
@@ -2150,14 +2164,18 @@ TEST(CheckerTest, normal_inverted_check) {
     obj_info->set_id("1");
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("InstanceChecker::do_inverted_check::pred",
-                      [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("InstanceChecker::do_inverted_check", [&](void* p) { *((int*)p) = 0; });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
-        SyncPoint::get_instance()->clear_all_call_backs();
-        SyncPoint::get_instance()->disable_processing();
-    });
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2195,14 +2213,18 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     obj_info->set_prefix("CheckerTest");
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("InstanceChecker::do_inverted_check::pred",
-                      [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("InstanceChecker::do_inverted_check", [&](void* p) { *((int*)p) = 0; });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
-        SyncPoint::get_instance()->clear_all_call_backs();
-        SyncPoint::get_instance()->disable_processing();
-    });
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2307,10 +2329,13 @@ TEST(CheckerTest, abnormal) {
 
     std::vector<std::string> lost_paths;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceChecker.do_check1",
-                      [&lost_paths](void* arg) { lost_paths.push_back(*(std::string*)arg); });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker.do_check1",
+            [&lost_paths](auto&& args) {
+                lost_paths.push_back(*try_any_cast<std::string*>(args[0]));
+            },
+            &guard);
     sp->enable_processing();
 
     ASSERT_NE(checker.do_check(), 0);
@@ -2326,12 +2351,14 @@ TEST(CheckerTest, multi_checker) {
 
     std::atomic_int count {0};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceChecker.do_check", [&count](void*) {
-        sleep(1);
-        ++count;
-    });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker.do_check",
+            [&count](auto&&) {
+                sleep(1);
+                ++count;
+            },
+            &guard);
     sp->enable_processing();
 
     std::unique_ptr<Transaction> txn;
@@ -2402,9 +2429,10 @@ TEST(CheckerTest, do_inspect) {
             auto sp = SyncPoint::get_instance();
             std::unique_ptr<int, std::function<void(int*)>> defer(
                     (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 11111);
-                std::cout << "last_ctime: " << *reinterpret_cast<int64_t*>(p) << std::endl;
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                auto last_ctime = *try_any_cast<int64_t*>(args[0]);
+                ASSERT_EQ(last_ctime, 11111);
+                std::cout << "last_ctime: " << last_ctime << std::endl;
             });
             sp->enable_processing();
         }
@@ -2423,8 +2451,8 @@ TEST(CheckerTest, do_inspect) {
             auto sp = SyncPoint::get_instance();
             std::unique_ptr<int, std::function<void(int*)>> defer(
                     (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 11111);
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 11111);
             });
             sp->enable_processing();
         }
@@ -2439,8 +2467,8 @@ TEST(CheckerTest, do_inspect) {
             auto sp = SyncPoint::get_instance();
             std::unique_ptr<int, std::function<void(int*)>> defer(
                     (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 12345);
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 12345);
             });
             sp->enable_processing();
             std::string key = job_check_key({instance_id});
@@ -2465,7 +2493,7 @@ TEST(CheckerTest, do_inspect) {
                     (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
 
             bool alarm = false;
-            sp->set_call_back("Checker:do_inspect", [&alarm](void*) { alarm = true; });
+            sp->set_call_back("Checker:do_inspect", [&alarm](auto&&) { alarm = true; });
             sp->enable_processing();
             std::string key = job_check_key({instance_id});
             std::string val = job_info.SerializeAsString();

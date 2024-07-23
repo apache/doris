@@ -107,6 +107,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         LogicalPlan query = ctasQuery.get();
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        // must disable constant folding by be, because be constant folding may return wrong type
+        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         Plan plan = planner.plan(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
@@ -143,10 +145,12 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                         }
                     }
                 } else {
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    }
                 }
             }
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.

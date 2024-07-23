@@ -64,7 +64,7 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     statistics->__set_scan_bytes(scan_bytes.load(std::memory_order_relaxed));
     statistics->__set_scan_rows(scan_rows.load(std::memory_order_relaxed));
     statistics->__set_cpu_ms(cpu_nanos.load(std::memory_order_relaxed) / NANOS_PER_MILLIS);
-    statistics->__set_returned_rows(returned_rows);
+    statistics->__set_returned_rows(returned_rows.load(std::memory_order_relaxed));
     statistics->__set_max_peak_memory_bytes(max_peak_memory_bytes.load(std::memory_order_relaxed));
     statistics->__set_current_used_memory_bytes(
             current_used_memory_bytes.load(std::memory_order_relaxed));

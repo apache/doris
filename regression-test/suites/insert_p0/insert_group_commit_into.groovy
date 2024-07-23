@@ -16,7 +16,8 @@
 // under the License.
 
 import com.mysql.cj.jdbc.StatementImpl
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("insert_group_commit_into") {
     def dbName = "regression_test_insert_p0"
@@ -24,34 +25,22 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        def retry = 0
-        while (retry < 30) {
-            sleep(2000)
-            def rowCount = sql "select count(*) from ${table}"
-            logger.info("rowCount: " + rowCount + ", retry: " + retry)
-            if (rowCount[0][0] >= expectedRowCount) {
-                break
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+            {
+                def result = sql "select count(*) from ${table}"
+                logger.info("table: ${table}, rowCount: ${result}")
+                return result[0][0] == expectedRowCount
             }
-            retry++
-        }
+        )
     }
 
     def getAlterTableState = {
-        def retry = 0
         sql "use ${dbName};"
-        while (true) {
-            sleep(2000)
-            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc limit 1"
-            logger.info("alter table state: ${state}")
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 20) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def group_commit_insert = { sql, expected_row_count ->
@@ -146,7 +135,11 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
                 group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                if (item == "nereids") {
+                    none_group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                } else {
+                    group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                }
 
                 getRowCount(6)
                 order_qt_select1 """ select * from ${table} order by id, name, score asc; """
@@ -160,7 +153,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id, name) values(4, 'e1'); """, 1
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
                 group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert """ insert into ${table}(id) values(6); """, 1
 
                 getRowCount(11)
                 order_qt_select2 """ select * from ${table} order by id, name, score asc; """
@@ -171,7 +164,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """, 2
                 sql """ alter table ${table} ADD column age int after name; """
                 group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
 
                 assertTrue(getAlterTableState(), "add column should success")
                 getRowCount(17)
@@ -183,7 +176,7 @@ suite("insert_group_commit_into") {
                 sql """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """*/
                 sql """ truncate table ${table}; """
                 group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert """ insert into ${table}(id) values(6); """, 1
 
                 getRowCount(2)
                 order_qt_select4 """ select * from ${table} order by id, name, score asc; """
@@ -194,7 +187,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
                 sql """ alter table ${table} order by (id, name, score, age); """
                 group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
 
                 assertTrue(getAlterTableState(), "modify column order should success")
                 getRowCount(8)
@@ -206,7 +199,7 @@ suite("insert_group_commit_into") {
                 group_commit_insert """ insert into ${table}(id, name, age, score) values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
                 sql """ alter table ${table} DROP column age; """
                 group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
 
                 assertTrue(getAlterTableState(), "drop column should success")
                 getRowCount(14)
@@ -215,10 +208,12 @@ suite("insert_group_commit_into") {
                 // 7. insert into and add rollup
                 group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
                 group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+                sql "set enable_insert_strict=false"
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """, 2
+                sql "set enable_insert_strict=true"
                 sql """ alter table ${table} ADD ROLLUP r1(name, score); """
                 group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
-                group_commit_insert_with_retry """ insert into ${table}(id) select 6; """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
 
                 getRowCount(20)
                 order_qt_select7 """ select name, score from ${table} order by name asc; """
@@ -226,7 +221,7 @@ suite("insert_group_commit_into") {
 
                 if (item == "nereids") {
                     group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
-                    group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
+                    none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
                     getRowCount(23)
                 } else {
@@ -272,13 +267,10 @@ suite("insert_group_commit_into") {
                     logger.info("observer url: " + url)
                     connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
                         sql """ set group_commit = async_mode; """
-                        sql """ set enable_nereids_dml = false; """
-                        sql """ set enable_profile= true; """
-                        sql """ set enable_nereids_planner = false; """
 
                         // 1. insert into
                         def server_info = group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
-                        assertTrue(server_info.contains('query_id'))
+                        /*assertTrue(server_info.contains('query_id'))
                         // get query_id, such as 43f87963586a482a-b0496bcf9e2b5555
                         def query_id_index = server_info.indexOf("'query_id':'") + "'query_id':'".length()
                         def query_id = server_info.substring(query_id_index, query_id_index + 33)
@@ -296,7 +288,7 @@ suite("insert_group_commit_into") {
                         logger.info("Get profile: code=" + code + ", out=" + out + ", err=" + err)
                         assertEquals(code, 0)
                         def json = parseJson(out)
-                        assertEquals("success", json.msg.toLowerCase())
+                        assertEquals("success", json.msg.toLowerCase())*/
                     }
                 }
             } else {

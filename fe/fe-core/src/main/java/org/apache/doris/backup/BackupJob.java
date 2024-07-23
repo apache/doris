@@ -454,7 +454,7 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -735,7 +735,8 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+        String createTimeStr = TimeUtils.longToTimeString(createTime,
+                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
@@ -991,8 +992,6 @@ public class BackupJob extends AbstractJob {
 
         // table refs
         int size = in.readInt();
-        LOG.info("read {} tablerefs ", size);
-
         tableRefs = Lists.newArrayList();
         for (int i = 0; i < size; i++) {
             TableRef tblRef = TableRef.read(in);
@@ -1007,8 +1006,6 @@ public class BackupJob extends AbstractJob {
 
         // snapshot info
         size = in.readInt();
-        LOG.info("read {} snapshotinfo ", size);
-
         for (int i = 0; i < size; i++) {
             SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
             snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
@@ -1016,7 +1013,6 @@ public class BackupJob extends AbstractJob {
 
         // backup meta
         if (in.readBoolean()) {
-            LOG.info("read backup meta");
             backupMeta = BackupMeta.read(in);
         }
 
@@ -1032,8 +1028,6 @@ public class BackupJob extends AbstractJob {
         }
         // read properties
         size = in.readInt();
-        LOG.info("read {} property ", size);
-
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);

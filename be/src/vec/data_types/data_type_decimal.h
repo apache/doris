@@ -98,30 +98,6 @@ constexpr size_t max_decimal_precision<Decimal256>() {
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
-inline UInt32 least_decimal_precision_for(TypeIndex int_type) {
-    switch (int_type) {
-    case TypeIndex::Int8:
-        [[fallthrough]];
-    case TypeIndex::UInt8:
-        return 3;
-    case TypeIndex::Int16:
-        [[fallthrough]];
-    case TypeIndex::UInt16:
-        return 5;
-    case TypeIndex::Int32:
-        [[fallthrough]];
-    case TypeIndex::UInt32:
-        return 10;
-    case TypeIndex::Int64:
-        return 19;
-    case TypeIndex::UInt64:
-        return 20;
-    default:
-        break;
-    }
-    return 0;
-}
-
 /// Implements Decimal(P, S), where P is precision, S is scale.
 /// Maximum precisions for underlying types are:
 /// Int32    9
@@ -271,33 +247,6 @@ public:
     }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
-    T whole_part(T x) const {
-        if (scale == 0) {
-            return x;
-        }
-        return x / get_scale_multiplier();
-    }
-
-    T fractional_part(T x) const {
-        if (scale == 0) {
-            return T();
-        }
-        if (x < T()) {
-            x *= -1;
-        }
-        return x % get_scale_multiplier();
-    }
-
-    T max_whole_value() const { return get_scale_multiplier(max_precision() - scale) - T(1); }
-
-    bool can_store_whole(T x) const {
-        T max = max_whole_value();
-        if (x > max || x < T(-max)) {
-            return false;
-        }
-        return true;
-    }
-
     /// @returns multiplier for U to become T with correct scale
     template <typename U>
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
@@ -388,19 +337,19 @@ const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
 }
 
 inline UInt32 get_decimal_scale(const IDataType& data_type, UInt32 default_value = 0) {
-    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal32>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal64>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128V2>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal128V2>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128V3>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal128V3>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal256>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal256>(data_type)) {
         return decimal_type->get_scale();
     }
     return default_value;

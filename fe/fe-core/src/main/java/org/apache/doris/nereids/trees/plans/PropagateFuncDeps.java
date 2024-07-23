@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableSet;
  */
 public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference

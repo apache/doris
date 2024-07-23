@@ -82,9 +82,10 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready);
+    fmt::format_to(debug_string_buffer,
+                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
+                   _blocked_task.size(), _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 

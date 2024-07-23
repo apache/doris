@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
@@ -571,8 +572,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return children.get(0).getStringValueForArray();
+    public String getStringValueForArray(FormatOptions options) {
+        return children.get(0).getStringValueForArray(options);
     }
 
     public void setNotFold(boolean notFold) {

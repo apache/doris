@@ -134,6 +134,25 @@ int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change(
                     config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
+Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_load_record_path) {
+    LOG(INFO) << "stream load record path: " << stream_load_record_path;
+    // init stream load record rocksdb
+    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
+    if (_stream_load_recorder == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
+                "new StreamLoadRecorder failed");
+    }
+    auto st = _stream_load_recorder->init();
+    if (!st.ok()) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
+                                stream_load_record_path),
+                "init StreamLoadRecorder failed");
+    }
+    return Status::OK();
+}
+
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
         return Status::InternalError("store paths is empty");
@@ -158,7 +177,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
-          _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
                   new CreateTabletIdxCache(config::partition_disk_index_lru_size)),
           _snapshot_mgr(std::make_unique<SnapshotManager>(*this)) {
@@ -274,28 +292,9 @@ Status StorageEngine::_init_store_map() {
         return Status::InternalError("init path failed, error={}", error_msg);
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(_options.store_paths[0].path),
+    RETURN_NOT_OK_STATUS_WITH_WARN(init_stream_load_recorder(_options.store_paths[0].path),
                                    "init StreamLoadRecorder failed");
 
-    return Status::OK();
-}
-
-Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
-    LOG(INFO) << "stream load record path: " << stream_load_record_path;
-    // init stream load record rocksdb
-    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
-    if (_stream_load_recorder == nullptr) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
-                "new StreamLoadRecorder failed");
-    }
-    auto st = _stream_load_recorder->init();
-    if (!st.ok()) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
-                                stream_load_record_path),
-                "init StreamLoadRecorder failed");
-    }
     return Status::OK();
 }
 
@@ -1404,9 +1403,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1428,9 +1427,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1452,9 +1451,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }

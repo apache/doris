@@ -197,7 +197,7 @@ public class ShowCopyStmt extends ShowLoadStmt {
         }
     }
 
-    protected void analyzeCompoundPredicate(Expr expr, List<Expr> exprs) throws AnalysisException {
+    private void analyzeCompoundPredicate(Expr expr, List<Expr> exprs) throws AnalysisException {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) expr;
             if (cp.getOp() != CompoundPredicate.Operator.AND) {

@@ -142,8 +142,7 @@ Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* se
         this->_segment_num_rows.resize(_cur_writer_idx + 1);
         this->_segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    this->_total_index_size +=
-            static_cast<int64_t>(index_size) + segment_writer->get_inverted_index_file_size();
+    this->_total_index_size += static_cast<int64_t>(index_size);
     return Status::OK();
 }
 
@@ -217,6 +216,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             return st;
         }
         this->_total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
+        this->_total_index_size += segment_writer->get_inverted_index_file_size();
         segment_writer.reset();
     }
     return Status::OK();

@@ -771,6 +771,8 @@ protected:
 
     int64_t _limit; // -1: no limit
 
+    uint32_t _debug_point_count = 0;
+
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;

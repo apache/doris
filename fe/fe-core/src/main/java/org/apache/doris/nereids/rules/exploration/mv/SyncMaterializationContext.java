@@ -72,7 +72,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     List<String> getMaterializationQualifier() {
         return ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()), indexName);
+                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                olapTable.getName(), indexName);
     }
 
     @Override

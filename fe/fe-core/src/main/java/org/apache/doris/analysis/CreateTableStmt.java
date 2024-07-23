@@ -70,7 +70,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-public class CreateTableStmt extends DdlStmt {
+@Deprecated
+public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";

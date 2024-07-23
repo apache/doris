@@ -101,7 +101,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.tablet = tablet;
     reader_params.return_columns = return_columns;
     reader_params.is_key_column_group = is_key;
-    return (*reader)->init(reader_params);
+    reader_params.use_page_cache = false;
+    return (*reader)->init(reader_params, nullptr);
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(

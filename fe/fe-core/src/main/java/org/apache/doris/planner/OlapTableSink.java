@@ -327,6 +327,7 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
+        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
 

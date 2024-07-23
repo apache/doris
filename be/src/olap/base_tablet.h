@@ -22,10 +22,13 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
 #include "util/metrics.h"
 
@@ -41,6 +44,8 @@ struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
 };
+
+enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
 class BaseTablet {
@@ -248,6 +253,9 @@ public:
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int limit);
 
+    // Return the merged schema of all rowsets
+    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -299,6 +307,11 @@ public:
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;
     std::atomic<int64_t> compaction_count = 0;
+
+    CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
+    std::mutex sample_info_lock;
+    std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 };
 
 } /* namespace doris */

@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression.action
 
+import com.google.common.collect.Maps
 import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import groovy.util.logging.Slf4j
@@ -37,7 +38,9 @@ class HttpCliAction implements SuiteAction {
     private String body
     private String result
     private String op
+    private Map<String, String> headers = Maps.newLinkedHashMap()
     private Closure check
+    private boolean printResponse = true
     SuiteContext context
 
     HttpCliAction(SuiteContext context) {
@@ -60,6 +63,17 @@ class HttpCliAction implements SuiteAction {
         this.uri = uri
     }
 
+    void header(String key, String value) {
+        this.headers.put(key, value)
+    }
+
+    void basicAuthorization(String user, String password) {
+        String credentials = user + ":" + (password.is(null) ? "" : password)
+        String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes())
+        String headerValue = "Basic " + encodedCredentials;
+        headers.put("Authorization", headerValue)
+    }
+
     void body(Closure<String> bodySupplier) {
         this.body = bodySupplier.call()
     }
@@ -80,6 +94,10 @@ class HttpCliAction implements SuiteAction {
         this.result = result
     }
 
+    void printResponse(boolean printResponse) {
+        this.printResponse = printResponse
+    }
+
     @Override
     void run() {
         try {
@@ -91,17 +109,25 @@ class HttpCliAction implements SuiteAction {
 
                 if (op == "get") {
                     HttpGet httpGet = new HttpGet(uri)
+                    for (final def header in headers.entrySet()) {
+                        httpGet.setHeader(header.getKey(), header.getValue())
+                    }
 
                     client.execute(httpGet).withCloseable { resp ->
                         resp.withCloseable {
                             String respJson = EntityUtils.toString(resp.getEntity())
                             def respCode = resp.getStatusLine().getStatusCode()
-                            log.info("respCode: ${respCode}, respJson: ${respJson}")
+                            if (printResponse) {
+                                log.info("respCode: ${respCode}, respJson: ${respJson}")
+                            }
                             return new ActionResult(respCode, respJson)
                         }
                     }
                 } else {
                     HttpPost httpPost = new HttpPost(uri)
+                    for (final def header in headers.entrySet()) {
+                        httpPost.setHeader(header.getKey(), header.getValue())
+                    }
                     StringEntity requestEntity = new StringEntity(
                             body,
                             ContentType.APPLICATION_JSON);
@@ -111,14 +137,18 @@ class HttpCliAction implements SuiteAction {
                         resp.withCloseable {
                             String respJson = EntityUtils.toString(resp.getEntity())
                             def respCode = resp.getStatusLine().getStatusCode()
-                            log.info("respCode: ${respCode}, respJson: ${respJson}")
+                            if (printResponse) {
+                                log.info("respCode: ${respCode}, respJson: ${respJson}")
+                            }
                             return new ActionResult(respCode, respJson)
                         }
                     }
                 }
             }
-            log.info("result:${result}".toString())
-            log.info("this.result:${this.result}".toString())
+            if (printResponse) {
+                log.info("result:${result}".toString())
+                log.info("this.result:${this.result}".toString())
+            }
             if (check != null) {
                 check.call(result.respCode, result.body)
             } else {

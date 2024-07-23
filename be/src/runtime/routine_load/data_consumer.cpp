@@ -264,8 +264,13 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             LOG(INFO) << "consumer meet partition eof: " << _id
                       << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (_consuming_partition_ids.size() <= 0) {
+            if (!queue->blocking_put(msg.get())) {
                 done = true;
+            } else if (_consuming_partition_ids.size() <= 0) {
+                msg.release();
+                done = true;
+            } else {
+                msg.release();
             }
             break;
         }
