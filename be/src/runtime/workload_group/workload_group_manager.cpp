@@ -200,7 +200,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_ratio() {
             }
             total_used_slot_count += query_ctx->get_slot_count();
         }
-        // 3.1.2 calculate per query weighted memory limit
+        // 3.2 calculate per query weighted memory limit
         for (const auto& query : all_query_ctxs) {
             auto query_ctx = query.second.lock();
             if (!query_ctx) {
@@ -228,16 +228,6 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_ratio() {
             query_ctx->set_weighted_memory(query_weighted_mem_limit, ratio);
         }
 
-        // 3.2 set all workload groups weighted memory ratio and all query weighted memory limit and ratio.
-        wg.second->set_weighted_memory_ratio(ratio);
-        for (const auto& query : wg.second->queries()) {
-            auto query_ctx = query.second.lock();
-            if (!query_ctx) {
-                continue;
-            }
-            query_ctx->set_weighted_memory(query_weighted_mem_limit, ratio);
-        }
-
         // 3.3 only print debug logs, if workload groups is_high_wartermark or is_low_wartermark.
         auto weighted_mem_used = int64_t(wgs_mem_info[wg.first].total_mem_used * ratio);
         bool is_high_wartermark =
@@ -251,12 +241,11 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_ratio() {
             debug_msg = fmt::format(
                     "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem used: {}, used "
                     "ratio: {}, query "
-                    "count: {}, query_weighted_mem_limit: {}",
+                    "count: {}",
                     wg.second->name(), PrettyPrinter::print(wg_mem_limit, TUnit::BYTES),
                     PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
                     PrettyPrinter::print(weighted_mem_used, TUnit::BYTES),
-                    (double)weighted_mem_used / wg_mem_limit, wg_query_count,
-                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES));
+                    (double)weighted_mem_used / wg_mem_limit, all_query_ctxs.size());
 
             debug_msg += "\n  Query Memory Summary:";
             // check whether queries need to revoke memory for task group
