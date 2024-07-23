@@ -157,7 +157,7 @@ void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
     std::lock_guard cache_lock(_mutex);
     const auto& query_iter = _query_map.find(query_id);
 
-    if (query_iter != _query_map.end() && query_iter->second.unique()) {
+    if (query_iter != _query_map.end() && query_iter->second.use_count() <= 1) {
         _query_map.erase(query_iter);
     }
 }

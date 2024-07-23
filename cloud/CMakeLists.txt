@@ -165,7 +165,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -335,11 +335,13 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
-    -lstdc++fs
     -lresolv
     -L${DORIS_JAVA_HOME}/lib/server
     -ljvm
 )
+if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+endif()
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
