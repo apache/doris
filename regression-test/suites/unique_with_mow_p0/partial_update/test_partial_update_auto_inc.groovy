@@ -34,7 +34,7 @@ suite("test_partial_update_auto_inc") {
                     sql """ set enable_nereids_dml = false; """
                     sql """ set enable_nereids_planner = false; """
                 }
-                
+
                 // create table
                 sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc """
                 sql """ CREATE TABLE test_primary_key_partial_update_auto_inc (

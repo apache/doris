@@ -91,7 +91,7 @@ suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
                 sql """insert into ${tbName1}
                 select ${tbName2}.id, ${tbName2}.c1, ${tbName2}.c3 * 100
                 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id; """
-                exception "Column count doesn't match value count"
+                exception "insert into cols should be corresponding to the query output"
             }
             sql "truncate table ${tbName1};"
             sql "truncate table ${tbName2};"
