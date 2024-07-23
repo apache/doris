@@ -1166,6 +1166,7 @@ suite("test_stream_load", "p0") {
             requestBuilder.setHeader("Expect", "100-Continue")
             requestBuilder.setHeader("label", "${label}")
             requestBuilder.setHeader("txn_operation", "${txn_operation}")
+            log.info("stream load request " + requestBuilder.toString())
 
             String backendStreamLoadUri = null
             client.execute(requestBuilder.build()).withCloseable { resp ->

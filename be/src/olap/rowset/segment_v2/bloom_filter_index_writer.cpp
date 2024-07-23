@@ -49,13 +49,9 @@ struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
 
-struct Int128Comparator {
-    bool operator()(const int128_t& a, const int128_t& b) const { return a < b; }
-};
-
 template <>
 struct BloomFilterTraits<int128_t> {
-    using ValueDict = std::set<int128_t, Int128Comparator>;
+    using ValueDict = std::set<int128_t>;
 };
 
 // Builder for bloom filter. In doris, bloom filter index is used in

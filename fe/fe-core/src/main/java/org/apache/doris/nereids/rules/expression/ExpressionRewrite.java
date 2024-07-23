@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -206,6 +207,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             ImmutableList.Builder<Expression> rewrittenConjuncts = new ImmutableList.Builder<>();
             for (Expression expr : conjuncts) {
                 Expression newExpr = rewriter.rewrite(expr, context);
+                newExpr = newExpr.isNullLiteral() && expr instanceof EqualPredicate
+                                ? expr.withChildren(rewriter.rewrite(expr.child(0), context),
+                                        rewriter.rewrite(expr.child(1), context))
+                                : newExpr;
                 isChanged = isChanged || !newExpr.equals(expr);
                 rewrittenConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
             }

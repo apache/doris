@@ -36,6 +36,7 @@ suite("test_analyze_with_agg_complex_type") {
     
     sql """insert into test_agg_complex_type values (2, to_bitmap(1),  hll_hash("12"), TO_QUANTILE_STATE("11", 1.0), max_by_state(1,2));"""
     
+    sql """set global force_sample_analyze=false"""
     sql """ANALYZE TABLE test_agg_complex_type WITH SYNC"""
 
     def show_result = sql """SHOW COLUMN CACHED STATS test_agg_complex_type"""

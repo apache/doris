@@ -23,10 +23,14 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class AddExistsPartitionTest extends TestWithFeService {
 
@@ -42,15 +46,20 @@ public class AddExistsPartitionTest extends TestWithFeService {
         createTable("CREATE TABLE test.tbl (k INT) DISTRIBUTED BY HASH(k) "
                 + " BUCKETS 5 PROPERTIES ( \"replication_num\" = \"" + backendNum() + "\" )");
         List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds();
+        Map<Long, Set<Long>> oldBackendTablets = Maps.newHashMap();
         for (long backendId : backendIds) {
-            Assertions.assertEquals(5, Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId).size());
+            Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
+            Assertions.assertEquals(5,  tablets.size());
+            oldBackendTablets.put(backendId, tablets);
         }
 
         String addPartitionSql = "ALTER TABLE test.tbl  ADD PARTITION  IF NOT EXISTS tbl"
                 + " DISTRIBUTED BY HASH(k) BUCKETS 5";
         Assertions.assertNotNull(getSqlStmtExecutor(addPartitionSql));
         for (long backendId : backendIds) {
-            Assertions.assertEquals(5, Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId).size());
+            Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
+            Assertions.assertEquals(5,  tablets.size());
+            Assertions.assertEquals(oldBackendTablets.get(backendId), tablets);
         }
     }
 }

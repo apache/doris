@@ -123,7 +123,8 @@ protected:
     void _gen_new_colname_to_value_range();
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
-    Status _position_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    Status _position_delete_base(const std::string data_file_path,
+                                 const std::vector<TIcebergDeleteFileDesc>& delete_files);
     Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
     virtual std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) = 0;

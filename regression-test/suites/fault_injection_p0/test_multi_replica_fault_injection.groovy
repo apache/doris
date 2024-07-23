@@ -26,7 +26,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         beNums++;
         logger.info(item.toString())
     }
-    if (beNums == 3){
+    if (beNums >= 3){
         sql """ set enable_memtable_on_sink_node=true """
         sql """
             CREATE TABLE IF NOT EXISTS `baseall` (
@@ -91,10 +91,11 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         // success
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "sucess")
         // StreamSinkFileWriter appendv write segment failed two replica
-        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "replica num 1 < load required replica num 2")
+        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "add segment failed")
         // StreamSinkFileWriter appendv write segment failed all replica
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to send segment data to any replicas")
-
+        // test segment num check when LoadStreamStub missed tail segments
+        load_with_injection("LoadStreamStub.only_send_segment_0", "segment num mismatch")
         sql """ set enable_memtable_on_sink_node=false """
     }
 }

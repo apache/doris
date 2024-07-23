@@ -59,14 +59,4 @@ public class CloudStreamLoadPlanner extends StreamLoadPlanner {
             throw e;
         }
     }
-
-    @Override
-    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex)
-            throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            return super.planForPipeline(loadId, fragmentInstanceIdIndex);
-        } catch (UserException e) {
-            throw e;
-        }
-    }
 }

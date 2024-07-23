@@ -152,6 +152,12 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
                 isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot);
     }
 
+    public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundRelation(relationId, nameParts, groupExpression, Optional.of(getLogicalProperties()),
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
+                Optional.of(index), tableSnapshot);
+    }
+
     @Override
     public UnboundRelation withRelationId(RelationId relationId) {
         throw new UnboundException("should not call UnboundRelation's withRelationId method");

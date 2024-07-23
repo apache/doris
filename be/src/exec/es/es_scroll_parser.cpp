@@ -40,6 +40,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
@@ -797,6 +798,12 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 }
             }
             col_ptr->insert(array);
+            break;
+        }
+        case TYPE_JSONB: {
+            JsonBinaryValue binary_val(json_value_to_string(col));
+            vectorized::JsonbField json(binary_val.value(), binary_val.size());
+            col_ptr->insert(json);
             break;
         }
         default: {

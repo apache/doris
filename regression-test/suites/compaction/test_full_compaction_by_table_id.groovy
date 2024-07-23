@@ -20,6 +20,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_full_compaction_by_table_id") {
     def tableName = "test_full_compaction_by_table_id"
 
+    if (isCloudMode()) {
+        logger.info("compaction by table id in be is not supported in cloud mode");
+        return;
+    }
+
     try {
         String backend_id;
 

@@ -45,9 +45,9 @@ public class CreateSqlBlockRuleStmtTest {
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test

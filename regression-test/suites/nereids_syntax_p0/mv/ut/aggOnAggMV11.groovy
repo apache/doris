@@ -43,6 +43,9 @@ suite ("aggOnAggMV11") {
 
     sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table aggOnAggMV11 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from aggOnAggMV11 order by empid;")
         contains "(aggOnAggMV11)"
@@ -54,4 +57,15 @@ suite ("aggOnAggMV11") {
         contains "(aggOnAggMV11)"
     }
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV11 order by empid;")
+        contains "(aggOnAggMV11)"
+    }
+
+    explain {
+        sql("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;")
+        contains "(aggOnAggMV11)"
+    }
 }

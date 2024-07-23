@@ -59,6 +59,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -101,6 +102,7 @@ import java.util.stream.Collectors;
  * The only difference is that non-streaming will record the load info in LoadManager and return label.
  * User can check the load info by show load stmt.
  */
+@Deprecated
 public class NativeInsertStmt extends InsertStmt {
 
     private static final Logger LOG = LogManager.getLogger(InsertStmt.class);
@@ -406,7 +408,9 @@ public class NativeInsertStmt extends InsertStmt {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label.getLabelName(),
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             }
             isTransactionBegin = true;

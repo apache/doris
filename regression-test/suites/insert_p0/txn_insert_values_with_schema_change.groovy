@@ -65,17 +65,20 @@ suite("txn_insert_values_with_schema_change") {
     def txnInsert = {
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            statement.execute("begin")
-            statement.execute("insert into ${table} values(1, 'b', 20), (2, 'c', 30);")
+            try {
+                statement.execute("begin")
+                statement.execute("insert into ${table} values(1, 'b', 20), (2, 'c', 30);")
 
-            schemaChangeLatch.countDown()
-            insertLatch.await(2, TimeUnit.MINUTES)
+                schemaChangeLatch.countDown()
+                insertLatch.await(2, TimeUnit.MINUTES)
 
-            statement.execute("insert into ${table} values(3, 'd', 40);")
-            statement.execute("commit")
-        } catch (Throwable e) {
-            logger.error("txn insert failed", e)
-            errors.add("txn insert failed " + e.getMessage())
+                statement.execute("insert into ${table} values(3, 'd', 40);")
+                statement.execute("commit")
+            } catch (Throwable e) {
+                logger.error("txn insert failed", e)
+                errors.add("txn insert failed " + e.getMessage())
+                statement.execute("rollback")
+            }
         }
     }
 

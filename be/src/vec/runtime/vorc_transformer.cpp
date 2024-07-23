@@ -107,39 +107,27 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 }
 
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                 const VExprContextSPtrs& output_vexpr_ctxs,
-                                 const std::string& schema, bool output_object_data)
-        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _file_writer(file_writer),
-          _write_options(new orc::WriterOptions()),
-          _schema_str(&schema),
-          _iceberg_schema(nullptr) {
-    _write_options->setTimezoneName(_state->timezone());
-    _write_options->setUseTightNumericVector(true);
-}
-
-VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                 const VExprContextSPtrs& output_vexpr_ctxs,
+                                 const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                                  std::vector<std::string> column_names, bool output_object_data,
-                                 orc::CompressionKind compression,
+                                 TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(nullptr),
+          _schema_str(std::move(schema)),
           _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
-    _write_options->setCompression(compression);
+    set_compression_type(compress_type);
 }
 
 Status VOrcTransformer::open() {
-    if (_schema_str != nullptr) {
+    if (!_schema_str.empty()) {
         try {
-            _schema = orc::Type::buildTypeFromString(*_schema_str);
+            _schema = orc::Type::buildTypeFromString(_schema_str);
         } catch (const std::exception& e) {
-            return Status::InternalError("Orc build schema from \"{}\" failed: {}", *_schema_str,
+            return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
         }
     } else {
@@ -169,6 +157,30 @@ Status VOrcTransformer::open() {
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
     return Status::OK();
+}
+
+void VOrcTransformer::set_compression_type(const TFileCompressType::type& compress_type) {
+    switch (compress_type) {
+    case TFileCompressType::PLAIN: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_NONE);
+        break;
+    }
+    case TFileCompressType::SNAPPYBLOCK: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_SNAPPY);
+        break;
+    }
+    case TFileCompressType::ZLIB: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZLIB);
+        break;
+    }
+    case TFileCompressType::ZSTD: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZSTD);
+        break;
+    }
+    default: {
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_ZLIB);
+    }
+    }
 }
 
 std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(

@@ -44,8 +44,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
 
         return arguments[0];

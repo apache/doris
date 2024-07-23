@@ -10,17 +10,15 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter(( not (o_comment like '%special%requests%')))
-----------------------------PhysicalOlapScan[orders]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer]
+--------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+----------------------PhysicalProject
+------------------------filter(( not (o_comment like '%special%requests%')))
+--------------------------PhysicalOlapScan[orders]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer]
 
 Hint log:
-Used:  leading(orders shuffle customer )
+Used: leading(orders shuffle customer ) 
 UnUsed:
 SyntaxError:
 

@@ -106,4 +106,9 @@ public class AnalysisTaskExecutor {
         executors.getQueue().clear();
         taskQueue.clear();
     }
+
+    // For unit test only.
+    public BlockingQueue<AnalysisTaskWrapper> getTaskQueue() {
+        return taskQueue;
+    }
 }

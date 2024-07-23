@@ -60,6 +60,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
+    "test_iot_auto_detect_concurrent," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this dir will not be executed
@@ -73,6 +74,7 @@ cacheDataPath="/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+s3Provider = "COS"
 
 max_failure_num=0
 

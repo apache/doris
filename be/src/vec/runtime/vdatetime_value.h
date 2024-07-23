@@ -143,6 +143,8 @@ struct TimeInterval {
 
 enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
 
+constexpr int SAFE_FORMAT_STRING_MARGIN = 12;
+
 // Used to compute week
 const int WEEK_MONDAY_FIRST = 1;
 const int WEEK_YEAR = 2;
@@ -289,9 +291,6 @@ public:
     template <typename T>
     void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
 
-    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
-                  uint32_t second);
-
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
         _neg = 0;
@@ -394,8 +393,12 @@ public:
 
     char* to_string(char* to) const;
 
-    // Convert this datetime value to string by the format string
-    bool to_format_string(const char* format, int len, char* to) const;
+    // Convert this datetime value to string by the format string.
+    // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
+    // so need a little big buffer and its length as max_valid_length to make sure store valid data.
+    // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
+    bool to_format_string_conservative(const char* format, int len, char* to,
+                                       int max_valid_length) const;
 
     // compute the length of data format pattern
     static int compute_format_len(const char* format, int len);
@@ -410,16 +413,20 @@ public:
     // Will check its type
     int64_t to_int64() const;
 
-    bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-                                  uint32_t minute, uint32_t second, uint16_t type) {
+    [[nodiscard]] bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day,
+                                                uint32_t hour, uint32_t minute, uint32_t second,
+                                                uint16_t type) {
         if (check_range(year, month, day, hour, minute, second, type)) {
             return false;
         }
-        set_time(year, month, day, hour, minute, second);
+        unchecked_set_time(year, month, day, hour, minute, second);
         return true;
     }
 
-    int32_t daynr() const { return calc_daynr(_year, _month, _day); }
+    void unchecked_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
+                            uint32_t minute, uint32_t second);
+
+    int64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -776,11 +783,6 @@ public:
         return datetime;
     }
 
-    void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                  uint8_t second, uint32_t microsecond = 0);
-
-    void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
-
     void set_microsecond(uint32_t microsecond);
 
     bool from_olap_date(uint64_t date) {
@@ -822,7 +824,12 @@ public:
         return val;
     }
 
-    bool to_format_string(const char* format, int len, char* to) const;
+    // Convert this datetime value to string by the format string.
+    // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
+    // so need a little big buffer and its length as max_valid_length to make sure store valid data.
+    // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
+    bool to_format_string_conservative(const char* format, int len, char* to,
+                                       int max_valid_length) const;
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
                               int value_len) {
@@ -865,21 +872,27 @@ public:
                            uint8_t minute, uint8_t second, uint32_t microsecond,
                            bool only_time_part = false);
 
-    bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                  uint8_t minute, uint8_t second, uint32_t microsecond,
-                                  bool only_time_part = false) {
+    [[nodiscard]] bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day,
+                                                uint8_t hour, uint8_t minute, uint8_t second,
+                                                uint32_t microsecond, bool only_time_part = false) {
         if (is_invalid(year, month, day, hour, minute, second, microsecond, only_time_part)) {
             return false;
         }
         if (only_time_part) {
-            set_time(0, 0, 0, hour, minute, second, microsecond);
+            // not change date part
+            unchecked_set_time(hour, minute, second, microsecond);
         } else {
-            set_time(year, month, day, hour, minute, second, microsecond);
+            unchecked_set_time(year, month, day, hour, minute, second, microsecond);
         }
         return true;
     }
 
-    int32_t daynr() const {
+    void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                            uint8_t second, uint32_t microsecond = 0);
+
+    void unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
+
+    int64_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
@@ -1163,9 +1176,8 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
-    // should do check
     template <TimeUnit unit>
-    bool set_time_unit(uint32_t val) {
+    [[nodiscard]] bool set_time_unit(uint32_t val) {
         // is uint so need check upper bound only
         if constexpr (unit == TimeUnit::YEAR) {
             if (val > MAX_YEAR) [[unlikely]] {
@@ -1191,6 +1203,8 @@ public:
                     return false;
                 }
                 date_v2_value_.hour_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
             if constexpr (is_datetime) {
@@ -1198,6 +1212,8 @@ public:
                     return false;
                 }
                 date_v2_value_.minute_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::SECOND) {
             if constexpr (is_datetime) {
@@ -1205,6 +1221,8 @@ public:
                     return false;
                 }
                 date_v2_value_.second_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MICROSECOND) {
             if constexpr (is_datetime) {
@@ -1212,10 +1230,49 @@ public:
                     return false;
                 }
                 date_v2_value_.microsecond_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
             }
         }
         return true;
     }
+
+    template <TimeUnit unit>
+    void unchecked_set_time_unit(uint32_t val) {
+        // is uint so need check upper bound only
+        if constexpr (unit == TimeUnit::YEAR) {
+            date_v2_value_.year_ = val;
+        } else if constexpr (unit == TimeUnit::MONTH) {
+            date_v2_value_.month_ = val;
+        } else if constexpr (unit == TimeUnit::DAY) {
+            date_v2_value_.day_ = val;
+        } else if constexpr (unit == TimeUnit::HOUR) {
+            if constexpr (is_datetime) {
+                date_v2_value_.hour_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::MINUTE) {
+            if constexpr (is_datetime) {
+                date_v2_value_.minute_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::SECOND) {
+            if constexpr (is_datetime) {
+                date_v2_value_.second_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        } else if constexpr (unit == TimeUnit::MICROSECOND) {
+            if constexpr (is_datetime) {
+                date_v2_value_.microsecond_ = val;
+            } else {
+                DCHECK(false) << "shouldn't set for date";
+            }
+        }
+    }
+
     operator int64_t() const { return to_int64(); }
 
     int64_t to_int64() const {

@@ -46,9 +46,6 @@ class NewJdbcScanner : public VScanner {
 public:
     friend class JdbcConnector;
 
-    NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                   const TupleId& tuple_id, const std::string& query_string,
-                   TOdbcTableType::type table_type, RuntimeProfile* profile);
     NewJdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                    const TupleId& tuple_id, const std::string& query_string,
                    TOdbcTableType::type table_type, RuntimeProfile* profile);

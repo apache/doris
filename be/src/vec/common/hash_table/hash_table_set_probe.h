@@ -18,7 +18,6 @@
 #include "pipeline/exec/set_probe_sink_operator.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris::vectorized {
 

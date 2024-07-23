@@ -23,6 +23,7 @@
 
 #include <glog/logging.h>
 
+#include "util/hash_util.hpp"
 #include "util/lru_multi_cache.h"
 #include "util/time.h"
 

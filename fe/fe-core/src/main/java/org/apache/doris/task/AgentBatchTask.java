@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCalcDeleteBitmapRequest;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TCleanTrashReq;
+import org.apache.doris.thrift.TCleanUDFCacheReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
@@ -420,6 +421,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCleanTrashReq(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAN_UDF_CACHE: {
+                CleanUDFCacheTask cleanUDFCacheTask = (CleanUDFCacheTask) task;
+                TCleanUDFCacheReq request = cleanUDFCacheTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setCleanUdfCacheReq(request);
                 return tAgentTaskRequest;
             }
             default:

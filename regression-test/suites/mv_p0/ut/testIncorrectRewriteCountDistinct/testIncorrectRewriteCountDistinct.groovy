@@ -35,6 +35,9 @@ suite ("testIncorrectRewriteCountDistinct") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"
@@ -46,4 +49,15 @@ suite ("testIncorrectRewriteCountDistinct") {
         contains "(user_tags)"
     }
     qt_select_mv "select user_name, count(distinct tag_id) from user_tags group by user_name order by user_name;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from user_tags order by time_col;")
+        contains "(user_tags)"
+    }
+
+    explain {
+        sql("select user_name, count(distinct tag_id) from user_tags group by user_name;")
+        contains "(user_tags)"
+    }
 }

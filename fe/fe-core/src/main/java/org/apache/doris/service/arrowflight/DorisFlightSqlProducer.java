@@ -90,7 +90,7 @@ import java.util.concurrent.Executors;
 
 /**
  * Implementation of Arrow Flight SQL service
- *
+ * <p>
  * All methods must catch all possible Exceptions, print and throw CallStatus,
  * otherwise error message will be discarded.
  */
@@ -224,8 +224,13 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 }
             } else {
                 // Now only query stmt will pull results from BE.
-                final ByteString handle = ByteString.copyFromUtf8(
-                        DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
+                final ByteString handle;
+                if (connectContext.getSessionVariable().enableParallelResultSink()) {
+                    handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.queryId()) + ":" + query);
+                } else {
+                    // only one instance
+                    handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
+                }
                 Schema schema = flightSQLConnectProcessor.fetchArrowFlightSchema(5000);
                 if (schema == null) {
                     throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null").toRuntimeException();

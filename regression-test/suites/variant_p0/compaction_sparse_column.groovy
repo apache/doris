@@ -47,6 +47,7 @@ suite("test_compaction_sparse_column", "nonConcurrent") {
         }
 
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("write_buffer_size", "10240")
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -169,5 +170,7 @@ suite("test_compaction_sparse_column", "nonConcurrent") {
         qt_select_all """SELECT k, v['a'], v['b'], v['xxxx'], v['point'], v['ddddd'] from ${tableName} where (cast(v['point'] as int) = 1);"""
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
+        set_be_config.call("write_buffer_size", "209715200")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     }
 }

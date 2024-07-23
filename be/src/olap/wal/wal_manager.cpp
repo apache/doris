@@ -34,7 +34,6 @@
 #include "olap/wal/wal_dirs_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "util/parse_util.h"
 #include "vec/exec/format/wal/wal_reader.h"
 

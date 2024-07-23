@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -81,7 +82,7 @@ public:
     // single compaction tasks for the tablet.
     std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 
@@ -125,7 +126,7 @@ public:
     // - restore: whether the request is from restore tablet action,
     //   where we should change tablet status from shutdown back to running
     Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id, TSchemaHash schema_hash,
-                                 const std::string& header, bool update_meta, bool force = false,
+                                 std::string_view header, bool update_meta, bool force = false,
                                  bool restore = false, bool check_path = true);
 
     Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
@@ -143,7 +144,8 @@ public:
     Status start_trash_sweep();
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
-                                       SchemaHash schema_hash, const std::string& schema_hash_path);
+                                       SchemaHash schema_hash, const std::string& schema_hash_path,
+                                       int16_t shard_id);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);
@@ -159,8 +161,8 @@ public:
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
     // return `true` if register success
-    bool register_clone_tablet(int64_t tablet_id);
-    void unregister_clone_tablet(int64_t tablet_id);
+    Status register_transition_tablet(int64_t tablet_id, std::string reason);
+    void unregister_transition_tablet(int64_t tablet_id, std::string reason);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
@@ -231,12 +233,15 @@ private:
         tablets_shard() = default;
         tablets_shard(tablets_shard&& shard) {
             tablet_map = std::move(shard.tablet_map);
-            tablets_under_clone = std::move(shard.tablets_under_clone);
+            tablets_under_transition = std::move(shard.tablets_under_transition);
         }
-        // protect tablet_map, tablets_under_clone and tablets_under_restore
         mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
-        std::set<int64_t> tablets_under_clone;
+        std::mutex lock_for_transition;
+        // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
+        // tablet <reason, thread_id, lock_times>
+        std::map<int64_t, std::tuple<std::string, std::thread::id, int64_t>>
+                tablets_under_transition;
     };
 
     struct Partition {

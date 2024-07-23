@@ -341,8 +341,8 @@ suite("test_auto_partition_behavior") {
     """
     test{
         sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
-
-        exception "Partition name's length is over limit of 50."
+        def exception_str = isGroupCommitMode() ? "s length is over limit of 50." : "Partition name's length is over limit of 50."
+        exception exception_str
     }
 
     // illegal partiton definetion

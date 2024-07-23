@@ -17,6 +17,7 @@
 
 suite("test_hive_write_insert_s3", "p2,external,hive,external_remote,external_remote_hive") {
     def format_compressions = ["parquet_snappy"]
+    def s3BucketName = getS3BucketName()
 
     def q01 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}_s3; """)
@@ -76,8 +77,8 @@ suite("test_hive_write_insert_s3", "p2,external,hive,external_remote,external_re
         hive_remote """ DROP TABLE IF EXISTS all_types_par_${format_compression}_s3_${catalog_name}_q02; """
         logger.info("hive sql: " + """ CREATE TABLE IF NOT EXISTS all_types_par_${format_compression}_s3_${catalog_name}_q02 like all_types_par_${format_compression}_s3; """)
         hive_remote """ CREATE TABLE IF NOT EXISTS all_types_par_${format_compression}_s3_${catalog_name}_q02 like all_types_par_${format_compression}_s3; """
-        logger.info("hive sql: " + """ ALTER TABLE all_types_par_${format_compression}_s3_${catalog_name}_q02 SET LOCATION 'cosn://doris-build-1308700295/regression/write/data/all_types_par_${format_compression}_s3_${catalog_name}_q02'; """)
-        hive_remote """ ALTER TABLE all_types_par_${format_compression}_s3_${catalog_name}_q02 SET LOCATION 'cosn://doris-build-1308700295/regression/write/data/all_types_par_${format_compression}_s3_${catalog_name}_q02'; """
+        logger.info("hive sql: " + """ ALTER TABLE all_types_par_${format_compression}_s3_${catalog_name}_q02 SET LOCATION 'cosn://${s3BucketName}/regression/write/data/all_types_par_${format_compression}_s3_${catalog_name}_q02'; """)
+        hive_remote """ ALTER TABLE all_types_par_${format_compression}_s3_${catalog_name}_q02 SET LOCATION 'cosn://${s3BucketName}/regression/write/data/all_types_par_${format_compression}_s3_${catalog_name}_q02'; """
         sql """refresh catalog ${catalog_name};"""
 
         sql """

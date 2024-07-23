@@ -125,6 +125,7 @@ suite("three_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by c1; """
         } else {
             sql """
@@ -133,6 +134,7 @@ suite("three_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1; """
         }
         // where to filter different format data

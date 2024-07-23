@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
@@ -34,8 +33,7 @@ public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
 
     public PaimonFileExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
-        super(catalogId, name, comment);
-        catalogProperty = new CatalogProperty(resource, props);
+        super(catalogId, name, resource, props, comment);
     }
 
     @Override

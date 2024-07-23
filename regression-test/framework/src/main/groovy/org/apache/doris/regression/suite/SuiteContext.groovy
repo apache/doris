@@ -222,20 +222,26 @@ class SuiteContext implements Closeable {
         return spec
     }
 
-    Map<String, String> getSrcSpec() {
+    Map<String, String> getSrcSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
-        spec.put("database", dbName)
+        spec.put("database", db)
 
         return spec
     }
 
-    Map<String, String> getDestSpec() {
+    Map<String, String> getDestSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getDownstreamJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
-        spec.put("database", "TEST_" + dbName)
+        spec.put("database", "TEST_" + db)
 
         return spec
     }

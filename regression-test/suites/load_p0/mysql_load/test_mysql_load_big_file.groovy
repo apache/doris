@@ -28,7 +28,9 @@ suite("test_mysql_load_big_file", "p0") {
             `v1` tinyint(4)  NULL,
             `v2` string  NULL,
             `v3` date  NULL,
-            `v4` datetime  NULL
+            `v4` datetime  NULL,
+            INDEX idx_v2 (`v2`) USING INVERTED,
+            INDEX idx_v3 (`v3`) USING INVERTED
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`, `k2`)
         COMMENT 'OLAP'

@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
@@ -63,8 +66,8 @@ public class Utils {
      * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
      *
      * @param f function which would invoke the logic of
-     *        stale code from old optimizer that could throw
-     *        a checked exception.
+     *         stale code from old optimizer that could throw
+     *         a checked exception.
      */
     public static void execWithUncheckedException(FuncWrapper f) {
         try {
@@ -128,14 +131,18 @@ public class Utils {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 
-    /** get qualified name with Backtick */
+    /**
+     * get qualified name with Backtick
+     */
     public static String qualifiedNameWithBackquote(List<String> qualifiers, String name) {
         List<String> fullName = new ArrayList<>(qualifiers);
         fullName.add(name);
         return qualifiedNameWithBackquote(fullName);
     }
 
-    /** get qualified name with Backtick */
+    /**
+     * get qualified name with Backtick
+     */
     public static String qualifiedNameWithBackquote(List<String> qualifiers) {
         List<String> qualifierWithBackquote = Lists.newArrayListWithCapacity(qualifiers.size());
         for (String qualifier : qualifiers) {
@@ -162,7 +169,7 @@ public class Utils {
         }
 
         for (int i = 0; i < variables.length - 1; i += 2) {
-            if (! "".equals(toStringOrNull(variables[i + 1]))) {
+            if (!"".equals(toStringOrNull(variables[i + 1]))) {
                 if (i != 0) {
                     stringBuilder.append(", ");
                 }
@@ -178,18 +185,51 @@ public class Utils {
     }
 
     /**
-     * Get the correlated columns that belong to the subquery,
-     * that is, the correlated columns that can be resolved within the subquery.
+     * Get the unCorrelated exprs that belong to the subquery,
+     * that is, the unCorrelated exprs that can be resolved within the subquery.
      * eg:
-     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = t2.d));
-     * correlatedPredicates : t1.c = t2.d
-     * correlatedSlots : t1.c
-     * return t2.d
+     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = abs(t2.d));
+     * correlatedPredicates : t1.c = abs(t2.d)
+     * unCorrelatedExprs : abs(t2.d)
+     * return abs(t2.d)
      */
-    public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
-            List<Expression> correlatedSlots) {
-        return ExpressionUtils.getInputSlotSet(correlatedPredicates).stream()
-                .filter(slot -> !correlatedSlots.contains(slot)).collect(Collectors.toList());
+    public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
+                                                        List<Expression> correlatedSlots) {
+        List<Expression> unCorrelatedExprs = new ArrayList<>();
+        correlatedPredicates.forEach(predicate -> {
+            if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
+                    || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate "
+                                + predicate.toString());
+            }
+
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
+            } else {
+                binaryExpression = (BinaryExpression) predicate;
+            }
+            Expression left = binaryExpression.left();
+            Expression right = binaryExpression.right();
+            Set<Slot> leftInputSlots = left.getInputSlots();
+            Set<Slot> rightInputSlots = right.getInputSlots();
+            boolean correlatedToLeft = !leftInputSlots.isEmpty()
+                    && leftInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && rightInputSlots.stream().noneMatch(correlatedSlots::contains);
+            boolean correlatedToRight = !rightInputSlots.isEmpty()
+                    && rightInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && leftInputSlots.stream().noneMatch(correlatedSlots::contains);
+            if (!correlatedToLeft && !correlatedToRight) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate " + predicate);
+            } else if (correlatedToLeft && !rightInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(right);
+            } else if (correlatedToRight && !leftInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(left);
+            }
+        });
+        return unCorrelatedExprs;
     }
 
     private static List<Expression> collectCorrelatedSlotsFromChildren(
@@ -245,7 +285,9 @@ public class Utils {
         Preconditions.checkState(false, "item not found in list");
     }
 
-    /** allCombinations */
+    /**
+     * allCombinations
+     */
     public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
         if (lists.size() == 1) {
             List<T> first = lists.get(0);
@@ -280,7 +322,7 @@ public class Utils {
                 .flatMap(firstValue -> combinationWithoutFirst.stream()
                         .map(restList ->
                                 Stream.concat(Stream.of(firstValue), restList.stream())
-                                .collect(ImmutableList.toImmutableList())
+                                        .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
     }
@@ -326,7 +368,9 @@ public class Utils {
         return newList;
     }
 
-    /** fastToImmutableList */
+    /**
+     * fastToImmutableList
+     */
     public static <E> ImmutableList<E> fastToImmutableList(E[] array) {
         switch (array.length) {
             case 0:
@@ -344,14 +388,17 @@ public class Utils {
         }
     }
 
-    /** fastToImmutableList */
+    /**
+     * fastToImmutableList
+     */
     public static <E> ImmutableList<E> fastToImmutableList(Collection<? extends E> collection) {
         if (collection instanceof ImmutableList) {
             return (ImmutableList<E>) collection;
         }
 
         switch (collection.size()) {
-            case 0: return ImmutableList.of();
+            case 0:
+                return ImmutableList.of();
             case 1:
                 return collection instanceof List
                         ? ImmutableList.of(((List<E>) collection).get(0))
@@ -366,7 +413,9 @@ public class Utils {
         }
     }
 
-    /** fastToImmutableSet */
+    /**
+     * fastToImmutableSet
+     */
     public static <E> ImmutableSet<E> fastToImmutableSet(Collection<? extends E> collection) {
         if (collection instanceof ImmutableSet) {
             return (ImmutableSet<E>) collection;
@@ -389,7 +438,9 @@ public class Utils {
         }
     }
 
-    /** reverseImmutableList */
+    /**
+     * reverseImmutableList
+     */
     public static <E> ImmutableList<E> reverseImmutableList(List<? extends E> list) {
         Builder<E> reverseList = ImmutableList.builderWithExpectedSize(list.size());
         for (int i = list.size() - 1; i >= 0; i--) {
@@ -398,7 +449,9 @@ public class Utils {
         return reverseList.build();
     }
 
-    /** filterImmutableList */
+    /**
+     * filterImmutableList
+     */
     public static <E> ImmutableList<E> filterImmutableList(List<? extends E> list, Predicate<E> filter) {
         Builder<E> newList = ImmutableList.builderWithExpectedSize(list.size());
         for (int i = 0; i < list.size(); i++) {
@@ -410,7 +463,9 @@ public class Utils {
         return newList.build();
     }
 
-    /** concatToSet */
+    /**
+     * concatToSet
+     */
     public static <E> Set<E> concatToSet(Collection<? extends E> left, Collection<? extends E> right) {
         ImmutableSet.Builder<E> required = ImmutableSet.builderWithExpectedSize(
                 left.size() + right.size()
@@ -420,7 +475,9 @@ public class Utils {
         return required.build();
     }
 
-    /** fastReduce */
+    /**
+     * fastReduce
+     */
     public static <M, T extends M> Optional<M> fastReduce(List<T> list, BiFunction<M, T, M> reduceOp) {
         if (list.isEmpty()) {
             return Optional.empty();
@@ -430,5 +487,33 @@ public class Utils {
             merge = reduceOp.apply(merge, list.get(i));
         }
         return Optional.of(merge);
+    }
+
+    /** If the first character of the string is uppercase, replace the first character with lowercase*/
+    public static String convertFirstChar(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        char firstChar = input.charAt(0);
+        if (Character.isUpperCase(firstChar)) {
+            firstChar = Character.toLowerCase(firstChar);
+        } else {
+            return input;
+        }
+        return firstChar + input.substring(1);
+    }
+
+    /** addLinePrefix */
+    public static String addLinePrefix(String str, String prefix) {
+        StringBuilder newStr = new StringBuilder((int) (str.length() * 1.2));
+        String[] lines = str.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            newStr.append(prefix).append(line);
+            if (i + 1 < lines.length) {
+                newStr.append("\n");
+            }
+        }
+        return newStr.toString();
     }
 }

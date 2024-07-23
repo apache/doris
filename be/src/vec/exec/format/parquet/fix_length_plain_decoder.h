@@ -72,16 +72,17 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
 
-    auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
-    size_t data_index = column_data.size();
-    column_data.resize(data_index +
-                       _type_length * (select_vector.num_values() - select_vector.num_filtered()));
+    size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+    size_t data_index = doris_column->size() * primitive_length;
+    size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
+                        (_type_length / primitive_length);
+    doris_column->resize(doris_column->size() + scale_size);
+    char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            memcpy(column_data.data() + data_index, _data->data + _offset,
-                   run_length * _type_length);
+            memcpy(raw_data + data_index, _data->data + _offset, run_length * _type_length);
             _offset += run_length * _type_length;
             data_index += run_length * _type_length;
             break;

@@ -96,8 +96,8 @@ public class BDBEnvironment {
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort) {
         // Almost never used, just in case the master can not restart
-        if (metadataFailureRecovery) {
-            if (!isElectable) {
+        if (metadataFailureRecovery || Config.enable_check_compatibility_mode) {
+            if (!isElectable && !Config.enable_check_compatibility_mode) {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }

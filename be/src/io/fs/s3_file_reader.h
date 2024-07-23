@@ -28,16 +28,20 @@
 #include "io/fs/s3_file_system.h"
 #include "util/slice.h"
 
-namespace doris::io {
+namespace doris {
+class RuntimeProfile;
+
+namespace io {
 struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:
     static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
-                                         std::string bucket, std::string key, int64_t file_size);
+                                         std::string bucket, std::string key, int64_t file_size,
+                                         RuntimeProfile* profile);
 
     S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket, std::string key,
-                 size_t file_size);
+                 size_t file_size, RuntimeProfile* profile);
 
     ~S3FileReader() override;
 
@@ -53,7 +57,15 @@ protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
+    void _collect_profile_before_close() override;
+
 private:
+    struct S3Statistics {
+        int64_t total_get_request_counter = 0;
+        int64_t too_many_request_err_counter = 0;
+        int64_t too_many_request_sleep_time_ms = 0;
+        int64_t total_bytes_read = 0;
+    };
     Path _path;
     size_t _file_size;
 
@@ -62,6 +74,10 @@ private:
     std::shared_ptr<const ObjClientHolder> _client;
 
     std::atomic<bool> _closed = false;
+
+    RuntimeProfile* _profile = nullptr;
+    S3Statistics _s3_stats;
 };
 
-} // namespace doris::io
+} // namespace io
+} // namespace doris

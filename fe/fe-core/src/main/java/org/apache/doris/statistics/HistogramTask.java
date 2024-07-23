@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -71,6 +72,14 @@ public class HistogramTask extends BaseAnalysisTask {
         StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
         Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(
                 tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
+    }
+
+    @Override
+    protected void doSample() {
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
     }
 
     private String getSampleRateFunction() {

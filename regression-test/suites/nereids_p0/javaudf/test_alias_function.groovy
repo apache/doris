@@ -46,7 +46,7 @@ suite("nereids_test_alias_function") {
 
     test {
         sql 'select cast(f1(\'2023-06-01\', 3) as string);'
-        result([['2023-05-29 00:00:00']])
+        result([['2023-05-29 00:00:00.000000']])
     }
     test {
         sql 'select f2(f1(\'2023-05-20\', 2), 3)'

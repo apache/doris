@@ -200,6 +200,24 @@ public class MetaServiceClient {
         return blockingStub.getCurrentMaxTxnId(request);
     }
 
+    public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.BeginSubTxnRequest.Builder builder = Cloud.BeginSubTxnRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.beginSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.beginSubTxn(request);
+    }
+
+    public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortSubTxnRequest.Builder builder = Cloud.AbortSubTxnRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortSubTxn(request);
+    }
+
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request) {
         return blockingStub.checkTxnConflict(request);
     }
@@ -235,6 +253,10 @@ public class MetaServiceClient {
 
     public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) {
         return blockingStub.commitPartition(request);
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
+        return blockingStub.checkKv(request);
     }
 
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {

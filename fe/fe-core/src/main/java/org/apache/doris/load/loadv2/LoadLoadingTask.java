@@ -37,6 +37,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -75,6 +76,7 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean useNewLoadScanNode;
 
     private final boolean enableMemTableOnSinkNode;
+    private final int batchSize;
 
     private LoadingTaskPlanner planner;
 
@@ -89,7 +91,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode) {
+            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -111,6 +113,7 @@ public class LoadLoadingTask extends LoadTask {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
+        this.batchSize = batchSize;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -152,7 +155,6 @@ public class LoadLoadingTask extends LoadTask {
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
-        curCoordinator.setExecPipEngine();
 
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
@@ -163,6 +165,7 @@ public class LoadLoadingTask extends LoadTask {
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
+        curCoordinator.setBatchSize(batchSize);
 
         long leftTimeMs = getLeftTimeMs();
         if (leftTimeMs <= 0) {
@@ -198,13 +201,14 @@ public class LoadLoadingTask extends LoadTask {
         curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
-            if (status.ok()) {
+            if (status.ok() || status.getErrorCode() == TStatusCode.DATA_QUALITY_ERROR) {
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
                         TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
-                                .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())));
+                                .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())),
+                        status);
                 curCoordinator.getErrorTabletInfos().clear();
             } else {
                 throw new LoadException(status.getErrorMsg());

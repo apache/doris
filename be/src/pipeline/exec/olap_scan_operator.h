@@ -63,19 +63,13 @@ private:
                                              vectorized::VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
-                                             vectorized::VScanNode::PushDownType& pdt) override;
+                                             PushDownType& pdt) override;
 
-    vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_bitmap_filter() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 
-    vectorized::VScanNode::PushDownType _should_push_down_is_null_predicate() override {
-        return vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
     bool _should_push_down_common_expr() override;
 
@@ -141,6 +135,7 @@ private:
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile

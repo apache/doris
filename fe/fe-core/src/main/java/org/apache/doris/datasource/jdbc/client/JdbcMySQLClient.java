@@ -45,6 +45,8 @@ public class JdbcMySQLClient extends JdbcClient {
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+        // Disable abandoned connection cleanup
+        System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         Connection conn = null;
         Statement stmt = null;
@@ -380,6 +382,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "STRING":
             case "TEXT":
             case "JSON":
+            case "JSONB":
                 return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();

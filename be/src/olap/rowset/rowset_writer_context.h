@@ -51,7 +51,8 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-    TabletSchemaSPtr original_tablet_schema;
+    // for variant schema update
+    TabletSchemaSPtr merged_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -86,6 +87,9 @@ struct RowsetWriterContext {
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
+
+    // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
+    bool memtable_on_sink_support_index_v2 = false;
 
     /// begin file cache opts
     bool write_file_cache = false;

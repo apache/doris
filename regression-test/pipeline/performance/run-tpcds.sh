@@ -132,7 +132,10 @@ exit_flag=0
         hot_run_time_threshold=${hot_run_time_threshold_branch20:-260000}   # ms
     fi
     echo "INFO: cold_run_time_threshold is ${cold_run_time_threshold}, hot_run_time_threshold is ${hot_run_time_threshold}"
-    if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then exit 1; fi
+    if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then
+        print_running_pipeline_tasks
+        exit 1
+    fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)
     line_begin=$((line_end - 100))
     comment_body_summary="$(sed -n "${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"

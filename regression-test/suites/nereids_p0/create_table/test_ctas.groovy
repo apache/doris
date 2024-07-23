@@ -16,10 +16,6 @@
 // under the License.
 
 suite("nereids_test_ctas") {
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_dml=true'
-
     sql """ DROP TABLE IF EXISTS test_ctas """
     sql """ DROP TABLE IF EXISTS test_ctas1 """
     sql """ DROP TABLE IF EXISTS test_ctas2 """
@@ -271,5 +267,18 @@ suite("nereids_test_ctas") {
         sql 'drop table c'
         sql 'drop table test_date_v2'
     }
+
+    sql """DROP TABLE IF EXISTS test_varchar_length"""
+    sql """set use_max_length_of_varchar_in_ctas = false"""
+    sql """set enable_fold_constant_by_be = false"""
+    sql """CREATE TABLE test_varchar_length properties ("replication_num"="1") AS SELECT CAST("1" AS VARCHAR(30))"""
+    qt_desc """desc test_varchar_length"""
+    sql """DROP TABLE IF EXISTS test_varchar_length"""
+    sql """set enable_fold_constant_by_be = true"""
+    sql """CREATE TABLE test_varchar_length properties ("replication_num"="1") AS SELECT CAST("1" AS VARCHAR(30))"""
+    qt_desc """desc test_varchar_length"""
+    sql """DROP TABLE IF EXISTS test_varchar_length"""
+    sql """set use_max_length_of_varchar_in_ctas = true"""
+
 }
 

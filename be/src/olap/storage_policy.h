@@ -33,6 +33,10 @@
 namespace doris {
 class RowsetMeta;
 
+namespace cloud {
+class StorageVaultPB_PathFormat;
+}
+
 struct StoragePolicy {
     std::string name;
     int64_t version;
@@ -63,10 +67,11 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids();
 struct StorageResource {
     io::RemoteFileSystemSPtr fs;
     int64_t path_version = 0;
+    std::function<int64_t(int64_t)> shard_fn;
 
     StorageResource() = default;
-    StorageResource(io::RemoteFileSystemSPtr fs_, int64_t path_version_)
-            : fs(std::move(fs_)), path_version(path_version_) {}
+    StorageResource(io::RemoteFileSystemSPtr fs_) : fs(std::move(fs_)) {}
+    StorageResource(io::RemoteFileSystemSPtr, const cloud::StorageVaultPB_PathFormat&);
 
     std::string remote_segment_path(int64_t tablet_id, std::string_view rowset_id,
                                     int64_t seg_id) const;

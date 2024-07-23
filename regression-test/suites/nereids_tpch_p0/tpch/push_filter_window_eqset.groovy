@@ -22,6 +22,7 @@ suite("push_filter_window_eqset") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false';
+    sql "set enable_parallel_result_sink=false;"
 
     /**
     check the filter is pushed through window

@@ -43,6 +43,9 @@ suite ("sum_devide_count") {
     sql "insert into d_table select 3,2,null,'c';"
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
         contains "(kavg)"
@@ -66,4 +69,25 @@ suite ("sum_devide_count") {
         contains "(kavg)"
     }
     qt_select_mv "select sum(k2)/count(k2) from d_table;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
+        contains "(kavg)"
+    }
+
+    explain {
+        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
+        contains "(kavg)"
+    }
+
+    explain {
+        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
+        contains "(kavg)"
+    }
+
+    explain {
+        sql("select sum(k2)/count(k2) from d_table;")
+        contains "(kavg)"
+    }
 }

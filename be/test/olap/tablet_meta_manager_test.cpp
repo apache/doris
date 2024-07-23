@@ -146,10 +146,10 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBitmap) {
                 TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver));
     }
     size_t num_keys = 0;
-    auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, std::string_view val) {
         EXPECT_EQ(tablet_id, test_tablet_id);
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromString(val);
+        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();

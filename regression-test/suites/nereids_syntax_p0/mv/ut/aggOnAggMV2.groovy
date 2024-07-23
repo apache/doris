@@ -45,6 +45,8 @@ suite ("aggOnAggMV2") {
 
     sleep(3000)
  
+    sql "analyze table aggOnAggMV2 with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select * from aggOnAggMV2 order by empid;")
@@ -58,5 +60,14 @@ suite ("aggOnAggMV2") {
     }
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV2 order by empid;")
+        contains "(aggOnAggMV2)"
+    }
+    explain {
+        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
+        contains "(aggOnAggMV2_mv)"
+    }
 
 }

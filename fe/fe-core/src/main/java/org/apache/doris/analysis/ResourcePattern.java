@@ -65,9 +65,6 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
         }
     }
 
-    private ResourcePattern() {
-    }
-
     public ResourcePattern(String resourceName, ResourceTypeEnum type) {
         // To be compatible with previous syntax
         if ("*".equals(resourceName)) {

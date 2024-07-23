@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
@@ -58,7 +59,7 @@ public class TablePrivEntry extends DbPrivEntry {
                 ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
 
         PatternMatcher tblPattern = PatternMatcher.createFlatPattern(
-                tbl, CaseSensibility.TABLE.getCaseSensibility(), tbl.equals(ANY_TBL));
+                tbl, Env.isTableNamesCaseSensitive(), tbl.equals(ANY_TBL));
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
             throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);

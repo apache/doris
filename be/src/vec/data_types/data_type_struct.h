@@ -96,11 +96,10 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for struct";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for struct");
         __builtin_unreachable();
     }
-
-    void insert_default_into(IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
 

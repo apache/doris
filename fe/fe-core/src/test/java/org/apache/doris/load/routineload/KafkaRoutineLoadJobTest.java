@@ -41,6 +41,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -93,6 +94,8 @@ public class KafkaRoutineLoadJobTest {
 
     @Before
     public void init() {
+        MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
+
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
         partitionNames = new PartitionNames(false, partitionNameList);

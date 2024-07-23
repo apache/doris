@@ -27,6 +27,7 @@ suite("nereids_test_javaudf_date") {
 
     def tableName = "test_javaudf_date"
     def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """

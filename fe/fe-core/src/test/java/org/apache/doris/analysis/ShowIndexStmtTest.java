@@ -41,9 +41,9 @@ public class ShowIndexStmtTest {
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "%");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test

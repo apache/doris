@@ -203,7 +203,7 @@ public:
     static void SetUpTestSuite() {
         s_fs.reset(
                 new RemoteFileSystemMock("", std::to_string(kResourceId), io::FileSystemType::S3));
-        StorageResource resource = {s_fs, 0};
+        StorageResource resource {s_fs};
         put_storage_resource(kResourceId, resource, 1);
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";

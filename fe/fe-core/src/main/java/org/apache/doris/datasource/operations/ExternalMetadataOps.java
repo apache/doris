@@ -62,6 +62,14 @@ public interface ExternalMetadataOps {
 
     /**
      *
+     * @param dbName
+     * @param tblName
+     * @param partitions
+     */
+    void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException;
+
+    /**
+     *
      * @return
      */
     List<String> listDatabaseNames();

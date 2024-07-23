@@ -64,6 +64,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
+    public IcebergExternalCatalog getExternalCatalog() {
+        return dorisCatalog;
+    }
+
     @Override
     public void close() {
     }
@@ -82,6 +86,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(e -> e.toString())
                 .collect(Collectors.toList());
     }
+
 
     @Override
     public List<String> listTableNames(String dbName) {
@@ -172,5 +177,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
         db.setUnInitialized(true);
+    }
+
+    @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
     }
 }

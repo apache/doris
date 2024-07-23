@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_etl_failed", "load_p0") {
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
     def tableName = "test_etl_failed"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -33,7 +35,7 @@ suite("test_etl_failed", "load_p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1"); 
     """
     String label = "test_etl_failed"
-    String path = "s3://doris-build-1308700295/regression/load/data/etl_failure/etl-failure.csv"
+    String path = "s3://${s3BucketName}/regression/load/data/etl_failure/etl-failure.csv"
     String format = "CSV"
     String ak = getS3AK()
     String sk = getS3SK()
@@ -46,8 +48,9 @@ suite("test_etl_failed", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
+                "provider" = "${getS3Provider()}"
             )
             PROPERTIES(
                 "use_new_load_scan_node" = "true",
@@ -58,12 +61,13 @@ suite("test_etl_failed", "load_p0") {
     def max_try_milli_secs = 600000
     while (max_try_milli_secs > 0) {
         String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+        logger.info("Load result: " + result[0])
         if (result[0][2].equals("FINISHED")) {
             logger.info("Load FINISHED " + label)
             assertTrue(1 == 2, "etl should be failed")
             break;
         }
-        if (result[0][2].equals("CANCELLED")) {
+        if (result[0][2].equals("CANCELLED") && result[0][13].contains("_load_error_log")) {
             break;
         }
         Thread.sleep(1000)

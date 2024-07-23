@@ -112,14 +112,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         super(catalogId, name, Type.TRINO_CONNECTOR, comment);
         Objects.requireNonNull(name, "catalogName is null");
         catalogProperty = new CatalogProperty(resource, props);
-
-        // All properties obtained by this method are used by the trino-connector.
-        // We should not modify this map
-        trinoProperties = ImmutableMap.copyOf(catalogProperty.getProperties().entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_PROPERTIES_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_PROPERTIES_PREFIX.length()),
-                                kv1 -> kv1.getValue())));
     }
 
     @Override
@@ -136,6 +128,13 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         this.trinoCatalogHandle = CatalogHandle.createRootCatalogHandle(name, new CatalogVersion("test"));
+        // All properties obtained by this method are used by the trino-connector.
+        // We should not modify this map
+        trinoProperties = ImmutableMap.copyOf(catalogProperty.getProperties().entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_PROPERTIES_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_PROPERTIES_PREFIX.length()),
+                                kv1 -> kv1.getValue())));
 
         ConnectorServicesProvider connectorServicesProvider = createConnectorServicesProvider();
 

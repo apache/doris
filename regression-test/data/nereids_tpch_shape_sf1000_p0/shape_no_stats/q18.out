@@ -6,22 +6,19 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
+------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[lineitem] apply RFs: RF2
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders] apply RFs: RF0 RF1
-------------------------PhysicalProject
---------------------------filter((sum(l_quantity) > 300.00))
-----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineitem]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
+------------------hashJoin[LEFT_SEMI_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[orders] apply RFs: RF0 RF1
+--------------------PhysicalProject
+----------------------filter((sum(l_quantity) > 300.00))
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[lineitem]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
 

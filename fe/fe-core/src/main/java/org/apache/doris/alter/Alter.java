@@ -72,6 +72,7 @@ import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
@@ -205,8 +206,6 @@ public class Alter {
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
             schemaChangeHandler.process(stmt.toSql(), alterClauses, db, olapTable);
-            // if base table schemaChanged, need change mtmv status
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
@@ -262,7 +261,6 @@ public class Alter {
             }
         } else if (currentAlterOps.hasRenameOp()) {
             processRename(db, olapTable, alterClauses);
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
@@ -281,8 +279,19 @@ public class Alter {
         } else {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
-
+        if (needChangeMTMVState(alterClauses)) {
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
+        }
         return needProcessOutsideTableLock;
+    }
+
+    private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
+        for (AlterClause alterClause : alterClauses) {
+            if (alterClause.needChangeMTMVState()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void processModifyTableComment(Database db, OlapTable tbl, AlterClause alterClause)
@@ -474,7 +483,7 @@ public class Alter {
                     DynamicPartitionUtil.checkAlterAllowed(
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause);
+                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause, false, 0, true);
             } else if (alterClause instanceof AddPartitionLikeClause) {
                 if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
@@ -509,6 +518,11 @@ public class Alter {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
+        processReplaceTable(db, origTable, newTblName, swapTable);
+    }
+
+    public void processReplaceTable(Database db, OlapTable origTable, String newTblName, boolean swapTable)
+            throws UserException {
         db.writeLockOrDdlException();
         try {
             List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
@@ -595,6 +609,9 @@ public class Alter {
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+            }
         }
     }
 
@@ -764,6 +781,32 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
+            } else {
+                // if current partition is already in remote storage
+                if (partition.getRemoteDataSize() > 0) {
+                    throw new AnalysisException(
+                        "Cannot cancel storage policy for partition which is already on cold storage.");
+                }
+
+                // if current partition will be cooldown in 20s later
+                StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(dataProperty.getStoragePolicy());
+                StoragePolicy policy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
+                        .getPolicy(checkedPolicyCondition);
+                if (policy != null) {
+                    long latestTime = policy.getCooldownTimestampMs() > 0 ? policy.getCooldownTimestampMs()
+                            : Long.MAX_VALUE;
+                    if (policy.getCooldownTtl() > 0) {
+                        latestTime = Math.min(latestTime,
+                            partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
+                    }
+                    if (latestTime < System.currentTimeMillis() + 20 * 1000) {
+                        throw new AnalysisException(
+                            "Cannot cancel storage policy for partition which already be cooldown"
+                                + " or will be cooldown soon later");
+                    }
+                }
+
+                partitionInfo.setStoragePolicy(partition.getId(), "");
             }
 
             // 4.4 analyze new properties
@@ -881,7 +924,7 @@ public class Alter {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
-            mtmv.writeLock();
+            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -910,7 +953,7 @@ public class Alter {
             LOG.warn(e);
         } finally {
             if (mtmv != null) {
-                mtmv.writeUnlock();
+                mtmv.writeMvUnlock();
             }
         }
     }

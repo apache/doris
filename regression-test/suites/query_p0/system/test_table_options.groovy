@@ -153,6 +153,37 @@ suite("test_table_options") {
 	"replication_allocation" = "tag.location.default: 1"
 	);
         """
+	
+    // test row column page size
+    sql """
+        CREATE TABLE IF NOT EXISTS test_row_column_page_size1 (
+            `aaa` varchar(170) NOT NULL COMMENT "",
+            `bbb` varchar(20) NOT NULL COMMENT "",
+            `ccc` INT NULL COMMENT "",
+            `ddd` SMALLINT NULL COMMENT ""
+        )
+        DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "store_row_column" = "true"
+        );
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS test_row_column_page_size2 (
+            `aaa` varchar(170) NOT NULL COMMENT "",
+            `bbb` varchar(20) NOT NULL COMMENT "",
+            `ccc` INT NULL COMMENT "",
+            `ddd` SMALLINT NULL COMMENT ""
+        )
+        DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "store_row_column" = "true",
+            "row_store_page_size" = "8190"
+        );
+    """
+
     qt_select """select * from information_schema.table_options where table_schema=\"${dbName}\" order by TABLE_NAME; """
     sql "drop database if exists ${dbName}"
 }

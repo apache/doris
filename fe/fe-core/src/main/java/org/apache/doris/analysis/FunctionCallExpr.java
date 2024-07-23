@@ -686,6 +686,17 @@ public class FunctionCallExpr extends Expr {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql());
+        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
+            sb.append("key ");
+            for (int i = 0; i < children.size(); i++) {
+                String str = ((StringLiteral) children.get(i)).getValue();
+                if (str.isEmpty()) {
+                    continue;
+                }
+                sb.append(str);
+                sb.append(".");
+            }
+            sb.deleteCharAt(sb.length() - 1);
         } else {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(paramsToSql());
@@ -1591,6 +1602,14 @@ public class FunctionCallExpr extends Expr {
                         argTypes[i] = assignmentCompatibleType;
                     }
                 }
+            } else if (assignmentCompatibleType.isDateV2OrDateTimeV2()) {
+                for (int i = 0; i < childTypes.length; i++) {
+                    if (assignmentCompatibleType.isDateV2OrDateTimeV2()
+                            && !childTypes[i].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, i);
+                        argTypes[i] = assignmentCompatibleType;
+                    }
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
@@ -2428,7 +2447,6 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
-        result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
 

@@ -34,7 +34,9 @@ suite("test_http_stream", "p0") {
             dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
             dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
             dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
-            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_dt_2 (`dt_2`) USING INVERTED,
+            INDEX idx_dt_3 (`dt_3`) USING INVERTED
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -298,7 +300,9 @@ suite("test_http_stream", "p0") {
             sex TINYINT,
             phone LARGEINT,
             address VARCHAR(500),
-            register_time DATETIME
+            register_time DATETIME,
+            INDEX idx_username (`username`) USING INVERTED,
+            INDEX idx_address (`address`) USING INVERTED
         )
         DUPLICATE KEY(`user_id`, `username`)
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -627,7 +631,9 @@ suite("test_http_stream", "p0") {
                 }
                 log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
-                assertEquals(label, json.Label.toLowerCase())
+                if (!isGroupCommitMode()) {
+                    assertEquals(label, json.Label.toLowerCase())
+                }
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
@@ -854,5 +860,46 @@ suite("test_http_stream", "p0") {
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName18}"
     }
+
+    //  test load hll type
+    def tableName19 = "test_http_stream_hll_type"
+
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName19} (
+            type_id int,
+            type_name varchar(10),
+            pv_hash hll hll_union not null,
+            pv_base64 hll hll_union not null
+        )
+        AGGREGATE KEY(type_id,type_name)
+        DISTRIBUTED BY HASH(type_id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName19} select c1,c2,hll_hash(c1),hll_from_base64(c3) from http_stream("format"="csv", "column_separator"=",")
+                    """
+            time 10000
+            file '../stream_load/test_stream_load_hll_type.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        qt_sql19 "select type_name, hll_union_agg(pv_hash), hll_union_agg(pv_base64) from ${tableName19} group by type_name  order by type_name"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName19}"
+    }
+
 }
 

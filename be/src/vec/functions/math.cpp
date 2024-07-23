@@ -19,6 +19,8 @@
 #include <cstring>
 
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <dlfcn.h>
+
 #include <cmath>
 #include <string>
 #include <type_traits>
@@ -214,10 +216,29 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct SinName {
+struct UnaryFunctionPlainSin {
+    using Type = DataTypeFloat64;
     static constexpr auto name = "sin";
+    using FuncType = double (*)(double);
+
+    static FuncType get_sin_func() {
+        void* handle = dlopen("libm.so.6", RTLD_LAZY);
+        if (handle) {
+            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
+                return sin_func;
+            }
+            dlclose(handle);
+        }
+        return std::sin;
+    }
+
+    static void execute(const double* src, double* dst) {
+        static auto sin_func = get_sin_func();
+        *dst = sin_func(*src);
+    }
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
+
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";

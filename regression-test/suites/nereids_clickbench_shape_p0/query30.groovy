@@ -20,6 +20,7 @@
 suite("query30") {
 
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 

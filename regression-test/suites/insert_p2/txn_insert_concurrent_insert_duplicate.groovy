@@ -148,14 +148,13 @@ suite("txn_insert_concurrent_insert_duplicate") {
     CompletableFuture.allOf(futuresArray).get(30, TimeUnit.MINUTES)
     sql """ sync """
 
-    logger.info("errors: " + errors)
+    logger.info("error num: " + errors.size() + ", errors: " + errors)
 
     def result = sql """ select count() from ${tableName}_0 """
-    logger.info("result: ${result}, expected: ${6001215 * threadNum}")
-    assertTrue(result[0][0] >= 6001215 * threadNum)
-    result = sql """ select count() from ${tableName}_1 """
-    logger.info("result: ${result}")
-    assertEquals(2999666 * threadNum, result[0][0])
+    logger.info("${tableName}_0 row count: ${result}, expected: ${6001215 * threadNum}")
+
+    def result2 = sql """ select count() from ${tableName}_1 """
+    logger.info("${tableName}_1 row count: ${result2}, expected: ${2999666 * threadNum}")
 
     def tables = sql """ show tables from $dbName """
     logger.info("tables: $tables")
@@ -166,5 +165,7 @@ suite("txn_insert_concurrent_insert_duplicate") {
         }
     }
 
+    assertTrue(result[0][0] >= 6001215 * threadNum)
+    assertEquals(2999666 * threadNum, result2[0][0])
     assertEquals(0, errors.size())
 }

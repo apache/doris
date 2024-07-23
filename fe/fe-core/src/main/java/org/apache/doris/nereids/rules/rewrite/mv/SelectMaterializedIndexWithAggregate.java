@@ -114,6 +114,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // only agg above scan
                 // Aggregate(Scan)
                 logicalAggregate(logicalOlapScan().when(this::shouldSelectIndexWithAgg)).thenApplyNoThrow(ctx -> {
+                    if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                        return ctx.root;
+                    }
                     LogicalAggregate<LogicalOlapScan> agg = ctx.root;
                     LogicalOlapScan scan = agg.child();
                     SelectResult result = select(
@@ -144,6 +147,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Filter(Scan))
                 logicalAggregate(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithAgg)))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
                             LogicalFilter<LogicalOlapScan> filter = agg.child();
                             LogicalOlapScan scan = filter.child();
@@ -190,6 +196,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Project(Scan))
                 logicalAggregate(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithAgg)))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalProject<LogicalOlapScan>> agg = ctx.root;
                             LogicalProject<LogicalOlapScan> project = agg.child();
                             LogicalOlapScan scan = project.child();
@@ -226,6 +235,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Project(Filter(Scan)))
                 logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()
                         .when(this::shouldSelectIndexWithAgg)))).thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
                             LogicalFilter<LogicalOlapScan> filter = project.child();
@@ -291,6 +303,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Filter(Project(Scan)))
                 logicalAggregate(logicalFilter(logicalProject(logicalOlapScan()
                         .when(this::shouldSelectIndexWithAgg)))).thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalFilter<LogicalProject<LogicalOlapScan>>> agg = ctx.root;
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = agg.child();
                             LogicalProject<LogicalOlapScan> project = filter.child();
@@ -338,6 +353,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Repeat(Scan))
                 logicalAggregate(logicalRepeat(logicalOlapScan().when(this::shouldSelectIndexWithAgg)))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalRepeat<LogicalOlapScan>> agg = ctx.root;
                             LogicalRepeat<LogicalOlapScan> repeat = agg.child();
                             LogicalOlapScan scan = repeat.child();
@@ -366,6 +384,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Repeat(Filter(Scan)))
                 logicalAggregate(logicalRepeat(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithAgg))))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalRepeat<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
                             LogicalRepeat<LogicalFilter<LogicalOlapScan>> repeat = agg.child();
                             LogicalFilter<LogicalOlapScan> filter = repeat.child();
@@ -413,6 +434,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Repeat(Project(Scan)))
                 logicalAggregate(logicalRepeat(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithAgg))))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalRepeat<LogicalProject<LogicalOlapScan>>> agg = ctx.root;
                             LogicalRepeat<LogicalProject<LogicalOlapScan>> repeat = agg.child();
                             LogicalProject<LogicalOlapScan> project = repeat.child();
@@ -451,6 +475,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Repeat(Project(Filter(Scan))))
                 logicalAggregate(logicalRepeat(logicalProject(logicalFilter(logicalOlapScan()
                         .when(this::shouldSelectIndexWithAgg))))).thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalRepeat<LogicalProject
                                     <LogicalFilter<LogicalOlapScan>>>> agg = ctx.root;
                             LogicalRepeat<LogicalProject<LogicalFilter<LogicalOlapScan>>> repeat = agg.child();
@@ -501,6 +528,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Repeat(Filter(Project(Scan))))
                 logicalAggregate(logicalRepeat(logicalFilter(logicalProject(logicalOlapScan()
                         .when(this::shouldSelectIndexWithAgg))))).thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalAggregate<LogicalRepeat<LogicalFilter
                                     <LogicalProject<LogicalOlapScan>>>> agg = ctx.root;
                             LogicalRepeat<LogicalFilter<LogicalProject<LogicalOlapScan>>> repeat = agg.child();
@@ -674,7 +704,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         Optional<Map<Slot, Expression>> slotToProducerOpt = project.map(Project::getAliasToProducer);
         return agg.getOutputExpressions().stream()
                 // extract aggregate functions.
-                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
+                .flatMap(e -> e.<AggregateFunction>collect(AggregateFunction.class::isInstance).stream())
                 // replace aggregate function's input slot by its producing expression.
                 .map(expr -> slotToProducerOpt.map(slotToExpressions
                                 -> (AggregateFunction) ExpressionUtils.replace(expr, slotToExpressions))

@@ -78,39 +78,39 @@ true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a"
 2
 
 -- !desc_ctas_base --
-bool_col	BOOLEAN	Yes	true	\N	
-tinyint_col	TINYINT	Yes	true	\N	
-smallint_col	SMALLINT	Yes	true	\N	
-int_col	INT	Yes	false	\N	NONE
-bigint_col	BIGINT	Yes	false	\N	NONE
-largeint_col	LARGEINT	Yes	false	\N	NONE
-float_col	FLOAT	Yes	false	\N	NONE
-double_col	DOUBLE	Yes	false	\N	NONE
-decimal_col	DECIMAL(10, 5)	Yes	false	\N	NONE
-decimal_col2	DECIMAL(30, 10)	Yes	false	\N	NONE
-date_col	DATE	Yes	false	\N	NONE
-datetime_col	DATETIME(3)	Yes	false	\N	NONE
-char_col	TEXT	Yes	false	\N	NONE
-varchar_col	TEXT	Yes	false	\N	NONE
-json_col	TEXT	Yes	false	\N	NONE
+bool_col	boolean	Yes	true	\N	
+tinyint_col	tinyint	Yes	true	\N	
+smallint_col	smallint	Yes	true	\N	
+int_col	int	Yes	false	\N	NONE
+bigint_col	bigint	Yes	false	\N	NONE
+largeint_col	largeint	Yes	false	\N	NONE
+float_col	float	Yes	false	\N	NONE
+double_col	double	Yes	false	\N	NONE
+decimal_col	decimal(10,5)	Yes	false	\N	NONE
+decimal_col2	decimal(30,10)	Yes	false	\N	NONE
+date_col	date	Yes	false	\N	NONE
+datetime_col	datetime(3)	Yes	false	\N	NONE
+char_col	text	Yes	false	\N	NONE
+varchar_col	text	Yes	false	\N	NONE
+json_col	text	Yes	false	\N	NONE
 
 -- !desc_ctas_arr --
-int_col	INT	Yes	true	\N	
-arr_bool_col	ARRAY<BOOLEAN>	Yes	false	\N	NONE
-arr_tinyint_col	ARRAY<TINYINT>	Yes	false	\N	NONE
-arr_smallint_col	ARRAY<SMALLINT>	Yes	false	\N	NONE
-arr_int_col	ARRAY<INT>	Yes	false	\N	NONE
-arr_bigint_col	ARRAY<BIGINT>	Yes	false	\N	NONE
-arr_largeint_col	ARRAY<LARGEINT>	Yes	false	\N	NONE
-arr_float_col	ARRAY<FLOAT>	Yes	false	\N	NONE
-arr_double_col	ARRAY<DOUBLE>	Yes	false	\N	NONE
-arr_decimal1_col	ARRAY<DECIMAL(10, 5)>	Yes	false	\N	NONE
-arr_decimal2_col	ARRAY<DECIMAL(30, 10)>	Yes	false	\N	NONE
-arr_date_col	ARRAY<DATE>	Yes	false	\N	NONE
-arr_datetime_col	ARRAY<DATETIME(3)>	Yes	false	\N	NONE
-arr_char_col	ARRAY<TEXT>	Yes	false	\N	NONE
-arr_varchar_col	ARRAY<TEXT>	Yes	false	\N	NONE
-arr_string_col	ARRAY<TEXT>	Yes	false	\N	NONE
+int_col	int	Yes	true	\N	
+arr_bool_col	array<boolean>	Yes	false	\N	NONE
+arr_tinyint_col	array<tinyint>	Yes	false	\N	NONE
+arr_smallint_col	array<smallint>	Yes	false	\N	NONE
+arr_int_col	array<int>	Yes	false	\N	NONE
+arr_bigint_col	array<bigint>	Yes	false	\N	NONE
+arr_largeint_col	array<largeint>	Yes	false	\N	NONE
+arr_float_col	array<float>	Yes	false	\N	NONE
+arr_double_col	array<double>	Yes	false	\N	NONE
+arr_decimal1_col	array<decimal(10,5)>	Yes	false	\N	NONE
+arr_decimal2_col	array<decimal(30,10)>	Yes	false	\N	NONE
+arr_date_col	array<date>	Yes	false	\N	NONE
+arr_datetime_col	array<datetime(3)>	Yes	false	\N	NONE
+arr_char_col	array<text>	Yes	false	\N	NONE
+arr_varchar_col	array<text>	Yes	false	\N	NONE
+arr_string_col	array<text>	Yes	false	\N	NONE
 
 -- !query_ctas_base --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N

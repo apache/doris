@@ -32,11 +32,11 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -113,6 +113,7 @@ public:
 
     virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
+    OperatorXPtr child_x() { return _child_x; }
 
 protected:
     OperatorXPtr _child_x = nullptr;
@@ -151,7 +152,6 @@ public:
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
 
-    [[nodiscard]] bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
@@ -769,6 +769,8 @@ protected:
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
+
+    uint32_t _debug_point_count = 0;
 
     std::string _op_name;
     bool _ignore_data_distribution = false;

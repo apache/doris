@@ -685,3 +685,7 @@ TESTING	AGAIN
 
 -- !having_with_limit --
 7	-32767.0
+
+-- !four_phase_full_distribute --
+hello	1	1
+world	1	1

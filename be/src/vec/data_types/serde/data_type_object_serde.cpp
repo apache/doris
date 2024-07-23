@@ -37,9 +37,11 @@ namespace doris {
 
 namespace vectorized {
 
-Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
+template <bool is_binary_format>
+Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& row_buffer,
+                                                   int row_idx, bool col_const,
+                                                   const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
@@ -49,7 +51,7 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
         // Serialize scalar types, like int, string, array, faster path
         const auto& root = variant.get_subcolumn({});
         RETURN_IF_ERROR(root->get_least_common_type_serde()->write_column_to_mysql(
-                root->get_finalized_column(), row_buffer, row_idx, col_const));
+                root->get_finalized_column(), row_buffer, row_idx, col_const, options));
     } else {
         // Serialize hierarchy types to json format
         rapidjson::StringBuffer buffer;
@@ -66,6 +68,20 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+}
+
+Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+}
+
 void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
                                                   int row_num) const {
@@ -74,12 +90,14 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
         const_cast<ColumnObject&>(variant).finalize();
     }
     result.writeKey(col_id);
+    std::string value_str;
+    if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                               variant.dump_structure());
+    }
     JsonbParser json_parser;
-    CHECK(variant.get_rowstore_column() != nullptr);
-    // use original document
-    const auto& data_ref = variant.get_rowstore_column()->get_data_at(row_num);
     // encode as jsonb
-    bool succ = json_parser.parse(data_ref.data, data_ref.size);
+    bool succ = json_parser.parse(value_str.data(), value_str.size());
     // maybe more graceful, it is ok to check here since data could be parsed
     CHECK(succ);
     result.writeStartBinary();
@@ -94,6 +112,16 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
     variant.insert(field);
+}
+
+Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    const auto* var = check_and_get_column<ColumnObject>(column);
+    if (!var->serialize_one_row_to_string(row_num, bw)) {
+        return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
+    }
+    return Status::OK();
 }
 
 void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,

@@ -147,6 +147,11 @@ public class RelationMapping extends Mapping {
     }
 
     @Override
+    public String toString() {
+        return "RelationMapping { mappedRelationMap=" + mappedRelationMap + '}';
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

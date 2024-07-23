@@ -118,10 +118,12 @@ public:
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
 
+    bool is_mow_table() const;
+
 public:
     static const int default_txn_id = -1;
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
-    TLoadType::type load_type;
+    TLoadType::type load_type = TLoadType::type::MANUL_LOAD;
     // load data source: eg: KAFKA/RAW
     TLoadSourceType::type load_src_type;
 

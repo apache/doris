@@ -56,6 +56,13 @@ int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
     return 0;
 }
 
+void CacheManager::clear_once() {
+    std::lock_guard<std::mutex> l(_caches_lock);
+    for (const auto& pair : _caches) {
+        pair.second->prune_all(true);
+    }
+}
+
 void CacheManager::clear_once(CachePolicy::CacheType type) {
     std::lock_guard<std::mutex> l(_caches_lock);
     _caches[type]->prune_all(true); // will print log

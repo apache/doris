@@ -87,7 +87,7 @@ public class TimeRoundSeries {
                         + (dt.getHour() - start.getHour()) * 60 * 60
                         + (dt.getMinute() - start.getMinute()) * 60
                         + (dt.getSecond() - start.getSecond());
-                trivialPart = 0;
+                trivialPart = dt.getMicroSecond() - start.getMicroSecond();
                 break;
             }
             default: {

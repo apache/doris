@@ -884,5 +884,19 @@ public class CreateTableCommandTest extends TestWithFeService {
         } catch (Exception e) {
             Assertions.assertEquals("partition key par1 is not exists", e.getMessage());
         }
+
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `c1` bigint,\n"
+                    + "    `par1` int,\n"
+                    + "    `par2` int,\n"
+                    + "    `par3` int\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1, par2\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
+        }
     }
 }

@@ -55,7 +55,11 @@ constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
-    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
+    io::FileReaderOptions opts {
+            .cache_base_path {},
+            .file_size = fd.file_size,
+            .mtime = fd.mtime,
+    };
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
@@ -156,7 +160,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
         RETURN_IF_ERROR_RESULT(client_holder->init());
         return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
-                                        file_description.file_size)
+                                        file_description.file_size, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });
@@ -213,26 +217,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     } else {
         *file_reader = stream_load_ctx->pipe;
     }
-
-    if (file_reader->get() == nullptr) {
-        return Status::OK();
-    }
-
-    auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
-    if (multi_table_pipe == nullptr || runtime_state == nullptr) {
-        return Status::OK();
-    }
-
-    TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_x_exec()) {
-        pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
-                                                        runtime_state->fragment_id());
-    } else {
-        pipe_id = runtime_state->fragment_instance_id();
-    }
-    *file_reader = multi_table_pipe->get_pipe(pipe_id);
-    LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
-              << " pipe: " << (*file_reader).get();
 
     return Status::OK();
 }

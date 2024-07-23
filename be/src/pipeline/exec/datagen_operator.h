@@ -20,8 +20,8 @@
 #include <stdint.h>
 
 #include "common/status.h"
+#include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
 #include "pipeline/exec/operator.h"
-#include "vec/exec/vdata_gen_scan_node.h"
 
 namespace doris {
 class RuntimeState;
@@ -43,7 +43,7 @@ public:
 
 private:
     friend class DataGenSourceOperatorX;
-    std::shared_ptr<vectorized::VDataGenFunctionInf> _table_func;
+    std::shared_ptr<VDataGenFunctionInf> _table_func;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {

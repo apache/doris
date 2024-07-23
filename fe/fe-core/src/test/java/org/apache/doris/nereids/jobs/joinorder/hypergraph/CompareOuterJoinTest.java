@@ -68,6 +68,7 @@ class CompareOuterJoinTest extends SqlTestBase {
     @Test
     void testRandomQuery() {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(false);
         Plan p1 = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
                 .randomBuildPlanWith(3, 3);
         PlanChecker planChecker = PlanChecker.from(connectContext, p1)

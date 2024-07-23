@@ -33,7 +33,7 @@ import java.util.List;
  */
 public class TreeNode<NodeType extends TreeNode<NodeType>> {
     @SerializedName("children")
-    protected ArrayList<NodeType> children = Lists.newArrayList();
+    protected ArrayList<NodeType> children = Lists.newArrayListWithCapacity(2);
 
     public NodeType getChild(int i) {
         return hasChild(i) ? children.get(i) : null;
@@ -239,4 +239,39 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         return null;
     }
 
+    public interface ThrowingConsumer<T> {
+        void accept(T t) throws AnalysisException;
+    }
+
+    public void foreach(ThrowingConsumer<TreeNode<NodeType>> func) throws AnalysisException {
+        func.accept(this);
+        for (NodeType child : getChildren()) {
+            child.foreach(func);
+        }
+    }
+
+    /** anyMatch */
+    public boolean anyMatch(Predicate<TreeNode<? extends NodeType>> func) {
+        if (func.apply(this)) {
+            return true;
+        }
+
+        for (NodeType child : children) {
+            if (child.anyMatch(func)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** foreachDown */
+    public void foreachDown(Predicate<TreeNode<NodeType>> visitor) {
+        if (!visitor.test(this)) {
+            return;
+        }
+
+        for (TreeNode<NodeType> child : getChildren()) {
+            child.foreachDown(visitor);
+        }
+    }
 }

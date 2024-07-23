@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -55,6 +56,10 @@ public class StatisticsAutoCollector extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoCollector.class);
 
     protected final AnalysisTaskExecutor analysisTaskExecutor;
+    // Waited flag. Wait once when FE started for TabletStatMgr has received BE report at least once.
+    // This couldn't guarantee getRowCount will return up-to-date value,
+    // but could reduce the chance to get wrong row count. e.g. 0 after FE restart.
+    private boolean waited = false;
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
@@ -74,7 +79,16 @@ public class StatisticsAutoCollector extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        collect();
+        if (waited) {
+            collect();
+        } else {
+            try {
+                Thread.sleep((long) Config.tablet_stat_update_interval_second * 1000 * 2);
+                waited = true;
+            } catch (InterruptedException e) {
+                LOG.info("Wait Sleep interrupted.", e);
+            }
+        }
     }
 
     protected void collect() {
@@ -153,7 +167,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        if (tableStatsStatus != null && tableStatsStatus.newPartitionLoaded.get()) {
+        if (tableStatsStatus != null && tableStatsStatus.partitionChanged.get()) {
             OlapTable olapTable = (OlapTable) table;
             columns.addAll(olapTable.getColumnIndexPairs(olapTable.getPartitionColumnNames()));
         }
@@ -200,8 +214,8 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setColName(stringJoiner.toString())
                 .setJobColumns(jobColumns)
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
-                .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
+                .setPartitionNames(Collections.emptySet())
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
                     ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
@@ -214,6 +228,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
+                .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
                 .build();
     }
 

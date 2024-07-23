@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -27,15 +26,12 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
  * Statistics for a single column.
  */
-public class ColumnStats implements Writable {
+public class ColumnStats {
     private static final Logger LOG = LogManager.getLogger(ColumnStats.class);
 
     @SerializedName(value = "avgSerializedSize")
@@ -118,26 +114,6 @@ public class ColumnStats implements Writable {
         return MoreObjects.toStringHelper(this.getClass()).add("avgSerializedSize",
           avgSerializedSize).add("maxSize", maxSize).add("numDistinct", numDistinctValues).add(
           "numNulls", numNulls).toString();
-    }
-
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(numDistinctValues);
-        out.writeFloat(avgSerializedSize);
-        out.writeLong(maxSize);
-        out.writeLong(numNulls);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        numDistinctValues = in.readLong();
-        avgSerializedSize = in.readFloat();
-        maxSize = in.readLong();
-        numNulls = in.readLong();
-    }
-
-    public static ColumnStats read(DataInput in) throws IOException {
-        ColumnStats columnStats = new ColumnStats();
-        columnStats.readFields(in);
-        return columnStats;
     }
 
     @Override

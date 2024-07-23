@@ -85,6 +85,7 @@ else()
     set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed-$ENV{DORIS_BRANCH}")
 endif()
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -188,9 +189,6 @@ endif ()
 if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
-if (USE_JEMALLOC_HOOK)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC_HOOK")
-endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -216,7 +214,7 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
@@ -263,6 +261,7 @@ include_directories(
 include_directories(
     SYSTEM
     ${GENSRC_DIR}/
+    ${COMMON_SRC_DIR}
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
@@ -332,6 +331,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     Recycler
     RateLimiter
     ${WL_END_GROUP}
+    CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
@@ -459,6 +459,8 @@ add_subdirectory(${SRC_DIR}/resource-manager)
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")

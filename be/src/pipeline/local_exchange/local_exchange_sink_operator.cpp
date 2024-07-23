@@ -18,8 +18,70 @@
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "vec/runtime/partitioner.h"
+#include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+
+LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
+
+std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
+    auto deps = Base::dependencies();
+    auto exchanger_deps = _exchanger->local_sink_state_dependency(_channel_id);
+    for (auto* dep : exchanger_deps) {
+        deps.push_back(dep);
+    }
+    return deps;
+}
+
+Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
+                                        const bool is_shuffled_hash_join,
+                                        const std::map<int, int>& shuffle_idx_to_instance_idx) {
+    _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
+    _type = type;
+    if (_type == ExchangeType::HASH_SHUFFLE) {
+        // For shuffle join, if data distribution has been broken by previous operator, we
+        // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
+        // we should use map shuffle idx to instance idx because all instances will be
+        // distributed to all BEs. Otherwise, we should use shuffle idx directly.
+        if (is_shuffled_hash_join) {
+            std::for_each(shuffle_idx_to_instance_idx.begin(), shuffle_idx_to_instance_idx.end(),
+                          [&](const auto& item) {
+                              DCHECK(item.first != -1);
+                              _shuffle_idx_to_instance_idx.push_back({item.first, item.second});
+                          });
+        } else {
+            _shuffle_idx_to_instance_idx.resize(_num_partitions);
+            for (int i = 0; i < _num_partitions; i++) {
+                _shuffle_idx_to_instance_idx[i] = {i, i};
+            }
+        }
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                _num_partitions));
+        RETURN_IF_ERROR(_partitioner->init(_texprs));
+    } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        _partitioner.reset(
+                new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
+        RETURN_IF_ERROR(_partitioner->init(_texprs));
+    }
+
+    return Status::OK();
+}
+Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    }
+
+    return Status::OK();
+}
+
+Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
+    if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        RETURN_IF_ERROR(_partitioner->open(state));
+    }
+
+    return Status::OK();
+}
 
 Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -27,6 +89,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_init_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
+    _channel_id = info.task_idx;
     return Status::OK();
 }
 

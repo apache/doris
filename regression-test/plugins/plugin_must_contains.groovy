@@ -27,4 +27,4 @@ Suite.metaClass.mustContain = {String str1, String str2 ->
     }
     return true
 }
-logger.info("Added 'mustContains' function to Suite")
+logger.info("Added 'mustContain' function to Suite")

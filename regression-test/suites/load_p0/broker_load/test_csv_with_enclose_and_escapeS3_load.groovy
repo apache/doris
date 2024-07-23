@@ -19,6 +19,7 @@
 suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
 
     def tableName = "test_csv_with_enclose_and_escape"
+    def s3BucketName = getS3BucketName()
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -48,24 +49,24 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
     ]
 
     for (i in 0..<normalCases.size()) {
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/${normalCases[i]}.csv",
                 "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
                 "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
     }
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_incomplete.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_incomplete.csv",
         "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
         "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")").addProperties("max_filter_ratio", "0.5"))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_without_escape.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_without_escape.csv",
         "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
         "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_multi_char_delimiter.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_multi_char_delimiter.csv",
         "${tableName}", "LINES TERMINATED BY \"\$\$\$\"", "COLUMNS TERMINATED BY \"@@\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
         "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_not_trim_quotes.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_not_trim_quotes.csv",
         "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
         "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
 
@@ -92,8 +93,9 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             )
             ${prop}
             """

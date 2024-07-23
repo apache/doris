@@ -35,21 +35,15 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AnalysisInfo implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisInfo.class);
-
-    // TODO: useless, remove it later
-    public enum AnalysisMode {
-        INCREMENTAL,
-        FULL
-    }
 
     public enum AnalysisMethod {
         SAMPLE,
@@ -110,9 +104,6 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("jobType")
     public final JobType jobType;
-
-    @SerializedName("analysisMode")
-    public final AnalysisMode analysisMode;
 
     @SerializedName("analysisMethod")
     public final AnalysisMethod analysisMethod;
@@ -191,7 +182,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("updateRows")
     public final long updateRows;
 
-    public final Map<Long, Long> partitionUpdateRows = new HashMap();
+    public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
     @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
@@ -202,15 +193,18 @@ public class AnalysisInfo implements Writable {
     @SerializedName("priority")
     public final JobPriority priority;
 
+    @SerializedName("ep")
+    public final boolean enablePartition;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
-            JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
+            JobType jobType, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
-            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows) {
+            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -222,7 +216,6 @@ public class AnalysisInfo implements Writable {
         this.colName = colName;
         this.indexId = indexId;
         this.jobType = jobType;
-        this.analysisMode = analysisMode;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.samplePercent = samplePercent;
@@ -252,6 +245,7 @@ public class AnalysisInfo implements Writable {
         if (partitionUpdateRows != null) {
             this.partitionUpdateRows.putAll(partitionUpdateRows);
         }
+        this.enablePartition = enablePartition;
     }
 
     @Override
@@ -263,7 +257,6 @@ public class AnalysisInfo implements Writable {
         sj.add("TableName: " + tblId);
         sj.add("ColumnName: " + colName);
         sj.add("TaskType: " + analysisType);
-        sj.add("TaskMode: " + analysisMode);
         sj.add("TaskMethod: " + analysisMethod);
         sj.add("Message: " + message);
         sj.add("CurrentState: " + state);
@@ -297,6 +290,7 @@ public class AnalysisInfo implements Writable {
         sj.add("userInject: " + userInject);
         sj.add("updateRows: " + updateRows);
         sj.add("priority: " + priority.name());
+        sj.add("enablePartition: " + enablePartition);
         return sj.toString();
     }
 

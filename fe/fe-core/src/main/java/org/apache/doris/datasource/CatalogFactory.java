@@ -161,7 +161,7 @@ public class CatalogFactory {
             // If failed, it will throw exception and the catalog will not be created.
             try {
                 catalog.initAccessController(true);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 LOG.warn("Failed to init access controller", e);
                 throw new DdlException("Failed to init access controller: " + e.getMessage());
             }

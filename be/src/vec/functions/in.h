@@ -265,8 +265,9 @@ private:
                 continue;
             }
 
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_columns.size()));
+            std::vector<StringRef> set_datas;
+            // To comply with the SQL standard, IN() returns NULL not only if the expression on the left hand side is NULL,
+            // but also if no match is found in the list and one of the expressions in the list is NULL.
             bool null_in_set = false;
 
             for (const auto& set_column : set_columns) {
@@ -274,9 +275,15 @@ private:
                 if (set_data.data == nullptr) {
                     null_in_set = true;
                 } else {
-                    hybrid_set->insert((void*)(set_data.data), set_data.size);
+                    set_datas.push_back(set_data);
                 }
             }
+            std::unique_ptr<HybridSetBase> hybrid_set(
+                    create_set(context->get_arg_type(0)->type, set_datas.size()));
+            for (auto& set_data : set_datas) {
+                hybrid_set->insert((void*)(set_data.data), set_data.size);
+            }
+
             vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
             if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];

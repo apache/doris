@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -49,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -227,7 +227,6 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
             if (predicates.getPredicates().containsKey(table)) {
-                predicates.setAddSuccess(true);
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
                         unboundRelation);
             }
@@ -262,48 +261,55 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.isEmpty()) {
                 return catalogRelation;
             }
+            TableIf table = catalogRelation.getTable();
             if (predicates.getPredicates() != null) {
-                TableIf table = catalogRelation.getTable();
                 if (predicates.getPredicates().containsKey(table)) {
-                    predicates.setAddSuccess(true);
                     return new LogicalFilter<>(
                             ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
                             catalogRelation);
                 }
             }
             if (predicates.getPartition() != null && predicates.getPartitionName() != null) {
-                if (!(catalogRelation instanceof LogicalOlapScan)) {
+                if (!(table instanceof MTMVRelatedTableIf)) {
                     return catalogRelation;
                 }
                 for (Map.Entry<BaseTableInfo, Set<String>> filterTableEntry : predicates.getPartition().entrySet()) {
-                    LogicalOlapScan olapScan = (LogicalOlapScan) catalogRelation;
-                    OlapTable targetTable = olapScan.getTable();
-                    if (!Objects.equals(new BaseTableInfo(targetTable), filterTableEntry.getKey())) {
+                    if (!Objects.equals(new BaseTableInfo(table), filterTableEntry.getKey())) {
                         continue;
                     }
                     Slot partitionSlot = null;
-                    for (Slot slot : olapScan.getOutput()) {
+                    for (Slot slot : catalogRelation.getOutput()) {
                         if (((SlotReference) slot).getName().equals(predicates.getPartitionName())) {
                             partitionSlot = slot;
                             break;
                         }
                     }
                     if (partitionSlot == null) {
+                        predicates.setHandleSuccess(false);
                         return catalogRelation;
                     }
                     // if partition has no data, doesn't add filter
                     Set<PartitionItem> partitionHasDataItems = new HashSet<>();
+                    MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
-                        if (!targetTable.selectNonEmptyPartitionIds(Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has filter
-                            partitionHasDataItems.add(targetTable.getPartitionInfo().getItem(partition.getId()));
+                        if (!(targetTable instanceof OlapTable)) {
+                            // check partition is have data or not, only support olap table
+                            break;
                         }
+                        if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                                Lists.newArrayList(partition.getId())).isEmpty()) {
+                            // Add filter only when partition has data
+                            partitionHasDataItems.add(
+                                    ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                        }
+                    }
+                    if (partitionHasDataItems.isEmpty()) {
+                        predicates.setNeedAddFilter(false);
                     }
                     if (!partitionHasDataItems.isEmpty()) {
                         Set<Expression> partitionExpressions =
                                 constructPredicates(partitionHasDataItems, partitionSlot);
-                        predicates.setAddSuccess(true);
                         return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
                                 catalogRelation);
                     }
@@ -322,7 +328,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         private final Map<TableIf, Set<Expression>> predicates;
         private final Map<BaseTableInfo, Set<String>> partition;
         private final String partitionName;
-        private boolean addSuccess = false;
+        private boolean handleSuccess = true;
+        // when add filter by partition, if partition has no data, doesn't need to add filter. should be false
+        private boolean needAddFilter = true;
 
         public PredicateAddContext(Map<TableIf, Set<Expression>> predicates) {
             this(predicates, null, null);
@@ -356,12 +364,20 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             return predicates == null && partition == null;
         }
 
-        public boolean isAddSuccess() {
-            return addSuccess;
+        public boolean isHandleSuccess() {
+            return handleSuccess;
         }
 
-        public void setAddSuccess(boolean addSuccess) {
-            this.addSuccess = addSuccess;
+        public void setHandleSuccess(boolean handleSuccess) {
+            this.handleSuccess = handleSuccess;
+        }
+
+        public boolean isNeedAddFilter() {
+            return needAddFilter;
+        }
+
+        public void setNeedAddFilter(boolean needAddFilter) {
+            this.needAddFilter = needAddFilter;
         }
     }
 }

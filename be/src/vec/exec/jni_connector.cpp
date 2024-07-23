@@ -154,6 +154,13 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
 
 std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
+    jthrowable exc = (env)->ExceptionOccurred();
+    if (exc != nullptr) {
+        LOG(WARNING) << "get_statistics has error: "
+                     << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->DeleteLocalRef(metrics);
+        return std::map<std::string, std::string> {};
+    }
     std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
     env->DeleteLocalRef(metrics);
     return result;
@@ -163,7 +170,7 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        if (_scanner_opened) {
+        if (_scanner_opened && _jni_scanner_obj != nullptr) {
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);

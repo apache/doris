@@ -214,8 +214,6 @@ private:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
-    QueryThreadContext _query_thread_context;
-
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _init_context_timer = nullptr;
@@ -248,9 +246,6 @@ private:
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
     bool _need_local_merge = false;
-
-    // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

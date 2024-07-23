@@ -78,7 +78,9 @@ public class InternalSchema {
                 ColumnNullableType.NOT_NULLABLE));
         PARTITION_STATS_SCHEMA.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN),
                 ColumnNullableType.NOT_NULLABLE));
-        PARTITION_STATS_SCHEMA.add(new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN),
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("part_name", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN),
+                ColumnNullableType.NOT_NULLABLE));
+        PARTITION_STATS_SCHEMA.add(new ColumnDef("part_id", TypeDef.create(PrimitiveType.BIGINT),
                 ColumnNullableType.NOT_NULLABLE));
         PARTITION_STATS_SCHEMA.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN),
                 ColumnNullableType.NOT_NULLABLE));

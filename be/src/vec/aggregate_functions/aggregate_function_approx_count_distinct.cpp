@@ -17,7 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "util/bitmap_value.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"

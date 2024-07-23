@@ -142,7 +142,7 @@ public class ColStatsData {
             columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(nullCount);
             columnStatisticBuilder.setDataSize(dataSizeInBytes);
-            columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : dataSizeInBytes / count);
+            columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : ((double) dataSizeInBytes) / count);
             if (statsId == null) {
                 return ColumnStatistic.UNKNOWN;
             }

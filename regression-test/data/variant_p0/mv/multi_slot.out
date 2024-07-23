@@ -26,18 +26,3 @@
 456	\N
 789	\N
 
--- !select_mv --
-\N	\N
-1	\N
-3	\N
-5	\N
-
--- !select_mv --
-\N	\N
-\N	\N
-1	\N
-1	\N
-1	\N
-3	\N
-5	\N
-

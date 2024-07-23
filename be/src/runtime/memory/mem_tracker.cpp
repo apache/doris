@@ -45,9 +45,11 @@ MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent) : _l
 
 void MemTracker::bind_parent(MemTrackerLimiter* parent) {
     if (parent) {
+        _type = parent->type();
         _parent_label = parent->label();
         _parent_group_num = parent->group_num();
     } else {
+        _type = thread_context()->thread_mem_tracker()->type();
         _parent_label = thread_context()->thread_mem_tracker()->label();
         _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
     }
@@ -72,6 +74,7 @@ MemTracker::~MemTracker() {
 
 MemTracker::Snapshot MemTracker::make_snapshot() const {
     Snapshot snapshot;
+    snapshot.type = type_string(_type);
     snapshot.label = _label;
     snapshot.parent_label = _parent_label;
     snapshot.limit = -1;
@@ -83,9 +86,20 @@ MemTracker::Snapshot MemTracker::make_snapshot() const {
 void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshots,
                                      int64_t group_num, std::string parent_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
-    for (auto tracker : mem_tracker_pool[group_num].trackers) {
+    for (auto* tracker : mem_tracker_pool[group_num].trackers) {
         if (tracker->parent_label() == parent_label && tracker->peak_consumption() != 0) {
             snapshots->push_back(tracker->make_snapshot());
+        }
+    }
+}
+
+void MemTracker::make_all_trackers_snapshots(std::vector<Snapshot>* snapshots) {
+    for (auto& i : mem_tracker_pool) {
+        std::lock_guard<std::mutex> l(i.group_lock);
+        for (auto* tracker : i.trackers) {
+            if (tracker->peak_consumption() != 0) {
+                snapshots->push_back(tracker->make_snapshot());
+            }
         }
     }
 }

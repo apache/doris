@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -67,7 +68,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final boolean inferred;
     private final boolean hasUnbound;
     private final boolean compareWidthAndDepth;
-    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
+    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
+            () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
 
     protected Expression(Expression... children) {
         super(children);
@@ -388,6 +390,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
+    }
+
+    public boolean isKeyColumnFromTable() {
+        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent()
+                && ((SlotReference) this).getColumn().get().isKey();
     }
 
     @Override

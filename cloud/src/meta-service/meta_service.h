@@ -28,7 +28,7 @@
 #include <type_traits>
 
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -75,6 +75,14 @@ public:
                                 const GetCurrentMaxTxnRequest* request,
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override;
+
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override;
 
     void check_txn_conflict(::google::protobuf::RpcController* controller,
                             const CheckTxnConflictRequest* request,
@@ -132,6 +140,9 @@ public:
 
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override;
+
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override;
 
     void prepare_partition(::google::protobuf::RpcController* controller,
                            const PartitionRequest* request, PartitionResponse* response,
@@ -321,6 +332,18 @@ public:
         call_impl(&cloud::MetaService::get_current_max_txn_id, controller, request, response, done);
     }
 
+    void begin_sub_txn(::google::protobuf::RpcController* controller,
+                       const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::begin_sub_txn, controller, request, response, done);
+    }
+
+    void abort_sub_txn(::google::protobuf::RpcController* controller,
+                       const AbortSubTxnRequest* request, AbortSubTxnResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_sub_txn, controller, request, response, done);
+    }
+
     void check_txn_conflict(::google::protobuf::RpcController* controller,
                             const CheckTxnConflictRequest* request,
                             CheckTxnConflictResponse* response,
@@ -400,6 +423,11 @@ public:
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_index, controller, request, response, done);
+    }
+
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::check_kv, controller, request, response, done);
     }
 
     void prepare_partition(::google::protobuf::RpcController* controller,

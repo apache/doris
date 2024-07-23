@@ -54,7 +54,7 @@ public class S3Remote extends DefaultRemote {
                     .build();
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                    .signatureDuration(Duration.ofMinutes(60))
+                    .signatureDuration(Duration.ofSeconds(SESSION_EXPIRE_SECOND))
                     .putObjectRequest(objectRequest)
                     .build();
 

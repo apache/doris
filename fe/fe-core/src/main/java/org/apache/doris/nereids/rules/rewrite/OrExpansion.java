@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -121,8 +120,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
             return join;
         }
-        if (!(supportJoinType.contains(join.getJoinType())
-                && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())) {
+        if (!supportJoinType.contains(join.getJoinType())) {
             return join;
         }
         Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),

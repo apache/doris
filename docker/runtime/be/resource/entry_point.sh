@@ -167,7 +167,7 @@ check_be_status() {
     if [[ $1 == true ]]; then
       docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
     else
-      docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
+      docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
     fi
     be_join_status=$?
     if [[ "${be_join_status}" == 0 ]]; then

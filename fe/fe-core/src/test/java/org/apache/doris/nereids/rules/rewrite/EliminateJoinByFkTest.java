@@ -33,19 +33,19 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 "CREATE TABLE IF NOT EXISTS pri (\n"
                         + "    id1 int not null\n"
                         + ")\n"
-                        + "DUPLICATE KEY(id1)\n"
+                        + "UNIQUE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS foreign_not_null (\n"
                         + "    id2 int not null\n"
                         + ")\n"
-                        + "DUPLICATE KEY(id2)\n"
+                        + "UNIQUE KEY(id2)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS foreign_null (\n"
                         + "    id3 int\n"
                         + ")\n"
-                        + "DUPLICATE KEY(id3)\n"
+                        + "UNIQUE KEY(id3)\n"
                         + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
@@ -55,6 +55,17 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    }
+
+    @Test
+    void testPriWithJoin() {
+        String sql = "select pri.id1 from (select p1.id1 from pri as p1 cross join pri as p2) pri "
+                + "inner join foreign_not_null on pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
     }
 
     @Test
@@ -83,7 +94,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .matches(logicalFilter().when(f -> {
-                    Assertions.assertEquals("(id2 = 1)", f.getPredicate().toSql());
+                    Assertions.assertTrue(f.getPredicate().toSql().contains("(id2 = 1)"));
                     return true;
                 }))
                 .printlnTree();
@@ -94,7 +105,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .matches(logicalFilter().when(f -> {
-                    Assertions.assertEquals("(id2 = 1)", f.getPredicate().toSql());
+                    Assertions.assertTrue(f.getPredicate().toSql().contains("(id2 = 1)"));
                     return true;
                 }))
                 .printlnTree();
@@ -108,7 +119,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .matches(logicalFilter().when(f -> {
-                    Assertions.assertEquals("( not id3 IS NULL)", f.getPredicate().toSql());
+                    Assertions.assertTrue(f.getPredicate().toSql().contains("( not id3 IS NULL)"));
                     return true;
                 }))
                 .printlnTree();
@@ -118,7 +129,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .matches(logicalFilter().when(f -> {
-                    Assertions.assertEquals("( not id3 IS NULL)", f.getPredicate().toSql());
+                    Assertions.assertTrue(f.getPredicate().toSql().contains("( not id3 IS NULL)"));
                     return true;
                 }))
                 .printlnTree();

@@ -24,6 +24,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
 
@@ -38,7 +39,9 @@ import java.util.Map;
 //   "spark.yarn.queue" = "queue0"
 // )
 public class ResourceDesc {
+    @SerializedName("nm")
     protected String name;
+    @SerializedName("prop")
     protected Map<String, String> properties;
     /**
      * TODO(tsy): transfer to LoadType

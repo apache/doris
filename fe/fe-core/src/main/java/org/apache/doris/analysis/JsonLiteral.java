@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -100,7 +101,7 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 

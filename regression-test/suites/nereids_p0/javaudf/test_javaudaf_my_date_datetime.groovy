@@ -27,6 +27,7 @@ suite("nereids_test_javaudaf_my_date_datetime") {
 
     def tableName = "test_javaudaf_my_date_datetime"
     def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

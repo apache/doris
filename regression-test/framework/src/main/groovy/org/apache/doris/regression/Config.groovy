@@ -253,6 +253,17 @@ class Config {
         this.cloudVersion = cloudVersion
     }
 
+    static String removeDirectoryPrefix(String str) {
+        def prefixes = ["./regression-test/suites/", "regression-test/suites/"]
+
+        def prefix = prefixes.find { str.startsWith(it) }
+        if (prefix) {
+            return str.substring(prefix.length())
+        }
+
+        return str
+    }
+
     static Config fromCommandLine(CommandLine cmd) {
         String confFilePath = cmd.getOptionValue(confFileOpt, "")
         File confFile = new File(confFilePath)
@@ -295,7 +306,9 @@ class Config {
                 .toSet()
         config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
                 .split(",")
-                .collect({d -> d.trim()})
+                .collect({d -> 
+                    d.trim()
+                    removeDirectoryPrefix(d)})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
         config.excludeSuiteWildcard = cmd.getOptionValue(excludeSuiteOpt, config.excludeSuites)
@@ -564,16 +577,6 @@ class Config {
         return config
     }
 
-    static String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     static void checkCloudSmokeEnv(Properties properties) {
         // external stage obj info
         String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
@@ -589,8 +592,7 @@ class Config {
                 s3EndpointConf:s3Endpoint,
                 s3BucketConf:s3BucketName,
                 s3AKConf:s3AK,
-                s3SKConf:s3SK,
-                s3ProviderConf:getProvider(s3Endpoint)
+                s3SKConf:s3SK
         ]
         for (final def item in items) {
             if (item.value == null || item.value.isEmpty()) {

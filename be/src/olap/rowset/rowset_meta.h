@@ -38,7 +38,7 @@ public:
     RowsetMeta() = default;
     ~RowsetMeta();
 
-    bool init(const std::string& pb_rowset_meta);
+    bool init(std::string_view pb_rowset_meta);
 
     bool init(const RowsetMeta* rowset_meta);
 
@@ -269,6 +269,21 @@ public:
         return score;
     }
 
+    uint32_t get_merge_way_num() const {
+        uint32_t way_num = 0;
+        if (!is_segments_overlapping()) {
+            if (num_segments() == 0) {
+                way_num = 0;
+            } else {
+                way_num = 1;
+            }
+        } else {
+            way_num = num_segments();
+            CHECK(way_num > 0);
+        }
+        return way_num;
+    }
+
     void get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) const {
         for (const KeyBoundsPB& key_range : _rowset_meta_pb.segments_key_bounds()) {
             segments_key_bounds->push_back(key_range);
@@ -341,7 +356,7 @@ public:
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
-    bool _deserialize_from_pb(const std::string& value);
+    bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);
 

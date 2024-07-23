@@ -96,6 +96,7 @@ public class MetricCalculator extends TimerTask {
         if (requsetAllMetrics != null) {
             requsetAllMetrics.forEach((clusterId, metric) -> {
                 clusterLastRequestCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
             });
         }
 
@@ -103,6 +104,7 @@ public class MetricCalculator extends TimerTask {
         if (queryAllMetrics != null) {
             queryAllMetrics.forEach((clusterId, metric) -> {
                 clusterLastQueryCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
             });
         }
 
@@ -110,6 +112,7 @@ public class MetricCalculator extends TimerTask {
         if (queryErrMetrics != null) {
             queryErrMetrics.forEach((clusterId, metric) -> {
                 clusterLastQueryErrCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
             });
         }
     }
@@ -126,6 +129,7 @@ public class MetricCalculator extends TimerTask {
                         / interval;
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterRequestPerSecond(clusterId, rps,  metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
                 clusterLastRequestCounter.replace(clusterId, metric.getValue());
             });
         }
@@ -137,6 +141,7 @@ public class MetricCalculator extends TimerTask {
                         / interval;
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterQueryPerSecond(clusterId, rps,  metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
                 clusterLastQueryCounter.replace(clusterId, metric.getValue());
             });
         }
@@ -148,6 +153,7 @@ public class MetricCalculator extends TimerTask {
                         / interval;
                 rps = Double.max(rps, 0);
                 MetricRepo.updateClusterQueryErrRate(clusterId, rps, metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
                 clusterLastQueryCounter.replace(clusterId, metric.getValue());
             });
         }

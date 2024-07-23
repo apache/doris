@@ -28,7 +28,8 @@ suite("load", "p2, nonConcurrent") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHmsHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 
@@ -37,7 +38,8 @@ suite("load", "p2, nonConcurrent") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHmsHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_flat_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_flat_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 

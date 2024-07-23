@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/consts.h"
+#include "common/status.h"
 #include "util/string_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -92,8 +93,9 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
                     res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
-                    LOG(FATAL) << "Illegal column= " << col.column->get_name()
-                               << " for DataTypeNullable";
+                    throw doris::Exception(
+                            ErrorCode::INTERNAL_ERROR,
+                            "Illegal column= {},  for DataTypeNullable" + col.column->get_name());
                 }
             } else {
                 res.insert(col);
@@ -130,14 +132,16 @@ void validate_argument_type(const IFunction& func, const DataTypes& arguments,
                             size_t argument_index, bool (*validator_func)(const IDataType&),
                             const char* expected_type_description) {
     if (arguments.size() <= argument_index) {
-        LOG(FATAL) << "Incorrect number of arguments of function " << func.get_name();
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Incorrect number of arguments of function {}" + func.get_name());
     }
 
     const auto& argument = arguments[argument_index];
     if (validator_func(*argument) == false) {
-        LOG(FATAL) << fmt::format("Illegal type {} of {} argument of function {} expected {}",
-                                  argument->get_name(), argument_index, func.get_name(),
-                                  expected_type_description);
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Illegal type {} of {} argument of function {} expected {}",
+                               argument->get_name(), argument_index, func.get_name(),
+                               expected_type_description);
     }
 }
 

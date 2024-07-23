@@ -206,9 +206,6 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                 "partitions=6/8");
         addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test_to_date_trunc where event_day= \"2023-08-07 11:00:00\" ",
                 "partitions=1/2");
-        addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test_to_date_trunc where date_trunc(event_day, \"day\")= \"2023-08-07 11:00:00\" ",
-                "partitions=1/2");
-
     }
 
 

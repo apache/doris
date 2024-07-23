@@ -20,11 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -58,6 +60,7 @@ import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -72,10 +75,12 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -98,9 +103,10 @@ public class InsertUtils {
 
         TransactionEntry txnEntry = ctx.getTxnEntry();
         int effectRows = 0;
+        FormatOptions options = FormatOptions.getDefault();
         for (List<NamedExpression> row : constantExprsList) {
             ++effectRows;
-            InternalService.PDataRow data = getRowStringValue(row);
+            InternalService.PDataRow data = getRowStringValue(row, options);
             if (data == null) {
                 continue;
             }
@@ -140,7 +146,10 @@ public class InsertUtils {
         ctx.updateReturnRows(effectRows);
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    /**
+     * literal expr in insert operation
+     */
+    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols, FormatOptions options) {
         if (cols.isEmpty()) {
             return null;
         }
@@ -157,7 +166,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));
@@ -190,9 +199,10 @@ public class InsertUtils {
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                        label, new TransactionState.TxnCoordinator(
-                                TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             } else {
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
@@ -248,7 +258,7 @@ public class InsertUtils {
     /**
      * normalize plan to let it could be process correctly by nereids
      */
-    public static Plan normalizePlan(Plan plan, TableIf table) {
+    public static Plan normalizePlan(Plan plan, TableIf table, Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
@@ -280,12 +290,19 @@ public class InsertUtils {
                                 throw new AnalysisException("Partial update should include all key columns, missing: "
                                         + col.getName());
                             }
+                            if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                    && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
+                                throw new AnalysisException("Partial update should include"
+                                        + " all ordinary columns referenced"
+                                        + " by generated columns, missing: " + col.getName());
+                            }
                         }
                     }
                 }
             }
         }
         Plan query = unboundLogicalSink.child();
+        checkGeneratedColumnForInsertIntoSelect(table, unboundLogicalSink, insertCtx);
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
@@ -319,6 +336,12 @@ public class InsertUtils {
                             throw new AnalysisException("Unknown column '"
                                     + unboundLogicalSink.getColNames().get(i) + "' in target table.");
                         }
+                        if (sameNameColumn.getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + sameNameColumn.getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(sameNameColumn));
                         } else {
@@ -331,6 +354,12 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < columns.size(); i++) {
+                        if (columns.get(i).getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + columns.get(i).getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(columns.get(i)));
                         } else {
@@ -383,6 +412,13 @@ public class InsertUtils {
 
     private static NamedExpression generateDefaultExpression(Column column) {
         try {
+            GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
+            // Using NullLiteral as a placeholder.
+            // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
+            // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
+            if (generatedColumnInfo != null) {
+                return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+            }
             if (column.getDefaultValue() == null) {
                 throw new AnalysisException("Column has no default value, column=" + column.getName());
             }
@@ -415,6 +451,52 @@ public class InsertUtils {
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
+        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
+    }
+
+    // check for insert into t1(a,b,gen_col) select 1,2,3;
+    private static void checkGeneratedColumnForInsertIntoSelect(TableIf table,
+            UnboundLogicalSink<? extends Plan> unboundLogicalSink, Optional<InsertCommandContext> insertCtx) {
+        // should not check delete stmt, because deletestmt can transform to insert delete sign
+        if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.DELETE) {
+            return;
+        }
+        // This is for the insert overwrite values(),()
+        // Insert overwrite stmt can enter normalizePlan() twice.
+        // Insert overwrite values(),() is checked in the first time when deal with ConstantExprsList,
+        // and then the insert into values(),() will be transformed to insert into union all in normalizePlan,
+        // and this function is for insert into select, which will check the insert into union all again,
+        // and that is no need, also will lead to problems.
+        // So for insert overwrite values(),(), this check is only performed
+        // when it first enters the normalizePlan checking constantExprsList
+        if (insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()) {
+            return;
+        }
+        Plan query = unboundLogicalSink.child();
+        if (table instanceof OlapTable && !(query instanceof LogicalInlineTable)) {
+            OlapTable olapTable = (OlapTable) table;
+            Set<String> insertNames = Sets.newHashSet();
+            if (unboundLogicalSink.getColNames() != null) {
+                insertNames.addAll(unboundLogicalSink.getColNames());
+            }
+            if (insertNames.isEmpty()) {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            } else {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null && insertNames.contains(col.getName())) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            }
+        }
     }
 }

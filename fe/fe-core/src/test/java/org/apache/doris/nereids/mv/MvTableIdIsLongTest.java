@@ -49,7 +49,7 @@ public class MvTableIdIsLongTest extends SqlTestBase {
         };
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
                 return true;
             }
         };

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOla
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -105,6 +107,10 @@ public interface RelationVisitor<R, C> {
         return visitLogicalExternalRelation(fileScan, context);
     }
 
+    default R visitLogicalHudiScan(LogicalHudiScan fileScan, C context) {
+        return visitLogicalFileScan(fileScan, context);
+    }
+
     default R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
         return visitLogicalExternalRelation(jdbcScan, context);
     }
@@ -152,6 +158,10 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
         return visitPhysicalCatalogRelation(fileScan, context);
+    }
+
+    default R visitPhysicalHudiScan(PhysicalHudiScan hudiScan, C context) {
+        return visitPhysicalFileScan(hudiScan, context);
     }
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {

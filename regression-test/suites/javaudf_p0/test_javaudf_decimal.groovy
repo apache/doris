@@ -24,6 +24,7 @@ import java.nio.file.Paths
 suite("test_javaudf_decimal") {
     def tableName = "test_javaudf_decimal"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

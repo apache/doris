@@ -244,6 +244,10 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
         if (LOG.isDebugEnabled() || theData.getSize() > (1 << 20)) {
             LOG.info("opCode = {}, journal size = {}", op, theData.getSize());
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_LARGE_EDIT_LOG.increase(1L);
+            }
+
         }
 
         // Write the key value pair to bdb.

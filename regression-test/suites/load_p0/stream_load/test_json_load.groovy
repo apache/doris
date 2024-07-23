@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_json_load", "p0") { 
+suite("test_json_load", "p0,nonConcurrent") { 
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -787,6 +787,7 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -822,20 +823,7 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-      
-    // iterate read json when read_json_by_line = false
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
 
-        create_json_test_table.call(testTable)
-        def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
-        sql "sync" 
-        
-        qt_iterate_read_json "select * from ${testTable} order by name"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -861,6 +849,31 @@ suite("test_json_load", "p0") {
         sql "sync"
         sleep(1000)
         qt_select28 "select * from ${testTable}"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // add duplicate json entry case
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case29", 'false', 'true', 'json', '', '',
+                             '', '', '', 'test_duplicate_json_keys.json', false, 1)
+        
+        sql "sync"
+        qt_select29 "select * from ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

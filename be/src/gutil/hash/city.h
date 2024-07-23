@@ -22,10 +22,11 @@
 
 #include <stddef.h> // for size_t.
 
-#include "gutil/int128.h"
 #include "gutil/integral_types.h"
 
 namespace util_hash {
+
+uint64 HashLen16(uint64 u, uint64 v);
 
 // Hash function for a byte array.
 // The mapping may change from time to time.
@@ -38,12 +39,5 @@ uint64 CityHash64WithSeed(const char* buf, size_t len, uint64 seed);
 // Hash function for a byte array.  For convenience, two seeds are also
 // hashed into the result.  The mapping may change from time to time.
 uint64 CityHash64WithSeeds(const char* buf, size_t len, uint64 seed0, uint64 seed1);
-
-// Hash function for a byte array.  The mapping will never change.
-uint128 CityHash128(const char* s, size_t len);
-
-// Hash function for a byte array.  For convenience, a 128-bit seed is also
-// hashed into the result.  The mapping will never change.
-uint128 CityHash128WithSeed(const char* s, size_t len, uint128 seed);
 
 } // namespace util_hash

@@ -173,13 +173,28 @@ class RegressionTest {
             }
         }
 
+        /*
+         * support run a specific case after all other cases run.
+         * if a nonConcurrent case, with name String case_name_check_before_quit = "check_before_quit.groovy", we could make sure it run at last.
+         */
+        String case_name_check_before_quit = "check_before_quit.groovy"
+        File check_before_quit = null
+
         // 2. collect groovy sources.
         rootFile.eachFileRecurse { f ->
             if (f.isFile() && f.name.endsWith('.groovy') && fileFilter.test(f.name)
                     && directoryFilter.test(f.getParent())) {
-                sources.add(new GroovyFileSource(f))
+                if (f.name.equals(case_name_check_before_quit)) {
+                    check_before_quit = f;
+                } else {
+                    sources.add(new GroovyFileSource(f))
+                }
             }
         }
+        if (check_before_quit != null) {
+            sources.add(new GroovyFileSource(check_before_quit))
+        }
+
         return sources
     }
 
@@ -264,6 +279,7 @@ class RegressionTest {
     static Recorder runScripts(Config config) {
         def recorder = new Recorder()
         def directoryFilter = config.getDirectoryFilter()
+        log.info("run scripts in directories: " + config.directories)
         if (!config.withOutLoadData) {
             log.info('Start to run load scripts')
             runScripts(config, recorder, directoryFilter,

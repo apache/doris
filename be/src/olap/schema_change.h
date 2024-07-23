@@ -269,7 +269,7 @@ struct AlterMaterializedViewParam {
 
 struct SchemaChangeParams {
     AlterTabletType alter_tablet_type;
-    bool enable_unique_key_merge_on_write;
+    bool enable_unique_key_merge_on_write = false;
     std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
     DeleteHandler* delete_handler = nullptr;
     std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;

@@ -421,7 +421,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         create_tablet(id, false, rowset_size++);
     }
 
-    std::unordered_set<TTabletId> cumu_set;
+    std::unordered_set<TabletSharedPtr> cumu_set;
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
             cumulative_compaction_policies;
     cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =

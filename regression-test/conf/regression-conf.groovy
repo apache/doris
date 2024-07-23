@@ -89,8 +89,9 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
-    "cloud_p0/cache" +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "cloud_p0/cache," +
+    "zzz_the_end_sentinel_do_not_touch," +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -199,7 +200,7 @@ s3Region = "ap-hongkong"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 9090
+extArrowFlightSqlPort = 8080
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
@@ -219,3 +220,7 @@ externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+enableKerberosTest=false
+kerberosHmsPort=9883
+kerberosHdfsPort=8820

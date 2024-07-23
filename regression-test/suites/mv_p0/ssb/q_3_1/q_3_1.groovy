@@ -102,6 +102,9 @@ suite ("mv_ssb_q_3_1") {
 
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
 
+    sql """analyze table lineorder_flat with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("""SELECT
                 C_NATION,
@@ -129,6 +132,22 @@ suite ("mv_ssb_q_3_1") {
                         AND LO_ORDERDATE <= 19971231
                     GROUP BY C_NATION, S_NATION, YEAR
                     ORDER BY YEAR ASC, revenue DESC;"""
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT
+                C_NATION,
+                S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
+                SUM(LO_REVENUE) AS revenue
+            FROM lineorder_flat
+            WHERE
+                C_REGION = 'ASIA'
+                AND S_REGION = 'ASIA'
+                AND LO_ORDERDATE >= 19920101
+                AND LO_ORDERDATE <= 19971231
+            GROUP BY C_NATION, S_NATION, YEAR
+            ORDER BY YEAR ASC, revenue DESC;""")
+        contains "(lineorder_q_3_1)"
+    }
 
     sql""" drop materialized view lineorder_q_3_1 on lineorder_flat; """
 

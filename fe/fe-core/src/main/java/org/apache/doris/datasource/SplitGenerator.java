@@ -29,26 +29,11 @@ import java.util.List;
  */
 public interface SplitGenerator {
     /**
-     * Get the next batch of splits. If the producer(e.g. ScanNode) doesn't support batch mode,
-     * should throw user exceptions.
-     */
-    default List<Split> getNextBatch(int maxBatchSize) throws UserException {
-        throw new NotImplementedException("Should implement getNextBatch if in batch mode.");
-    }
-
-    /**
      * Get all file splits if the producer doesn't support batch mode.
      */
     default List<Split> getSplits() throws UserException {
         // todo: remove this interface if batch mode is stable
-        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
-    }
-
-    /**
-     * `getNextBatch` should return empty list even if `hasNext` returns false.
-     */
-    default boolean hasNext() {
-        return false;
+        throw new NotImplementedException("Not implement");
     }
 
     /**
@@ -64,5 +49,14 @@ public interface SplitGenerator {
      */
     default int numApproximateSplits() {
         return -1;
+    }
+
+    default void startSplit() {
+    }
+
+    /**
+     * Close split generator, and stop the split executor
+     */
+    default void stop() {
     }
 }

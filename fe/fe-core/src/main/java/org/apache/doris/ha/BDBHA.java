@@ -259,11 +259,11 @@ public class BDBHA implements HAProtocol {
             LOG.debug("node:{}", replicationNode.toString());
             if (removedFrontends.contains(replicationNode.getName())) {
                 try {
-                    replicationGroupAdmin.removeMember(nodeName);
+                    replicationGroupAdmin.removeMember(replicationNode.getName());
                 } catch (MemberNotFoundException e) {
-                    LOG.warn("the electable node is not found {}", nodeName);
+                    LOG.warn("the electable node is not found {}", replicationNode.getName());
                 } catch (Exception e) {
-                    LOG.error("remove electable node {} meeting unknown exception:", nodeName, e);
+                    LOG.error("remove electable node {} meeting unknown exception:", replicationNode.getName(), e);
                     System.exit(-1);
                 }
             }

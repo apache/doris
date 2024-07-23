@@ -506,6 +506,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
+        if (!isReplay && !functionCallExpr.getOrderByElements().isEmpty()) {
+            throw new AnalysisException("The materialized-view do not support aggregate with order by elements.");
+        }
         String functionName = functionCallExpr.getFnName().getFunction();
         Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();

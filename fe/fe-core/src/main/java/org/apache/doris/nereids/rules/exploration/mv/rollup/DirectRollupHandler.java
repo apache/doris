@@ -21,8 +21,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+
+import java.util.Map;
 
 /**
  * Roll up directly, for example,
@@ -38,14 +41,18 @@ public class DirectRollupHandler extends AggFunctionRollUpHandler {
     public boolean canRollup(
             AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         Expression viewExpression = mvExprToMvScanExprQueryBasedPair.key();
         if (!super.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
-                mvExprToMvScanExprQueryBasedPair)) {
+                mvExprToMvScanExprQueryBasedPair, mvExprToMvScanExprQueryBasedMap)) {
             return false;
         }
-        return queryAggregateFunctionShuttled.equals(viewExpression)
-                && MappingRollupHandler.AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.keySet().stream()
+        boolean isEquals = queryAggregateFunctionShuttled instanceof NullableAggregateFunction
+                && viewExpression instanceof NullableAggregateFunction
+                ? ((NullableAggregateFunction) queryAggregateFunctionShuttled).equalsIgnoreNullable(viewExpression)
+                : queryAggregateFunctionShuttled.equals(viewExpression);
+        return isEquals && MappingRollupHandler.AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.keySet().stream()
                 .noneMatch(aggFunction -> aggFunction.equals(queryAggregateFunction))
                 && !(queryAggregateFunction instanceof Combinator);
     }
@@ -53,7 +60,8 @@ public class DirectRollupHandler extends AggFunctionRollUpHandler {
     @Override
     public Function doRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         Expression rollupParam = mvExprToMvScanExprQueryBasedPair.value();
         if (rollupParam == null) {
             return null;

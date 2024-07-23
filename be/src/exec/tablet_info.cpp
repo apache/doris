@@ -121,6 +121,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _is_strict_mode = pschema.is_strict_mode();
     if (_is_partial_update) {
         _auto_increment_column = pschema.auto_increment_column();
+        if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
+            return Status::InternalError(
+                    "Auto increment column id is not set in FE. Maybe FE is an older version "
+                    "different from BE.");
+        }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
     _timestamp_ms = pschema.timestamp_ms();
@@ -187,6 +192,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
     if (_is_partial_update) {
         _auto_increment_column = tschema.auto_increment_column;
+        if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
+            return Status::InternalError(
+                    "Auto increment column id is not set in FE. Maybe FE is an older version "
+                    "different from BE.");
+        }
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
     }
 

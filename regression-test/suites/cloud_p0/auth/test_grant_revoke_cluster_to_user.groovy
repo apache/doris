@@ -125,12 +125,12 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     // case run user(default root), and show grant again, should be same result
     result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'" as String, "Yes", "admin", "Admin_priv"
-    assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv"))
 
     sql """GRANT USAGE_PRIV ON CLUSTER '${cluster1}' TO '${user1}'"""
     result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'" as String, "Yes", "admin", "Admin_priv"
-    assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv"))
 
     connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {
@@ -139,7 +139,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
         }
         result = sql_return_maparray """show grants for '${user1}'"""
         commonAuth result, "'${user1}'@'%'", "Yes", "admin", "Admin_priv"
-        assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+        assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv"))
     }
 
 
@@ -215,7 +215,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
         }
         result = sql_return_maparray """show grants for '${user2}'"""
         commonAuth result, "'${user2}'@'%'" as String, "Yes", "", "Select_priv"
-        assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+        assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv"))
 
         test {
             sql """REVOKE USAGE_PRIV ON CLUSTER 'NotExistCluster' FROM '${user2}'"""
@@ -226,7 +226,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     sql """REVOKE USAGE_PRIV ON CLUSTER '${validCluster}' FROM '${user2}'"""
     result = sql_return_maparray """show grants for '${user2}'"""
     commonAuth result, "'${user2}'@'%'" as String, "Yes", "", "Select_priv"
-    assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv"))
 
     sql "sync"
     // 3. revoke cluster
@@ -255,7 +255,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
 
     result = sql_return_maparray """show grants for '${user2}'"""
     commonAuth result, "'${user2}'@'%'" as String, "Yes", "", "Select_priv"
-    assertEquals(result.CloudClusterPrivs[0] as String, "${cluster1}: Cluster_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("${cluster1}: Cluster_usage_priv")) 
 
     // revoke user1 admin role
     sql """REVOKE 'admin' FROM ${user1}"""

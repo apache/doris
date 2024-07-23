@@ -38,11 +38,9 @@
 
 class CLuceneError;
 
-namespace lucene {
-namespace store {
+namespace lucene::store {
 class RAMDirectory;
-} // namespace store
-} // namespace lucene
+} // namespace lucene::store
 
 namespace doris {
 class TabletIndex;
@@ -76,7 +74,7 @@ private:
     CL_NS(store)::IndexInput* stream = nullptr;
     EntriesType* entries = nullptr;
     std::mutex _this_lock;
-    bool _own_index_input = true;
+    bool _closed = false;
 
 protected:
     /** Removes an existing file in the directory-> */
@@ -85,12 +83,10 @@ protected:
 public:
     explicit DorisCompoundReader(
             CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
-            bool own_index_input = false,
             int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
             : readBufferSize(_readBufferSize),
               stream(stream),
-              entries(_CLNEW EntriesType(true, true)),
-              _own_index_input(own_index_input) {
+              entries(_CLNEW EntriesType(true, true)) {
         for (auto& e : *entries_clone) {
             auto* origin_entry = e.second;
             auto* entry = _CLNEW ReaderFileEntry();

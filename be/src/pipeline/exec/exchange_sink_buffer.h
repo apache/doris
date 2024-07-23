@@ -51,7 +51,6 @@ class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class VDataStreamSender;
 class PipChannel;
 
 template <typename T>
@@ -79,6 +78,8 @@ public:
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
+
+    void reset_block() { _pblock->Clear(); }
 
 private:
     friend class BroadcastPBlockHolderMemLimiter;
@@ -191,7 +192,7 @@ class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
                        RuntimeState* state, ExchangeSinkLocalState* parent);
-    ~ExchangeSinkBuffer() = default;
+    ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo&& request);

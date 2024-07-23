@@ -6,12 +6,10 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
---------------------PhysicalOlapScan[lineitem]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[part]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
+--------------PhysicalProject
+----------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
+------------------PhysicalOlapScan[lineitem]
+--------------PhysicalProject
+----------------PhysicalOlapScan[part]
 

@@ -8,39 +8,31 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders]
-------------------------PhysicalDistribute[DistributionSpecHash]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+----------------------------PhysicalOlapScan[orders]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
-----------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
-----------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[lineitem]
-----------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------PhysicalProject
---------------------------------------------filter((p_name like '%green%'))
-----------------------------------------------PhysicalOlapScan[part]
-----------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[supplier]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[nation]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[partsupp]
+--------------------------------PhysicalOlapScan[lineitem]
+------------------------------PhysicalProject
+--------------------------------filter((p_name like '%green%'))
+----------------------------------PhysicalOlapScan[part]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[supplier]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[nation]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[partsupp]
 
 Hint log:
-Used:   leading(orders shuffle { lineitem shuffle part } shuffle { supplier broadcast nation } shuffle partsupp )
+Used: leading(orders shuffle { lineitem shuffle part } shuffle { supplier broadcast nation } shuffle partsupp )  
 UnUsed:
 SyntaxError:
 

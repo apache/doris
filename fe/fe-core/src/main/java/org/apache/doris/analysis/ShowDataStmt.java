@@ -292,7 +292,7 @@ public class ShowDataStmt extends ShowStmt {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
-                        indexRowCount += mIndex.getRowCount();
+                        indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                         indexRemoteSize += mIndex.getRemoteDataSize();
                     }
 

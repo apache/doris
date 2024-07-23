@@ -594,7 +594,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Array) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Array type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
@@ -643,7 +645,9 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Map) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Map type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& map = static_cast<ColumnMap&>(*data_column);
@@ -710,7 +714,9 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Struct) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Struct type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& doris_struct = static_cast<ColumnStruct&>(*data_column);

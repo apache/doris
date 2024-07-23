@@ -107,4 +107,8 @@ public class DistributionDescriptor {
         }
         return new RandomDistributionDesc(bucketNum, isAutoBucket);
     }
+
+    public boolean inDistributionColumns(String columnName) {
+        return cols != null && cols.contains(columnName);
+    }
 }

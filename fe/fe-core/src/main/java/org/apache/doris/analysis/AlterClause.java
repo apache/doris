@@ -43,4 +43,8 @@ public abstract class AlterClause implements ParseNode {
     public boolean allowOpMTMV() {
         return true;
     }
+
+    public boolean needChangeMTMVState() {
+        return false;
+    }
 }

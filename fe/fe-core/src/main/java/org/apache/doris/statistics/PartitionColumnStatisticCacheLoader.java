@@ -57,8 +57,9 @@ public class PartitionColumnStatisticCacheLoader extends
     private Optional<PartitionColumnStatistic> loadFromPartitionStatsTable(PartitionColumnStatisticCacheKey key) {
         List<ResultRow> partitionResults;
         try {
+            String partName = "'" + StatisticsUtil.escapeSQL(key.partId) + "'";
             partitionResults = StatisticsRepository.loadPartitionColumnStats(
-                key.catalogId, key.dbId, key.tableId, key.idxId, key.partId, key.colName);
+                key.catalogId, key.dbId, key.tableId, key.idxId, partName, key.colName);
         } catch (InternalQueryExecutionException e) {
             LOG.info("Failed to load stats for table {} column {}. Reason:{}",
                     key.tableId, key.colName, e.getMessage());

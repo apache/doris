@@ -238,6 +238,7 @@ suite("test_query_sys_tables", "query,p0") {
         AS
         SELECT ccc as a FROM ${tbName1}
     """
+
     sql("use information_schema")
     qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
 

@@ -43,6 +43,9 @@ suite ("testAggQueryOnAggMV1") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"
@@ -85,4 +88,40 @@ suite ("testAggQueryOnAggMV1") {
         contains "(emps)"
     }
     qt_select_mv "select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
+
+    explain {
+        sql("select sum(salary), deptno from emps group by deptno order by deptno;")
+        contains "(emps_mv)"
+    }
+
+    explain {
+        sql("select sum(salary) as salary from emps;")
+        contains "(emps_mv)"
+    }
+
+    explain {
+        sql("select deptno, count(deptno) from emps group by deptno order by deptno;")
+        contains "(emps_mv_count_key)"
+    }
+
+    explain {
+        sql("select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;")
+        contains "(emps_mv_if)"
+    }
+
+    explain {
+        sql("select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;")
+        contains "(emps_mv_count_key)"
+    }
+
+    explain {
+        sql("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;")
+        contains "(emps)"
+    }
 }

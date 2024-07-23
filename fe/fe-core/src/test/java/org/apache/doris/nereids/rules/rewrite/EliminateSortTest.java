@@ -122,6 +122,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     @Test
     void testEliminateSortInUnion() {
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("SELECT * FROM (SELECT * FROM student UNION SELECT * FROM student ORDER BY id) u  LIMIT 1")
                 .rewrite()
                 .nonMatch(logicalSort());
@@ -130,10 +131,12 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     @Test
     void testEliminateSortInSubquery() {
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t")
                 .rewrite()
                 .nonMatch(logicalSort());
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select \n"
                         + "  id, \n"
                         + "  name \n"
@@ -159,24 +162,30 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     void testSortLimit() {
-        PlanChecker.from(connectContext)
+        PlanChecker.from(connectContext).disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t limit 1")
                 .rewrite()
-                .nonMatch(logicalTopN());
+                // there is no topn below agg
+                .matches(logicalTopN(logicalAggregate(logicalProject(logicalOlapScan()))));
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id limit 1) t")
                 .rewrite()
                 .matches(logicalTopN());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from "
                         + "(select * from student order by id limit 1) t1 left join student t2 on t1.id = t2.id")
                 .rewrite()
                 .matches(logicalTopN());
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from "
                         + "(select * from student order by id) t1 left join student t2 on t1.id = t2.id limit 1")
                 .rewrite()
-                .nonMatch(logicalTopN());
+                .matches(logicalTopN(logicalAggregate(logicalProject(logicalJoin(
+                        logicalProject(logicalOlapScan()),
+                        logicalProject(logicalOlapScan()))))));
     }
 }

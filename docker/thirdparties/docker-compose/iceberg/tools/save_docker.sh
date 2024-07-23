@@ -21,3 +21,7 @@ docker exec iceberg-rest bash -c 'cp /tmp/iceberg_rest_mode\=memory /mnt/data/in
 
 # save iceberg from s3
 docker exec mc bash -c 'mc cp -r minio/warehouse /mnt/data/input/minio'
+
+# package zip
+cp -r data iceberg_data
+zip -rq iceberg_data.zip iceberg_data

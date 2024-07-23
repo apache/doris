@@ -21,6 +21,7 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
@@ -48,6 +49,8 @@ import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TGetBeResourceRequest;
+import org.apache.doris.thrift.TGetBeResourceResult;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
@@ -247,6 +250,13 @@ public class MockedBackendFactory {
                 }
 
                 private void handleCloneTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    while (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.block")) {
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            // ignore
+                        }
+                    }
                     TCloneReq req = request.getCloneReq();
                     long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
                     long pathHash = req.dest_path_hash;
@@ -356,6 +366,11 @@ public class MockedBackendFactory {
         @Override
         public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
             return new TPublishTopicResult(new TStatus(TStatusCode.OK));
+        }
+
+        @Override
+        public TGetBeResourceResult getBeResource(TGetBeResourceRequest request) throws TException {
+            return null;
         }
 
         @Override

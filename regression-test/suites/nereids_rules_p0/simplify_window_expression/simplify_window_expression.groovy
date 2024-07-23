@@ -16,8 +16,7 @@
 // under the License.
 
 suite("simplify_window_expression") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+    sql "set enable_parallel_result_sink=false;"
     sql """
           DROP TABLE IF EXISTS mal_test_simplify_window
          """
@@ -109,5 +108,10 @@ suite("simplify_window_expression") {
         explain shape plan
         select a, rank() over (partition by a order by sum(b) desc) as ranking
         from mal_test_simplify_window group by a;
+    """
+
+    order_qt_check_output_type """
+        select * from ( select a, rank() over (partition by a order by sum(b) desc) as ranking
+        from mal_test_simplify_window group by a) t, (select 1 a) t2 where t.ranking = t2.a
     """
 }

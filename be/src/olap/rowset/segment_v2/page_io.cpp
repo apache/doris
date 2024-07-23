@@ -143,15 +143,9 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                                   opts.file_reader->path().native());
     }
 
-    std::shared_ptr<MemTrackerLimiter> page_mem_tracker;
-    if (opts.use_page_cache && cache) {
-        page_mem_tracker = cache->mem_tracker(opts.type);
-    } else {
-        page_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
-
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size, page_mem_tracker);
+    std::unique_ptr<DataPage> page =
+            std::make_unique<DataPage>(page_size, opts.use_page_cache, opts.type);
     Slice page_slice(page->data(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -190,7 +184,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         std::unique_ptr<DataPage> decompressed_page = std::make_unique<DataPage>(
-                footer->uncompressed_size() + footer_size + 4, page_mem_tracker);
+                footer->uncompressed_size() + footer_size + 4, opts.use_page_cache, opts.type);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
@@ -218,7 +212,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         if (pre_decoder) {
             RETURN_IF_ERROR(pre_decoder->decode(
                     &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
-                    page_mem_tracker));
+                    opts.use_page_cache, opts.type));
         }
     }
 

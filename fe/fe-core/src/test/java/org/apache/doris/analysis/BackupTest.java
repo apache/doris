@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -41,6 +42,8 @@ public class BackupTest {
 
     @Before
     public void setUp() {
+        MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
+
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         env = AccessTestUtil.fetchAdminCatalog();
         new MockUp<Env>() {

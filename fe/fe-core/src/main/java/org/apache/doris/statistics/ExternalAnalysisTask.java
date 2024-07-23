@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.datasource.ExternalTable;
@@ -49,6 +50,10 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         } else {
             doFull();
         }
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
     }
 
     protected void doFull() throws Exception {

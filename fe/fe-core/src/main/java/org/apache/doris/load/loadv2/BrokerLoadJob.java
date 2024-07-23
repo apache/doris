@@ -50,7 +50,9 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -85,6 +87,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected boolean enableProfile = false;
 
     private boolean enableMemTableOnSinkNode = false;
+    private int batchSize = 0;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -103,6 +106,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
         }
     }
 
@@ -122,7 +126,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             QuotaExceedException, MetaNotFoundException {
         transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
                         getTimeout());
     }
@@ -212,14 +218,14 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
-            throws UserException {
+            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
+            BrokerPendingTaskAttachment attachment) throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -236,8 +242,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
             this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    false);
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")));
             // profile is registered in ProfileManager, so that we can get realtime profile
             jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
         }
@@ -251,11 +256,11 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                        ? this.enableMemTableOnSinkNode : false;
+                boolean isEnableMemtableOnSinkNode =
+                        table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
-                        isEnableMemtableOnSinkNode, aggKey, attachment);
+                        isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
@@ -320,7 +325,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         // check data quality
-        if (!checkDataQuality()) {
+        if (!checkDataQuality() || attachment.getStatus().getErrorCode() == TStatusCode.DATA_QUALITY_ERROR) {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
                             DataQualityException.QUALITY_FAIL_MSG), true, true);
             return;

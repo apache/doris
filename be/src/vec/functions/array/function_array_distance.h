@@ -180,7 +180,7 @@ private:
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        return is_integer(nested_type) || is_float(nested_type);
+        return WhichDataType(nested_type).is_float64();
     }
 };
 

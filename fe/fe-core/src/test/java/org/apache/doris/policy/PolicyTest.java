@@ -34,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -341,7 +342,7 @@ public class PolicyTest extends TestWithFeService {
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
 
-        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, tableId, filterType,
+        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, 0, tableId, filterType,
                 wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
@@ -363,5 +364,23 @@ public class PolicyTest extends TestWithFeService {
         Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
         Assertions.assertEquals(tableId, newRowPolicy.getTableId());
         Assertions.assertEquals(filterType, newRowPolicy.getFilterType());
+    }
+
+    @Test
+    public void testCompatibility() {
+        String s1 = "{\n"
+                + "  \"clazz\": \"RowPolicy\",\n"
+                + "  \"roleName\": \"role1\",\n"
+                + "  \"dbId\": 2,\n"
+                + "  \"tableId\": 2,\n"
+                + "  \"filterType\": \"PERMISSIVE\",\n"
+                + "  \"originStmt\": \"CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 \\u003d 1)\",\n"
+                + "  \"id\": 1,\n"
+                + "  \"type\": \"ROW\",\n"
+                + "  \"policyName\": \"cc\",\n"
+                + "  \"version\": 0\n"
+                + "}";
+        RowPolicy rowPolicy = GsonUtils.GSON.fromJson(s1, RowPolicy.class);
+        Assertions.assertEquals(rowPolicy.getStmtIdx(), 0);
     }
 }

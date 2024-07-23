@@ -48,6 +48,11 @@ suite("test_dynamic_partition_with_alter") {
             sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483647')"
             exception "Too many dynamic partitions"
         }
+
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.time_uint' = 'day')"
+            exception "Invalid dynamic partition properties: dynamic_partition.time_uint"
+        }
     } catch (Exception e) {
         sql "drop table if exists ${tbl}"
         throw e

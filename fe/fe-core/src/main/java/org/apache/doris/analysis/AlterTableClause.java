@@ -40,4 +40,6 @@ public abstract class AlterTableClause extends AlterClause {
     }
 
     public abstract boolean allowOpMTMV();
+
+    public abstract boolean needChangeMTMVState();
 }

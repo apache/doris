@@ -17,21 +17,28 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class UserPropertyInfo implements Writable {
+public class UserPropertyInfo implements Writable, GsonPostProcessable {
 
+    @SerializedName("u")
     private String user;
+    @SerializedName("prop")
     private List<Pair<String, String>> properties = Lists.newArrayList();
 
     private UserPropertyInfo() {
@@ -52,21 +59,26 @@ public class UserPropertyInfo implements Writable {
     }
 
     public static UserPropertyInfo read(DataInput in) throws IOException {
-        UserPropertyInfo info = new UserPropertyInfo();
-        info.readFields(in);
-        return info;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            UserPropertyInfo info = new UserPropertyInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        user = ClusterNamespace.getNameFromFullName(user);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, user);
-        out.writeInt(properties.size());
-        for (Pair<String, String> entry : properties) {
-            Text.writeString(out, entry.first);
-            Text.writeString(out, entry.second);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         user = ClusterNamespace.getNameFromFullName(Text.readString(in));
         int size = in.readInt();

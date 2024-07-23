@@ -21,6 +21,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -106,28 +107,31 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValueForArray()));
+        children.forEach(v -> list.add(v.getStringValueForArray(options)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
-            list.add("\"" + ((StructType) type).getFields().get(i).getName() + "\": "
-                    + getStringLiteralForComplexType(child));
+            list.add(options.getNestedStringWrapper()
+                    + ((StructType) type).getFields().get(i).getName()
+                    + options.getNestedStringWrapper()
+                    + options.getMapKeyDelim()
+                    + getStringLiteralForComplexType(child, options));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
-    public String getStringValueForStreamLoad() {
+    public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(getStringLiteralForComplexType(v)));
+        children.forEach(v -> list.add(getStringLiteralForComplexType(v, options)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 

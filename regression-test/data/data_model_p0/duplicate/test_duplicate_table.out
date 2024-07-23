@@ -5,14 +5,14 @@
 0	2	test int	2000-02-02	2000-02-02	2000-02-02T11:00:11	2000-02-02T11:00:11.111	2000-02-02T11:00:11.111111
 
 -- !desc_dup_table --
-k	INT	Yes	true	\N	
-int_value	INT	Yes	false	\N	NONE
-char_value	CHAR(10)	Yes	false	\N	NONE
-date_value	DATE	Yes	false	\N	NONE
-date_value2	DATE	Yes	false	\N	NONE
-date_value3	DATETIME	Yes	false	\N	NONE
-date_value4	DATETIME(3)	Yes	false	\N	NONE
-date_value5	DATETIME(6)	Yes	false	\N	NONE
+k	int	Yes	true	\N	
+int_value	int	Yes	false	\N	NONE
+char_value	char(10)	Yes	false	\N	NONE
+date_value	date	Yes	false	\N	NONE
+date_value2	date	Yes	false	\N	NONE
+date_value3	datetime	Yes	false	\N	NONE
+date_value4	datetime(3)	Yes	false	\N	NONE
+date_value5	datetime(6)	Yes	false	\N	NONE
 
 -- !select_dup_table --
 0	1	2	3
@@ -20,8 +20,8 @@ date_value5	DATETIME(6)	Yes	false	\N	NONE
 0	1	2	5
 
 -- !desc_dup_table --
-k1	INT	Yes	true	\N	
-k2	INT	Yes	true	\N	
-k3	INT	Yes	true	\N	
-int_value	INT	Yes	false	\N	NONE
+k1	int	Yes	true	\N	
+k2	int	Yes	true	\N	
+k3	int	Yes	true	\N	
+int_value	int	Yes	false	\N	NONE
 

@@ -96,6 +96,8 @@ public class LoadManagerTest {
 
         File file = serializeToFile(loadManager);
 
+        // make it deserialized
+        Config.streaming_label_keep_max_second = 10;
         LoadManager newLoadManager = deserializeFromFile(file);
 
         Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);

@@ -155,4 +155,25 @@ public class PartitionColumnStatisticBuilder {
                 dataSize, minValue, maxValue, minExpr, maxExpr,
                 isUnknown, updatedTime);
     }
+
+    public PartitionColumnStatisticBuilder merge(PartitionColumnStatistic other) {
+        count += other.count;
+        ndv.merge(other.ndv);
+        numNulls += other.numNulls;
+        if (minValue > other.minValue) {
+            minValue = other.minValue;
+            minExpr = other.minExpr;
+        }
+        if (maxValue < other.maxValue) {
+            maxValue = other.maxValue;
+            maxExpr = other.maxExpr;
+        }
+        isUnknown = isUnknown && other.isUnKnown;
+        return this;
+    }
+
+    public ColumnStatistic toColumnStatistics() {
+        return new ColumnStatistic(count, ndv.estimateCardinality(), null,
+                avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime);
+    }
 }

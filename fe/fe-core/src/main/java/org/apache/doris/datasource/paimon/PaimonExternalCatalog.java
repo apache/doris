@@ -20,11 +20,14 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -54,13 +57,16 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             PaimonProperties.WAREHOUSE
     );
 
-    public PaimonExternalCatalog(long catalogId, String name, String comment) {
+    public PaimonExternalCatalog(long catalogId, String name, String resource,
+                                 Map<String, String> props, String comment) {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
+        props = PropertyConverter.convertToMetaProperties(props);
+        catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        Configuration conf = new Configuration();
+        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }

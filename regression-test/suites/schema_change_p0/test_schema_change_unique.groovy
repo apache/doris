@@ -219,5 +219,9 @@ suite("test_schema_change_unique", "p0") {
         assertEquals("4", row[3]);
         assertEquals("5", row[4]);
     }
+
+    List<List<Object>> cnt = sql """ select k1,k2,k3,count(*) a  from ${tableName3} group by k1,k2,k3 having a > 1; """
+    log.info("ensure there are no duplicated keys")
+    assertEquals(0, cnt.size())
 }
 

@@ -42,6 +42,7 @@ struct TColumn {
     17: optional bool result_is_nullable
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
+    20: optional i32 be_exec_version = -1
 }
 
 struct TSlotDescriptor {
@@ -248,6 +249,7 @@ struct TOlapTableSchemaParam {
     10: optional bool is_strict_mode = false
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
+    13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
 }
 
 struct TTabletLocation {

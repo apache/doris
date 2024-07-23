@@ -25,8 +25,11 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -34,7 +37,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -204,35 +206,18 @@ public class RangePartitionInfo extends PartitionInfo {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);
+        }
+
         PartitionInfo partitionInfo = new RangePartitionInfo();
         partitionInfo.readFields(in);
         return partitionInfo;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        // partition columns
-        out.writeInt(partitionColumns.size());
-        for (Column column : partitionColumns) {
-            column.write(out);
-        }
-
-        out.writeInt(idToItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(idToTempItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

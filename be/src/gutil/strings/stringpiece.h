@@ -122,9 +122,6 @@
 #include <string>
 #include <string_view>
 
-#include "gutil/hash/string_hash.h"
-#include "gutil/int128.h"
-
 class StringPiece {
 private:
     const char* ptr_ = nullptr;
@@ -320,35 +317,6 @@ inline bool operator<=(StringPiece x, StringPiece y) {
 inline bool operator>=(StringPiece x, StringPiece y) {
     return !(x < y);
 }
-template <class X>
-struct GoodFastHash;
-
-// ------------------------------------------------------------------
-// Functions used to create STL containers that use StringPiece
-//  Remember that a StringPiece's lifetime had better be less than
-//  that of the underlying string or char*.  If it is not, then you
-//  cannot safely store a StringPiece into an STL container
-// ------------------------------------------------------------------
-
-// SWIG doesn't know how to parse this stuff properly. Omit it.
-#ifndef SWIG
-
-template <>
-struct std::hash<StringPiece> {
-    size_t operator()(StringPiece s) const;
-};
-
-// An implementation of GoodFastHash for StringPiece.  See
-// GoodFastHash values.
-template <>
-struct GoodFastHash<StringPiece> {
-    size_t operator()(StringPiece s) const { return HashStringThoroughly(s.data(), s.size()); }
-    // Less than operator, for MSVC.
-    bool operator()(const StringPiece& s1, const StringPiece& s2) const { return s1 < s2; }
-    static const size_t bucket_size = 4; // These are required by MSVC
-    static const size_t min_buckets = 8; // 4 and 8 are defaults.
-};
-#endif
 
 // allow StringPiece to be logged
-extern ostream& operator<<(ostream& o, StringPiece piece);
+extern std::ostream& operator<<(std::ostream& o, StringPiece piece);

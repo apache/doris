@@ -55,61 +55,57 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
         return;
     }
     // Parse split tablet stats
-    do {
-        if (!it->has_next()) {
-            break;
+    int ret = get_detached_tablet_stats(*it, detached_stats);
+    if (ret != 0) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("marformed splitted tablet stats kv, key={}", hex(k));
+        return;
+    }
+}
+
+int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stats) {
+    while (iter.has_next()) {
+        auto [k, v] = iter.next();
+        int64_t val;
+        if (v.size() != sizeof(val)) [[unlikely]] {
+            LOG(WARNING) << "malformed tablet stats value. key=" << hex(k);
+            return -1;
         }
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            if (!it->has_next() && it->more()) {
-                begin_key = k;
-            }
-            // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"
-            auto k1 = k;
-            k1.remove_prefix(1);
-            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-            if (decode_key(&k1, &out) != 0) [[unlikely]] {
-                code = MetaServiceCode::UNDEFINED_ERR;
-                msg = fmt::format("failed to decode tablet stats key, key={}", hex(k));
-                return;
-            }
-            if (out.size() != 8) [[unlikely]] {
-                code = MetaServiceCode::UNDEFINED_ERR;
-                msg = fmt::format("failed to decode tablet stats key, key={}", hex(k));
-                return;
-            }
-            auto suffix = std::get_if<std::string>(&std::get<0>(out.back()));
-            if (!suffix) [[unlikely]] {
-                code = MetaServiceCode::UNDEFINED_ERR;
-                msg = fmt::format("failed to decode tablet stats key, key={}", hex(k));
-                return;
-            }
-            int64_t val = *reinterpret_cast<const int64_t*>(v.data());
-            if (*suffix == STATS_KEY_SUFFIX_DATA_SIZE) {
-                detached_stats.data_size = val;
-            } else if (*suffix == STATS_KEY_SUFFIX_NUM_ROWS) {
-                detached_stats.num_rows = val;
-            } else if (*suffix == STATS_KEY_SUFFIX_NUM_ROWSETS) {
-                detached_stats.num_rowsets = val;
-            } else if (*suffix == STATS_KEY_SUFFIX_NUM_SEGS) {
-                detached_stats.num_segs = val;
-            } else {
-                VLOG_DEBUG << "unknown suffix=" << *suffix;
-            }
+
+        // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"
+        k.remove_prefix(1);
+        constexpr size_t key_parts = 8;
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        if (decode_key(&k, &out) != 0 || out.size() != key_parts) [[unlikely]] {
+            LOG(WARNING) << "malformed tablet stats key. key=" << hex(k);
+            return -1;
         }
-        if (it->more()) {
-            begin_key.push_back('\x00'); // Update to next smallest key for iteration
-            err = txn->get(begin_key, end_key, &it, snapshot);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
-                                  idx.tablet_id());
-                return;
-            }
+
+        auto* suffix = std::get_if<std::string>(&std::get<0>(out.back()));
+        if (!suffix) [[unlikely]] {
+            LOG(WARNING) << "malformed tablet stats key. key=" << hex(k);
+            return -1;
+        }
+
+        std::memcpy(&val, v.data(), sizeof(val));
+        if constexpr (std::endian::native == std::endian::big) {
+            val = bswap_64(val);
+        }
+
+        if (*suffix == STATS_KEY_SUFFIX_DATA_SIZE) {
+            detached_stats.data_size = val;
+        } else if (*suffix == STATS_KEY_SUFFIX_NUM_ROWS) {
+            detached_stats.num_rows = val;
+        } else if (*suffix == STATS_KEY_SUFFIX_NUM_ROWSETS) {
+            detached_stats.num_rowsets = val;
+        } else if (*suffix == STATS_KEY_SUFFIX_NUM_SEGS) {
+            detached_stats.num_segs = val;
         } else {
-            break;
+            LOG(WARNING) << "unknown suffix=" << *suffix << " key=" << hex(k);
         }
-    } while (true);
+    }
+
+    return 0;
 }
 
 void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats) {

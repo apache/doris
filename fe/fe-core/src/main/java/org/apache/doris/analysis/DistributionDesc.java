@@ -65,4 +65,12 @@ public class DistributionDesc {
     public DistributionInfo toDistributionInfo(List<Column> columns) throws DdlException {
         throw new NotImplementedException("toDistributionInfo not implemented");
     }
+
+    public List<String> getDistributionColumnNames() {
+        throw new NotImplementedException("getDistributionColumnNames not implemented");
+    }
+
+    public boolean inDistributionColumns(String columnName) {
+        return getDistributionColumnNames() != null && getDistributionColumnNames().contains(columnName);
+    }
 }

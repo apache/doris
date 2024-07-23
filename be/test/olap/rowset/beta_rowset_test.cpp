@@ -241,7 +241,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
-    StorageResource storage_resource(fs, 0);
+    StorageResource storage_resource(fs);
     auto& client = fs->client_holder()->_client;
     // failed to head object
     {

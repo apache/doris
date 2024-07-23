@@ -134,7 +134,7 @@ class PushDownLimitDistinctThroughJoinTest extends TestWithFeService implements 
                 .rewrite()
                 .matches(
                         logicalProject(logicalJoin(
-                                logicalLimit(logicalAggregate(logicalProject(logicalOlapScan())))
+                                logicalTopN(logicalAggregate(logicalProject(logicalOlapScan())))
                                         .when(l -> l.getLimit() == 10),
                                 logicalProject(logicalOlapScan())
                         ))

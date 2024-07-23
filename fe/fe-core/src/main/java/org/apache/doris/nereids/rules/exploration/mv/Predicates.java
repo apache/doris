@@ -41,7 +41,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This record the predicates which can be pulled up or some other type predicates.
@@ -68,11 +67,6 @@ public class Predicates {
         Set<Expression> mergedPredicates = new HashSet<>(predicates);
         mergedPredicates.addAll(this.pulledUpPredicates);
         return new Predicates(mergedPredicates);
-    }
-
-    public Expression composedExpression() {
-        return ExpressionUtils.and(pulledUpPredicates.stream().map(Expression.class::cast)
-                .collect(Collectors.toList()));
     }
 
     /**

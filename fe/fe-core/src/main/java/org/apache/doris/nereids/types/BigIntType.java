@@ -26,11 +26,15 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
  */
 public class BigIntType extends IntegralType implements Int64OrLessType {
 
-    public static final BigIntType INSTANCE = new BigIntType();
+    public static final BigIntType INSTANCE = new BigIntType("bigint");
+    public static final BigIntType SIGNED = new BigIntType("signed");
 
     private static final int WIDTH = 8;
 
-    private BigIntType() {
+    private final String simpleName;
+
+    private BigIntType(String simpleName) {
+        this.simpleName = simpleName;
     }
 
     @Override
@@ -45,7 +49,7 @@ public class BigIntType extends IntegralType implements Int64OrLessType {
 
     @Override
     public String simpleString() {
-        return "bigint";
+        return simpleName;
     }
 
     @Override

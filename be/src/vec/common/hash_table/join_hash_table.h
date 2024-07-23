@@ -19,6 +19,8 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <limits>
+
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
@@ -35,7 +37,8 @@ public:
 
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
-        return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
+        return std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
+                        static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
     }
 
     size_t get_byte_size() const {

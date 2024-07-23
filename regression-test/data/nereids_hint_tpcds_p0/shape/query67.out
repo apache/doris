@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------filter((rk <= 100))
 ----------PhysicalWindow
-------------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalPartitionTopN
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalPartitionTopN
 ------------------PhysicalProject
@@ -15,26 +15,23 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_month_seq <= 1228) and (date_dim.d_month_seq >= 1217))
-----------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store]
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_month_seq <= 1228) and (date_dim.d_month_seq >= 1217))
+--------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item]
 
 Hint log:
-Used:  leading(store_sales broadcast date_dim broadcast store broadcast item )
+Used: leading(store_sales broadcast date_dim broadcast store broadcast item ) 
 UnUsed:
 SyntaxError:
 

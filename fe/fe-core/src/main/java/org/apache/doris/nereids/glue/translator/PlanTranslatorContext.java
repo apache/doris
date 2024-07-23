@@ -293,12 +293,12 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath()) {
-                slotDescriptor.setSubColLables(slotReference.getSubColPath());
+            if (slotReference.hasSubColPath() && slotReference.getColumn().isPresent()) {
+                slotDescriptor.setSubColLables(slotReference.getSubPath());
                 // use lower case name for variant's root, since backend treat parent column as lower case
                 // see issue: https://github.com/apache/doris/pull/32999/commits
                 slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
-                            + "." + String.join(".", slotReference.getSubColPath()));
+                            + "." + String.join(".", slotReference.getSubPath()));
             }
         }
         slotRef.setTable(table);

@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.TreeMap;
@@ -35,6 +36,7 @@ public class URI {
     private static final String QUERY_ITEM_DELIM = "&";
     private static final String QUERY_KV_DELIM = "=";
 
+    @SerializedName("l")
     private final String location;
     private String scheme;
     private String authority;

@@ -140,7 +140,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "10");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "30");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_WAIT_TIME, "5000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_KEEP_ALIVE, "false");
@@ -361,6 +361,9 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "reWriteBatchedInserts", "false", "true");
         }
         if (dbType.equals(SQLSERVER)) {
+            if (Config.force_sqlserver_jdbc_encrypt_false) {
+                newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "encrypt", "true", "false");
+            }
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
         }
         return newJdbcUrl;

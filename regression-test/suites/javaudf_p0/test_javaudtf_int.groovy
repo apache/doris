@@ -24,6 +24,7 @@ import java.nio.file.Paths
 suite("test_javaudtf_int") {
     def tableName = "test_javaudtf_int"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -57,7 +58,6 @@ suite("test_javaudtf_int") {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """DROP FUNCTION IF EXISTS udtf_int_outer(int);"""
         sql """ CREATE TABLES FUNCTION udtf_int(int) RETURNS array<int> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFIntTest",
@@ -67,6 +67,10 @@ suite("test_javaudtf_int") {
 
         qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_int(user_id) temp as e1 order by user_id; """
 
+        test {
+            sql """ select /*+SET_VAR(enable_fallback_to_original_planner=true)*/ udtf_int(1); """
+            exception "UDTF function do not support this"
+        }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_int(int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")

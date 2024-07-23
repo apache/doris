@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinato
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -44,10 +45,11 @@ public class SingleCombinatorRollupHandler extends AggFunctionRollUpHandler {
     @Override
     public boolean canRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         Expression viewFunction = mvExprToMvScanExprQueryBasedPair.key();
         if (!super.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
-                mvExprToMvScanExprQueryBasedPair)) {
+                mvExprToMvScanExprQueryBasedPair, mvExprToMvScanExprQueryBasedMap)) {
             return false;
         }
         if (!(queryAggregateFunction instanceof Combinator)
@@ -62,7 +64,8 @@ public class SingleCombinatorRollupHandler extends AggFunctionRollUpHandler {
     @Override
     public Function doRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         String combinatorName = queryAggregateFunction.getName() + AggCombinerFunctionBuilder.MERGE_SUFFIX;
         Expression rollupParam = mvExprToMvScanExprQueryBasedPair.value();

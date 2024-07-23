@@ -58,8 +58,8 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
-                         int exec_timeout);
+                         std::shared_ptr<BufferControlBlock>* sender, int exec_timeout,
+                         int batch_size);
 
     // fetch data result to FE
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);

@@ -81,6 +81,8 @@ protected:
 
     void _load_segment_to_cache();
 
+    int64_t merge_way_num();
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 

@@ -430,7 +430,7 @@ public class ColocateTableIndex implements Writable {
     public Set<GroupId> getAllGroupIds() {
         readLock();
         try {
-            return group2Tables.keySet();
+            return Sets.newHashSet(group2Tables.keySet());
         } finally {
             readUnlock();
         }

@@ -39,6 +39,9 @@ suite ("testSingleMVMultiUsage") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"
@@ -52,5 +55,15 @@ suite ("testSingleMVMultiUsage") {
         notContains "(emps)"
     }
     qt_select_mv "select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno) order by 1;"
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from emps order by empid;")
+        contains "(emps)"
+    }
 
+    explain {
+        sql("select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno);")
+        contains "(emps_mv)"
+        notContains "(emps)"
+    }
 }

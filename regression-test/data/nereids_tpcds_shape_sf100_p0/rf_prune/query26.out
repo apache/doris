@@ -8,29 +8,24 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF2 p_promo_sk->[cs_promo_sk]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[cs_bill_cdemo_sk]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------filter((customer_demographics.cd_education_status = 'Unknown') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'S'))
---------------------------------------PhysicalOlapScan[customer_demographics]
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalProject
---------------------------------filter((date_dim.d_year = 2001))
-----------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF2 p_promo_sk->[cs_promo_sk]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
 --------------------------PhysicalProject
-----------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
-------------------------------PhysicalOlapScan[promotion]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[item]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[cs_bill_cdemo_sk]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
+------------------------------PhysicalProject
+--------------------------------filter((customer_demographics.cd_education_status = 'Unknown') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'S'))
+----------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_year = 2001))
+------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
+--------------------------PhysicalOlapScan[promotion]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[item]
 

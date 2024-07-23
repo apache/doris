@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "pipeline/exec/operator.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 
 namespace doris::pipeline {
@@ -119,7 +118,7 @@ protected:
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    vectorized::AggregatedDataVariants* _agg_data = nullptr;
+    AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
@@ -149,12 +148,14 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate && _require_bucket_distribution
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+    bool require_data_distribution() const override { return _is_colocate; }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
-    vectorized::AggregatedDataVariants* get_agg_data(RuntimeState* state) {
+    AggregatedDataVariants* get_agg_data(RuntimeState* state) {
         auto& local_state = get_local_state(state);
         return local_state._agg_data;
     }
@@ -202,6 +203,7 @@ protected:
     bool _have_conjuncts;
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
 
     RowDescriptor _agg_fn_output_row_descriptor;
 };

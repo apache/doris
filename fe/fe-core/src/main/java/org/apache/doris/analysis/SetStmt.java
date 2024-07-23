@@ -91,7 +91,7 @@ public class SetStmt extends StatementBase {
     public RedirectStatus getRedirectStatus() {
         if (setVars != null) {
             for (SetVar var : setVars) {
-                if (var instanceof SetPassVar) {
+                if (var instanceof SetPassVar || var instanceof SetLdapPassVar) {
                     return RedirectStatus.FORWARD_WITH_SYNC;
                 } else if (var.getType() == SetType.GLOBAL) {
                     return RedirectStatus.FORWARD_WITH_SYNC;

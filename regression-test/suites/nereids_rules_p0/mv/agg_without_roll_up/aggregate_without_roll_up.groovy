@@ -18,12 +18,8 @@
 suite("aggregate_without_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
     sql "SET enable_agg_state = true"
 
     sql """
@@ -839,7 +835,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_3_before "${query19_3}"
     check_mv_rewrite_success(db, mv19_3, query19_3, "mv19_3")
     order_qt_query19_3_after "${query19_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_3"""
 
 
     // without group, scalar aggregate
@@ -915,7 +911,7 @@ suite("aggregate_without_roll_up") {
             on lineitem.L_ORDERKEY = orders.O_ORDERKEY
     """
     order_qt_query20_1_before "${query20_1}"
-    check_mv_rewrite_fail(db, mv20_1, query20_1, "mv20_1")
+    check_mv_rewrite_success(db, mv20_1, query20_1, "mv20_1")
     order_qt_query20_1_after "${query20_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
 

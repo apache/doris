@@ -109,7 +109,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified(), this))
+                .map(col -> SlotReference.fromColumn(table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 

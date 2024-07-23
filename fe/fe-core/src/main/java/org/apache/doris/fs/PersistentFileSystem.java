@@ -19,24 +19,25 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.persist.gson.GsonPreProcessable;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem, Writable {
+public abstract class PersistentFileSystem implements FileSystem, GsonPreProcessable {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
-    protected Map<String, String> properties = Maps.newHashMap();
-    protected String name;
-    protected StorageBackend.StorageType type;
+    @SerializedName("prop")
+    public Map<String, String> properties = Maps.newHashMap();
+    @SerializedName("n")
+    public String name;
+    public StorageBackend.StorageType type;
 
     public boolean needFullPath() {
         return type == StorageBackend.StorageType.S3
@@ -66,7 +67,8 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
      * @param in persisted data
      * @return file systerm
      */
-    public static RemoteFileSystem read(DataInput in) throws IOException {
+    @Deprecated
+    public static PersistentFileSystem read(DataInput in) throws IOException {
         String name = Text.readString(in);
         Map<String, String> properties = Maps.newHashMap();
         StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
@@ -83,14 +85,8 @@ public abstract class PersistentFileSystem implements FileSystem, Writable {
         return FileSystemFactory.get(name, type, properties);
     }
 
-    public void write(DataOutput out) throws IOException {
-        // must write type first
-        Text.writeString(out, name);
+    @Override
+    public void gsonPreProcess() {
         properties.put(STORAGE_TYPE, type.name());
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
     }
 }

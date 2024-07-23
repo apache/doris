@@ -53,11 +53,13 @@ public class ReplacePartitionOperationLog implements Writable {
     private long version = 0L;
     @SerializedName(value = "versionTime")
     private long versionTime = 0L;
+    @SerializedName(value = "force")
+    private boolean force = false;
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
                                         List<String> partitionNames,
                                         List<String> tempPartitonNames, boolean strictRange,
-                                        boolean useTempPartitionName, long version, long versionTime) {
+                                        boolean useTempPartitionName, long version, long versionTime, boolean force) {
         this.dbId = dbId;
         this.dbName = dbName;
         this.tblId = tblId;
@@ -68,6 +70,7 @@ public class ReplacePartitionOperationLog implements Writable {
         this.useTempPartitionName = useTempPartitionName;
         this.version = version;
         this.versionTime = versionTime;
+        this.force = force;
     }
 
     public long getDbId() {
@@ -100,6 +103,10 @@ public class ReplacePartitionOperationLog implements Writable {
 
     public long getVersionTime() {
         return versionTime;
+    }
+
+    public boolean isForce() {
+        return force;
     }
 
     public static ReplacePartitionOperationLog read(DataInput in) throws IOException {

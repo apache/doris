@@ -24,7 +24,6 @@ suite("test_unique_table_like") {
     // test uniq table like 
     def tbNameA = "test_uniq"
     def tbNameB = "test_uniq_like"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_batch_delete_by_default' = 'true')"
     sql "SET show_hidden_columns=true"
     sql "DROP TABLE IF EXISTS ${tbNameA}"
     sql """

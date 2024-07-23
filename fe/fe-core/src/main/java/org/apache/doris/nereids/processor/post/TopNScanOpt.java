@@ -23,14 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
 
@@ -80,16 +73,8 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (topNOptLimitThreshold == -1 || topN.getLimit() > topNOptLimitThreshold) {
             return false;
         }
-        // if firstKey's column is not present, it means the firstKey is not an original column from scan node
-        // for example: "select cast(k1 as INT) as id from tbl1 order by id limit 2;" the firstKey "id" is
-        // a cast expr which is not from tbl1 and its column is not present.
-        // On the other hand "select k1 as id from tbl1 order by id limit 2;" the firstKey "id" is just an alias of k1
-        // so its column is present which is valid for topN optimize
-        // see Alias::toSlot() method to get how column info is passed around by alias of slotReference
+
         Expression firstKey = topN.getOrderKeys().get(0).getExpr();
-        if (!firstKey.isColumnFromTable()) {
-            return false;
-        }
 
         if (firstKey.getDataType().isFloatType()
                 || firstKey.getDataType().isDoubleType()) {
@@ -117,14 +102,5 @@ public class TopNScanOpt extends PlanPostProcessor {
             return ConnectContext.get().getSessionVariable().topnOptLimitThreshold;
         }
         return -1;
-    }
-
-    private boolean supportPhysicalRelations(PhysicalRelation relation) {
-        return relation instanceof PhysicalOlapScan
-                || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalEsScan
-                || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalJdbcScan
-                || relation instanceof PhysicalDeferMaterializeOlapScan;
     }
 }

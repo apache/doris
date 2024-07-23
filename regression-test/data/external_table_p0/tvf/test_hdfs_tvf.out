@@ -346,16 +346,15 @@
 2	shanghai	2345672
 3	hangzhou	2345673
 4	shenzhen	2345674
-5	guangzhou	2345675
 
 -- !desc --
-s_suppkey	INT	Yes	false	\N	NONE
-s_name	TEXT	Yes	false	\N	NONE
-s_address	TEXT	Yes	false	\N	NONE
-s_nationkey	INT	Yes	false	\N	NONE
-s_phone	TEXT	Yes	false	\N	NONE
-s_acctbal	DECIMAL(12, 2)	Yes	false	\N	NONE
-s_comment	TEXT	Yes	false	\N	NONE
+s_suppkey	int	Yes	false	\N	NONE
+s_name	text	Yes	false	\N	NONE
+s_address	text	Yes	false	\N	NONE
+s_nationkey	int	Yes	false	\N	NONE
+s_phone	text	Yes	false	\N	NONE
+s_acctbal	decimal(12,2)	Yes	false	\N	NONE
+s_comment	text	Yes	false	\N	NONE
 
 -- !hdfs_compatible --
 0	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
@@ -602,17 +601,17 @@ s_comment	TEXT	Yes	false	\N	NONE
 99	2	3	4	5	6.6	7.7	8.80000	abc	abc	abc	2020-10-10	2020-10-10T11:12:59
 
 -- !hdfs_desc_csv_schema --
-bigint_col	BIGINT	Yes	false	\N	NONE
-date_col	DATE	Yes	false	\N	NONE
-datetime_col	DATETIME(3)	Yes	false	\N	NONE
-decimal_col	DECIMAL(10, 5)	Yes	false	\N	NONE
-double_col	DOUBLE	Yes	false	\N	NONE
-float_col	FLOAT	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
-largeint_col	LARGEINT	Yes	false	\N	NONE
-smallint_col	SMALLINT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-string_col	TEXT	Yes	false	\N	NONE
-tinyint_col	TINYINT	Yes	false	\N	NONE
+bigint_col	bigint	Yes	false	\N	NONE
+date_col	date	Yes	false	\N	NONE
+datetime_col	datetime(3)	Yes	false	\N	NONE
+decimal_col	decimal(10,5)	Yes	false	\N	NONE
+double_col	double	Yes	false	\N	NONE
+float_col	float	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
+largeint_col	largeint	Yes	false	\N	NONE
+smallint_col	smallint	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+string_col	text	Yes	false	\N	NONE
+tinyint_col	tinyint	Yes	false	\N	NONE
 

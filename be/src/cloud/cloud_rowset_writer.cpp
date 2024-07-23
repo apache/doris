@@ -100,9 +100,9 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     }
 
     // update rowset meta tablet schema if tablet schema updated
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    }
+    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
+                                                                  : _context.tablet_schema;
+    _rowset_meta->set_tablet_schema(rowset_schema);
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -115,10 +115,9 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }

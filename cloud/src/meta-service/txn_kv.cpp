@@ -35,8 +35,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 
 // =============================================================================
@@ -76,6 +76,12 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
         LOG(WARNING) << "failed to init txn, ret=" << ret;
     }
     return ret;
+}
+
+std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
+                                                               FullRangeGetIteratorOptions opts) {
+    return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
+                                                       std::move(opts));
 }
 
 } // namespace doris::cloud
@@ -259,7 +265,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ = key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+    approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
 }
 
 // return 0 for success otherwise error
@@ -286,7 +292,6 @@ static TxnErrorCode await_future(FDBFuture* fut) {
         return bthread_fdb_future_block_until_ready(fut);
     }
     auto err = fdb_future_block_until_ready(fut);
-    TEST_SYNC_POINT_CALLBACK("fdb_future_block_until_ready_err", &err);
     if (err) [[unlikely]] {
         LOG(WARNING) << "fdb_future_block_until_ready failed: " << fdb_get_error(err);
         return cast_as_txn_code(err);
@@ -584,6 +589,131 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     }
     DCHECK_EQ(res->size(), num_keys);
     return TxnErrorCode::TXN_OK;
+}
+
+FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
+                                           FullRangeGetIteratorOptions opts)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
+    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
+}
+
+FullRangeGetIterator::~FullRangeGetIterator() {
+    if (fut_) {
+        static_cast<void>(fdb::await_future(fut_));
+        fdb_future_destroy(fut_);
+    }
+}
+
+bool FullRangeGetIterator::has_next() {
+    if (!is_valid_) {
+        return false;
+    }
+
+    if (!inner_iter_) {
+        // The first call
+        init();
+        if (!is_valid_) {
+            return false;
+        }
+
+        return inner_iter_->has_next();
+    }
+
+    if (inner_iter_->has_next()) {
+        if (prefetch()) {
+            TEST_SYNC_POINT("fdb.FullRangeGetIterator.has_next_prefetch");
+            async_inner_get(inner_iter_->next_begin_key());
+        }
+        return true;
+    }
+
+    if (!inner_iter_->more()) {
+        return false;
+    }
+
+    if (!fut_) {
+        async_inner_get(inner_iter_->next_begin_key());
+        if (!is_valid_) {
+            return false;
+        }
+    }
+
+    await_future();
+    return is_valid_ ? inner_iter_->has_next() : false;
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->next();
+}
+
+void FullRangeGetIterator::await_future() {
+    auto ret = fdb::await_future(fut_);
+    if (ret != TxnErrorCode::TXN_OK) {
+        is_valid_ = false;
+        return;
+    }
+
+    auto err = fdb_future_get_error(fut_);
+    if (err) {
+        is_valid_ = false;
+        LOG(WARNING) << fdb_get_error(err);
+        return;
+    }
+
+    if (opts_.obj_pool && inner_iter_) {
+        opts_.obj_pool->push_back(std::move(inner_iter_));
+    }
+    inner_iter_ = std::make_unique<RangeGetIterator>(fut_);
+    fut_ = nullptr;
+
+    if (inner_iter_->init() != TxnErrorCode::TXN_OK) {
+        is_valid_ = false;
+    }
+}
+
+void FullRangeGetIterator::init() {
+    async_inner_get(begin_);
+    if (!is_valid_) {
+        return;
+    }
+
+    await_future();
+}
+
+bool FullRangeGetIterator::prefetch() {
+    return opts_.prefetch && is_valid_ && !fut_ && inner_iter_->more();
+}
+
+void FullRangeGetIterator::async_inner_get(std::string_view begin) {
+    DCHECK(!fut_);
+
+    auto* txn = static_cast<Transaction*>(opts_.txn);
+    if (!txn) {
+        // Create a new txn for each inner range get
+        std::unique_ptr<cloud::Transaction> txn1;
+        // TODO(plat1ko): Async create txn
+        TxnErrorCode err = opts_.txn_kv->create_txn(&txn1);
+        if (err != TxnErrorCode::TXN_OK) {
+            is_valid_ = false;
+            return;
+        }
+
+        txn_.reset(static_cast<Transaction*>(txn1.release()));
+        txn = txn_.get();
+    }
+
+    // TODO(plat1ko): Support `Transaction::async_get` api
+    fut_ = fdb_transaction_get_range(
+            txn->txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)begin.data(), begin.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end_.data(), end_.size()), opts_.limit,
+            0 /*target_bytes, unlimited*/, FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+            //       FDBStreamingMode::FDB_STREAMING_MODE_ITERATOR,
+            0 /*iteration*/, opts_.snapshot, false /*reverse*/);
 }
 
 } // namespace doris::cloud::fdb

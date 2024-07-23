@@ -220,10 +220,16 @@ echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
 
+if [[ "${CMAKE_BUILD_TYPE}" = "ASAN" ]]; then
+    BUILD_TYPE="ASAN_UT"
+else
+    BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+fi
+
 cd "${CMAKE_BUILD_DIR}"
 "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
-    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
@@ -281,6 +287,7 @@ done < <(find "${CMAKE_BUILD_DIR}" -name "*gcda")
 setup_java_env() {
     local java_version
 
+    echo "JAVA_HOME: ${JAVA_HOME}"
     if [[ -z "${JAVA_HOME}" ]]; then
         return 1
     fi
@@ -301,6 +308,10 @@ setup_java_env() {
         # JAVA_HOME is jre
     else
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+    fi
+
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        export DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DYLD_LIBRARY_PATH}"
     fi
 }
 

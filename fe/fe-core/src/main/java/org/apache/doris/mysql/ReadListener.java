@@ -56,7 +56,7 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
                     ctx.stopAcceptQuery();
                     ctx.cleanup();
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 LOG.warn("Exception happened in one session(" + ctx + ").", e);
                 ctx.setKilled();
                 ctx.cleanup();

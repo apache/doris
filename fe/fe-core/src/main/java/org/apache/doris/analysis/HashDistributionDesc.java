@@ -47,6 +47,7 @@ public class HashDistributionDesc extends DistributionDesc {
         this.distributionColumnNames = distributionColumnNames;
     }
 
+    @Override
     public List<String> getDistributionColumnNames() {
         return distributionColumnNames;
     }

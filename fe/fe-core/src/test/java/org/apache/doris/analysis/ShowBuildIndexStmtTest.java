@@ -104,7 +104,7 @@ public class ShowBuildIndexStmtTest {
 
             stmt1.analyze(analyzer);
             Assertions.assertEquals(stmt1.toSql(), "SHOW BUILD INDEX FROM `testDb` WHERE "
-                    + "(`a`.`b`.`c`.`createtime` > CAST('%.b.%' AS DATETIMEV2(0))) "
+                    + "(`a`.`b`.`c`.`createtime` > CAST('%.b.%' AS datetimev2(0))) "
                     + "AND (`a`.`b`.`c`.`tablename` = '%.b.%') "
                     + "ORDER BY `a`.`b`.`c`.`TableName` DESC NULLS LAST LIMIT 1, 100");
 

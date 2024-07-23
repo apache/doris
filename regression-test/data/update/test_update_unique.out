@@ -8,10 +8,10 @@
 2	2	1	1998-01-01
 
 -- !desc_uniq_table --
-k	INT	Yes	true	\N	
-value1	INT	Yes	false	\N	NONE
-value2	INT	Yes	false	\N	NONE
-date_value	DATE	Yes	false	\N	NONE
+k	int	Yes	true	\N	
+value1	int	Yes	false	\N	NONE
+value2	int	Yes	false	\N	NONE
+date_value	date	Yes	false	\N	NONE
 
 -- !complex_update --
 1	10	1	1000.0	2000-01-01

@@ -46,7 +46,7 @@ public class DateLiteral extends Literal {
 
     // for cast datetime type to date type.
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
-    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -145,17 +145,6 @@ public class DateLiteral extends Literal {
         return punctuations.contains(c);
     }
 
-    private static void replacePunctuation(String s, StringBuilder sb, char c, int idx) {
-        if (idx >= sb.length()) {
-            return;
-        }
-        if (isPunctuation(sb.charAt(idx))) {
-            sb.setCharAt(idx, c);
-        } else {
-            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
-        }
-    }
-
     static String normalize(String s) {
         // merge consecutive space
         if (s.contains("  ")) {
@@ -183,6 +172,10 @@ public class DateLiteral extends Literal {
         }
 
         // normalize leading 0 for date and time
+        // The first part is 1-digit x: 000x-month-day
+        // The first part is 2-digit xy: 20xy-month-day / 19xy-month-day
+        // The first part is 3-digit xyz: 20xy-0z-day / 19xy-0z-day
+        // The first part is 4-digit xyzw: xyzw-month-day
         while (i < s.length() && partNumber < 6) {
             char c = s.charAt(i);
             if (Character.isDigit(c)) {
@@ -194,6 +187,20 @@ public class DateLiteral extends Literal {
                 int len = j - i;
                 if (len == 4 || len == 2) {
                     sb.append(s, i, j);
+                } else if (len == 3) {
+                    if (partNumber == 0) {
+                        String yy = s.substring(i, i + 2);
+                        int year = Integer.parseInt(yy);
+                        if (year >= 0 && year <= 69) {
+                            sb.append("20");
+                        } else if (year >= 70 && year <= 99) {
+                            sb.append("19");
+                        }
+                        sb.append(yy).append('-');
+                    } else {
+                        sb.append(s, i, i + 2).append(' ');
+                    }
+                    j = j - 1;
                 } else if (len == 1) {
                     if (partNumber == 0) {
                         sb.append("000").append(c);
@@ -320,7 +327,7 @@ public class DateLiteral extends Literal {
 
     protected boolean checkDate() {
         if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
-            if (month == 2 && day == 29 && Year.isLeap(year)) {
+            if (month == 2 && day == 29 && (Year.isLeap(year) && year > 0)) {
                 return false;
             }
             return true;
@@ -408,6 +415,21 @@ public class DateLiteral extends Literal {
 
     public long getDay() {
         return day;
+    }
+
+    public int getDayOfYear() {
+        if (year == 0 && month == 3 && (day == 1 || day == 2)) {
+            return toJavaDateType().getDayOfYear() - 1;
+        }
+        return toJavaDateType().getDayOfYear();
+    }
+
+    public int getDayOfWeek() {
+        if (year == 0 && (month == 1 || (month == 2 && day <= 28))) {
+            // shift right with 1 offset
+            return toJavaDateType().getDayOfWeek().getValue() % 7 + 1;
+        }
+        return toJavaDateType().getDayOfWeek().getValue();
     }
 
     public Expression plusDays(long days) {

@@ -30,7 +30,7 @@ suite("test_simplify_arithmetic") {
     explain {
         sql """ select -3 - (7 + id) from test_simplify_arithmetic"""
         verbose true
-        contains """type=BIGINT"""
+        contains """type=bigint"""
     }
 
     qt_return_type_after_projection_should_be_bigint """

@@ -46,6 +46,9 @@ public class DropTableStmtTest {
 
     @Before
     public void setUp() {
+        MockedAuth.mockedAccess(accessManager);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+
         tbl = new TableName(internalCtl, "db1", "table1");
         noDbTbl = new TableName(internalCtl, "", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
@@ -61,9 +64,6 @@ public class DropTableStmtTest {
                 result = "";
             }
         };
-
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test

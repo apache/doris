@@ -81,7 +81,7 @@ private:
                                   const int batch_size, bool* eos);
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
-                             vectorized::RowRefListWithFlags& value, int& block_size);
+                             RowRefListWithFlags& value, int& block_size);
     const int _child_quantity;
 };
 

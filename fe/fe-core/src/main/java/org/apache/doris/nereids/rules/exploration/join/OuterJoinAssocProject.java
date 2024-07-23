@@ -56,7 +56,6 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
     // Pair<bottomJoin, topJoin>
     // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
     public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
             Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
             Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
 

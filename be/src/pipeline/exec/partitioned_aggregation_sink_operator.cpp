@@ -22,6 +22,8 @@
 
 #include "aggregation_sink_operator.h"
 #include "common/status.h"
+#include "pipeline/exec/spill_utils.h"
+#include "runtime/fragment_mgr.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -159,6 +161,9 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
     local_state._eos = eos;
     auto* runtime_state = local_state._runtime_state.get();
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::sink", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject partitioned_agg_sink sink failed");
+    });
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
     if (eos) {
         if (local_state._shared_state->is_spilled) {
@@ -249,31 +254,26 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
         }
     }};
 
-    auto execution_context = state->get_task_execution_context();
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::weak_ptr<PartitionedAggSharedState> shared_state_holder =
-            _shared_state->shared_from_this();
     auto query_id = state->query_id();
-    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
-    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            [this, &parent, state, query_id, mem_tracker, shared_state_holder, execution_context,
-             submit_timer] {
-                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
-                std::shared_ptr<TaskExecutionContext> execution_context_lock;
-                auto shared_state_sptr = shared_state_holder.lock();
-                if (shared_state_sptr) {
-                    execution_context_lock = execution_context.lock();
-                }
-                if (!shared_state_sptr || !execution_context_lock) {
-                    LOG(INFO) << "query " << print_id(query_id)
-                              << " execution_context released, maybe query was cancelled.";
-                    return Status::Cancelled("Cancelled");
-                }
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_submit_func", {
+        status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject partitioned_agg_sink revoke_memory submit_func failed");
+        return status;
+    });
+
+    auto spill_runnable = std::make_shared<SpillRunnable>(
+            state, _shared_state->shared_from_this(),
+            [this, &parent, state, query_id, submit_timer] {
+                DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
+                    auto st = Status::InternalError(
+                            "fault_inject partitioned_agg_sink "
+                            "revoke_memory canceled");
+                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+                    return st;
+                });
                 _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {
@@ -316,7 +316,9 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                         parent._agg_sink_operator->reset_hash_table(runtime_state);
                 return Base::_shared_state->sink_status;
             });
-    return status;
+
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+            std::move(spill_runnable));
 }
 
 } // namespace doris::pipeline

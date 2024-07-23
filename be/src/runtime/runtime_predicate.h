@@ -66,8 +66,9 @@ public:
         }
         RETURN_IF_ERROR(tablet_schema->have_column(_contexts[target_node_id].col_name));
         _contexts[target_node_id].tablet_schema = tablet_schema;
-        _contexts[target_node_id].predicate =
-                SharedPredicate::create_shared(_contexts[target_node_id].get_field_index());
+        int64_t index = DORIS_TRY(_contexts[target_node_id].get_field_index())
+                                _contexts[target_node_id]
+                                        .predicate = SharedPredicate::create_shared(index);
         return Status::OK();
     }
 
@@ -131,8 +132,9 @@ private:
         TabletSchemaSPtr tablet_schema;
         std::shared_ptr<ColumnPredicate> predicate;
 
-        int32_t get_field_index() {
-            return tablet_schema->field_index(tablet_schema->column(col_name).unique_id());
+        Result<int32_t> get_field_index() {
+            const auto& column = *DORIS_TRY(tablet_schema->column(col_name));
+            return tablet_schema->field_index(column.unique_id());
         }
 
         bool target_is_slot() const { return expr.nodes[0].node_type == TExprNodeType::SLOT_REF; }

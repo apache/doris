@@ -29,7 +29,6 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.DBObjects;
@@ -167,7 +166,6 @@ public class AnalyzeTest extends TestWithFeService {
                 .setDBId(0)
                 .setTblId(0)
                 .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setJobColumns(colList)
