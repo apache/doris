@@ -1788,7 +1788,7 @@ build_base64() {
 build_azure() {
     if [[ "${CBUILD_AZURE}" =="OFF" ]]
         echo "Skip build azure"
-    return
+        return
     fi
     check_if_source_exist "${AZURE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
