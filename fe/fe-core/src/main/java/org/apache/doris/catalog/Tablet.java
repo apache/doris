@@ -231,7 +231,9 @@ public class Tablet extends MetaObject implements Writable {
 
             ReplicaState state = replica.getState();
             if (state.canLoad()
-                    || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
+                    || (state == ReplicaState.DECOMMISSION
+                            && replica.getPostWatermarkTxnId() < 0
+                            && replica.getLastFailedVersion() < 0)) {
                 map.put(replica.getBackendId(), replica.getPathHash());
             }
         }
