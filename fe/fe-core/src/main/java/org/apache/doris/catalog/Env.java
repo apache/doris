@@ -4675,7 +4675,7 @@ public class Env {
         LOG.info("refresh db[{}] table[{}] for schema change", db.getFullName(), table.getName());
     }
 
-    public void replayRenameTable(TableInfo tableInfo, long logId) throws MetaNotFoundException {
+    public void replayRenameTable(TableInfo tableInfo) throws MetaNotFoundException {
         long dbId = tableInfo.getDbId();
         long tableId = tableInfo.getTableId();
         String newTableName = tableInfo.getNewTableName();
@@ -4690,8 +4690,6 @@ public class Env {
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
-
-                Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
