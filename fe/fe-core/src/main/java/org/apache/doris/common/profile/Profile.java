@@ -421,7 +421,7 @@ public class Profile {
                     > this.executionProfiles.size() * autoProfileDurationMs) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                        id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);   
+                            id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
                 }
                 return true;
             }
