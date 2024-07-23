@@ -15,30 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+suite("test_round_overflow") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
-public class HiveCommonStatistics {
-    public static final HiveCommonStatistics EMPTY = new HiveCommonStatistics(0L, 0L, 0L);
-
-    private final long rowCount;
-    private final long fileCount;
-    private final long totalFileBytes;
-
-    public HiveCommonStatistics(long rowCount, long fileCount, long totalFileBytes) {
-        this.fileCount = fileCount;
-        this.rowCount = rowCount;
-        this.totalFileBytes = totalFileBytes;
-    }
-
-    public long getRowCount() {
-        return rowCount;
-    }
-
-    public long getFileCount() {
-        return fileCount;
-    }
-
-    public long getTotalFileBytes() {
-        return totalFileBytes;
-    }
+    qt_select1 "select round(coalesce(186,-33280029.8473323000000000000000000));"
+    qt_select2 "select round(coalesce(186,-33280029.8473323000000000000000000), -20);"
+    qt_select3 "select round(coalesce(18618500001234567890123.0,-33280029.847332300000000),-22);"
 }

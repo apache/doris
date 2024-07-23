@@ -39,9 +39,6 @@ public class TimerDefinition {
 
 
     public void checkParams(boolean immediate) {
-        if (null != startTimeMs && startTimeMs < System.currentTimeMillis()) {
-            throw new IllegalArgumentException("startTimeMs must be greater than current time");
-        }
         if (null != startTimeMs && immediate) {
             throw new IllegalArgumentException("startTimeMs must be null when immediate is true");
         }
@@ -52,7 +49,7 @@ public class TimerDefinition {
             startTimeMs = System.currentTimeMillis() + intervalUnit.getIntervalMs(interval);
         }
         if (null != endTimeMs && endTimeMs < startTimeMs) {
-            throw new IllegalArgumentException("end time cannot be less than start time");
+            throw new IllegalArgumentException("endTimeMs must be greater than the start time");
         }
 
         if (null != intervalUnit) {

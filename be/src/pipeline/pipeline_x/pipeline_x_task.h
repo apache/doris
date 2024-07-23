@@ -139,12 +139,22 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() {
-        // Another thread may call finalize to release all dependencies
-        // And then it will core.
+        // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
-            _blocked_dep->set_ready();
-            _blocked_dep = nullptr;
+        if (!_finished) {
+            _execution_dep->set_always_ready();
+            for (auto* dep : _filter_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _read_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _write_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _finish_dependencies) {
+                dep->set_always_ready();
+            }
         }
     }
 

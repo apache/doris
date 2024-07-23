@@ -361,8 +361,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
         _sender_to_local_channel_dependency.resize(num_queues);
         for (size_t i = 0; i < num_queues; i++) {
             _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
-                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true,
-                    state->get_query_ctx());
+                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
         }
     }
     _sender_queues.reserve(num_queues);
@@ -503,7 +502,7 @@ void VDataStreamRecvr::close() {
     }
     _is_closed = true;
     for (auto& it : _sender_to_local_channel_dependency) {
-        it->set_ready();
+        it->set_always_ready();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();

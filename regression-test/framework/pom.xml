@@ -286,5 +286,13 @@ under the License.
             <artifactId>jcc</artifactId>
             <version>11.5.8.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.1</version>
+            <!--Regression tests need to include this jar-->
+            <scope>compile</scope>
+        </dependency>
+
     </dependencies>
 </project>

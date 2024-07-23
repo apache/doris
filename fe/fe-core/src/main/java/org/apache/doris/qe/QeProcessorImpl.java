@@ -99,10 +99,11 @@ public final class QeProcessorImpl implements QeProcessor {
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
-
         // Should add the execution profile to profile manager, BE will report the profile to FE and FE
         // will update it in ProfileManager
-        ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        if (info.coord.getQueryOptions().enable_profile) {
+            ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        }
     }
 
     @Override

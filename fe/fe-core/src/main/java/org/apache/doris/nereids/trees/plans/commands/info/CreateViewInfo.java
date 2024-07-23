@@ -30,12 +30,9 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -52,14 +49,11 @@ public class CreateViewInfo extends BaseViewInfo {
     private final String comment;
 
     /** constructor*/
-    public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment, LogicalPlan logicalQuery,
+    public CreateViewInfo(boolean ifNotExists, TableNameInfo viewName, String comment,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
-        super(viewName, logicalQuery, querySql, simpleColumnDefinitions);
+        super(viewName, querySql, simpleColumnDefinitions);
         this.ifNotExists = ifNotExists;
         this.comment = comment;
-        if (logicalQuery instanceof LogicalFileSink) {
-            throw new AnalysisException("Not support OUTFILE clause in CREATE VIEW statement");
-        }
     }
 
     /** init */

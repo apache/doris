@@ -305,10 +305,10 @@ public class MasterImpl {
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             if (pushTask.getPushType() == TPushType.DELETE) {
-                // DeleteHandler may return status code DELETE_INVALID_CONDITION and DELETE_INVALID_PARAMETERS,
-                // we don't need to retry if meet them.
-                // note that they will be converted to TStatusCode.INTERNAL_ERROR when being sent from be to fe
-                if (request.getTaskStatus().getStatusCode() == TStatusCode.INTERNAL_ERROR) {
+                // we don't need to retry if the returned status code is DELETE_INVALID_CONDITION
+                // or DELETE_INVALID_PARAMETERS
+                // note that they will be converted to TStatusCode.INVALID_ARGUMENT when being sent from be to fe
+                if (request.getTaskStatus().getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
                     pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
                             task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
                     AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);

@@ -65,7 +65,7 @@ class TQueryOptions;
 namespace vectorized {
 class VExpr;
 class VExprContext;
-struct SharedRuntimeFilterContext;
+struct RuntimeFilterContextSPtr;
 } // namespace vectorized
 
 namespace pipeline {
@@ -221,7 +221,7 @@ public:
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    SharedRuntimeFilterContext& get_shared_context_ref();
+    RuntimeFilterContextSPtr& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);

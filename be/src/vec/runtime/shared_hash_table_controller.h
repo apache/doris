@@ -48,7 +48,7 @@ struct RuntimeFilterContext {
     bool ignored = false;
 };
 
-using SharedRuntimeFilterContext = std::shared_ptr<RuntimeFilterContext>;
+using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
 
 namespace vectorized {
 
@@ -63,7 +63,7 @@ struct SharedHashTableContext {
     std::shared_ptr<void> hash_table_variants;
     std::shared_ptr<Block> block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    std::map<int, SharedRuntimeFilterContext> runtime_filters;
+    std::map<int, RuntimeFilterContextSPtr> runtime_filters;
     std::atomic<bool> signaled = false;
     bool short_circuit_for_null_in_probe_side = false;
 };

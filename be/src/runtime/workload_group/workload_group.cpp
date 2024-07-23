@@ -327,7 +327,7 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
 
     // 11 min remote scan thread num
     workload_group_info->min_remote_scan_thread_num =
-            vectorized::ScannerScheduler::get_remote_scan_thread_num();
+            config::doris_scanner_min_thread_pool_thread_num;
     if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
         tworkload_group_info.min_remote_scan_thread_num > 0) {
         workload_group_info->min_remote_scan_thread_num =
