@@ -26,12 +26,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Check Large File
+      
+      - name: "Checkout lfs-warning commit"
+        run: |
+          rm -rf ./.github/actions/lfs-warning
+          git clone https://github.com/ppremk/lfs-warning .github/actions/lfs-warning
+          pushd .github/actions/lfs-warning &>/dev/null
+          git checkout 4b98a8a5e6c429c23c34eee02d71553bca216425
+          popd &>/dev/null
+
+      - name: "Check Large File"
         uses: ./.github/actions/lfs-warning
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           filesizelimit: 1MB
+
