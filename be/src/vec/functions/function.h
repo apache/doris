@@ -225,8 +225,9 @@ public:
     virtual Monotonicity get_monotonicity_for_range(const IDataType& /*type*/,
                                                     const Field& /*left*/,
                                                     const Field& /*right*/) const {
-        LOG(FATAL) << fmt::format("Function {} has no information about its monotonicity.",
-                                  get_name());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Function {} has no information about its monotonicity.",
+                               get_name());
         return Monotonicity {};
     }
 };
@@ -322,13 +323,15 @@ protected:
     // whether to wrap in nullable type will be automatically decided.
     virtual DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const {
         DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
-
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
         return get_return_type_impl(data_types);
     }
 
     virtual DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const {
-        LOG(FATAL) << fmt::format("get_return_type is not implemented for {}", get_name());
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_return_type is not implemented for {}", get_name());
         return nullptr;
     }
 
@@ -402,7 +405,8 @@ public:
                                              const Block& /*sample_block*/,
                                              const ColumnNumbers& /*arguments*/,
                                              size_t /*result*/) const final {
-        LOG(FATAL) << "prepare is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "prepare is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
     }
 
@@ -420,19 +424,23 @@ public:
     }
 
     [[noreturn]] const DataTypes& get_argument_types() const final {
-        LOG(FATAL) << "get_argument_types is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_argument_types is not implemented for IFunction {}",
+                               get_name());
         __builtin_unreachable();
     }
 
     [[noreturn]] const DataTypePtr& get_return_type() const final {
-        LOG(FATAL) << "get_return_type is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_return_type is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
     }
 
 protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& /*arguments*/,
                                const DataTypePtr& /*return_type*/) const final {
-        LOG(FATAL) << "build_impl is not implemented for IFunction";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "build_impl is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
         return {};
     }
