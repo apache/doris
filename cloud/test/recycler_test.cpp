@@ -671,6 +671,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
         }
@@ -750,6 +751,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
         }
@@ -812,6 +814,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
@@ -945,6 +948,7 @@ TEST(RecyclerTest, recycle_indexes) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
         }
@@ -1054,6 +1058,7 @@ TEST(RecyclerTest, recycle_partitions) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
         }
@@ -2538,6 +2543,7 @@ TEST(RecyclerTest, delete_rowset_data) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             schema.add_index()->set_index_id(j);
         }
