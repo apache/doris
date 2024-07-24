@@ -189,17 +189,42 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_ratio() {
     for (auto& wg : _workload_groups) {
         // 3.1 calculate query weighted memory limit of task group
         auto wg_mem_limit = wg.second->memory_limit();
-        auto wg_query_count = wgs_mem_info[wg.first].tracker_snapshots.size();
-        int64_t query_weighted_mem_limit =
-                wg_query_count ? (wg_mem_limit + wg_query_count) / wg_query_count : wg_mem_limit;
-
-        // 3.2 set all workload groups weighted memory ratio and all query weighted memory limit and ratio.
-        wg.second->set_weighted_memory_ratio(ratio);
-        for (const auto& query : wg.second->queries()) {
+        auto all_query_ctxs = wg.second->queries();
+        int32_t total_used_slot_count = 0;
+        int32_t total_slot_count = wg.second->total_query_slot_count();
+        // 3.1.1 calculate total used slot count
+        for (const auto& query : all_query_ctxs) {
             auto query_ctx = query.second.lock();
             if (!query_ctx) {
                 continue;
             }
+            total_used_slot_count += query_ctx->get_slot_count();
+        }
+        // 3.2 calculate per query weighted memory limit
+        for (const auto& query : all_query_ctxs) {
+            auto query_ctx = query.second.lock();
+            if (!query_ctx) {
+                continue;
+            }
+            int64_t query_weighted_mem_limit = 0;
+            // If the query enable hard limit, then it should not use the soft limit
+            if (query_ctx->enable_query_slot_hard_limit()) {
+                if (total_slot_count < 1) {
+                    LOG(WARNING)
+                            << "query " << print_id(query_ctx->query_id())
+                            << " enabled hard limit, but the slot count < 1, could not take affect";
+                } else {
+                    query_weighted_mem_limit =
+                            (wg_mem_limit * query_ctx->get_slot_count()) / total_slot_count;
+                }
+            } else {
+                query_weighted_mem_limit = total_used_slot_count > 0
+                                                   ? (wg_mem_limit + total_used_slot_count) *
+                                                             query_ctx->get_slot_count() /
+                                                             total_used_slot_count
+                                                   : wg_mem_limit;
+            }
+
             query_ctx->set_weighted_memory(query_weighted_mem_limit, ratio);
         }
 
@@ -216,12 +241,11 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_ratio() {
             debug_msg = fmt::format(
                     "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem used: {}, used "
                     "ratio: {}, query "
-                    "count: {}, query_weighted_mem_limit: {}",
+                    "count: {}",
                     wg.second->name(), PrettyPrinter::print(wg_mem_limit, TUnit::BYTES),
                     PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
                     PrettyPrinter::print(weighted_mem_used, TUnit::BYTES),
-                    (double)weighted_mem_used / wg_mem_limit, wg_query_count,
-                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES));
+                    (double)weighted_mem_used / wg_mem_limit, all_query_ctxs.size());
 
             debug_msg += "\n  Query Memory Summary:";
             // check whether queries need to revoke memory for task group
