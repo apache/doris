@@ -238,7 +238,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
             }
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 0
+            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
         }
         if (item == "nereids") {
             get_row_count_with_retry(6)
