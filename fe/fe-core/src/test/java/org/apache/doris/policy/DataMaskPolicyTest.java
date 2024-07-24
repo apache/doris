@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * Test for Policy.
+ * Test for data mask policy.
  **/
 public class DataMaskPolicyTest extends TestWithFeService {
 
