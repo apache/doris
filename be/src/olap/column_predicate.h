@@ -190,7 +190,7 @@ public:
     // evaluate predicate on IColumn
     // a short circuit eval way
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
-        if (_always_true) {
+        if (always_true(true)) {
             return size;
         }
 
@@ -201,9 +201,8 @@ public:
             // If the pass rate is very high, for example > 50%, then the filter is useless.
             // Some filter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
             // useless.
-            vectorized::VRuntimeFilterWrapper::calculate_filter(
-                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
-                    _has_calculate_filter, _always_true);
+            vectorized::VRuntimeFilterWrapper::judge_selectivity(
+                    get_ignore_threshold(), size - new_size, size, _skip_counter);
         }
         return new_size;
     }
@@ -308,7 +307,15 @@ public:
         }
     }
 
-    bool always_true() const { return _always_true; }
+    bool always_true(bool update) const {
+        if (_skip_counter) {
+            if (update) {
+                _skip_counter--;
+            }
+            return true;
+        }
+        return false;
+    }
 
 protected:
     virtual std::string _debug_string() const = 0;
@@ -330,8 +337,7 @@ protected:
     std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
-    mutable bool _always_true = false;
-    mutable bool _has_calculate_filter = false;
+    mutable int _skip_counter = 0;
 };
 
 } //namespace doris

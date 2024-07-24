@@ -981,9 +981,7 @@ DECLARE_mInt32(orc_natural_read_size_mb);
 DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
-// When the rows number reached this limit, will check the filter rate the of bloomfilter
-// if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(rf_predicate_check_row_num);
+DECLARE_mInt32(runtime_filter_sampling_frequency);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);

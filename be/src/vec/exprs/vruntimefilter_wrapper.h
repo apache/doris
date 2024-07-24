@@ -68,27 +68,22 @@ public:
     // if filter rate less than this, bloom filter will set always true
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
 
-    static void calculate_filter(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
-                                 bool& has_calculate, bool& always_true) {
-        if ((!has_calculate) && (scan_rows > config::rf_predicate_check_row_num)) {
-            if (filter_rows / (scan_rows * 1.0) < ignore_threshold) {
-                always_true = true;
-            }
-            has_calculate = true;
+    // return true when we need
+    template<typename T>
+    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
+                                  T& skip_counter) {
+        if (filter_rows / (scan_rows * 1.0) > ignore_threshold) {
+            skip_counter = config::runtime_filter_sampling_frequency;
         }
     }
 
 private:
     VExprSPtr _impl;
-
-    bool _always_true;
-    std::atomic<int64_t> _filtered_rows;
-    std::atomic<int64_t> _scan_rows;
+    std::atomic_int _skip_counter = 0;
 
     RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;
     RuntimeProfile::Counter* _always_true_counter = nullptr;
-    bool _has_calculate_filter = false;
 
     std::string _expr_name;
     bool _null_aware;

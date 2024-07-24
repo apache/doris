@@ -51,12 +51,7 @@ namespace doris::vectorized {
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
                                              bool null_aware)
-        : VExpr(node),
-          _impl(impl),
-          _always_true(false),
-          _filtered_rows(0),
-          _scan_rows(0),
-          _null_aware(null_aware) {}
+        : VExpr(node), _impl(impl), _null_aware(null_aware) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -81,10 +76,14 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    if (_always_true) {
+    if (_skip_counter) {
+        _skip_counter--;
         block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
                        _data_type, expr_name()});
         *result_column_id = block->columns() - 1;
+        if (_always_true_counter) {
+            COUNTER_UPDATE(_always_true_counter, 1);
+        }
         return Status::OK();
     } else {
         int64_t input_rows = 0, filter_rows = 0;
@@ -94,9 +93,6 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             }
             if (_expr_input_rows_counter) {
                 COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
-            }
-            if (_always_true_counter) {
-                COUNTER_SET(_always_true_counter, (int64_t)_always_true);
             }
         }};
         input_rows += block->rows();
@@ -118,10 +114,8 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         }
 
         filter_rows = rows - calculate_false_number(result_column.column);
-        _filtered_rows += filter_rows;
-        _scan_rows += input_rows;
-        calculate_filter(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, _filtered_rows, _scan_rows,
-                         _has_calculate_filter, _always_true);
+        judge_selectivity(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, filter_rows, input_rows,
+                          _skip_counter);
         return Status::OK();
     }
 }
