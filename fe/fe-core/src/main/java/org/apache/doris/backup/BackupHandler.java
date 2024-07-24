@@ -525,7 +525,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
                         env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
             } catch (IOException e) {
-                throw new DdlException(e.getMessage());
+                LOG.warn("create restore job failed, current meta version {}", Env.getCurrentEnvJournalVersion(), e);
+                throw new DdlException("create restore job failed", e);
             }
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
