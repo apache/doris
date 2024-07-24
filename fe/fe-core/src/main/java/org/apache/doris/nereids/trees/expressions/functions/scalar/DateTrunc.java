@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -90,5 +91,20 @@ public class DateTrunc extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDateTrunc(this, context);
+    }
+
+    @Override
+    public Expression withConstantArgs(Literal literal) {
+        return new DateTrunc(literal, child(1));
+    }
+
+    @Override
+    public int getMonotonicFunctionChildIndex() {
+        return 0;
+    }
+
+    @Override
+    public Monotonicity getMonotonicity() {
+        return new Monotonicity(true, true);
     }
 }

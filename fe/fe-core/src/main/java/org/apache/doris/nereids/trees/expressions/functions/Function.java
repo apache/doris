@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import java.util.List;
 import java.util.Objects;
@@ -27,6 +28,17 @@ import java.util.Objects;
  * function in nereids.
  */
 public abstract class Function extends Expression {
+    /**Monotonicity*/
+    public class Monotonicity {
+        public boolean isMonotonic;
+        public boolean isPositive;
+
+        public Monotonicity(boolean isMonotonic, boolean isPositive) {
+            this.isMonotonic = isMonotonic;
+            this.isPositive = isPositive;
+        }
+    }
+
     private final String name;
 
     public Function(String name, Expression... children) {
@@ -45,5 +57,17 @@ public abstract class Function extends Expression {
 
     public final String getName() {
         return name;
+    }
+
+    public Expression withConstantArgs(Literal literal) {
+        return this;
+    }
+
+    public int getMonotonicFunctionChildIndex() {
+        return -1;
+    }
+
+    public Monotonicity getMonotonicity() {
+        return new Monotonicity(false, true);
     }
 }

@@ -42,11 +42,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -63,6 +64,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,7 +90,7 @@ public class OneRangePartitionEvaluator
     private final List<Literal> lowers;
     private final List<Literal> uppers;
     private final List<List<Expression>> inputs;
-    private final Map<Slot, Boolean> partitionSlotContainsNull;
+    private final Map<Expression, Boolean> partitionSlotContainsNull;
     private final Map<Slot, PartitionSlotType> slotToType;
 
     /** OneRangePartitionEvaluator */
@@ -110,8 +112,8 @@ public class OneRangePartitionEvaluator
             // fast path
             Slot partSlot = partitionSlots.get(0);
             this.slotToType = ImmutableMap.of(partSlot, partitionSlotTypes.get(0));
-            this.partitionSlotContainsNull
-                    = ImmutableMap.of(partSlot, range.lowerEndpoint().getKeys().get(0).isMinValue());
+            this.partitionSlotContainsNull = new HashMap<>();
+            partitionSlotContainsNull.put(partSlot, range.lowerEndpoint().getKeys().get(0).isMinValue());
         } else {
             // slow path
             this.slotToType = Maps.newHashMap();
@@ -196,15 +198,6 @@ public class OneRangePartitionEvaluator
     }
 
     @Override
-    public EvaluateRangeResult visitNullLiteral(NullLiteral nullLiteral, EvaluateRangeInput context) {
-        Map<Expression, ColumnRange> emptyRanges = Maps.newHashMap();
-        for (Expression key : context.defaultColumnRanges.keySet()) {
-            emptyRanges.put(key, new ColumnRange());
-        }
-        return new EvaluateRangeResult(nullLiteral, emptyRanges, ImmutableList.of());
-    }
-
-    @Override
     public EvaluateRangeResult visitSlot(Slot slot, EvaluateRangeInput context) {
         // try to replace partition slot to literal
         PartitionSlotInput slotResult = context.slotToInput.get(slot);
@@ -221,18 +214,18 @@ public class OneRangePartitionEvaluator
         }
         greaterThan = (GreaterThan) result.result;
         if (!(greaterThan.left() instanceof Literal) && greaterThan.right() instanceof Literal) {
-            Expression slot = greaterThan.left();
+            Expression expr = greaterThan.left();
             Map<Expression, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-            if (leftColumnRanges.containsKey(slot)) {
+            if (leftColumnRanges.containsKey(expr)) {
                 ColumnRange greaterThenRange = ColumnRange.greaterThan((Literal) greaterThan.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
+                result = intersectSlotRange(result, leftColumnRanges, expr, greaterThenRange);
             }
         } else if (greaterThan.left() instanceof Literal && !(greaterThan.right() instanceof Literal)) {
-            Expression slot = greaterThan.right();
+            Expression expr = greaterThan.right();
             Map<Expression, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
-            if (rightColumnRanges.containsKey(slot)) {
+            if (rightColumnRanges.containsKey(expr)) {
                 ColumnRange lessThenRange = ColumnRange.lessThen((Literal) greaterThan.left());
-                result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
+                result = intersectSlotRange(result, rightColumnRanges, expr, lessThenRange);
             }
         }
         return result;
@@ -246,18 +239,18 @@ public class OneRangePartitionEvaluator
         }
         greaterThanEqual = (GreaterThanEqual) result.result;
         if (!(greaterThanEqual.left() instanceof Literal) && greaterThanEqual.right() instanceof Literal) {
-            Expression slot = greaterThanEqual.left();
+            Expression expr = greaterThanEqual.left();
             Map<Expression, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-            if (leftColumnRanges.containsKey(slot)) {
+            if (leftColumnRanges.containsKey(expr)) {
                 ColumnRange atLeastRange = ColumnRange.atLeast((Literal) greaterThanEqual.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                result = intersectSlotRange(result, leftColumnRanges, expr, atLeastRange);
             }
         } else if (greaterThanEqual.left() instanceof Literal && !(greaterThanEqual.right() instanceof Literal)) {
-            Expression slot = greaterThanEqual.right();
+            Expression expr = greaterThanEqual.right();
             Map<Expression, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
-            if (rightColumnRanges.containsKey(slot)) {
+            if (rightColumnRanges.containsKey(expr)) {
                 ColumnRange atMostRange = ColumnRange.atMost((Literal) greaterThanEqual.left());
-                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+                result = intersectSlotRange(result, rightColumnRanges, expr, atMostRange);
             }
         }
         return result;
@@ -271,18 +264,18 @@ public class OneRangePartitionEvaluator
         }
         lessThan = (LessThan) result.result;
         if (!(lessThan.left() instanceof Literal) && lessThan.right() instanceof Literal) {
-            Expression slot = lessThan.left();
+            Expression expr = lessThan.left();
             Map<Expression, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-            if (leftColumnRanges.containsKey(slot)) {
+            if (leftColumnRanges.containsKey(expr)) {
                 ColumnRange greaterThenRange = ColumnRange.lessThen((Literal) lessThan.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
+                result = intersectSlotRange(result, leftColumnRanges, expr, greaterThenRange);
             }
         } else if (lessThan.left() instanceof Literal && !(lessThan.right() instanceof Literal)) {
-            Expression slot = lessThan.right();
+            Expression expr = lessThan.right();
             Map<Expression, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
-            if (rightColumnRanges.containsKey(slot)) {
+            if (rightColumnRanges.containsKey(expr)) {
                 ColumnRange lessThenRange = ColumnRange.greaterThan((Literal) lessThan.left());
-                result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
+                result = intersectSlotRange(result, rightColumnRanges, expr, lessThenRange);
             }
         }
         return result;
@@ -296,18 +289,18 @@ public class OneRangePartitionEvaluator
         }
         lessThanEqual = (LessThanEqual) result.result;
         if (!(lessThanEqual.left() instanceof Literal) && lessThanEqual.right() instanceof Literal) {
-            Expression slot = lessThanEqual.left();
+            Expression expr = lessThanEqual.left();
             Map<Expression, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-            if (leftColumnRanges.containsKey(slot)) {
+            if (leftColumnRanges.containsKey(expr)) {
                 ColumnRange atLeastRange = ColumnRange.atMost((Literal) lessThanEqual.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                result = intersectSlotRange(result, leftColumnRanges, expr, atLeastRange);
             }
         } else if (lessThanEqual.left() instanceof Literal && !(lessThanEqual.right() instanceof Literal)) {
-            Expression slot = lessThanEqual.right();
+            Expression expr = lessThanEqual.right();
             Map<Expression, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
-            if (rightColumnRanges.containsKey(slot)) {
+            if (rightColumnRanges.containsKey(expr)) {
                 ColumnRange atMostRange = ColumnRange.atLeast((Literal) lessThanEqual.left());
-                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+                result = intersectSlotRange(result, rightColumnRanges, expr, atMostRange);
             }
         }
         return result;
@@ -321,22 +314,22 @@ public class OneRangePartitionEvaluator
         }
         boolean isRejectNot = false;
         if (!(equalTo.left() instanceof Literal) && equalTo.right() instanceof Literal) {
-            Expression slot = equalTo.left();
+            Expression expr = equalTo.left();
             Map<Expression, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-            if (leftColumnRanges.containsKey(slot)) {
+            if (leftColumnRanges.containsKey(expr)) {
                 ColumnRange atLeastRange = ColumnRange.singleton((Literal) equalTo.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
-                if (leftColumnRanges.get(slot).isSingleton()) {
+                result = intersectSlotRange(result, leftColumnRanges, expr, atLeastRange);
+                if (leftColumnRanges.get(expr).isSingleton()) {
                     isRejectNot = true;
                 }
             }
         } else if (equalTo.left() instanceof Literal && !(equalTo.right() instanceof Literal)) {
-            Expression slot = equalTo.right();
+            Expression expr = equalTo.right();
             Map<Expression, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
-            if (rightColumnRanges.containsKey(slot)) {
+            if (rightColumnRanges.containsKey(expr)) {
                 ColumnRange atMostRange = ColumnRange.singleton((Literal) equalTo.left());
-                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
-                if (rightColumnRanges.get(slot).isSingleton()) {
+                result = intersectSlotRange(result, rightColumnRanges, expr, atMostRange);
+                if (rightColumnRanges.get(expr).isSingleton()) {
                     isRejectNot = true;
                 }
             }
@@ -377,17 +370,17 @@ public class OneRangePartitionEvaluator
             return result;
         }
         inPredicate = (InPredicate) result.result;
-        Map<Expression, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
-        if (slotRanges.containsKey(inPredicate.getCompareExpr())
+        Map<Expression, ColumnRange> exprRanges = result.childrenResult.get(0).columnRanges;
+        if (exprRanges.containsKey(inPredicate.getCompareExpr())
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
-            Slot slot = (Slot) inPredicate.getCompareExpr();
+            Expression compareExpr = inPredicate.getCompareExpr();
             ColumnRange unionLiteralRange = ColumnRange.empty();
-            ColumnRange slotRange = result.childrenResult.get(0).columnRanges.get(slot);
+            ColumnRange compareExprRange = result.childrenResult.get(0).columnRanges.get(compareExpr);
             for (Expression expr : inPredicate.getOptions()) {
                 unionLiteralRange = unionLiteralRange.union(
-                        slotRange.intersect(ColumnRange.singleton((Literal) expr)));
+                        compareExprRange.intersect(ColumnRange.singleton((Literal) expr)));
             }
-            result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
+            result = intersectSlotRange(result, exprRanges, compareExpr, unionLiteralRange);
         }
         result = result.withRejectNot(false);
         return result;
@@ -401,11 +394,10 @@ public class OneRangePartitionEvaluator
         }
         result = result.withRejectNot(false);
         Expression child = isNull.child();
-        if (!(child instanceof Slot) || !isPartitionSlot((Slot) child)) {
+        if (!partitionSlotContainsNull.containsKey(child)) {
             return result;
         }
-
-        if (!partitionSlotContainsNull.get((Slot) child)) {
+        if (!partitionSlotContainsNull.get(child)) {
             return new EvaluateRangeResult(BooleanLiteral.FALSE,
                     result.columnRanges, result.childrenResult, false);
         }
@@ -417,7 +409,15 @@ public class OneRangePartitionEvaluator
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
 
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> leftRange.intersect(rightRange));
+                (leftRange, rightRange) -> {
+                if (leftRange == null) {
+                    return rightRange;
+                }
+                if (rightRange == null) {
+                    return leftRange;
+                }
+                return leftRange.intersect(rightRange);
+            });
 
         result = returnFalseIfExistEmptyRange(result);
         if (result.result.equals(BooleanLiteral.FALSE)) {
@@ -435,7 +435,15 @@ public class OneRangePartitionEvaluator
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
 
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> leftRange.union(rightRange));
+                (leftRange, rightRange) -> {
+                    if (leftRange == null) {
+                        return rightRange;
+                    }
+                    if (rightRange == null) {
+                        return leftRange;
+                    }
+                    return leftRange.union(rightRange);
+                });
         return returnFalseIfExistEmptyRange(result);
     }
 
@@ -490,11 +498,11 @@ public class OneRangePartitionEvaluator
     }
 
     private EvaluateRangeResult intersectSlotRange(EvaluateRangeResult originResult,
-            Map<Expression, ColumnRange> columnRanges, Expression slot, ColumnRange otherRange) {
-        ColumnRange columnRange = columnRanges.get(slot);
+            Map<Expression, ColumnRange> columnRanges, Expression expr, ColumnRange otherRange) {
+        ColumnRange columnRange = columnRanges.get(expr);
         ColumnRange intersect = columnRange.intersect(otherRange);
 
-        Map<Expression, ColumnRange> newColumnRanges = replaceSlotRange(columnRanges, slot, intersect);
+        Map<Expression, ColumnRange> newColumnRanges = replaceSlotRange(columnRanges, expr, intersect);
 
         if (intersect.isEmptyRange()) {
             return new EvaluateRangeResult(BooleanLiteral.FALSE, newColumnRanges, originResult.childrenResult);
@@ -576,13 +584,13 @@ public class OneRangePartitionEvaluator
         if (leftRanges.equals(rightRanges)) {
             return new EvaluateRangeResult(originResult, leftRanges, ImmutableList.of(left, right));
         }
-        Set<Expression> slots = ImmutableSet.<Expression>builder()
+        Set<Expression> exprs = ImmutableSet.<Expression>builder()
                 .addAll(leftRanges.keySet())
                 .addAll(rightRanges.keySet())
                 .build();
 
-        Map<Expression, ColumnRange> mergedRange = slots.stream()
-                .map(slot -> Pair.of(slot, mergeFunction.apply(leftRanges.get(slot), rightRanges.get(slot))))
+        Map<Expression, ColumnRange> mergedRange = exprs.stream()
+                .map(expr -> Pair.of(expr, mergeFunction.apply(leftRanges.get(expr), rightRanges.get(expr))))
                 .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
         return new EvaluateRangeResult(originResult, mergedRange, ImmutableList.of(left, right));
     }
@@ -623,38 +631,44 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof DateTrunc)) {
             return result;
         }
-        dateTrunc = (DateTrunc) result.result;
-        if (!(dateTrunc.child(0) instanceof Slot) || !isPartitionSlot((Slot) dateTrunc.child(0))) {
-            return result;
+        Expression dateTruncChild = dateTrunc.child(0);
+        if (partitionSlotContainsNull.containsKey(dateTruncChild)) {
+            boolean newNullable = new DateTrunc(partitionSlotContainsNull.get(dateTruncChild) ? dateTruncChild
+                    : new NonNullable(dateTruncChild), dateTrunc.child(1)).nullable();
+            partitionSlotContainsNull.put(dateTrunc, newNullable);
         }
-        Slot partitionSlot = (Slot) dateTrunc.child(0);
-        PartitionSlotType partitionSlotType = getPartitionSlotType(partitionSlot).get();
-        if (partitionSlotType != PartitionSlotType.RANGE || partitionSlotContainsNull.get(partitionSlot)) {
-            return result;
-        }
-        DataType childType = dateTrunc.child(0).getDataType();
-        if (!childType.isDateTimeType() && !childType.isDateTimeV2Type()) {
-            return result;
-        }
+        return computeMonotonicFunctionRange(result);
+    }
 
-        ColumnRange dateTimeRange = result.childrenResult.get(0).columnRanges.get((Slot) dateTrunc.child(0));
-        if (dateTimeRange.isEmptyRange()) {
+    private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
+        Function func = (Function) result.result;
+        int childIndex = func.getMonotonicFunctionChildIndex();
+        Expression funcChild = func.child(childIndex);
+        if (!partitionSlotContainsNull.containsKey(funcChild) || partitionSlotContainsNull.get(funcChild)) {
             return result;
         }
-        Range<ColumnBound> span = dateTimeRange.span();
+        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
+            return result;
+        }
+        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
+        if (childRange.isEmptyRange()) {
+            return result;
+        }
+        Range<ColumnBound> span = childRange.span();
         Literal lower = span.lowerEndpoint().getValue();
         Literal upper = span.upperEndpoint().getValue();
-        Expression lowerDate = FoldConstantRuleOnFE.evaluate(new DateTrunc(lower, dateTrunc.child(1)),
+        Expression lowerValue = FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
                 expressionRewriteContext);
-        Expression upperDate = FoldConstantRuleOnFE.evaluate(new DateTrunc(upper, dateTrunc.child(1)),
+        Expression upperValue = FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext);
 
-        if (lowerDate instanceof Literal && upperDate instanceof Literal && lowerDate.equals(upperDate)) {
-            return new EvaluateRangeResult(lowerDate, result.columnRanges, result.childrenResult);
-        } else if (lowerDate instanceof Literal && upperDate instanceof Literal) {
-            LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap(result.columnRanges);
-            newRanges.put(dateTrunc, ColumnRange.between((Literal) lowerDate, (Literal) upperDate));
-            return new EvaluateRangeResult(dateTrunc, newRanges, result.childrenResult);
+        LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap();
+        if (lowerValue instanceof Literal && upperValue instanceof Literal && lowerValue.equals(upperValue)) {
+            newRanges.put(func, ColumnRange.singleton((Literal) lowerValue));
+            return new EvaluateRangeResult(lowerValue, result.columnRanges, result.childrenResult);
+        } else if (lowerValue instanceof Literal && upperValue instanceof Literal) {
+            newRanges.put(func, ColumnRange.between((Literal) lowerValue, (Literal) upperValue));
+            return new EvaluateRangeResult(func, newRanges, result.childrenResult);
         }
         return result;
     }
