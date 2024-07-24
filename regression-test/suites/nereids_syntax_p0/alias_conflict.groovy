@@ -173,13 +173,15 @@ suite("alias_conflict") {
     on b.id = c.id;"""
 
 
-    test {
-        sql "select * from alias_conflict1.test_alias_conflict1 t, alias_conflict2.test_alias_conflict1 t;"
-        exception "Not unique table/alias: 't'"
-    }
 
     // Test case for cross database table names with no conflict
     qt_select_cross_db_no_conflict """select * from alias_conflict1.test_alias_conflict1 a, alias_conflict2.test_alias_conflict1 b where a.id = b.id;"""
+
+
+    qt_child_query_no_conflict1 """select * from (select 1) as no_conflict1_tbl, alias_conflict1.test_alias_conflict1 as no_conflict1_tbl;"""
+
+
+    qt_child_query_no_conflict2 """select * from (select * from alias_conflict1.test_alias_conflict1) as no_conflict1_tbl2, alias_conflict1.test_alias_conflict1 as no_conflict1_tbl2"""
 
     sql """ DROP TABLE IF EXISTS `test_alias_conflict1` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict2` """
