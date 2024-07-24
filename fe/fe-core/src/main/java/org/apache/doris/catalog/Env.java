@@ -6155,7 +6155,7 @@ public class Env {
     }
 
     public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         String functionSignature = stmt.signatureString();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backendsInfo.values()) {

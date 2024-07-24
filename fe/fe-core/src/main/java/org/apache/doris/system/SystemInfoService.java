@@ -801,7 +801,7 @@ public class SystemInfoService {
 
     private ImmutableMap<Long, Backend> getAllClusterBackendsNoException() {
         try {
-            return getAllBackendsWithIdByAllCluster();
+            return getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("getAllClusterBackendsNoException: ", e);
             return ImmutableMap.of();
@@ -978,24 +978,19 @@ public class SystemInfoService {
     }
 
     // CloudSystemInfoService override
-    public List<Backend> getBackendsByCurrentCluster() throws UserException {
-        return new ArrayList<>(idToBackendRef.values());
-    }
-
-    // CloudSystemInfoService override
-    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws AnalysisException {
+    public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
         return idToBackendRef;
     }
 
     // Cloud and NonCloud get all bes
-    public ImmutableMap<Long, Backend> getAllBackendsWithIdByAllCluster() throws AnalysisException {
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return idToBackendRef;
     }
 
     public int getMinPipelineExecutorSize() {
         List<Backend> currentBackends = null;
         try {
-            currentBackends = getBackendsByCurrentCluster();
+            currentBackends = getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get current cluster backends failed: ", e);

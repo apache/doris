@@ -83,7 +83,7 @@ public class StatisticAction extends RestBaseController {
         long diskOccupancy = 0;
         List<Backend> backends;
         try {
-            backends = infoService.getBackendsByCurrentCluster();
+            backends = infoService.getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
             LOG.warn("failed to get backends by current cluster", e);
             return 0;
@@ -98,7 +98,7 @@ public class StatisticAction extends RestBaseController {
         long remainDisk = 0;
         List<Backend> backends;
         try {
-            backends = infoService.getBackendsByCurrentCluster();
+            backends = infoService.getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
             LOG.warn("failed to get backends by current cluster", e);
             return 0;

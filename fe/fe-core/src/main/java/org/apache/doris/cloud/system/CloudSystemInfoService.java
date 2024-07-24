@@ -369,7 +369,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public List<Backend> getBackendsByCurrentCluster() throws AnalysisException {
+    public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
             throw new AnalysisException("connect context is null");
@@ -380,12 +380,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new AnalysisException("cluster name is empty");
         }
 
-        return getBackendsByClusterName(cluster);
-    }
-
-    @Override
-    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws AnalysisException {
-        List<Backend> backends = getBackendsByCurrentCluster();
+        List<Backend> backends =  getBackendsByClusterName(cluster);
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         for (Backend be : backends) {
             idToBackend.put(be.getId(), be);

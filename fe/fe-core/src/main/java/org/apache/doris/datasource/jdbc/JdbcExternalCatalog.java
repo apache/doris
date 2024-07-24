@@ -348,7 +348,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private void testBeToJdbcConnection() throws DdlException {
         Backend aliveBe = null;
         try {
-            for (Backend be : Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().values()) {
+            for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
                 if (be.isAlive()) {
                     aliveBe = be;
                 }

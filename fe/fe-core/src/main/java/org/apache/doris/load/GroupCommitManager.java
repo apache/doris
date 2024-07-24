@@ -20,6 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -279,7 +280,14 @@ public class GroupCommitManager {
             return cachedBackendId;
         }
 
-        List<Backend> backends = new ArrayList<>((Env.getCurrentSystemInfo()).getAllBackends());
+        List<Backend> backends = new ArrayList<>();
+        try {
+            backends = new ArrayList<>(Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList());
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends by all cluster", e);
+            throw new LoadException(e.getMessage());
+        }
+
         if (backends.isEmpty()) {
             throw new LoadException("No alive backend");
         }

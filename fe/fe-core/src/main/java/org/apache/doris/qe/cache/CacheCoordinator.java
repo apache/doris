@@ -111,7 +111,7 @@ public class CacheCoordinator {
         }
         try {
             belock.lock();
-            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
             if (idToBackend != null) {
                 if (!debugModel) {
                     clearBackend(idToBackend);

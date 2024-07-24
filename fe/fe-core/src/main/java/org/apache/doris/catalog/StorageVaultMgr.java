@@ -199,7 +199,8 @@ public class StorageVaultMgr {
     private void alterSyncVaultTask() {
         List<Backend> bes;
         try {
-            bes = systemInfoService.getBackendsByCurrentCluster();
+            // get system all backends
+            bes = systemInfoService.getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
             LOG.warn("failed to get current cluster backends: {}", e);
             return;

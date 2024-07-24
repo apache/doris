@@ -75,7 +75,7 @@ public class TopicPublisherThread extends MasterDaemon {
         // step 2: publish topic info to all be
         Collection<Backend> nodesToPublish;
         try {
-            nodesToPublish = clusterInfoService.getAllBackendsWithIdByAllCluster().values();
+            nodesToPublish = clusterInfoService.getAllBackendsByAllCluster().values();
         } catch (Exception e) {
             LOG.warn("get backends failed", e);
             return;

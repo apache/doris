@@ -43,7 +43,7 @@ public class AdminRebalanceDiskStmt extends DdlStmt {
     public AdminRebalanceDiskStmt(List<String> backends) {
         ImmutableMap<Long, Backend> backendsInfo;
         try {
-            backendsInfo = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("failed to get backends,", e);
             return;

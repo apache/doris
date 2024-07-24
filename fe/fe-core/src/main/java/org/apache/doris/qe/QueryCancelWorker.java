@@ -40,7 +40,7 @@ public class QueryCancelWorker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         List<Backend> allBackends;
         try {
-            allBackends = systemInfoService.getAllBackendsWithIdByAllCluster().values().asList();
+            allBackends = systemInfoService.getAllBackendsByAllCluster().values().asList();
         } catch (Exception e) {
             LOG.warn("failed to get backends by current cluster", e);
             return;

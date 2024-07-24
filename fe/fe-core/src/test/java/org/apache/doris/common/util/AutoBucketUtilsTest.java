@@ -64,7 +64,7 @@ public class AutoBucketUtilsTest {
     private static void createClusterWithBackends(int beNum, int diskNum, long diskCapacity) throws Exception {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, beNum);
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             setDiskInfos(diskNum, diskCapacity, be);
         }
@@ -113,7 +113,7 @@ public class AutoBucketUtilsTest {
                 minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.getBackendsWithIdByCurrentCluster();
+                systemInfoService.getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = backends;
 

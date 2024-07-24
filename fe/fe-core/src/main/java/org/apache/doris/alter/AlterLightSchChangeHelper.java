@@ -157,7 +157,7 @@ public class AlterLightSchChangeHelper {
         Map<Long, Future<PFetchColIdsResponse>> beIdToRespFuture = new HashMap<>();
         try {
             for (Long beId : beIdToRequest.keySet()) {
-                final Backend backend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().get(beId);
+                final Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().get(beId);
                 final TNetworkAddress address =
                         new TNetworkAddress(Objects.requireNonNull(backend).getHost(), backend.getBrpcPort());
                 final Future<PFetchColIdsResponse> responseFuture = BackendServiceProxy.getInstance()

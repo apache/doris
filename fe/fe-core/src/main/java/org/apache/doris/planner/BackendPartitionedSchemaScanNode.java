@@ -120,7 +120,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         scanRangeLocations = new ArrayList<>();
         for (Long partitionID : selectedPartitionIds) {
             Long backendId = partitionIDToBackendID.get(partitionID);
-            Backend be = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().get(backendId);
+            Backend be = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
             if (!be.isAlive()) {
                 throw new AnalysisException("backend " + be.getId() + " is not alive.");
             }
@@ -159,7 +159,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         backendPartitionInfo = new PartitionInfo(PartitionType.LIST, partitionColumns);
         partitionIDToBackendID = new HashMap<>();
         long partitionID = 0;
-        for (Backend be : Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 // create partition key
                 PartitionKey partitionKey = new PartitionKey();

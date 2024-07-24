@@ -80,7 +80,7 @@ public class DecommissionTest {
         // 127.0.0.3
         // 127.0.0.4
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 4);
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();

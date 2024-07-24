@@ -52,7 +52,7 @@ public class TrashProcDir implements ProcDirInterface {
     public TrashProcDir() {
         ImmutableMap<Long, Backend> backendsInfo;
         try {
-            backendsInfo = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("Can't get backends info", e);
             return;

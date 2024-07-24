@@ -38,7 +38,7 @@ public class ShowTrashStmt extends ShowStmt {
     private List<Backend> backends = Lists.newArrayList();
 
     public ShowTrashStmt() throws AnalysisException {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
         }

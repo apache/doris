@@ -89,7 +89,7 @@ public class DynamicPartitionTableTest {
     }
 
     private static void changeBeDisk(TStorageMedium storageMedium) throws UserException {
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 diskInfo.setStorageMedium(storageMedium);

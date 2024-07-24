@@ -54,7 +54,7 @@ public class TabletStatMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("can't get backends info", e);
             return;

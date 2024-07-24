@@ -182,7 +182,7 @@ public class TabletScheduler extends MasterDaemon {
     private boolean updateWorkingSlots() {
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = infoService.getBackendsWithIdByCurrentCluster();
+            backends = infoService.getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("failed to get backends with current cluster", e);
             return false;

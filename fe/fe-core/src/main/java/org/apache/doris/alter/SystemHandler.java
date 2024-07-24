@@ -290,7 +290,7 @@ public class SystemHandler extends AlterHandler {
         Map<Tag, Integer> tagAvailBackendNums = Maps.newHashMap();
         List<Backend> bes;
         try {
-            bes = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+            bes = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().asList();
         } catch (UserException e) {
             LOG.warn("Failed to get current cluster backend by current cluster.", e);
             return;

@@ -40,7 +40,7 @@ public class AutoBucketUtils {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = infoService.getBackendsWithIdByCurrentCluster();
+            backends = infoService.getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             logger.warn("failed to get backends with current cluster", e);
             return 0;
@@ -59,7 +59,7 @@ public class AutoBucketUtils {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = infoService.getBackendsWithIdByCurrentCluster();
+            backends = infoService.getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             logger.warn("failed to get backends with current cluster", e);
             return 0;

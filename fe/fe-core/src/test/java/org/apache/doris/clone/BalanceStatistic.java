@@ -41,7 +41,7 @@ public class BalanceStatistic {
     public static BalanceStatistic getCurrentBalanceStatistic() throws UserException {
         Map<Long, Long> backendTotalDataSize = Maps.newHashMap();
         Map<Long, Integer> backendTotalReplicaNum = Maps.newHashMap();
-        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().values().asList();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         backends.forEach(be -> {
             backendTotalDataSize.put(be.getId(), 0L);
             backendTotalReplicaNum.put(be.getId(), 0);

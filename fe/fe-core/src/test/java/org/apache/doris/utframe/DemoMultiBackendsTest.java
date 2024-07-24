@@ -89,7 +89,7 @@ public class DemoMultiBackendsTest {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();

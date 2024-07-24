@@ -69,7 +69,7 @@ public class TabletsProcDir implements ProcDirInterface {
             throws AnalysisException {
         Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(index);
-        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
         Map<Long, String> pathHashToRoot = new HashMap<>();

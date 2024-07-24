@@ -399,7 +399,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // For the http stream task, we should obtain the be for processing the task
         ImmutableMap<Long, Backend> beIdToBe;
         try {
-            beIdToBe = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            beIdToBe = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
         } catch (AnalysisException e) {
             LOG.warn("get backend failed, ", e);
             return null;

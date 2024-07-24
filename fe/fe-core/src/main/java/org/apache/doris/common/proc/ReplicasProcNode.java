@@ -59,7 +59,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);

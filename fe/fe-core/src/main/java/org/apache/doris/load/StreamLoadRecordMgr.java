@@ -246,7 +246,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = Env.getCurrentSystemInfo().getAllBackendsWithIdByAllCluster();
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("Failed to load backends from system info", e);
             return;
@@ -362,7 +362,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public void replayFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) throws AnalysisException {
-        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Map<Long, Long> beIdToLastStreamLoad = fetchStreamLoadRecord.getBeIdToLastStreamLoad();
         for (Backend backend : backends.values()) {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {

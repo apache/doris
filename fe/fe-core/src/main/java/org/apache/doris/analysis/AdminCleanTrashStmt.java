@@ -38,7 +38,7 @@ public class AdminCleanTrashStmt extends DdlStmt {
     private List<Backend> backends = Lists.newArrayList();
 
     public AdminCleanTrashStmt(List<String> backends) throws UserException {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
             backendsID.put(

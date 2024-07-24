@@ -133,7 +133,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
         long beDeadNum = 0;
         try {
-            beDeadNum = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster()
+            beDeadNum = Env.getCurrentSystemInfo().getAllBackendsByAllCluster()
                     .values().stream().filter(b -> !b.isAlive())
                     .count();
         } catch (AnalysisException e) {
