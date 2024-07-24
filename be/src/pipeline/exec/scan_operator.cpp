@@ -18,6 +18,8 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <cstdint>
 #include <memory>
@@ -1498,7 +1500,16 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
+    // RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
+    std::unique_ptr<PBlock> pblock = std::make_unique<PBlock>();
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    segment_v2::CompressionTypePB compress_type = segment_v2::LZ4;
+    RETURN_IF_ERROR(local_state._scanner_ctx->get_serialized_block_from_queue(
+            state, block, pblock.get(), &uncompressed_bytes, &compressed_bytes, compress_type, eos,
+            0));
+
+    RETURN_IF_ERROR(block->deserialize(*pblock));
 
     local_state.reached_limit(block, eos);
     if (*eos) {

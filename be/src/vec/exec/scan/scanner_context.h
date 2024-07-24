@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bthread/types.h>
+#include <gen_cpp/data.pb.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -131,6 +132,11 @@ public:
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
     Status get_block_from_queue(RuntimeState* state, vectorized::Block* block, bool* eos, int id);
+
+    [[nodiscard]] Status get_serialized_block_from_queue(
+            RuntimeState* state, vectorized::Block* block, PBlock* pblock,
+            size_t* uncompressed_bytes, size_t* compressed_bytes,
+            segment_v2::CompressionTypePB compression_type, bool* eos, int id);
 
     [[nodiscard]] Status validate_block_schema(Block* block);
 

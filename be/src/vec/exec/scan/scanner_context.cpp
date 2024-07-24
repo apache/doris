@@ -19,8 +19,11 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <utility>
@@ -31,7 +34,9 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
@@ -288,6 +293,16 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _dependency->block();
     }
     return Status::OK();
+}
+
+Status ScannerContext::get_serialized_block_from_queue(
+        RuntimeState* state, Block* block, PBlock* pblock, size_t* uncompressed_bytes,
+        size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type, bool* eos,
+        int id) {
+    RETURN_IF_ERROR(get_block_from_queue(state, block, eos, id));
+    int be_exec_version = 0;
+    return block->serialize(be_exec_version, pblock, uncompressed_bytes, compressed_bytes,
+                            compression_type);
 }
 
 void ScannerContext::_try_to_scale_up() {
