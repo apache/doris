@@ -503,7 +503,7 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObj(getQualifiedName(realDbName)).orElse(null);
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));

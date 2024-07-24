@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.CacheFactory;
-import org.apache.doris.common.util.Util;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -34,8 +33,6 @@ import java.util.concurrent.ExecutorService;
 
 public class MetaCache<T> {
     private LoadingCache<String, List<String>> namesCache;
-    // The value of this map is the full qualified name of the object.
-    // eg: ctl.db, ctl.db.tbl
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -77,12 +74,12 @@ public class MetaCache<T> {
         return namesCache.get("");
     }
 
-    public Optional<T> getMetaObj(String fullQualifiedName) {
-        Optional<T> val = metaObjCache.getIfPresent(fullQualifiedName);
+    public Optional<T> getMetaObj(String name, long id) {
+        Optional<T> val = metaObjCache.getIfPresent(name);
         if (val == null) {
             synchronized (metaObjCache) {
-                val = metaObjCache.get(fullQualifiedName);
-                idToName.put(Util.genIdByName(fullQualifiedName), fullQualifiedName);
+                val = metaObjCache.get(name);
+                idToName.put(id, name);
             }
         }
         return val;
@@ -90,7 +87,7 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObjById(long id) {
         String name = idToName.get(id);
-        return name == null ? Optional.empty() : getMetaObj(name);
+        return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
     public void updateCache(String objName, T obj) {
