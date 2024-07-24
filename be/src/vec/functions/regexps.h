@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "common/status.h"
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized::multiregexps {
@@ -162,12 +163,14 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
         CompilerError error(compile_error);
 
         if (error->expression < 0) { // error has nothing to do with the patterns themselves
-            throw doris::Exception(Status::InternalError("Compile regexp expression failed. got {}",
-                                                         error->message));
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    fmt::format("Compile regexp expression failed. got {}", error->message));
         } else {
-            throw doris::Exception(Status::InvalidArgument(
-                    "Compile regexp expression failed. got {}. some expressions may be illegal",
-                    error->message));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   fmt::format("Compile regexp expression failed. got {}. some "
+                                               "expressions may be illegal",
+                                               error->message));
         }
     }
 
@@ -178,11 +181,14 @@ Regexps constructRegexps(const std::vector<String>& str_patterns,
 
     if (err != HS_SUCCESS) [[unlikely]] {
         if (err == HS_NOMEM) [[unlikely]] {
-            throw doris::Exception(Status::MemoryAllocFailed(
-                    "Allocating memory failed on compiling regexp expressions."));
+            throw doris::Exception(
+                    ErrorCode::MEM_ALLOC_FAILED,
+                    std::string("Allocating memory failed on compiling regexp expressions."));
         } else {
-            throw doris::Exception(Status::InvalidArgument(
-                    "Compile regexp expression failed with unexpected arguments perhaps"));
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    std::string(
+                            "Compile regexp expression failed with unexpected arguments perhaps"));
         }
     }
 
