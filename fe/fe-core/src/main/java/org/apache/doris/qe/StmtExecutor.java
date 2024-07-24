@@ -1982,7 +1982,11 @@ public class StmtExecutor {
                         channel.sendOnePacket(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
-                    context.updateReturnRows(batch.getQueryStatistics().getReturnedRows());
+                    if (batch.getQueryStatistics() != null) {
+                        context.updateReturnRows(batch.getQueryStatistics().getReturnedRows());
+                    } else {
+                        context.updateReturnRows(batch.getBatch().getRows().size());
+                    }
                     context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
