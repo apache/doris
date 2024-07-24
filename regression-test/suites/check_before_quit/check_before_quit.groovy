@@ -96,7 +96,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
             }
         }
         return metricValues
-    }
+    } }
 
     def getVar = { String data, String name -> {
         def varValues = []
@@ -113,12 +113,12 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 def varName = matcher[0][1]
                 def varValue = matcher[0][2]
                 if (varName == name) {
-                    varValues << value
+                    varValues << varValue
                 }
             }
         }
         return varValues
-    }
+    } }
 
     beginTime = System.currentTimeMillis();
     timeoutMs = 30 * 1000 // 30s
@@ -134,7 +134,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
         def errorStream_metrics = new StringBuffer()
         process_metrics.consumeProcessOutput(outputStream_metrics, errorStream_metrics)
         def code_metrics = process_metrics.waitFor()
-        def metrics = outputStream.toString()
+        def metrics = outputStream_metrics.toString()
         logger.info("Request BE metrics: code=" + code_metrics + ", err=" + errorStream_metrics.toString())
 
         logger.info("executing command: ${command_vars}")
@@ -143,7 +143,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
         def errorStream_vars = new StringBuffer()
         process_vars.consumeProcessOutput(outputStream_vars, errorStream_vars)
         def code_vars = process_vars.waitFor()
-        def vars = outputStream.toString()
+        def vars = outputStream_vars.toString()
         logger.info("Request BE vars: code=" + code_vars + ", err=" + errorStream_vars.toString())
 
         def hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_data")
