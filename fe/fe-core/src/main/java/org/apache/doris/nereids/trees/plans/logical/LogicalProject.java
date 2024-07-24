@@ -21,7 +21,6 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -209,16 +208,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         properties.put("IsDistinct", isDistinct);
         logicalProject.put("Properties", properties);
         return logicalProject;
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        return builder.build();
     }
 
     @Override

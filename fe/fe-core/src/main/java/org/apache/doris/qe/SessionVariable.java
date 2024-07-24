@@ -2113,10 +2113,14 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
+            this.topnOptLimitThreshold = 0;
+            this.enableSyncRuntimeFilterSize = true;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
+            this.topnOptLimitThreshold = 1024;
+            this.enableSyncRuntimeFilterSize = false;
         }
 
         /*
@@ -2166,6 +2170,7 @@ public class SessionVariable implements Serializable, Writable {
             switch (Config.pull_request_id % 3) {
                 case 0:
                     this.fragmentTransmissionCompressionCodec = "snappy";
+                    this.runtimeFilterWaitTimeMs = 10;
                     break;
                 case 1:
                     this.fragmentTransmissionCompressionCodec = "lz4";
@@ -2180,10 +2185,12 @@ public class SessionVariable implements Serializable, Writable {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
                     this.parallelScanMinRowsPerScanner = 64;
+                    this.runtimeFilterMaxInNum = 10;
                     break;
                 case 1:
                     this.parallelScanMaxScannersCount = 16;
                     this.parallelScanMinRowsPerScanner = 128;
+                    this.runtimeFilterMaxInNum = 0;
                     break;
                 case 2:
                     this.parallelScanMaxScannersCount = 8;
