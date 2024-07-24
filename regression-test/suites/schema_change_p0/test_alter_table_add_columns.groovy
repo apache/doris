@@ -56,26 +56,14 @@ suite("test_alter_table_add_columns") {
     qt_order """ select * from ${tbName} order by siteid"""
 
     // Add one value column light schema change is false
-    sleep(1000)
+
     sql """ alter table ${tbName} ADD COLUMN (new_k1 INT DEFAULT '1', new_k2 INT DEFAULT '2');"""
-    def waitSchemaChangeJob = { String tableName /* param */ ->
-        int tryTimes = 30
-        while (tryTimes-- > 0) {
-            def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-            def jobState = jobResult[0][9].toString()
-            if ('cancelled'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                throw new IllegalStateException("${tableName}'s job has been cancelled")
-            }
-            if ('finished'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                break
-            }
-            sleep(10000)
-        }
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
 
-    waitSchemaChangeJob(tbName)
     qt_sql """ DESC ${tbName}"""
 
     sql """ INSERT INTO ${tbName} VALUES

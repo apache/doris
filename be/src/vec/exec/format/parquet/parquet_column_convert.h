@@ -408,18 +408,20 @@ class StringToDecimal : public PhysicalToLogicalConverter {
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
             // the unscaled number must be encoded as two's complement using big-endian byte order.
             ValueCopyType value = 0;
-            memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
-            value = BitUtil::big_endian_to_host(value);
-            value = value >> ((sizeof(value) - len) * 8);
-            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                value *= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                value /= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
-                // do nothing
-            } else {
-                LOG(FATAL) << "__builtin_unreachable";
-                __builtin_unreachable();
+            if (len > 0) {
+                memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
+                value = BitUtil::big_endian_to_host(value);
+                value = value >> ((sizeof(value) - len) * 8);
+                if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
+                    // do nothing
+                } else {
+                    LOG(FATAL) << "__builtin_unreachable";
+                    __builtin_unreachable();
+                }
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;

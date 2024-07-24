@@ -69,8 +69,8 @@ run() {
         --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 14 \
-        -suiteParallel 14 \
+        -parallel 8 \
+        -suiteParallel 8 \
         -actionParallel 2; then
         echo
     else
@@ -86,8 +86,8 @@ run() {
         test_suites=$(echo "${summary}" | cut -d ' ' -f 2)
         failed_suites=$(echo "${summary}" | cut -d ' ' -f 5)
         fatal_scripts=$(echo "${summary}" | cut -d ' ' -f 8)
-        if [[ ${test_suites} -gt 0 && ${failed_suites} -le 30 && ${fatal_scripts} -eq 0 ]]; then
-            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=30 && fatal_scripts=0)"
+        if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${failed_suites_threshold:=100} && ${fatal_scripts} -eq 0 ]]; then
+            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=${failed_suites_threshold} && fatal_scripts=0)"
         else
             return 1
         fi

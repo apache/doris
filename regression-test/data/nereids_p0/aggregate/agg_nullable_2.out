@@ -8,6 +8,15 @@
 -- !select_any_value_n --
 100
 
+-- !select_sum_foreach --
+[4, 5, 6]
+
+-- !select_sum_foreach2 --
+[4, 5, 6]
+
+-- !select_sum_foreach_n --
+[1, 2, 3]
+
 -- !select_approx_count_distinct --
 1
 

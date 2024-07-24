@@ -159,7 +159,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 if (!table.writeLockIfExist()) {
                     continue;
                 }
-
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {

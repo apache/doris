@@ -47,6 +47,7 @@ struct TTabletSchema {
     19: optional list<i32> cluster_key_idxes
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
+    21: optional i64 row_store_page_size = 16384;
 }
 
 // this enum stands for different storage format in src_backends

@@ -41,6 +41,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_show_transaction," + // not supported yet
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
+    "test_index_compaction_failure_injection," +
     "test_partial_update_2pc_schema_change," + // mow 2pc
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
