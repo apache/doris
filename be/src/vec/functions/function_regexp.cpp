@@ -278,7 +278,7 @@ struct RegexpExtractImpl {
 };
 
 // To be compatible with presto.
-// The function of this function is the same as RegexpExtract, except that it returns null when no match is found.
+// The function is same as RegexpExtract, except that it returns null when no match is found.
 struct RegexpExtractOrNullImpl {
     static constexpr auto name = "regexp_extract_or_null";
     // 3 args
