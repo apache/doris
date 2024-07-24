@@ -68,6 +68,7 @@ public class ProfileManager {
     public static final String QUERY_STATE = "Query State";
     public static final String DORIS_VERSION = "Doris Version";
     public static final String USER = "User";
+    public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
@@ -84,7 +85,7 @@ public class ProfileManager {
     }
 
     public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
-            Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
+            Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
 
     private class ProfileElement {
