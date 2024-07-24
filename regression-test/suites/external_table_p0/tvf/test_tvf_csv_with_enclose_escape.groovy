@@ -32,7 +32,7 @@ suite("test_tvf_csv_with_enclose_escape", "p0") {
         'enclose_empty_values.csv'
     ]        
 
-    String outFilePath="test_tvf_csv_with_enclose_escape/"
+    String outFilePath="/tmp/"
     
     for (List<Object> backend : backends) {
         def be_host = backend[1]
