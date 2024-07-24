@@ -1982,7 +1982,7 @@ public class StmtExecutor {
                         channel.sendOnePacket(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
-                    context.updateReturnRows(batch.getBatch().getRows().size());
+                    context.updateReturnRows(batch.getQueryStatistics().getReturnedRows());
                     context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
@@ -2008,8 +2008,7 @@ public class StmtExecutor {
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && isDryRun) {
                         // Return a one row one column result set, with the real result number
-                        List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
-                                : batch.getQueryStatistics().getReturnedRows() + "");
+                        List<String> data = Lists.newArrayList(String.valueOf(context.getReturnRows()));
                         ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
                                 Collections.singletonList(data));
                         sendResultSet(resultSet);
