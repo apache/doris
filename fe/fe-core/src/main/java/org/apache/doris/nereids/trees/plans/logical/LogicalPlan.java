@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -68,8 +67,6 @@ public interface LogicalPlan extends Plan {
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
         computeFd(fdBuilder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        fdBuilder.addFdItems(fdItems);
 
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
@@ -97,8 +94,6 @@ public interface LogicalPlan extends Plan {
         }
         return fdBuilder.build();
     }
-
-    ImmutableSet<FdItem> computeFdItems();
 
     void computeUnique(DataTrait.Builder builder);
 
