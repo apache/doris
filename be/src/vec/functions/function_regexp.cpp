@@ -355,7 +355,7 @@ struct RegexpExtractOrNullImpl {
 
         int max_matches = 1 + re->NumberOfCapturingGroups();
         if (index_data >= max_matches) {
-            StringOP::push_null_string(index_now, result_data, result_offset);
+            StringOP::push_null_string(index_now, result_data, result_offset, null_map);
             return;
         }
 
@@ -363,7 +363,7 @@ struct RegexpExtractOrNullImpl {
         bool success =
                 re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0], max_matches);
         if (!success) {
-            StringOP::push_null_string(index_now, result_data, result_offset);
+            StringOP::push_null_string(index_now, result_data, result_offset, null_map);
             return;
         }
         const re2::StringPiece& match = matches[index_data];
