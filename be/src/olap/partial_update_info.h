@@ -16,14 +16,24 @@
 // under the License.
 
 #pragma once
+<<<<<<< HEAD
 
 #include "olap/tablet_schema.h"
 #include "util/string_util.h"
+=======
+#include <cstdint>
+#include <set>
+#include <string>
+#include <vector>
+>>>>>>> 74576e73df (update)
 
 namespace doris {
+class TabletSchema;
+class PartialUpdateInfoPB;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
+<<<<<<< HEAD
               const std::set<string>& partial_update_cols, bool is_strict_mode,
               int64_t timestamp_ms, const std::string& timezone, int64_t cur_max_version = -1) {
         is_partial_update = partial_update;
@@ -74,6 +84,17 @@ private:
         }
         CHECK_EQ(missing_cids.size(), default_values.size());
     }
+=======
+              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
+              int64_t timestamp_ms, const std::string& timezone,
+              const std::string& auto_increment_column, int64_t cur_max_version = -1);
+    void to_pb(PartialUpdateInfoPB* partial_update_info) const;
+    void from_pb(PartialUpdateInfoPB* partial_update_info);
+    std::string summary() const;
+
+private:
+    void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
+>>>>>>> 74576e73df (update)
 
 public:
     bool is_partial_update {false};

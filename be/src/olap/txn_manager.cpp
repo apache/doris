@@ -33,8 +33,12 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -172,10 +176,11 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
 
 Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
-                              const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
-    return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                      tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), load_id,
-                      rowset_ptr, is_recovery);
+                              const RowsetSharedPtr& rowset_ptr, bool is_recovery,
+                              std::shared_ptr<PartialUpdateInfo> partial_update_info) {
+    return commit_txn(tablet.data_dir()->get_meta(), partition_id, transaction_id,
+                      tablet.tablet_id(), tablet.tablet_uid(), load_id, rowset_ptr, is_recovery,
+                      partial_update_info);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -260,7 +265,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               TTransactionId transaction_id, TTabletId tablet_id,
                               SchemaHash schema_hash, TabletUid tablet_uid,
                               const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
-                              bool is_recovery) {
+                              bool is_recovery,
+                              std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
         LOG(WARNING) << "invalid commit req "
                      << " partition_id=" << partition_id << " transaction_id=" << transaction_id
@@ -370,17 +376,54 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                     "txn id: {}",
                     rowset_ptr->rowset_id().to_string(), tablet_id, transaction_id);
         }
+
+        if (partial_update_info && partial_update_info->is_partial_update) {
+            PartialUpdateInfoPB partial_update_info_pb;
+            partial_update_info->to_pb(&partial_update_info_pb);
+            save_status = RowsetMetaManager::save_partial_update_info(
+                    meta, tablet_id, partition_id, transaction_id, partial_update_info_pb);
+            if (!save_status.ok()) {
+                save_status.append(fmt::format(", txn_id: {}", transaction_id));
+                return save_status;
+            }
+        }
+    }
+
+    TabletSharedPtr tablet;
+    std::shared_ptr<PartialUpdateInfo> decoded_partial_update_info {nullptr};
+    if (is_recovery) {
+        tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id,
+                                                                         tablet_info.tablet_uid);
+        if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
+            PartialUpdateInfoPB partial_update_info_pb;
+            auto st = RowsetMetaManager::try_get_partial_update_info(
+                    meta, tablet_id, partition_id, transaction_id, &partial_update_info_pb);
+            if (st.ok()) {
+                decoded_partial_update_info = std::make_shared<PartialUpdateInfo>();
+                decoded_partial_update_info->from_pb(&partial_update_info_pb);
+                DCHECK(decoded_partial_update_info->is_partial_update);
+            } else if (!st.is<META_KEY_NOT_FOUND>()) {
+                // the load is not a partial update
+                return st;
+            }
+        }
     }
 
     {
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         TabletTxnInfo load_info(load_id, rowset_ptr);
         if (is_recovery) {
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_info.tablet_id, tablet_info.tablet_uid);
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
-                load_info.unique_key_merge_on_write = true;
-                load_info.delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
+                load_info->unique_key_merge_on_write = true;
+                load_info->delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
+                if (decoded_partial_update_info) {
+                    LOG_INFO(
+                            "get partial update info from RocksDB during recovery. txn_id={}, "
+                            "partition_id={}, tablet_id={}, partial_update_info=[{}]",
+                            transaction_id, partition_id, tablet_id,
+                            decoded_partial_update_info->summary());
+                    load_info->partial_update_info = decoded_partial_update_info;
+                }
             }
         }
         load_info.commit();
@@ -513,6 +556,20 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 "save committed rowset failed. when publish txn rowset_id: {}, tablet id: {}, txn "
                 "id: {}",
                 rowset->rowset_id().to_string(), tablet_id, transaction_id);
+    }
+
+    if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
+        tablet_txn_info->partial_update_info->is_partial_update) {
+        status = RowsetMetaManager::remove_partial_update_info(meta, tablet_id, partition_id,
+                                                               transaction_id);
+        if (!status) {
+            // discard the error status and print the warning log
+            LOG_WARNING(
+                    "fail to remove partial update info from RocksDB. txn_id={}, rowset_id={}, "
+                    "tablet_id={}, tablet_uid={}",
+                    transaction_id, rowset->rowset_id().to_string(), tablet_id,
+                    tablet_uid.to_string());
+        }
     }
 
     // TODO(Drogon): remove these test codes
@@ -694,6 +751,13 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             } else {
                 ++it;
             }
+        }
+    }
+    if (meta != nullptr) {
+        Status st = RowsetMetaManager::remove_tablet_related_partial_update_info(meta, tablet_id);
+        if (!st.ok()) {
+            LOG_WARNING("failed to partial update info, tablet_id={}, err={}", tablet_id,
+                        st.to_string());
         }
     }
 }
