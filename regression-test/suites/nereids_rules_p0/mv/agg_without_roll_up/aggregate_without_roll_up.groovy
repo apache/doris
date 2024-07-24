@@ -133,31 +133,33 @@ suite("aggregate_without_roll_up") {
 
     // single table
     // with filter
-    def mv1_0 = "select o_shippriority, o_comment, " +
-            "sum(o_totalprice) as sum_total, " +
-            "max(o_totalprice) as max_total, " +
-            "min(o_totalprice) as min_total, " +
-            "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end), " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 " +
-            "from orders " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
+    def mv1_0 = """
+            select o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end),
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2
+            from orders
+            group by
+            o_shippriority,
+            o_comment;
+            """
     def query1_0 = """
-    select o_shippriority, o_comment, 
-    count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, 
-    count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, 
-    sum(o_totalprice), 
-    max(o_totalprice), 
-    min(o_totalprice), 
-    count(*) 
-    from orders 
-    where o_shippriority in (1, 2)
-    group by 
-    o_shippriority, 
-    o_comment;
-    """
+            select o_shippriority, o_comment,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from orders
+            where o_shippriority in (1, 2
+            group by
+            o_shippriority,
+            o_comment;
+            """
      order_qt_query1_0_before "${query1_0}"
      check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
      order_qt_query1_0_after "${query1_0}"
