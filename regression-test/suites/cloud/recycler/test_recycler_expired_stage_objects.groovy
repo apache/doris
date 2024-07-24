@@ -1,6 +1,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_recycler_with_internal_copy") {
+suite("test_recycler_expired_stage_objects") {
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId
     def cloudUniqueId = context.config.cloudUniqueId
@@ -10,7 +10,10 @@ suite("test_recycler_with_internal_copy") {
         long timestamp = System.currentTimeMillis()
         for (int i = 0; i < 5; i++) {
             StringBuilder strBuilder = new StringBuilder()
-            strBuilder.append("""curl -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)
+            strBuilder.append("""curl -vv -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)
+            if (getS3Provider().equalsIgnoreCase("azure")) {
+                strBuilder.append(""" -H x-ms-blob-type:BlockBlob """)
+            }
             def fileName = "test_recycler_expired_stage_objects_" + (timestamp + i)
             strBuilder.append(""" -H fileName:""" + fileName);
             strBuilder.append(""" -T """ + filePath)

@@ -31,7 +31,7 @@ suite("test_recycler_with_drop_mv") {
     sql """
         LOAD LABEL ${loadLabel}
         (
-            DATA INFILE('s3://${s3BucketName}/regression/tpch/sf100/customer.tbl')
+            DATA INFILE('s3://${s3BucketName}/regression/tpch/sf1/customer.tbl')
             INTO TABLE ${tableName}
             COLUMNS TERMINATED BY "|"
             (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, temp)
@@ -41,7 +41,8 @@ suite("test_recycler_with_drop_mv") {
             'AWS_REGION' = '${getS3Region()}',
             'AWS_ENDPOINT' = '${getS3Endpoint()}',
             'AWS_ACCESS_KEY' = '${getS3AK()}',
-            'AWS_SECRET_KEY' = '${getS3SK()}'
+            'AWS_SECRET_KEY' = '${getS3SK()}',
+            'PROVIDER' = '${getS3Provider()}'
         )
         PROPERTIES
         (
@@ -54,7 +55,7 @@ suite("test_recycler_with_drop_mv") {
     checkBrokerLoadFinished(loadLabel)
     rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)
-    assertEquals(rowCount[0][0], 15000000)
+    assertEquals(rowCount[0][0], 150000)
 
     String[][] tabletInfoList1 = sql """ show tablets from ${tableName}; """
     logger.debug("tabletInfoList1:${tabletInfoList1}")
@@ -77,7 +78,7 @@ suite("test_recycler_with_drop_mv") {
     assertTrue(tabletIdSet3.size() > 0)
     rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)
-    assertEquals(rowCount[0][0], 15000000)
+    assertEquals(rowCount[0][0], 150000)
 
     sql "drop materialized view ${mvName} on ${tableName};"
     int retry = 15
@@ -94,7 +95,7 @@ suite("test_recycler_with_drop_mv") {
 
     rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)
-    assertEquals(rowCount[0][0], 15000000)
+    assertEquals(rowCount[0][0], 150000)
 
     sql "drop materialized view if exists ${mvName} on ${tableName};"
     sql """ drop table if exists ${tableName} force """

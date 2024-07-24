@@ -31,7 +31,7 @@ suite("test_recycler_with_drop_column") {
     sql """
         LOAD LABEL ${loadLabel}
         (
-            DATA INFILE('s3://${s3BucketName}/regression/tpch/sf100/customer.tbl')
+            DATA INFILE('s3://${s3BucketName}/regression/tpch/sf1/customer.tbl')
             INTO TABLE ${tableName}
             COLUMNS TERMINATED BY "|"
             (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, temp)
@@ -41,7 +41,8 @@ suite("test_recycler_with_drop_column") {
             'AWS_REGION' = '${getS3Region()}',
             'AWS_ENDPOINT' = '${getS3Endpoint()}',
             'AWS_ACCESS_KEY' = '${getS3AK()}',
-            'AWS_SECRET_KEY' = '${getS3SK()}'
+            'AWS_SECRET_KEY' = '${getS3SK()}',
+            'PROVIDER' = '${getS3Provider()}'
         )
         PROPERTIES
         (

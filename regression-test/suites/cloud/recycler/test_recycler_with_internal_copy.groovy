@@ -12,6 +12,9 @@ suite("test_recycler_with_internal_copy") {
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("""curl -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)
     strBuilder.append(""" -H fileName:""" + fileName)
+    if (getS3Provider().equalsIgnoreCase("azure")) {
+        strBuilder.append(""" -H x-ms-blob-type:BlockBlob """)
+    }
     strBuilder.append(""" -T """ + filePath)
     strBuilder.append(""" -L http://""" + context.config.feCloudHttpAddress + """/copy/upload""")
 
