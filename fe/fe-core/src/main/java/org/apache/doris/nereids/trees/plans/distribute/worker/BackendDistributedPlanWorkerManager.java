@@ -30,7 +30,7 @@ import java.util.function.Supplier;
 
 /** BackendWorkerManager */
 public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
-    private final Supplier<ImmutableMap<Long, Backend>> backends = Suppliers.memoize(() -> {
+    private final Supplier<ImmutableMap<Long, Backend>> allClusterBackends = Suppliers.memoize(() -> {
         try {
             return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         } catch (Exception t) {
@@ -38,9 +38,21 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         }
     });
 
+    private final Supplier<ImmutableMap<Long, Backend>> currentClusterBackends = Suppliers.memoize(() -> {
+        try {
+            return Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        } catch (Exception t) {
+            throw new NereidsException("Can not get backends: " + t, t);
+        }
+    });
+
+    public boolean isCurrentClusterBackend(long backendId) {
+        return currentClusterBackends.get().containsKey(backendId);
+    }
+
     @Override
     public DistributedPlanWorker getWorker(long backendId) {
-        ImmutableMap<Long, Backend> backends = this.backends.get();
+        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get();
         Backend backend = backends.get(backendId);
         if (backend == null) {
             throw new IllegalStateException("Backend " + backendId + " is not exist");
@@ -52,7 +64,7 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     public DistributedPlanWorker randomAvailableWorker() {
         try {
             Reference<Long> selectedBackendId = new Reference<>();
-            ImmutableMap<Long, Backend> backends = this.backends.get();
+            ImmutableMap<Long, Backend> backends = this.currentClusterBackends.get();
             SimpleScheduler.getHost(backends, selectedBackendId);
             Backend selctedBackend = backends.get(selectedBackendId.getRef());
             return new BackendWorker(selctedBackend);

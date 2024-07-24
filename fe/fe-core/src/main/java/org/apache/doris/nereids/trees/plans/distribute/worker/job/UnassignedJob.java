@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
@@ -34,6 +35,8 @@ import java.util.List;
  * for example: a fragment job, which doesn't parallelization to some instance jobs and also no worker to invoke it
  */
 public interface UnassignedJob extends TreeNode<UnassignedJob> {
+    StatementContext getStatementContext();
+
     PlanFragment getFragment();
 
     List<ScanNode> getScanNodes();

@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -38,8 +41,10 @@ import java.util.function.Function;
 
 /** UnassignedShuffleJob */
 public class UnassignedShuffleJob extends AbstractUnassignedJob {
-    public UnassignedShuffleJob(PlanFragment fragment, ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
-        super(fragment, ImmutableList.of(), exchangeToChildJob);
+    public UnassignedShuffleJob(
+            StatementContext statementContext, PlanFragment fragment,
+            ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
+        super(statementContext, fragment, ImmutableList.of(), exchangeToChildJob);
     }
 
     @Override
@@ -81,6 +86,13 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
             expectInstanceNum = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
         }
+
+        // TODO: check nested loop join do right outer / semi / anti join
+        PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot()).second;
+        // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
+        if (leftMostNode.getNumInstances() == 1) {
+            expectInstanceNum = 1;
+        }
         return expectInstanceNum;
     }
 
@@ -120,5 +132,17 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         List<DistributedPlanWorker> candidateWorkers = Lists.newArrayList(candidateWorkerSet);
         Collections.shuffle(candidateWorkers);
         return candidateWorkers;
+    }
+
+    // Returns the id of the leftmost node of any of the gives types in 'plan_root',
+    // or INVALID_PLAN_NODE_ID if no such node present.
+    private Pair<PlanNode, PlanNode> findLeftmostNode(PlanNode plan) {
+        PlanNode childPlan = plan;
+        PlanNode fatherPlan = null;
+        while (childPlan.getChildren().size() != 0 && !(childPlan instanceof ExchangeNode)) {
+            fatherPlan = childPlan;
+            childPlan = childPlan.getChild(0);
+        }
+        return Pair.of(fatherPlan, childPlan);
     }
 }

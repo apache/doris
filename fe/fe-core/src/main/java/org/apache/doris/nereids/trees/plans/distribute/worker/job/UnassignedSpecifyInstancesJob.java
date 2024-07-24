@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
@@ -33,9 +34,9 @@ public class UnassignedSpecifyInstancesJob extends AbstractUnassignedJob {
     private final NereidsSpecifyInstances<ScanSource> specifyInstances;
 
     public UnassignedSpecifyInstancesJob(
-            PlanFragment fragment, List<ScanNode> scanNodes,
+            StatementContext statementContext, PlanFragment fragment, List<ScanNode> scanNodes,
             ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
-        super(fragment, scanNodes, exchangeToChildJob);
+        super(statementContext, fragment, scanNodes, exchangeToChildJob);
         Preconditions.checkArgument(fragment.specifyInstances.isPresent(),
                 "Missing fragment specifyInstances");
         this.specifyInstances = fragment.specifyInstances.get();

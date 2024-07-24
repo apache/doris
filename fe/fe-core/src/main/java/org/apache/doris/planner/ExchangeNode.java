@@ -80,6 +80,10 @@ public class ExchangeNode extends PlanNode {
         computeTupleIds();
     }
 
+    public TPartitionType getPartitionType() {
+        return partitionType;
+    }
+
     public void setPartitionType(TPartitionType partitionType) {
         this.partitionType = partitionType;
     }
