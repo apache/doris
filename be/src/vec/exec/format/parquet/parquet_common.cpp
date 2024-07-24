@@ -162,4 +162,137 @@ bool ColumnSelectVector::can_filter_all(size_t remaining_num_values) {
 void ColumnSelectVector::skip(size_t num_values) {
     _filter_map_index += num_values;
 }
+
+std::atomic<bool> CorruptStatistics::already_logged {false};
+const SemanticVersion CorruptStatistics::PARQUET_251_FIXED_VERSION(1, 8, 0);
+const SemanticVersion CorruptStatistics::CDH_5_PARQUET_251_FIXED_START(1, 5, 0, std::nullopt,
+                                                                       "cdh5.5.0", std::nullopt);
+const SemanticVersion CorruptStatistics::CDH_5_PARQUET_251_FIXED_END(1, 5, 0);
+
+SemanticVersion::NumberOrString::NumberOrString(const std::string& numberOrString)
+        : original(numberOrString) {
+    const static std::regex NUMERIC("\\d+");
+    isNumeric = std::regex_match(original, NUMERIC);
+    number = -1;
+    if (isNumeric) {
+        try {
+            number = std::stoi(original);
+        } catch (const std::invalid_argument&) {
+            // Handle invalid argument if needed
+        }
+    }
+}
+
+int SemanticVersion::NumberOrString::compareTo(const SemanticVersion::NumberOrString& that) const {
+    if (this->isNumeric != that.isNumeric) {
+        return this->isNumeric ? -1 : 1;
+    }
+
+    if (isNumeric) {
+        return this->number - that.number;
+    }
+
+    return this->original.compare(that.original);
+}
+
+std::string SemanticVersion::NumberOrString::toString() const {
+    return original;
+}
+
+bool SemanticVersion::NumberOrString::operator<(const SemanticVersion::NumberOrString& that) const {
+    return compareTo(that) < 0;
+}
+
+bool SemanticVersion::NumberOrString::operator==(
+        const SemanticVersion::NumberOrString& that) const {
+    return compareTo(that) == 0;
+}
+
+bool SemanticVersion::NumberOrString::operator!=(
+        const SemanticVersion::NumberOrString& that) const {
+    return !(*this == that);
+}
+
+bool SemanticVersion::NumberOrString::operator>(const SemanticVersion::NumberOrString& that) const {
+    return compareTo(that) > 0;
+}
+
+bool SemanticVersion::NumberOrString::operator<=(
+        const SemanticVersion::NumberOrString& that) const {
+    return !(*this > that);
+}
+
+bool SemanticVersion::NumberOrString::operator>=(
+        const SemanticVersion::NumberOrString& that) const {
+    return !(*this < that);
+}
+
+std::vector<std::string> SemanticVersion::Prerelease::split(const std::string& s,
+                                                            const std::regex& delimiter) {
+    //    std::sregex_token_iterator iter(s.begin(), s.end(), delimiter, -1);
+    //    std::sregex_token_iterator end;
+    //    std::vector<std::string> tokens(iter, end);
+    //    return tokens;
+
+    std::sregex_token_iterator iter(s.begin(), s.end(), delimiter, -1);
+    std::sregex_token_iterator end;
+
+    std::vector<std::string> tokens;
+    tokens.reserve(std::distance(iter, end));
+
+    for (; iter != end; ++iter) {
+        tokens.emplace_back(*iter);
+    }
+
+    return tokens;
+}
+
+SemanticVersion::Prerelease::Prerelease(std::string original) : _original(std::move(original)) {
+    static const std::regex DOT("\\.");
+    auto parts = split(_original, DOT);
+    for (const auto& part : parts) {
+        NumberOrString number_or_string(part);
+        _identifiers.emplace_back(number_or_string);
+    }
+}
+
+int SemanticVersion::Prerelease::compareTo(const Prerelease& that) const {
+    int size = std::min(this->_identifiers.size(), that._identifiers.size());
+    for (int i = 0; i < size; ++i) {
+        int cmp = this->_identifiers[i].compareTo(that._identifiers[i]);
+        if (cmp != 0) {
+            return cmp;
+        }
+    }
+    return static_cast<int>(this->_identifiers.size()) - static_cast<int>(that._identifiers.size());
+}
+
+std::string SemanticVersion::Prerelease::toString() const {
+    return _original;
+}
+
+bool SemanticVersion::Prerelease::operator<(const Prerelease& that) const {
+    return compareTo(that) < 0;
+}
+
+bool SemanticVersion::Prerelease::operator==(const Prerelease& that) const {
+    return compareTo(that) == 0;
+}
+
+bool SemanticVersion::Prerelease::operator!=(const Prerelease& that) const {
+    return !(*this == that);
+}
+
+bool SemanticVersion::Prerelease::operator>(const Prerelease& that) const {
+    return compareTo(that) > 0;
+}
+
+bool SemanticVersion::Prerelease::operator<=(const Prerelease& that) const {
+    return !(*this > that);
+}
+
+bool SemanticVersion::Prerelease::operator>=(const Prerelease& that) const {
+    return !(*this < that);
+}
+
 } // namespace doris::vectorized

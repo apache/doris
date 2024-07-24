@@ -220,6 +220,8 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
+    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
+
 private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
