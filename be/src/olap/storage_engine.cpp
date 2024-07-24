@@ -18,29 +18,27 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <assert.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/resource.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <cassert>
+#include <cerrno> // IWYU pragma: keep
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iterator>
 #include <mutex>
-#include <new>
 #include <ostream>
-#include <random>
 #include <set>
 #include <thread>
 #include <unordered_set>
@@ -52,28 +50,21 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "olap/base_compaction.h"
 #include "olap/binlog.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_cache.h"
-#include "olap/segment_loader.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/snapshot_manager.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -83,7 +74,6 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
-#include "util/trace.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 
@@ -151,6 +141,45 @@ Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_lo
                 "init StreamLoadRecorder failed");
     }
     return Status::OK();
+}
+
+void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto add_node = [&root](const std::string& name, const Registry& registry) {
+        rapidjson::Value key;
+        key.SetString(name.c_str(), name.length(), root.GetAllocator());
+        rapidjson::Document path_obj;
+        path_obj.SetObject();
+        for (const auto& it : registry) {
+            const auto& dir = it.first->path();
+            rapidjson::Value path_key;
+            path_key.SetString(dir.c_str(), dir.length(), root.GetAllocator());
+
+            rapidjson::Document arr;
+            arr.SetArray();
+
+            for (const auto& tablet : it.second) {
+                rapidjson::Value key;
+                auto key_str = std::to_string(tablet->tablet_id());
+                key.SetString(key_str.c_str(), key_str.length(), root.GetAllocator());
+                arr.PushBack(key, root.GetAllocator());
+            }
+            path_obj.AddMember(path_key, arr, root.GetAllocator());
+        }
+        root.AddMember(key, path_obj, root.GetAllocator());
+    };
+
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    add_node("BaseCompaction", _tablet_submitted_base_compaction);
+    add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
+    add_node("FullCompaction", _tablet_submitted_full_compaction);
+
+    rapidjson::StringBuffer str_buf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
+    root.Accept(writer);
+    *result = std::string(str_buf.GetString());
 }
 
 static Status _validate_options(const EngineOptions& options) {
@@ -1383,89 +1412,8 @@ bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
 //          "/home/disk2" : [10003]
 //   }
 // }
-Status StorageEngine::get_compaction_status_json(std::string* result) {
-    rapidjson::Document root;
-    root.SetObject();
-
-    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    const std::string& cumu = "CumulativeCompaction";
-    rapidjson::Value cumu_key;
-    cumu_key.SetString(cumu.c_str(), cumu.length(), root.GetAllocator());
-
-    // cumu
-    rapidjson::Document path_obj;
-    path_obj.SetObject();
-    for (auto& it : _tablet_submitted_cumu_compaction) {
-        const std::string& dir = it.first->path();
-        rapidjson::Value path_key;
-        path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
-
-        rapidjson::Document arr;
-        arr.SetArray();
-
-        for (auto& tablet : it.second) {
-            rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet->tablet_id());
-            key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
-            arr.PushBack(key, root.GetAllocator());
-        }
-        path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
-    }
-    root.AddMember(cumu_key, path_obj, root.GetAllocator());
-
-    // base
-    const std::string& base = "BaseCompaction";
-    rapidjson::Value base_key;
-    base_key.SetString(base.c_str(), base.length(), root.GetAllocator());
-    rapidjson::Document path_obj2;
-    path_obj2.SetObject();
-    for (auto& it : _tablet_submitted_base_compaction) {
-        const std::string& dir = it.first->path();
-        rapidjson::Value path_key;
-        path_key.SetString(dir.c_str(), dir.length(), path_obj2.GetAllocator());
-
-        rapidjson::Document arr;
-        arr.SetArray();
-
-        for (auto& tablet : it.second) {
-            rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet->tablet_id());
-            key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
-            arr.PushBack(key, root.GetAllocator());
-        }
-        path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
-    }
-    root.AddMember(base_key, path_obj2, root.GetAllocator());
-
-    // full
-    const std::string& full = "FullCompaction";
-    rapidjson::Value full_key;
-    full_key.SetString(full.c_str(), full.length(), root.GetAllocator());
-    rapidjson::Document path_obj3;
-    path_obj3.SetObject();
-    for (auto& it : _tablet_submitted_full_compaction) {
-        const std::string& dir = it.first->path();
-        rapidjson::Value path_key;
-        path_key.SetString(dir.c_str(), dir.length(), path_obj3.GetAllocator());
-
-        rapidjson::Document arr;
-        arr.SetArray();
-
-        for (auto& tablet : it.second) {
-            rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet->tablet_id());
-            key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
-            arr.PushBack(key, root.GetAllocator());
-        }
-        path_obj3.AddMember(path_key, arr, path_obj3.GetAllocator());
-    }
-    root.AddMember(full_key, path_obj3, root.GetAllocator());
-
-    rapidjson::StringBuffer strbuf;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
-    root.Accept(writer);
-    *result = std::string(strbuf.GetString());
-    return Status::OK();
+void StorageEngine::get_compaction_status_json(std::string* result) {
+    _compaction_submit_registry.jsonfy_compaction_status(result);
 }
 
 void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
