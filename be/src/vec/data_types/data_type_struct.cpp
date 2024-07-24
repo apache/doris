@@ -74,7 +74,8 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
         : elems(elems_), names(names_), have_explicit_names(true) {
     size_t size = elems.size();
     if (names.size() != size) {
-        LOG(FATAL) << "Wrong number of names passed to constructor of DataTypeStruct";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Wrong number of names passed to constructor of DataTypeStruct");
         __builtin_unreachable();
     }
 
@@ -298,7 +299,8 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
             return i;
         }
     }
-    LOG(FATAL) << "Struct doesn't have element with name '" + name + "'";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                           "Struct doesn't have element with name  " + name);
     __builtin_unreachable();
 }
 
