@@ -1831,12 +1831,12 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(splitByChar, context);
     }
 
-    default R visitSplitByString(SplitByString splitByString, C context) {
-        return visitScalarFunction(splitByString, context);
-    }
-
     default R visitSplitByRegexp(SplitByRegexp splitByRegexp, C context) {
         return visitScalarFunction(splitByRegexp, context);
+    }
+
+    default R visitSplitByString(SplitByString splitByString, C context) {
+        return visitScalarFunction(splitByString, context);
     }
 
     default R visitSplitPart(SplitPart splitPart, C context) {
