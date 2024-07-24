@@ -2410,4 +2410,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 }
