@@ -202,7 +202,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
     if (tablet_id == 0) {
         // overall compaction status
-        RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
+        _engine.get_compaction_status_json(json_result);
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id

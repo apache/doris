@@ -22,9 +22,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -33,6 +35,10 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import com.google.gson.Gson;
+
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -56,6 +62,7 @@ public class SummaryProfile {
     public static final String IS_NEREIDS = "Is Nereids";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
+    public static final String SCHEDULE_TIME_PER_BE = "Schedule Time Of BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
@@ -109,6 +116,10 @@ public class SummaryProfile {
     public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
     public static final String HMS_UPDATE_PARTITION_TIME = "HMS Update Partition Time";
     public static final String HMS_UPDATE_PARTITION_CNT = "HMS Update Partition Count";
+    public static final String LATENCY_FROM_FE_TO_BE = "RPC Latency From FE To BE";
+    public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
+    public static final String RPC_WORK_TIME = "RPC Work Time";
+    public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -152,6 +163,7 @@ public class SummaryProfile {
             SEND_FRAGMENT_PHASE2_TIME,
             FRAGMENT_COMPRESSED_SIZE,
             FRAGMENT_RPC_COUNT,
+            SCHEDULE_TIME_PER_BE,
             WAIT_FETCH_RESULT_TIME,
             FETCH_RESULT_TIME,
             WRITE_RESULT_TIME,
@@ -313,6 +325,11 @@ public class SummaryProfile {
     @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
+    // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
+    // to FE)
+    private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
+    private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
+
     public SummaryProfile() {
         init();
     }
@@ -415,6 +432,7 @@ public class SummaryProfile {
                 getPrettyTime(createScanRangeFinishTime, getSplitsFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(SCHEDULE_TIME,
                 getPrettyTime(queryScheduleFinishTime, queryPlanFinishTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, getRpcLatency());
         executionSummaryProfile.addInfoString(ASSIGN_FRAGMENT_TIME,
                 getPrettyTime(assignFragmentTime, queryPlanFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(FRAGMENT_SERIALIZE_TIME,
@@ -619,6 +637,14 @@ public class SummaryProfile {
 
     public long getQueryBeginTime() {
         return queryBeginTime;
+    }
+
+    public void setRpcPhase1Latency(Map<TNetworkAddress, List<Long>> rpcPhase1Latency) {
+        this.rpcPhase1Latency = rpcPhase1Latency;
+    }
+
+    public void setRpcPhase2Latency(Map<TNetworkAddress, List<Long>> rpcPhase2Latency) {
+        this.rpcPhase2Latency = rpcPhase2Latency;
     }
 
     public static class SummaryBuilder {
@@ -829,6 +855,45 @@ public class SummaryProfile {
 
     public void incDeleteFileCnt() {
         this.filesystemDeleteFileCnt += 1;
+    }
+
+    private String getRpcLatency() {
+        Map<String, Map<String, Map<String, String>>> jsonObject = new HashMap<>();
+        if (rpcPhase1Latency != null) {
+            Map<String, Map<String, String>> latencyForPhase1 = new HashMap<>();
+            for (TNetworkAddress key : rpcPhase1Latency.keySet()) {
+                Preconditions.checkState(rpcPhase1Latency.get(key).size() == 4, "rpc latency should have 4 elements");
+                Map<String, String> latency = new HashMap<>();
+                latency.put(LATENCY_FROM_FE_TO_BE, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(0),
+                        TUnit.TIME_MS));
+                latency.put(RPC_QUEUE_TIME, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(1),
+                        TUnit.TIME_MS));
+                latency.put(RPC_WORK_TIME, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(2),
+                        TUnit.TIME_MS));
+                latency.put(LATENCY_FROM_BE_TO_FE, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(3),
+                        TUnit.TIME_MS));
+                latencyForPhase1.put(key.getHostname() + ": " + key.getPort(), latency);
+            }
+            jsonObject.put("phase1", latencyForPhase1);
+        }
+        if (rpcPhase2Latency != null) {
+            Map<String, Map<String, String>> latencyForPhase2 = new HashMap<>();
+            for (TNetworkAddress key : rpcPhase2Latency.keySet()) {
+                Preconditions.checkState(rpcPhase2Latency.get(key).size() == 4, "rpc latency should have 4 elements");
+                Map<String, String> latency = new HashMap<>();
+                latency.put(LATENCY_FROM_FE_TO_BE, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(0),
+                        TUnit.TIME_MS));
+                latency.put(RPC_QUEUE_TIME, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(1),
+                        TUnit.TIME_MS));
+                latency.put(RPC_WORK_TIME, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(2),
+                        TUnit.TIME_MS));
+                latency.put(LATENCY_FROM_BE_TO_FE, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(3),
+                        TUnit.TIME_MS));
+                latencyForPhase2.put(key.getHostname() + ": " + key.getPort(), latency);
+            }
+            jsonObject.put("phase2", latencyForPhase2);
+        }
+        return new Gson().toJson(jsonObject);
     }
 
     public void setSystemMessage(String msg) {
