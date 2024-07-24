@@ -78,4 +78,7 @@ suite('test_profile') {
         }
     }
     assertTrue(isRecorded)
+
+    sql """ SET enable_profile = false """
+    sql """ DROP TABLE IF EXISTS test_profile """
 }
