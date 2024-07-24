@@ -139,7 +139,7 @@ public class DecommissionTest {
         int totalReplicaNum = 1 * 2400;
         checkBalance(1, totalReplicaNum, 4);
 
-        Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(0);
+        Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList().get(0);
         String decommissionStmtStr = "alter system decommission backend \"" + backend.getHost()
                 + ":" + backend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt =

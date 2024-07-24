@@ -181,7 +181,7 @@ public class ModifyBackendTest {
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        Backend backend = infoService.getBackendsByCurrentCluster().get(0);
+        Backend backend = infoService.getAllBackendsByAllCluster().values().asList().get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 
