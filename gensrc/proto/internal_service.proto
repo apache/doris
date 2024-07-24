@@ -228,6 +228,12 @@ message PExecPlanFragmentStartRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
+    // BE receive rpc
+    optional int64 received_time = 2;
+    // Start executing on bthread
+    optional int64 execution_time = 3;
+    // Done on bthread
+    optional int64 execution_done_time = 4;
 };
 
 message PCancelPlanFragmentRequest {
