@@ -2525,6 +2525,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int query_audit_log_timeout_ms = 5000;
 
+    @ConfField(description = {
+            "在这个列表中的用户的操作，不会被记录到审计日志中。多个用户之间用逗号分隔。",
+            "The operations of the users in this list will not be recorded in the audit log. "
+                    + "Multiple users are separated by commas."
+    })
+    public static String skip_audit_user_list = "";
+
     @ConfField(mutable = true)
     public static int be_report_query_statistics_timeout_ms = 60000;
 
