@@ -665,7 +665,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         if (hmsCatalog.getUseMetaCache().get()) {
-            tblId = Util.genTableIdByName(tableName);
+            tblId = Util.genIdByName(catalogName, dbName, tableName);
         } else {
             tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         }
@@ -703,7 +703,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -723,7 +723,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long dbId;
         if (hmsCatalog.getUseMetaCache().get()) {
-            dbId = Util.genTableIdByName(dbName);
+            dbId = Util.genIdByName(catalogName, dbName);
         } else {
             dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
         }
