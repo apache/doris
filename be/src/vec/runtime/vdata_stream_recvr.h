@@ -239,7 +239,9 @@ public:
     }
 
     void add_block(Block* block, bool use_move) override {
-        if (block->rows() == 0) return;
+        if (block->rows() == 0) {
+            return;
+        }
         {
             std::unique_lock<std::mutex> l(_lock);
             if (_is_cancelled) {

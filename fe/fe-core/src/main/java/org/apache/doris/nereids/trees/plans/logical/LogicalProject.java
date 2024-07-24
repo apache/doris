@@ -197,6 +197,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, child);
     }
 
+    public LogicalProject<Plan> withDistinct(boolean isDistinct) {
+        return new LogicalProject<>(projects, excepts, isDistinct, canEliminate, child());
+    }
+
     public boolean isDistinct() {
         return isDistinct;
     }

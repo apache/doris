@@ -738,6 +738,13 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
     uint32_t compaction_score = 0;
     TabletSharedPtr best_tablet;
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
+        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+            LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
+                                   << " will be ignored by automatic compaction tasks since it's "
+                                   << "set to disabled automatic compaction.";
+            return;
+        }
+
         if (config::enable_skip_tablet_compaction &&
             tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
             return;
@@ -1644,6 +1651,26 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
     }
 
     return bad_tablets;
+}
+
+bool TabletManager::update_tablet_partition_id(::doris::TPartitionId partition_id,
+                                               ::doris::TTabletId tablet_id) {
+    std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "get tablet err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _remove_tablet_from_partition(tablet);
+    auto st = tablet->tablet_meta()->set_partition_id(partition_id);
+    if (!st.ok()) {
+        LOG(WARNING) << "set partition id err partition_id: " << partition_id
+                     << " tablet_id:" << tablet_id;
+        return false;
+    }
+    _add_tablet_to_partition(tablet);
+    return true;
 }
 
 } // end namespace doris

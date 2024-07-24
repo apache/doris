@@ -1415,6 +1415,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             // This key is not exist in slot desc, just ignore
             continue;
         }
+        if (_seen_columns[column_index]) {
+            continue;
+        }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
         RETURN_IF_ERROR(
@@ -1791,6 +1794,15 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc,
 
     *valid = true;
     return Status::OK();
+}
+
+void NewJsonReader::_collect_profile_before_close() {
+    if (_line_reader != nullptr) {
+        _line_reader->collect_profile_before_close();
+    }
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
 }
 
 } // namespace doris::vectorized
