@@ -69,7 +69,7 @@ public:
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
 
     // return true when we need
-    template<typename T>
+    template <typename T>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
                                   T& skip_counter) {
         if (filter_rows / (scan_rows * 1.0) > ignore_threshold) {
