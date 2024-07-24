@@ -19,7 +19,7 @@
 
 set -e
 
-DORIS_PACKAGE=apache-doris-2.1.4-bin-x64
+DORIS_PACKAGE=apache-doris-2.1.5-bin-x64
 DORIS_DOWNLOAD_URL=https://apache-doris-releases.oss-accelerate.aliyuncs.com
 
 download_source_file() {
@@ -55,7 +55,7 @@ if [[ ! -d "packages" ]]; then
 fi
 cd packages || exit
 
-download_source_file "${DORIS_PACKAGE}.tar.gz" "a4d8bc9730aca3a51294e87d7d5b3e8e" "${DORIS_DOWNLOAD_URL}"
+download_source_file "${DORIS_PACKAGE}.tar.gz" "0af6706854cedff46ee2210bd949e2e9" "${DORIS_DOWNLOAD_URL}"
 download_source_file "jdk-8u202-linux-x64.tar.gz" "0029351f7a946f6c05b582100c7d45b7" "https://repo.huaweicloud.com/java/jdk/8u202-b08"
 download_source_file "iceberg-aws-bundle-1.5.2.jar" "7087ac697254f8067d0f813521542263" "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.5.2"
 download_source_file "iceberg-flink-runtime-1.18-1.5.2.jar" "8e895288e6770eea69ea05ffbc918c1b" "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-flink-runtime-1.18/1.5.2"
