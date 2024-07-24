@@ -119,6 +119,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    _is_unique_key_replace_if_not_null = pschema.is_unique_key_replace_if_not_null();
     if (_is_partial_update) {
         _auto_increment_column = pschema.auto_increment_column();
         if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
@@ -187,9 +188,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _table_id = tschema.table_id;
     _version = tschema.version;
     _is_partial_update = tschema.is_partial_update;
-    if (tschema.__isset.is_strict_mode) {
-        _is_strict_mode = tschema.is_strict_mode;
-    }
+    _is_strict_mode = tschema.__isset.is_strict_mode && tschema.is_strict_mode;
+    _is_unique_key_replace_if_not_null = tschema.__isset.is_unique_key_replace_if_not_null &&
+                                         tschema.is_unique_key_replace_if_not_null;
     if (_is_partial_update) {
         _auto_increment_column = tschema.auto_increment_column;
         if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
@@ -273,6 +274,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
+    pschema->set_is_unique_key_replace_if_not_null(_is_unique_key_replace_if_not_null);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }

@@ -56,29 +56,25 @@ struct PartialUpdateInfo {
 
 private:
     void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema) {
-        for (auto i = 0; i < missing_cids.size(); ++i) {
-            auto cur_cid = missing_cids[i];
+        for (unsigned int cur_cid : missing_cids) {
             const auto& column = tablet_schema.column(cur_cid);
             if (column.has_default_value()) {
                 std::string default_value;
-                if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(tablet_schema.column(cur_cid).default_value())
-                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                             to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                      std::string::npos)) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
                     default_value = dtv.debug_string();
-                } else if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
-                                            FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                    to_lower(tablet_schema.column(cur_cid).default_value())
+                } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                                    to_lower(column.default_value())
                                                     .find(to_lower("CURRENT_DATE")) !=
                                             std::string::npos)) {
                     DateV2Value<DateV2ValueType> dv;
                     dv.from_unixtime(timestamp_ms / 1000, timezone);
                     default_value = dv.debug_string();
                 } else {
-                    default_value = tablet_schema.column(cur_cid).default_value();
+                    default_value = column.default_value();
                 }
                 default_values.emplace_back(default_value);
             } else {

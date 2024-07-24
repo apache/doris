@@ -478,6 +478,11 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
+    void set_is_unique_key_replace_if_not_null(bool is_unique_key_replace_if_not_null) {
+        _is_unique_key_replace_if_not_null = is_unique_key_replace_if_not_null;
+    }
+    bool is_unique_key_replace_if_not_null() const { return _is_unique_key_replace_if_not_null; }
+
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
@@ -534,6 +539,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _is_unique_key_replace_if_not_null = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
