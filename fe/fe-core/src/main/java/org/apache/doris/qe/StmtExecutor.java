@@ -309,8 +309,8 @@ public class StmtExecutor {
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
         this.profile = new Profile(
-                this.context.getSessionVariable().enableProfile,
-                this.context.getSessionVariable().profileLevel,
+                this.context.getSessionVariable().enableProfile(),
+                this.context.getSessionVariable().getProfileLevel(),
                 this.context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
@@ -343,7 +343,7 @@ public class StmtExecutor {
         this.context.setStatementContext(statementContext);
         this.profile = new Profile(
                             context.getSessionVariable().enableProfile(),
-                            context.getSessionVariable().profileLevel,
+                            context.getSessionVariable().getProfileLevel(),
                             context.getSessionVariable().getAutoProfileThresholdMs());
     }
 

@@ -37,14 +37,19 @@ import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 
 /**
  * Profile is a class to record the execution time of a query. It has the
@@ -80,7 +85,7 @@ public class Profile {
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
-    // executionProfiles will be stored to storage as string, when geting profile content, we will read
+    // executionProfiles will be stored to storage as text, when geting profile content, we will read
     // from storage directly.
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
@@ -98,13 +103,13 @@ public class Profile {
     // why MAX_VALUE? So that we can use PriorityQueue to sort profile by finish time decreasing order.
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
-    private int profileLevel = 3;
+    private int profileLevel = MergedProfileLevel;
     private long autoProfileDurationMs = 500;
 
     // Need default constructor for read from storage
     public Profile() {}
 
-    public Profile(boolean isEnable, int profileLeve, long autoProfileDurationMs) {
+    public Profile(boolean isEnable, int profileLevel, long autoProfileDurationMs) {
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isQueryFinished = !isEnable;
@@ -168,7 +173,6 @@ public class Profile {
             }
             // read method will move the cursor to the end of the summary profile
             DataInput dataInput = new DataInputStream(profileFileInputStream);
-
             Profile res = new Profile();
             res.summaryProfile = SummaryProfile.read(dataInput);
             res.setId(res.summaryProfile.getProfileId());
@@ -178,7 +182,9 @@ public class Profile {
             String queryFinishTimeStr = parseProfileFileName(parts[parts.length - 1])[0];
             // queryFinishTime is used for sorting profile by finish time.
             res.queryFinishTimestamp = Long.valueOf(queryFinishTimeStr);
-            LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
+            }
             return res;
         } catch (Exception exception) {
             LOG.error("read profile failed", exception);
@@ -192,6 +198,46 @@ public class Profile {
                 }
             }
         }
+    }
+
+    // Method to compress a string using Deflater
+    public static byte[] compressExecutionProfile(String str) throws IOException {
+        byte[] data = str.getBytes(StandardCharsets.UTF_8);
+        Deflater deflater = new Deflater();
+        deflater.setInput(data);
+        deflater.finish();
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
+        byte[] buffer = new byte[1024];
+        while (!deflater.finished()) {
+            int count = deflater.deflate(buffer);
+            outputStream.write(buffer, 0, count);
+        }
+        deflater.end();
+        outputStream.close();
+        return outputStream.toByteArray();
+    }
+
+    // Method to decompress a byte array using Inflater
+    public static String decompressExecutionProfile(byte[] data) throws IOException {
+        Inflater inflater = new Inflater();
+        inflater.setInput(data, 0, data.length);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
+        byte[] buffer = new byte[1024];
+        try {
+            while (!inflater.finished()) {
+                int count = inflater.inflate(buffer);
+                outputStream.write(buffer, 0, count);
+            }
+            inflater.end();
+        } catch (Exception e) {
+            throw new IOException("Failed to decompress data", e);
+        } finally {
+            outputStream.close();
+        }
+
+        return new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
     }
 
     // For load task, the profile contains many execution profiles
@@ -330,10 +376,16 @@ public class Profile {
                     return;
                 }
 
-                DataInput dataInput = new DataInputStream(fileInputStream);
+                DataInputStream dataInput = new DataInputStream(fileInputStream);
                 // skip summary profile
                 Text.readString(dataInput);
-                builder.append(Text.readString(dataInput));
+                // read compressed execution profile
+                int binarySize = dataInput.readInt();
+                byte[] binaryExecutionProfile = new byte[binarySize];
+                dataInput.readFully(binaryExecutionProfile, 0, binarySize);
+                // decompress binary execution profile
+                String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
+                builder.append(textExecutionProfile);
                 return;
             } catch (Exception e) {
                 LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
@@ -421,7 +473,7 @@ public class Profile {
                     > this.executionProfiles.size() * autoProfileDurationMs) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                        id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);   
+                            id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
                 }
                 return true;
             }
@@ -502,8 +554,8 @@ public class Profile {
         /*
          * Integer: n(size of summary profile)
          * String: json of summary profile
-         * Integer: m(size of execution profile)
-         * String: raw text of execution profile
+         * Integer: m(size of compressed execution profile)
+         * String: compressed binary of execution profile
         */
         FileOutputStream fileOutputStream = null;
         try {
@@ -514,9 +566,10 @@ public class Profile {
             // store execution profiles as string
             StringBuilder build = new StringBuilder();
             getExecutionProfileContent(build);
-            String executionProfileString = build.toString();
+            byte[] buf = compressExecutionProfile(build.toString());
+            dataOutputStream.writeInt(buf.length);
+            dataOutputStream.write(buf);
             build = null;
-            Text.writeString(dataOutputStream, executionProfileString);
         } catch (Exception e) {
             LOG.error("write {} summary profile failed", id, e);
             return;
@@ -531,7 +584,10 @@ public class Profile {
         }
 
         this.profileStoragePath = profileFilePath;
-        LOG.debug("Store profile: {}, path {}", id, this.profileStoragePath);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Store profile: {}, path {}", id, this.profileStoragePath);
+        }
     }
 
     // remove profile from storage
@@ -551,8 +607,9 @@ public class Profile {
             LOG.warn("Profile {} does not exist", profileFile.getAbsolutePath());
             return;
         }
-
-        LOG.debug("Remove profile: {}", getProfileStoragePath());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Remove profile: {}", getProfileStoragePath());
+        }
 
         if (!FileUtils.deleteQuietly(profileFile)) {
             LOG.warn("remove profile {} failed", profileFile.getAbsolutePath());

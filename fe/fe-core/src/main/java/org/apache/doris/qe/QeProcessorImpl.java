@@ -171,7 +171,7 @@ public final class QeProcessorImpl implements QeProcessor {
             // Here we shuold use query option instead of ConnectContext,
             // because for the coordinator of load task, it does not have ConnectContext.
             if (queryInfo.getCoord().getQueryOptions().enable_profile) {
-                ProfileManager.getInstance().markQueryFinished(queryId);
+                ProfileManager.getInstance().markExecutionProfileFinished(queryId);
             }
 
             if (queryInfo.getConnectContext() != null

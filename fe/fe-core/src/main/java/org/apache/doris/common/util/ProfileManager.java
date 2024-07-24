@@ -50,6 +50,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -141,6 +143,7 @@ public class ProfileManager extends MasterDaemon {
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
     private final ExecutorService fetchRealTimeProfileExecutor;
+    private final ExecutorService profileIOExecutor;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -163,6 +166,8 @@ public class ProfileManager extends MasterDaemon {
         queryIdToExecutionProfiles = Maps.newHashMap();
         fetchRealTimeProfileExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 10, 100, "fetch-realtime-profile-pool", true);
+        profileIOExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                20, 100, "profile-io-thread-pool", true);
     }
 
     private ProfileElement createElement(Profile profile) {
@@ -588,10 +593,10 @@ public class ProfileManager extends MasterDaemon {
             LOG.info("Reading profile from {}", PROFILE_STORAGE_PATH);
             List<String> profileDirAbsPaths = getOnStorageProfileInfos();
             // Thread safe list
-            List<Profile> profiles = Lists.newCopyOnWriteArrayList();
-
-            List<Thread> profileReadThreads = Lists.newArrayList();
-
+            List<Profile> profiles = Collections.synchronizedList(new ArrayList<>());
+            // List of profile io futures
+            List<Future<?>> profileIOfutures = Lists.newArrayList();
+            // Creatre and add task to executor
             for (String profileDirAbsPath : profileDirAbsPaths) {
                 Thread thread = new Thread(() -> {
                     Profile profile = Profile.read(profileDirAbsPath);
@@ -599,12 +604,16 @@ public class ProfileManager extends MasterDaemon {
                         profiles.add(profile);
                     }
                 });
-                thread.start();
-                profileReadThreads.add(thread);
+                profileIOfutures.add(profileIOExecutor.submit(thread));
             }
 
-            for (Thread thread : profileReadThreads) {
-                thread.join();
+            // Wait for all submitted futures to complete
+            for (Future<?> future : profileIOfutures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    LOG.warn("Failed to read profile from storage", e);
+                }
             }
 
             LOG.info("There are {} profiles loaded into memory", profiles.size());
@@ -669,18 +678,21 @@ public class ProfileManager extends MasterDaemon {
             }
 
             // Store profile to storage in parallel
-            List<Thread> iothreads = Lists.newArrayList();
+            List<Future<?>> profileWriteFutures = Lists.newArrayList();
 
             for (ProfileElement profileElement : profilesToBeStored) {
                 Thread thread = new Thread(() -> {
                     profileElement.writeToStorage(PROFILE_STORAGE_PATH);
                 });
-                iothreads.add(thread);
-                thread.start();
+                profileWriteFutures.add(profileIOExecutor.submit(thread));
             }
 
-            for (Thread thread : iothreads) {
-                thread.join();
+            for (Future<?> future : profileWriteFutures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    LOG.warn("Failed to write profile to storage", e);
+                }
             }
 
             // After profile is stored to storage, the executoin profile must be ejected from memory
@@ -826,7 +838,7 @@ public class ProfileManager extends MasterDaemon {
 
     private void deleteBrokenProfiles() {
         List<String> brokenProfiles = getBrokenProfiles();
-        List<Thread> iothreads = Lists.newArrayList();
+        List<Future<?>> profileDeleteFutures = Lists.newArrayList();
 
         for (String brokenProfile : brokenProfiles) {
             Thread iothread = new Thread(() -> {
@@ -843,14 +855,13 @@ public class ProfileManager extends MasterDaemon {
                     LOG.error("Failed to delete broken profile: {}", brokenProfile, e);
                 }
             });
-            iothread.start();
-            iothreads.add(iothread);
+            profileDeleteFutures.add(profileIOExecutor.submit(iothread));
         }
 
-        for (Thread iothread : iothreads) {
+        for (Future<?> future : profileDeleteFutures) {
             try {
-                iothread.join();
-            } catch (InterruptedException e) {
+                future.get();
+            } catch (Exception e) {
                 LOG.error("Failed to remove broken profile", e);
             }
         }
@@ -871,7 +882,7 @@ public class ProfileManager extends MasterDaemon {
 
     // When the query is finished, the execution profile should be marked as finished
     // For load task, one of its execution profile is finished.
-    public void markQueryFinished(TUniqueId queryId) {
+    public void markExecutionProfileFinished(TUniqueId queryId) {
         readLock.lock();
         try {
             ExecutionProfile execProfile = queryIdToExecutionProfiles.get(queryId);

@@ -39,6 +39,7 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
@@ -93,6 +94,34 @@ public class ProfilePersistentTest {
         }
 
         return profile;
+    }
+
+    @Test
+    public void compressBasicTest() {
+        // Initialize StringBuilder for faster string construction
+        StringBuilder executionProfileTextBuilder = new StringBuilder(1024 * 1024);
+        // Populate the StringBuilder with random characters
+        for (int i = 0; i < 1024 * 1024; i++) {
+            executionProfileTextBuilder.append((char) (Math.random() * 26 + 'a'));
+        }
+        // Convert StringBuilder to String
+        String executionProfileText = executionProfileTextBuilder.toString();
+
+        byte[] compressed = null;
+        try {
+            compressed = Profile.compressExecutionProfile(executionProfileText);
+        } catch (IOException e) {
+            LOG.error("Failed to compress execution profile: {}", e.getMessage(), e);
+            Assert.fail();
+        }
+        String executionProfileTextDecompressed = null;
+        try {
+            executionProfileTextDecompressed = Profile.decompressExecutionProfile(compressed);
+        } catch (IOException e) {
+            LOG.error("Failed to decompress execution profile: {}", e.getMessage(), e);
+            Assert.fail();
+        }
+        Assert.assertEquals(executionProfileText, executionProfileTextDecompressed);
     }
 
     @Test
