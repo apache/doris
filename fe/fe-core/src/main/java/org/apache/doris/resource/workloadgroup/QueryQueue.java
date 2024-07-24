@@ -109,7 +109,7 @@ public class QueryQueue {
     }
 
     public QueueToken getToken(int querySlotCount) throws UserException {
-        if (querySlotCount > maxConcurrency || querySlotCount < 1) {
+        if (maxConcurrency > 0 && (querySlotCount > maxConcurrency || querySlotCount < 1)) {
             throw new UserException("query slot count " + querySlotCount
                     + " should be smaller than workload group's max concurrency "
                     + maxConcurrency + " and > 0");
