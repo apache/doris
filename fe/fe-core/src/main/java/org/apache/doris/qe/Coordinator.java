@@ -302,6 +302,10 @@ public class Coordinator implements CoordInterface {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 
+    public long getNumReceivedRows() {
+        return numReceivedRows;
+    }
+
     public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
         return tWorkloadGroups;
     }
@@ -1166,6 +1170,14 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+            if (resultBatch.isEos()) {
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
+            }
+        } else {
+            numReceivedRows += resultBatch.getBatch().getRowsSize();
+        }
+
         if (resultBatch.isEos()) {
             receivers.remove(receivers.size() - 1);
             if (receivers.isEmpty()) {
@@ -1184,11 +1196,8 @@ public class Coordinator implements CoordInterface {
                 cancelInternal(new Status(TStatusCode.LIMIT_REACH, "query reach limit"));
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-                numReceivedRows = 0;
                 numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
             }
-        } else if (resultBatch.getBatch() != null) {
-            numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
         return resultBatch;

@@ -670,7 +670,7 @@ public class ConnectContext {
         returnRows = 0;
     }
 
-    public void updateReturnRows(long returnRows) {
+    public void updateReturnRows(int returnRows) {
         this.returnRows += returnRows;
     }
 
