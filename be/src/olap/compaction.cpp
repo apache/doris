@@ -198,7 +198,7 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
     if (!ret) {
         return false;
     }
-    if (min_key < pre_max_key) {
+    if (min_key <= pre_max_key) {
         return false;
     }
     CHECK(rhs->max_key(&pre_max_key));
@@ -783,7 +783,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         for (const auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
                 auto col_unique_id = index.col_unique_ids()[0];

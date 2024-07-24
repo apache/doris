@@ -631,11 +631,13 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         // Generating 'result_sign' from 'inlist' requires sorting the values.
         std::set<std::string> values;
         for (size_t i = 1; i < arguments.size(); i++) {
-            values.insert(block.get_by_position(arguments[i]).to_string(0));
+            const auto& entry = block.get_by_position(arguments[i]);
+            values.insert(entry.type->to_string(*entry.column, 0));
         }
         pred_result_sign += boost::join(values, ",");
     } else {
-        pred_result_sign += block.get_by_position(arguments[1]).to_string(0);
+        const auto& entry = block.get_by_position(arguments[1]);
+        pred_result_sign += entry.type->to_string(*entry.column, 0);
     }
     return pred_result_sign;
 }
