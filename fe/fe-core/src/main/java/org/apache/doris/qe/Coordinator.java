@@ -1174,7 +1174,7 @@ public class Coordinator implements CoordInterface {
             if (resultBatch.isEos()) {
                 numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
             }
-        } else {
+        } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
