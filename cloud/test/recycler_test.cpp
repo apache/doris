@@ -162,8 +162,8 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         accessor->put_file(path, "");
         for (auto& index : rowset.tablet_schema().index()) {
-            auto path = inverted_index_path(rowset.tablet_id(), rowset.rowset_id_v2(), i,
-                                            index.index_id());
+            auto path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
+                                               index.index_id(), index.index_suffix_name());
             accessor->put_file(path, "");
         }
     }
@@ -200,8 +200,8 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         accessor->put_file(path, path);
         for (auto& index : rowset.tablet_schema().index()) {
-            auto path = inverted_index_path(rowset.tablet_id(), rowset.rowset_id_v2(), i,
-                                            index.index_id());
+            auto path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
+                                               index.index_id(), index.index_suffix_name());
             accessor->put_file(path, path);
         }
     }
@@ -247,7 +247,7 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         auto path = segment_path(tablet_id, rowset_id, i);
         accessor->put_file(path, "");
         for (int j = 0; j < num_inverted_indexes; ++j) {
-            auto path = inverted_index_path(tablet_id, rowset_id, i, j);
+            auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
             accessor->put_file(path, "");
         }
     }
