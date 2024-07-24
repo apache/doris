@@ -47,6 +47,7 @@ import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.Queriable;
@@ -351,6 +352,9 @@ public class StmtExecutor {
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
+            if (expr instanceof PlaceHolderExpr) {
+                expr = ((PlaceHolderExpr) expr).getLiteral();
+            }
             if (!expr.isLiteralOrCastExpr()) {
                 throw new UserException(
                         "do not support non-literal expr in transactional insert operation: " + expr.toSql());
