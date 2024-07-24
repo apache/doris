@@ -2051,6 +2051,10 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                             response->set_loaded_rows(state->num_rows_load_success());
                             response->set_filtered_rows(state->num_rows_load_filtered());
                             status->to_protobuf(response->mutable_status());
+                            if (!state->get_error_log_file_path().empty()) {
+                                response->set_error_url(
+                                        to_load_error_http_path(state->get_error_log_file_path()));
+                            }
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {
