@@ -146,58 +146,6 @@ TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
     return target_schema;
 }
 
-// Sync tablet meta and all rowset meta if not running.
-// This could happen when BE didn't finish schema change job and another BE committed this schema change job.
-// It should be a quite rare situation.
-Status CloudTablet::sync_if_not_running() {
-    if (tablet_state() == TABLET_RUNNING) {
-        return Status::OK();
-    }
-
-    // Serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
-
-    {
-        std::shared_lock rlock(_meta_lock);
-        if (tablet_state() == TABLET_RUNNING) {
-            return Status::OK();
-        }
-    }
-
-    TabletMetaSharedPtr tablet_meta;
-    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
-    if (!st.ok()) {
-        if (st.is<ErrorCode::NOT_FOUND>()) {
-            clear_cache();
-        }
-        return st;
-    }
-
-    if (tablet_meta->tablet_state() != TABLET_RUNNING) [[unlikely]] {
-        // MoW may go to here when load while schema change
-        return Status::Error<INVALID_TABLET_STATE>("invalid tablet state {}. tablet_id={}",
-                                                   tablet_meta->tablet_state(), tablet_id());
-    }
-
-    TimestampedVersionTracker empty_tracker;
-    {
-        std::lock_guard wlock(_meta_lock);
-        RETURN_IF_ERROR(set_tablet_state(TABLET_RUNNING));
-        _rs_version_map.clear();
-        _stale_rs_version_map.clear();
-        std::swap(_timestamped_version_tracker, empty_tracker);
-        _tablet_meta->clear_rowsets();
-        _tablet_meta->clear_stale_rowset();
-        _max_version = -1;
-    }
-
-    st = _engine.meta_mgr().sync_tablet_rowsets(this);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
-        clear_cache();
-    }
-    return st;
-}
-
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
                               std::unique_lock<std::shared_mutex>& meta_lock,
                               bool warmup_delta_data) {
