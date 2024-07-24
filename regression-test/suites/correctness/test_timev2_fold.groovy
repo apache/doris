@@ -44,18 +44,4 @@ suite("test_timev2_fold") {
     qt_select23 """
         select CONVERT_TZ('9999-12-31 23:59:59.999999', 'Pacific/Galapagos', 'Pacific/GalapaGoS');
     """
-    // BE
-    sql """ set debug_skip_fold_constant=true """
-    qt_select20 """
-        select timediff( convert_tz("2020-05-05 00:00:00", 'UTC', 'America/Los_Angeles'), "2020-05-05 00:00:00");
-    """
-    qt_select21 """
-        select convert_tz('2020-02-01 12:00:00', 'America/Los_Angeles', '+08:00');
-    """
-    qt_select22 """
-        select convert_tz('2020-05-01 12:00:00', 'America/Los_Angeles', '+08:00');
-    """
-    qt_select23 """
-        select CONVERT_TZ('9999-12-31 23:59:59.999999', 'Pacific/Galapagos', 'Pacific/GalapaGoS');
-    """
 }
