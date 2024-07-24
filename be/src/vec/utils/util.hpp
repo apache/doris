@@ -148,7 +148,12 @@ public:
     }
 
     static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
-        return std::ranges::all_of(block, [](auto& data) { return is_column_const(*data.column); });
+        for (const auto& arg : args) {
+            if (!is_column_const(*block.get_by_position(arg).column)) {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
