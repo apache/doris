@@ -3591,7 +3591,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         int idx = 0;
         if (needReplace) {
             for (int i = 0; i < reqPartitionIds.size(); i++) {
-                if (reqPartitionIds.get(i) == resultPartitionIds.get(i)) {
+                if (reqPartitionIds.get(i).equals(resultPartitionIds.get(i))) {
                     resultPartitionIds.set(i, newPartitionIds.get(idx++));
                 }
             }

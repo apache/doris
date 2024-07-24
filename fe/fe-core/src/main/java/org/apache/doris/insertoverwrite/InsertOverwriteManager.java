@@ -111,7 +111,6 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * this func should in lock scope of getLock(groupId)
      *
      * @param newIds if have replaced, replace with new. otherwise itself.
-     * @return
      */
     public boolean tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds, List<Long> newIds) {
         Map<Long, Long> relations = partitionPairs.get(groupId);
