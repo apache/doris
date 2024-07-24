@@ -2369,11 +2369,17 @@ public class StmtExecutor {
                         errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId
                                 + ", query_id: " + DebugUtil.printId(context.queryId()) + ", backend_id: "
                                 + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
+                        if (response.hasErrorUrl()) {
+                            errMsg += ", error url: " + response.getErrorUrl();
+                        }
                     }
                 } else if (code != TStatusCode.OK) {
                     errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId + ", query_id: "
                             + DebugUtil.printId(context.queryId()) + ", backend_id: " + groupCommitPlanner.getBackend()
                             .getId() + ", status: " + response.getStatus();
+                    if (response.hasErrorUrl()) {
+                        errMsg += ", error url: " + response.getErrorUrl();
+                    }
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();
