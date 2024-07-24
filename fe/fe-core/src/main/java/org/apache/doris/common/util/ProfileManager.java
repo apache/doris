@@ -715,11 +715,10 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private List<ProfileElement> getProfilesToBeRemoved() {
-        final int maxProfilesOnStorage = Config.max_spilled_profile_num;
         // By order of query finish timestamp
         // The profile with the least storage timestamp will be on the top of heap
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
-                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));        
 
         // Collect all profiles that has been stored to storage
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
@@ -728,9 +727,12 @@ public class ProfileManager extends MasterDaemon {
             }
         });
 
+        final int maxSpilledProfileNum = Config.max_spilled_profile_num;
+        final int spilledProfileLimitBytes = Config.spilled_profile_storage_limit_bytes;
+
         List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
 
-        while (profileDeque.size() > maxProfilesOnStorage) {
+        while (profileDeque.size() > maxSpilledProfileNum) {
             // First profile is the oldest profile
             queryIdToBeRemoved.add(profileDeque.poll());
         }

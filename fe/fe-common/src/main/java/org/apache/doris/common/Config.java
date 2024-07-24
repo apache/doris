@@ -2698,6 +2698,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static int max_spilled_profile_num = 500;
 
+    // The max size of profiles that can be stored to storage.
+    @ConfField
+    public static int spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

@@ -131,6 +131,7 @@ public class Profile {
             LOG.warn("Profile storage path {} is invalid", profileFile.getAbsolutePath());
             return null;
         }
+
         // Profile could be a load task with multiple queries, so we call it id.
         if (parseProfileFileName(parts[parts.length - 1]) == null) {
             LOG.warn("{} is not a valid profile file", profileFile.getAbsolutePath());
