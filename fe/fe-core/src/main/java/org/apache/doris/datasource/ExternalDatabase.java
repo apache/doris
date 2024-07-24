@@ -376,6 +376,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
+            // must use full qualified name to generate id.
+            // otherwise, if 2 databases have the same table name, the id will be the same.
             return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {

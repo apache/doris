@@ -503,6 +503,8 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
+            // must use full qualified name to generate id.
+            // otherwise, if 2 catalogs have the same db name, the id will be the same.
             return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
