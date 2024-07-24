@@ -691,7 +691,8 @@ void VAnalyticEvalNode::_execute_for_win_func(int64_t partition_start, int64_t p
         }
         _agg_functions[i]->function()->add_range_single_place(
                 partition_start, partition_end, frame_start, frame_end,
-                _fn_place_ptr + _offsets_of_aggregate_states[i], _agg_columns.data(), nullptr);
+                _fn_place_ptr + _offsets_of_aggregate_states[i], _agg_columns.data(),
+                _agg_arena_pool.get());
     }
 
     // If the end is not greater than the start, the current window should be empty.
