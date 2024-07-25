@@ -372,7 +372,7 @@ bool SegcompactionWorker::need_convert_delete_bitmap() {
         return false;
     }
     auto tablet = _writer->context().tablet;
-    return tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+    return tablet != nullptr && tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            tablet->enable_unique_key_merge_on_write() &&
            tablet->tablet_schema()->has_sequence_col();
 }

@@ -699,7 +699,7 @@ Status BetaRowsetWriter::_close_file_writers() {
                                            "close segment compaction worker failed");
         }
         // process delete bitmap for mow table
-        if (_segcompaction_worker->need_convert_delete_bitmap()) {
+        if (is_segcompacted() && _segcompaction_worker->need_convert_delete_bitmap()) {
             auto converted_delete_bitmap = _segcompaction_worker->get_converted_delete_bitmap();
             // which means the segment compaction is triggerd
             if (converted_delete_bitmap != nullptr) {
