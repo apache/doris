@@ -614,7 +614,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalProject(
+                .matches(
                         logicalJoin(
                                 logicalFilter(
                                         logicalOlapScan()
@@ -623,7 +623,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                         && filter.getPredicate().toSql().contains("id = 2")),
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
-                ));
+                );
     }
 
     @Test
