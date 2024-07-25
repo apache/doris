@@ -130,16 +130,23 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
             }
         } else {
             if (duration >= 10 * _group_commit_interval_ms) {
-                std::stringstream ss;
-                ss << "[";
-                for (auto& id : _load_ids) {
-                    ss << id.to_string() << ", ";
+                auto last_print_duration =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - _last_print_time)
+                                .count();
+                if (last_print_duration >= 10000) {
+                    _last_print_time = std::chrono::steady_clock::now();
+                    std::stringstream ss;
+                    ss << "[";
+                    for (auto& id : _load_ids) {
+                        ss << id.to_string() << ", ";
+                    }
+                    ss << "]";
+                    LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                              << ", label=" << label << ", instance_id=" << load_instance_id
+                              << ", duration=" << duration << ", load_ids=" << ss.str()
+                              << ", runtime_state=" << runtime_state;
                 }
-                ss << "]";
-                LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
-                          << ", label=" << label << ", instance_id=" << load_instance_id
-                          << ", duration=" << duration << ", load_ids=" << ss.str()
-                          << ", runtime_state=" << runtime_state;
             }
         }
         _get_cond.wait_for(l, std::chrono::milliseconds(
