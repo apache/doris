@@ -92,7 +92,7 @@ public:
         array_sizes.reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto array_size = num->get_int(i);
-	    if (UNLIKELY(array_size < 0) || UNLIKELY(array_size > max_array_size_as_field)) {
+            if (UNLIKELY(array_size < 0) || UNLIKELY(array_size > max_array_size_as_field)) {
                 return Status::RuntimeError("Array size should in range(0, {}) in function: {}",
                                             max_array_size_as_field, get_name());
             }
