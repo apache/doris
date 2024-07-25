@@ -232,6 +232,10 @@ Status FullSorter::append_block(Block* block) {
     return Status::OK();
 }
 
+Status FullSorter::sort() {
+    return _do_sort();
+}
+
 Status FullSorter::prepare_for_read() {
     if (_state->unsorted_block_->rows() > 0) {
         RETURN_IF_ERROR(_do_sort());
