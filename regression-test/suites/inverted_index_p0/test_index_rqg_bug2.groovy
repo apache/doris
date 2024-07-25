@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_index_rqg_bug2", "test_index_rqg_bug2"){
+suite("test_index_rqg_bug2", "test_index_rqg_bug"){
     def table1 = "test_index_rqg_bug2"
 
     sql "drop table if exists ${table1}"

@@ -1138,8 +1138,7 @@ Status VScanNode::_normalize_in_and_not_in_compound_predicate(vectorized::VExpr*
                                                               ColumnValueRange<T>& range,
                                                               PushDownType* pdt) {
     if (TExprNodeType::IN_PRED == expr->node_type()) {
-        std::string fn_name =
-                expr->op() == TExprOpcode::type::FILTER_IN ? "in_list" : "not_in_list";
+        std::string fn_name = expr->op() == TExprOpcode::type::FILTER_IN ? "in" : "not_in";
 
         HybridSetBase::IteratorBase* iter = nullptr;
         auto hybrid_set = expr->get_set_func();
