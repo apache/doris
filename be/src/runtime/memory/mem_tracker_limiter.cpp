@@ -43,7 +43,17 @@
 
 namespace doris {
 
-bvar::Adder<int64_t> g_memtrackerlimiter_cnt("memtrackerlimiter_cnt");
+static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimiter_cnt");
+static bvar::Adder<int64_t> memory_all_trackers_sum_bytes("memory_all_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_query_trackers_sum_bytes("memory_query_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_load_trackers_sum_bytes("memory_load_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_compaction_trackers_sum_bytes(
+        "memory_compaction_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_schema_change_trackers_sum_bytes(
+        "memory_schema_change_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_other_trackers_sum_bytes("memory_other_trackers_sum_bytes");
+
 constexpr auto GC_MAX_SEEK_TRACKER = 1000;
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
@@ -80,7 +90,7 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     if (_type == Type::LOAD || _type == Type::QUERY) {
         _query_statistics = std::make_shared<QueryStatistics>();
     }
-    g_memtrackerlimiter_cnt << 1;
+    memory_memtrackerlimiter_cnt << 1;
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLimiter::Type type,
@@ -137,7 +147,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                   << print_address_sanitizers();
 #endif
     }
-    g_memtrackerlimiter_cnt << -1;
+    memory_memtrackerlimiter_cnt << -1;
 }
 
 #ifndef NDEBUG
@@ -223,9 +233,38 @@ void MemTrackerLimiter::refresh_global_counter() {
             }
         }
     }
+    int64_t all_tracker_mem_sum = 0;
     for (auto it : type_mem_sum) {
         MemTrackerLimiter::TypeMemSum[it.first]->set(it.second);
+        all_tracker_mem_sum += it.second;
+        switch (it.first) {
+        case Type::GLOBAL:
+            memory_global_trackers_sum_bytes
+                    << it.second - memory_global_trackers_sum_bytes.get_value();
+            break;
+        case Type::QUERY:
+            memory_query_trackers_sum_bytes
+                    << it.second - memory_query_trackers_sum_bytes.get_value();
+            break;
+        case Type::LOAD:
+            memory_load_trackers_sum_bytes
+                    << it.second - memory_load_trackers_sum_bytes.get_value();
+            break;
+        case Type::COMPACTION:
+            memory_compaction_trackers_sum_bytes
+                    << it.second - memory_compaction_trackers_sum_bytes.get_value();
+            break;
+        case Type::SCHEMA_CHANGE:
+            memory_schema_change_trackers_sum_bytes
+                    << it.second - memory_schema_change_trackers_sum_bytes.get_value();
+            break;
+        case Type::OTHER:
+            memory_other_trackers_sum_bytes
+                    << it.second - memory_other_trackers_sum_bytes.get_value();
+        }
     }
+    memory_all_trackers_sum_bytes << all_tracker_mem_sum -
+                                             memory_all_trackers_sum_bytes.get_value();
 }
 
 void MemTrackerLimiter::clean_tracker_limiter_group() {
@@ -266,7 +305,6 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    all_tracker_mem_sum += MemInfo::allocator_cache_mem();
 
     snapshot.type = "overview";
     snapshot.label = "tc/jemalloc_metadata";
@@ -274,10 +312,9 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_metadata_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
-    all_tracker_mem_sum += MemInfo::allocator_metadata_mem();
 
     snapshot.type = "overview";
-    snapshot.label = "sum of all trackers"; // is virtual memory
+    snapshot.label = "sum_of_all_trackers"; // is virtual memory
     snapshot.limit = -1;
     snapshot.cur_consumption = all_tracker_mem_sum;
     snapshot.peak_consumption = -1;
