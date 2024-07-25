@@ -76,6 +76,9 @@ suite("test_show_nested_index_file_http_action_with_variant", "p0") {
         load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
         load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
 
+        // select to sync meta in cloud mode
+        sql """ select * from ${tableName} limit 10; """
+
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         String tablet_id = tablets[0].TabletId
         String backend_id = tablets[0].BackendId

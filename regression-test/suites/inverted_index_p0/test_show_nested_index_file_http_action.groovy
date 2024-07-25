@@ -53,6 +53,9 @@ suite("test_show_nested_index_file_http_action") {
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
 
+        // select to sync meta in cloud mode
+        sql """ select * from ${tableName}; """
+
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         String tablet_id = tablets[0].TabletId
         String backend_id = tablets[0].BackendId
