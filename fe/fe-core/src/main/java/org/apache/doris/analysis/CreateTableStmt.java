@@ -487,7 +487,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
