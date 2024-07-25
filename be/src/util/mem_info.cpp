@@ -47,11 +47,6 @@
 
 namespace doris {
 
-static bvar::Adder<int64_t> memory_process_vm_rss_bytes("memory_process_vm_rss_bytes");
-static bvar::Adder<int64_t> memory_process_vm_rss_peak_bytes("memory_process_vm_rss_peak_bytes");
-static bvar::Adder<int64_t> memory_process_vm_virtual_bytes("memory_process_vm_virtual_bytes");
-static bvar::Adder<int64_t> memory_process_vm_virtual_peak_bytes(
-        "memory_process_vm_virtual_peak_bytes");
 static bvar::Adder<int64_t> memory_jemalloc_cache_bytes("memory_jemalloc_cache_bytes");
 static bvar::Adder<int64_t> memory_jemalloc_dirty_pages_bytes("memory_jemalloc_dirty_pages_bytes");
 static bvar::Adder<int64_t> memory_jemalloc_metadata_bytes("memory_jemalloc_metadata_bytes");
@@ -138,15 +133,6 @@ void MemInfo::refresh_allocator_mem() {
 }
 
 void MemInfo::refresh_memory_bvar() {
-    memory_process_vm_rss_bytes << PerfCounters::get_vm_rss() -
-                                           memory_process_vm_rss_bytes.get_value();
-    memory_process_vm_rss_peak_bytes
-            << PerfCounters::get_vm_hwm() - memory_process_vm_rss_peak_bytes.get_value();
-    memory_process_vm_virtual_bytes
-            << PerfCounters::get_vm_size() - memory_process_vm_virtual_bytes.get_value();
-    memory_process_vm_virtual_peak_bytes
-            << PerfCounters::get_vm_peak() - memory_process_vm_virtual_peak_bytes.get_value();
-
     memory_jemalloc_cache_bytes << MemInfo::allocator_cache_mem() -
                                            memory_jemalloc_cache_bytes.get_value();
     memory_jemalloc_dirty_pages_bytes
