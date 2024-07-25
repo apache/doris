@@ -50,7 +50,7 @@ static const uint32_t TABLET_ID = 12345;
 static StorageEngine* s_engine;
 static const std::string lTestDir = "./data_test/data/segcompaction_mow_test";
 
-class SegCompactionMoWTest : public testing::Test {
+class SegCompactionMoWTest : public ::testing::TestWithParam<std::string> {
 public:
     SegCompactionMoWTest() = default;
 
@@ -249,7 +249,6 @@ protected:
                 if (s != Status::OK()) {
                     eof = true;
                 }
-                EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
                 for (int i = 0; i < output_block->rows(); ++i) {
                     vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
@@ -284,7 +283,8 @@ private:
     std::unique_ptr<DataDir> _data_dir;
 };
 
-TEST_F(SegCompactionMoWTest, SegCompactionThenRead) {
+TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
+    std::string delete_ratio = GetParam();
     config::enable_segcompaction = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -301,7 +301,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionThenRead) {
     uint32_t rows_mark_deleted = 0;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
-        create_rowset_writer_context(20047, tablet_schema, &writer_context);
+        int raw_rsid = rand();
+        create_rowset_writer_context(raw_rsid, tablet_schema, &writer_context);
         RowsetIdUnorderedSet rsids;
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
@@ -328,11 +329,17 @@ TEST_F(SegCompactionMoWTest, SegCompactionThenRead) {
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                if (delete_ratio == "full") { // delete all data
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, i, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
+                } else {
+                    // mark delete every 3 rows
+                    if (rid % 3 == 0) {
+                        writer_context.mow_context->delete_bitmap->add(
+                                {rowset_id, i, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
+                        rows_mark_deleted++;
+                    }
                 }
             }
             s = rowset_writer->add_block(&block);
@@ -349,13 +356,13 @@ TEST_F(SegCompactionMoWTest, SegCompactionThenRead) {
         EXPECT_EQ(num_segments, delete_bitmap->delete_bitmap.size());
         EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
-        ls.push_back("20047_0.dat");
-        ls.push_back("20047_1.dat");
-        ls.push_back("20047_2.dat");
-        ls.push_back("20047_3.dat");
-        ls.push_back("20047_4.dat");
-        ls.push_back("20047_5.dat");
-        ls.push_back("20047_6.dat");
+        ls.push_back(fmt::format("{}_0.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_1.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_2.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_3.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_4.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_5.dat", raw_rsid));
+        ls.push_back(fmt::format("{}_6.dat", raw_rsid));
         EXPECT_TRUE(check_dir(ls));
         // 7 segments plus 1 sentinel mark
         size_t total_cardinality2 = 0;
@@ -874,6 +881,9 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                                                    num_segments * rows_per_segment,
                                                    rows_mark_deleted));
 }
+
+INSTANTIATE_TEST_SUITE_P(Params, SegCompactionMoWTest,
+                         ::testing::ValuesIn(std::vector<std::string> {"partial", "full"}));
 
 } // namespace doris
 
