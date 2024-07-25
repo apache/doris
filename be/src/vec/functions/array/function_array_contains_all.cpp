@@ -18,7 +18,10 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <type_traits>
+
 #include "common/status.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -63,7 +66,6 @@ public:
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         ColumnArrayExecutionData left_exec_data;
         ColumnArrayExecutionData right_exec_data;
-
         Status ret = Status::OK();
 
         // extract array column
@@ -152,17 +154,12 @@ public:
                                                       dst_nested_col->get_data().data());
         } else {
             ret = Status::RuntimeError(
-                    fmt::format("execute failed, function argument not support {} ", get_name(),
-                                left_which_type.idx));
+                    fmt::format("execute failed about function {}, the argument not support {} ",
+                                get_name(), block.get_by_position(arguments[0]).type->get_name()));
         }
-        LOG(INFO) << "block: " << block.dump_structure();
         if (ret.ok()) {
-            // block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
-            //  std::move(dst_null_map)));
             block.replace_by_position(result, std::move(dst_nested_col));
         }
-        LOG(INFO) << block.dump_data();
-        // DCHECK(false);
         return ret;
     }
 
@@ -213,9 +210,11 @@ private:
                         is_equal_value = false;
                     } else {
                         // all is not null, check the data is equal
-                        auto left_value = left_data.nested_col->get_data_at(left_nested_loop_pos);
-                        auto right_value = right_data.nested_col->get_data_at(right_pos);
-                        is_equal_value = (left_value == right_value);
+                        const auto* left_column = assert_cast<const T*>(left_data.nested_col);
+                        const auto* right_column = assert_cast<const T*>(right_data.nested_col);
+                        auto res = left_column->compare_at(left_nested_loop_pos, right_pos,
+                                                           *right_column, -1);
+                        is_equal_value = (res == 0);
                     }
                     if (is_equal_value) {
                         left_nested_loop_pos++;
@@ -240,7 +239,7 @@ private:
 
 void register_function_array_contains_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayContainsAll>();
-    factory.register_alias("array_contains_all", "array_contains_seq");
+    factory.register_alias("array_contains_all", "hasSubstr");
 }
 
 } // namespace doris::vectorized
