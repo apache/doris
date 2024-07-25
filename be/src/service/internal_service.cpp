@@ -89,6 +89,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "olap/wal/wal_manager.h"
+#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -135,6 +136,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/writer/vfile_result_writer.h"
 
 namespace google {
 namespace protobuf {
@@ -644,6 +646,50 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
     }
 }
 
+void PInternalService::export_delete_exist_files(google::protobuf::RpcController* controller,
+                                                 const PExportDeleteExistFilesRequest* request,
+                                                 PExportDeleteExistFilesResult* result,
+                                                 google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "export delete exist files";
+        brpc::ClosureGuard closure_guard(done);
+        TResultFileSinkOptions file_options;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->result_file_sink_options().data());
+            uint32_t len = request->result_file_sink_options().size();
+            st = deserialize_thrift_msg(buf, &len, false, &file_options);
+            if (!st.ok()) {
+                LOG(WARNING) << "export delete exist files failed, errmsg = " << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        pipeline::ResultFileOptions pipleline_file_opts = pipeline::ResultFileOptions(file_options);
+        // TODO(ftw): get from FE
+        auto storage_type = static_cast<TStorageBackendType::type>(2);
+
+        // delete files
+        TUniqueId unique_id;
+        RowDescriptor row_desc;
+        std::unique_ptr<vectorized::VFileResultWriter> _writer;
+        _writer.reset(new vectorized::VFileResultWriter(&pipleline_file_opts, storage_type,
+                                                        unique_id, {}, nullptr, nullptr, false,
+                                                        row_desc));
+        st = _writer->delete_dir();
+        if (!st.ok()) {
+            LOG(WARNING) << "export delete exist files failed, errmsg = " << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
 void PInternalService::outfile_write_success(google::protobuf::RpcController* controller,
                                              const POutfileWriteSuccessRequest* request,
                                              POutfileWriteSuccessResult* result,
@@ -658,7 +704,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             uint32_t len = request->result_file_sink().size();
             st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -677,7 +723,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             bool exists = true;
             st = io::global_local_filesystem()->exists(file_name, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }
@@ -685,7 +731,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
                 st = Status::InternalError("File already exists: {}", file_name);
             }
             if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
                 st.to_protobuf(result->mutable_status());
                 return;
             }

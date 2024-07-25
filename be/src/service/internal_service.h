@@ -95,6 +95,11 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void export_delete_exist_files(google::protobuf::RpcController* controller,
+                                   const PExportDeleteExistFilesRequest* request,
+                                   PExportDeleteExistFilesResult* result,
+                                   google::protobuf::Closure* done) override;
+
     void outfile_write_success(google::protobuf::RpcController* controller,
                                const POutfileWriteSuccessRequest* request,
                                POutfileWriteSuccessResult* result,

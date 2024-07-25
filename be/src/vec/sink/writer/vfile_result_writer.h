@@ -74,6 +74,9 @@ public:
         _header = header;
     }
 
+    // delete the dir of file_path
+    Status delete_dir();
+
 private:
     Status _write_file(const Block& block);
 
@@ -93,9 +96,6 @@ private:
     Status _send_result();
     // save result into batch rather than send it
     Status _fill_result_block();
-    // delete the dir of file_path
-    Status _delete_dir();
-
     RuntimeState* _state; // not owned, set when init
     const pipeline::ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;

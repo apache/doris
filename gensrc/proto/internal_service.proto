@@ -707,14 +707,20 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
 message POutfileWriteSuccessResult {
     optional PStatus status = 1;
+}
+
+message PExportDeleteExistFilesRequest {
+    optional bytes result_file_sink_options = 1;
+    optional int32 storage_type = 2;
+}
+
+message PExportDeleteExistFilesResult {
+   optional PStatus status = 1;
 }
 
 message PJdbcTestConnectionRequest {
@@ -1017,5 +1023,6 @@ service PBackendService {
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
+    rpc export_delete_exist_files(PExportDeleteExistFilesRequest) returns (PExportDeleteExistFilesResult);
 };
 
