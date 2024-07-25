@@ -2008,8 +2008,13 @@ public class StmtExecutor {
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && isDryRun) {
                         // Return a one row one column result set, with the real result number
-                        List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
-                                : batch.getQueryStatistics().getReturnedRows() + "");
+                        long rows = 0;
+                        if (coordBase instanceof Coordinator) {
+                            rows = ((Coordinator) coordBase).getNumReceivedRows();
+                        } else if (batch.getQueryStatistics() != null) {
+                            rows = batch.getQueryStatistics().getReturnedRows();
+                        }
+                        List<String> data = Lists.newArrayList(String.valueOf(rows));
                         ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
                                 Collections.singletonList(data));
                         sendResultSet(resultSet);
