@@ -1196,6 +1196,7 @@ TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
         auto& [cond_str, exp_succ, exp_cond] = in;
         TCondition parsed_cond;
         EXPECT_EQ(DeleteHandler::parse_condition(cond_str, &parsed_cond), exp_succ) << " unexpected result, cond_str: " << cond_str;
+        if (exp_succ) EXPECT_EQ(parsed_cond, exp_cond) << " unexpected result, cond_str: " << cond_str;
     };
 
     auto gen_cond = [](const std::string& col, const std::string& op, const std::string& val) {
