@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "recycler/storage_vault.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
@@ -78,7 +79,7 @@ public:
     // This function is used to verify that there is no garbage data leakage, should only be called in recycler test.
     // Return 0 if success, otherwise failed
     int do_inverted_check();
-    // Return 0 if success, the definition of success is the absence of S3 access errors and data loss
+    // Return 0 if success, the definition of success is the absence of S3 access errors and data loss.
     // Return -1 if encountering the situation that need to abort checker.
     // Return -2 if having S3 access errors or data loss
     int do_check();
@@ -99,8 +100,8 @@ private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
-    // id -> accessor
-    std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
+    // id -> storage vault
+    std::unordered_map<std::string, StorageVault> storage_vault_map_;
 };
 
 } // namespace doris::cloud

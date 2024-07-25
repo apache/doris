@@ -18,7 +18,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <stdint.h>
 
 #include <memory>
 #include <optional>
@@ -27,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "cpp/remote_path_helper.h"
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 
@@ -66,8 +66,7 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids();
 
 struct StorageResource {
     io::RemoteFileSystemSPtr fs;
-    int64_t path_version = 0;
-    std::function<int64_t(int64_t)> shard_fn;
+    RemotePathHelper remote_path_helper;
 
     StorageResource() = default;
     StorageResource(io::RemoteFileSystemSPtr fs_) : fs(std::move(fs_)) {}

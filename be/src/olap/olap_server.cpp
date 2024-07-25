@@ -1282,7 +1282,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
 
         // TODO(plat1ko): Support path v1
-        if (storage_resource->path_version > 0) {
+        if (storage_resource->remote_path_helper.path_version() > 0) {
             return;
         }
 

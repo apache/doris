@@ -46,10 +46,8 @@
 #include "meta-service/txn_kv_error.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/storage_vault.h"
 #include "recycler/storage_vault_accessor.h"
-#ifdef UNIT_TEST
-#include "../test/mock_accessor.h"
-#endif
 #include "recycler/util.h"
 
 namespace doris::cloud {
@@ -257,12 +255,15 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
     }
 
     int64_t bucket_lifecycle_days = 0;
-    if (checker.get_bucket_lifecycle(&bucket_lifecycle_days) != 0) {
+    int ret = SYNC_POINT_HOOK_RETURN_VALUE(
+            [&] { return checker.get_bucket_lifecycle(&bucket_lifecycle_days); }(),
+            "Checker:do_inspect:get_bucket_lifecycle", &bucket_lifecycle_days);
+    if (ret != 0) {
         LOG_CHECK_INTERVAL_ALARM << "failed to get bucket lifecycle, instance_id="
                                  << instance.instance_id();
         return;
     }
-    DCHECK(bucket_lifecycle_days > 0);
+    DCHECK_GE(bucket_lifecycle_days, 0);
 
     if (bucket_lifecycle_days == INT64_MAX) {
         // No s3 bucket (may all accessors are HdfsAccessor), skip inspect
@@ -358,25 +359,14 @@ int InstanceChecker::init(const InstanceInfoPB& instance) {
 
 int InstanceChecker::init_obj_store_accessors(const InstanceInfoPB& instance) {
     for (const auto& obj_info : instance.obj_info()) {
-#ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockAccessor>();
-#else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
-        if (!s3_conf) {
-            LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
+        auto storage_vault = StorageVault::create(obj_info, RemotePathContext {} /* path v0 */);
+        if (!storage_vault) {
+            LOG(WARNING) << "failed to init storage vault, instance_id=" << instance_id_
+                         << " resource_id=" << obj_info.id();
             return -1;
         }
 
-        std::shared_ptr<S3Accessor> accessor;
-        int ret = S3Accessor::create(std::move(*s3_conf), &accessor);
-        if (ret != 0) {
-            LOG(WARNING) << "failed to init object accessor. instance_id=" << instance_id_
-                         << " resource_id=" << obj_info.id();
-            return ret;
-        }
-#endif
-
-        accessor_map_.emplace(obj_info.id(), std::move(accessor));
+        storage_vault_map_.emplace(obj_info.id(), std::move(*storage_vault));
     }
 
     return 0;
@@ -399,37 +389,14 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
             return -1;
         }
 
-        if (vault.has_hdfs_info()) {
-            auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
-            int ret = accessor->init();
-            if (ret != 0) {
-                LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
-                             << " resource_id=" << vault.id() << " name=" << vault.name();
-                return ret;
-            }
-
-            accessor_map_.emplace(vault.id(), std::move(accessor));
-        } else if (vault.has_obj_info()) {
-#ifdef UNIT_TEST
-            auto accessor = std::make_shared<MockAccessor>();
-#else
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
-            if (!s3_conf) {
-                LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
-                return -1;
-            }
-
-            std::shared_ptr<S3Accessor> accessor;
-            int ret = S3Accessor::create(std::move(*s3_conf), &accessor);
-            if (ret != 0) {
-                LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
-                             << " resource_id=" << vault.id() << " name=" << vault.name();
-                return ret;
-            }
-#endif
-
-            accessor_map_.emplace(vault.id(), std::move(accessor));
+        auto storage_vault = StorageVault::create(vault);
+        if (!storage_vault) {
+            LOG(WARNING) << "failed to init storage vault, instance_id=" << instance_id_
+                         << " resource_id=" << vault.id();
+            return -1;
         }
+
+        storage_vault_map_.emplace(vault.id(), std::move(*storage_vault));
     }
 
     if (!it->is_valid()) {
@@ -448,6 +415,7 @@ int InstanceChecker::do_check() {
     long instance_volume = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
+    AnnotateTag tag_instance_id("instance_id", instance_id_);
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "check instance objects finished, cost=" << cost
@@ -466,6 +434,7 @@ int InstanceChecker::do_check() {
     struct TabletFiles {
         int64_t tablet_id {0};
         std::unordered_set<std::string> files;
+        std::optional<StorageVault> storage_vault;
     };
     TabletFiles tablet_files_cache;
 
@@ -479,11 +448,11 @@ int InstanceChecker::do_check() {
         if (tablet_files_cache.tablet_id != rs_meta.tablet_id()) {
             long tablet_volume = 0;
             // Clear cache
-            tablet_files_cache.tablet_id = 0;
-            tablet_files_cache.files.clear();
+            tablet_files_cache = TabletFiles {};
             // Get all file paths under this tablet directory
-            auto find_it = accessor_map_.find(rs_meta.resource_id());
-            if (find_it == accessor_map_.end()) {
+            auto find_it = storage_vault_map_.find(rs_meta.resource_id());
+            if (find_it == storage_vault_map_.end()) {
+                // FIXME(plat1ko): Process the case that new storage vault is added during check
                 LOG_WARNING("resource id not found in accessor map")
                         .tag("resource_id", rs_meta.resource_id())
                         .tag("tablet_id", rs_meta.tablet_id())
@@ -492,9 +461,10 @@ int InstanceChecker::do_check() {
                 return;
             }
 
+            tablet_files_cache.storage_vault = find_it->second;
             std::unique_ptr<ListIterator> list_iter;
-            int ret = find_it->second->list_directory(tablet_path_prefix(rs_meta.tablet_id()),
-                                                      &list_iter);
+            int ret = tablet_files_cache.storage_vault->accessor()->list_directory(
+                    tablet_files_cache.storage_vault->tablet_path(rs_meta.tablet_id()), &list_iter);
             if (ret != 0) { // No need to log, because S3Accessor has logged this error
                 ++num_check_failed;
                 return;
@@ -508,8 +478,10 @@ int InstanceChecker::do_check() {
             instance_volume += tablet_volume;
         }
 
+        const auto& storage_vault = tablet_files_cache.storage_vault.value();
+
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
-            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+            auto path = storage_vault.segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
             if (tablet_files_cache.files.contains(path)) {
                 continue;
             }
@@ -526,39 +498,28 @@ int InstanceChecker::do_check() {
     };
 
     // scan visible rowsets
-    auto start_key = meta_rowset_key({instance_id_, 0, 0});
-    auto end_key = meta_rowset_key({instance_id_, INT64_MAX, 0});
+    auto range_it = txn_kv_->full_range_get(meta_rowset_key({instance_id_, 0, 0}),
+                                            meta_rowset_key({instance_id_, INT64_MAX, 0}),
+                                            {.prefetch = true});
+    for (auto kvp = range_it->next(); kvp; kvp = range_it->next()) {
+        ++num_scanned;
 
-    std::unique_ptr<RangeGetIterator> it;
-    do {
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to init txn, err=" << err;
-            return -1;
+        auto [k, v] = *kvp;
+        doris::RowsetMetaCloudPB rs_meta;
+        if (!rs_meta.ParseFromArray(v.data(), v.size())) {
+            ++num_check_failed;
+            LOG(WARNING) << "malformed rowset meta. key=" << hex(k);
+            continue;
         }
 
-        err = txn->get(start_key, end_key, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "internal error, failed to get rowset meta, err=" << err;
-            return -1;
-        }
-        num_scanned += it->size();
+        check_rowset_objects(rs_meta, k);
+    }
 
-        while (it->has_next() && !stopped()) {
-            auto [k, v] = it->next();
-            if (!it->has_next()) start_key = k;
+    if (!range_it->is_valid()) {
+        LOG_WARNING("failed to get rowset kv");
+        return -1;
+    }
 
-            doris::RowsetMetaCloudPB rs_meta;
-            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
-                ++num_check_failed;
-                LOG(WARNING) << "malformed rowset meta. key=" << hex(k) << " val=" << hex(v);
-                continue;
-            }
-            check_rowset_objects(rs_meta, k);
-        }
-        start_key.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more() && !stopped());
     return num_check_failed == 0 ? 0 : -2;
 }
 
@@ -566,12 +527,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
     // If there are multiple buckets, return the minimum lifecycle.
     int64_t min_lifecycle_days = INT64_MAX;
     int64_t tmp_liefcycle_days = 0;
-    for (const auto& [id, accessor] : accessor_map_) {
-        if (accessor->type() != AccessorType::S3) {
+    for (const auto& [id, vault] : storage_vault_map_) {
+        if (vault.accessor()->type() != AccessorType::S3) {
             continue;
         }
 
-        auto* s3_accessor = static_cast<S3Accessor*>(accessor.get());
+        auto* s3_accessor = static_cast<S3Accessor*>(vault.accessor().get());
 
         if (s3_accessor->check_versioning() != 0) {
             return -1;
@@ -590,17 +551,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     long num_scanned = 0;
     long num_check_failed = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
+    AnnotateTag tag_instance_id("instance_id", instance_id_);
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "inverted check instance objects finished, cost=" << cost
@@ -615,6 +571,7 @@ int InstanceChecker::do_inverted_check() {
     TabletRowsets tablet_rowsets_cache;
 
     auto check_segment_file = [&](const std::string& obj_key) {
+        // FIXME(plat1ko): Parse object key with different path version
         std::vector<std::string> str;
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -647,46 +604,25 @@ int InstanceChecker::do_inverted_check() {
         // Get all rowset id of this tablet
         tablet_rowsets_cache.tablet_id = tablet_id;
         tablet_rowsets_cache.rowset_ids.clear();
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn";
-            return -1;
-        }
-        std::unique_ptr<RangeGetIterator> it;
-        auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
-        auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
-        do {
-            TxnErrorCode err = txn->get(begin, end, &it);
-            if (err != TxnErrorCode::TXN_OK) {
-                LOG(WARNING) << "failed to get rowset kv, err=" << err;
+
+        auto range_it = txn_kv_->full_range_get(
+                meta_rowset_key({instance_id_, tablet_id, 0}),
+                meta_rowset_key({instance_id_, tablet_id, INT64_MAX}), {.prefetch = true});
+        for (auto kvp = range_it->next(); kvp; kvp = range_it->next()) {
+            auto [k, v] = *kvp;
+            doris::RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
                 return -1;
             }
-            if (!it->has_next()) {
-                break;
-            }
-            while (it->has_next()) {
-                // recycle corresponding resources
-                auto [k, v] = it->next();
-                doris::RowsetMetaCloudPB rowset;
-                if (!rowset.ParseFromArray(v.data(), v.size())) {
-                    LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
-                    return -1;
-                }
-                tablet_rowsets_cache.rowset_ids.insert(rowset.rowset_id_v2());
-                if (!it->has_next()) {
-                    begin = k;
-                    begin.push_back('\x00'); // Update to next smallest key for iteration
-                    break;
-                }
-            }
-        } while (it->more() && !stopped());
-        if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
-            return 0;
-        } else {
-            LOG(WARNING) << "rowset not exists, key=" << obj_key;
+            tablet_rowsets_cache.rowset_ids.insert(rs_meta.rowset_id_v2());
+        }
+
+        if (!range_it->is_valid()) {
+            LOG_WARNING("failed to get rowset kv");
             return -1;
         }
+
         return 0;
     };
 
@@ -694,7 +630,8 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    for (auto& [_, vault] : storage_vault_map_) {
+        const auto& accessor = vault.accessor();
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
@@ -704,17 +641,19 @@ int InstanceChecker::do_inverted_check() {
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
             ++num_scanned;
             if (check_segment_file(file->path) != 0) {
-                LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
-                             << " path=" << file->path;
+                LOG_WARNING("failed to check segment file")
+                        .tag("uri", accessor->uri())
+                        .tag("path", file->path);
                 ++num_check_failed;
             }
         }
 
         if (!list_iter->is_valid()) {
-            LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
+            LOG_WARNING("failed to list data directory").tag("uri", accessor->uri());
             return -1;
         }
     }
+
     return num_check_failed == 0 ? 0 : -1;
 }
 

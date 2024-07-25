@@ -41,8 +41,7 @@ int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res) {
     auto it = txn_kv->full_range_get(std::move(key0), std::move(key1), {.prefetch = true});
     for (auto kvp = it->next(); kvp; kvp = it->next()) {
         auto [k, v] = *kvp;
-        InstanceInfoPB instance_info;
-        if (!instance_info.ParseFromArray(v.data(), v.size())) {
+        if (!res.emplace_back().ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed instance info").tag("key", hex(k));
             return -1;
         }

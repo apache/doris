@@ -263,9 +263,11 @@ private:
     bool more_;
 };
 
+// ATTN: `FullRangeGetIterator`'s lifespan SHOULD NOT be longer than `MemTxnKv`
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
 public:
-    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts,
+                         MemTxnKv& txn_kv);
 
     ~FullRangeGetIterator() override;
 
@@ -276,11 +278,14 @@ public:
     std::optional<std::pair<std::string_view, std::string_view>> next() override;
 
 private:
+    void inner_get(std::string_view begin);
+
     FullRangeGetIteratorOptions opts_;
     bool is_valid_ {true};
     std::unique_ptr<cloud::RangeGetIterator> inner_iter_;
     std::string begin_;
     std::string end_;
+    MemTxnKv& txn_kv_;
     std::unique_ptr<cloud::Transaction> txn_;
 };
 

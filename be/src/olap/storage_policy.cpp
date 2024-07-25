@@ -138,68 +138,25 @@ std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
     return res;
 }
 
-namespace {
-
-[[noreturn]] void exit_at_unknown_path_version(std::string_view resource_id, int64_t path_version) {
-    LOG(FATAL) << "unknown path version, please upgrade BE or drop this storage vault. resource_id="
-               << resource_id << " path_version=" << path_version;
-}
-
-} // namespace
-
 StorageResource::StorageResource(io::RemoteFileSystemSPtr fs_,
                                  const cloud::StorageVaultPB_PathFormat& path_format)
-        : fs(std::move(fs_)), path_version(path_format.path_version()) {
-    switch (path_version) {
-    case 0:
-        break;
-    case 1:
-        shard_fn = [shard_num = path_format.shard_num()](int64_t tablet_id) {
-            return HashUtil::murmur_hash64A(static_cast<void*>(&tablet_id), sizeof(tablet_id),
-                                            HashUtil::MURMUR_SEED) %
-                   shard_num;
-        };
-        break;
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
-}
+        : fs(std::move(fs_)),
+          remote_path_helper(RemotePathContext {.resource_id = fs->id(),
+                                                .path_version = path_format.path_version(),
+                                                .num_shards = path_format.shard_num()}) {}
 
 std::string StorageResource::remote_segment_path(int64_t tablet_id, std::string_view rowset_id,
                                                  int64_t seg_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, seg_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(tablet_id), tablet_id,
-                           rowset_id, seg_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return remote_path_helper.remote_segment_path(tablet_id, rowset_id, seg_id);
 }
 
 std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, rowset.tablet_id(),
-                           rowset.rowset_id().to_string(), seg_id);
-    case 1:
-        return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()),
-                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return remote_path_helper.remote_segment_path(rowset.tablet_id(),
+                                                  rowset.rowset_id().to_string(), seg_id);
 }
 
 std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
-    switch (path_version) {
-    case 0:
-        return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
-    case 1:
-        return fmt::format("{}/{}/{}", DATA_PREFIX, shard_fn(tablet_id), tablet_id);
-    default:
-        exit_at_unknown_path_version(fs->id(), path_version);
-    }
+    return remote_path_helper.remote_tablet_path(tablet_id);
 }
 
 std::string StorageResource::cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
