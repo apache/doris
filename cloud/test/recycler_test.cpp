@@ -673,7 +673,9 @@ TEST(RecyclerTest, recycle_rowsets) {
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -753,7 +755,9 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -817,7 +821,9 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -876,7 +882,9 @@ TEST(RecyclerTest, recycle_tablet) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -950,7 +958,9 @@ TEST(RecyclerTest, recycle_indexes) {
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -1060,7 +1070,9 @@ TEST(RecyclerTest, recycle_partitions) {
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -1991,7 +2003,9 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -2259,7 +2273,9 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -2545,7 +2561,9 @@ TEST(RecyclerTest, delete_rowset_data) {
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 

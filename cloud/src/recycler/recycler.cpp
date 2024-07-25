@@ -411,7 +411,9 @@ public:
             res.first = schema.inverted_index_storage_format();
             res.second.reserve(schema.index_size());
             for (auto& i : schema.index()) {
-                res.second.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+                if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                    res.second.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+                }
             }
         }
         insert(index_id, schema_version, res);
@@ -1277,7 +1279,9 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     std::vector<std::pair<int64_t, std::string>> index_ids;
     index_ids.reserve(rs_meta_pb.tablet_schema().index_size());
     for (auto& i : rs_meta_pb.tablet_schema().index()) {
-        index_ids.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+        if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+            index_ids.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+        }
     }
     std::vector<std::string> file_paths;
     auto tablet_schema = rs_meta_pb.tablet_schema();
@@ -1289,10 +1293,8 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
                     file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
                                                                 index_id.first, index_id.second));
                 }
-            } else {
-                if (!index_ids.empty()) {
-                    file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
-                }
+            } else if (!index_ids.empty()) {
+                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
     }
@@ -1335,7 +1337,9 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
 
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
-                index_ids.emplace_back(index.index_id(), index.index_suffix_name());
+                if (index.has_index_type() && index.index_type() == IndexType::INVERTED) {
+                    index_ids.emplace_back(index.index_id(), index.index_suffix_name());
+                }
             }
             if (rs.tablet_schema().has_inverted_index_storage_format()) {
                 index_format = rs.tablet_schema().inverted_index_storage_format();
@@ -1379,10 +1383,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                     file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
                                                                 index_id.first, index_id.second));
                 }
-            } else {
-                if (!index_ids.empty()) {
-                    file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
-                }
+            } else if (!index_ids.empty()) {
+                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
     }
