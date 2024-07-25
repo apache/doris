@@ -206,6 +206,8 @@ private:
 
     // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
+    using InvertedIndexInfo =
+            std::pair<InvertedIndexStorageFormatPB, std::vector<std::pair<int64_t, std::string>>>;
 
     class InvertedIndexIdCache;
     std::unique_ptr<InvertedIndexIdCache> inverted_index_id_cache_;

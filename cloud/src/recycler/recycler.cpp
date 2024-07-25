@@ -363,7 +363,7 @@ public:
             : instance_id_(std::move(instance_id)), txn_kv_(std::move(txn_kv)) {}
 
     // Return 0 if success, 1 if schema kv not found, negative for error
-    int get(int64_t index_id, int32_t schema_version, std::vector<int64_t>& res) {
+    int get(int64_t index_id, int32_t schema_version, InvertedIndexInfo& res) {
         {
             std::lock_guard lock(mtx_);
             if (schemas_without_inverted_index_.count({index_id, schema_version})) {
@@ -395,10 +395,13 @@ public:
             LOG(WARNING) << "malformed schema value, key=" << hex(schema_key);
             return -1;
         }
-        if (schema.index_size() > 0) {
-            res.reserve(schema.index_size());
+        if (schema.index_size() > 0 && schema.has_inverted_index_storage_format()) {
+            res.first = schema.inverted_index_storage_format();
+            res.second.reserve(schema.index_size());
             for (auto& i : schema.index()) {
-                res.push_back(i.index_id());
+                if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                    res.second.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+                }
             }
         }
         insert(index_id, schema_version, res);
@@ -406,15 +409,15 @@ public:
     }
 
     // Empty `ids` means this schema has no inverted index
-    void insert(int64_t index_id, int32_t schema_version, const std::vector<int64_t>& ids) {
-        if (ids.empty()) {
+    void insert(int64_t index_id, int32_t schema_version, const InvertedIndexInfo& index_info) {
+        if (index_info.second.empty()) {
             TEST_SYNC_POINT("InvertedIndexIdCache::insert1");
             std::lock_guard lock(mtx_);
             schemas_without_inverted_index_.emplace(index_id, schema_version);
         } else {
             TEST_SYNC_POINT("InvertedIndexIdCache::insert2");
             std::lock_guard lock(mtx_);
-            inverted_index_id_map_.try_emplace({index_id, schema_version}, ids);
+            inverted_index_id_map_.try_emplace({index_id, schema_version}, index_info);
         }
     }
 
@@ -433,7 +436,7 @@ private:
         }
     };
     // <index_id, schema_version> -> inverted_index_ids
-    std::unordered_map<Key, std::vector<int64_t>, HashOfKey> inverted_index_id_map_;
+    std::unordered_map<Key, InvertedIndexInfo, HashOfKey> inverted_index_id_map_;
     // Store <index_id, schema_version> of schema which doesn't have inverted index
     std::unordered_set<Key, HashOfKey> schemas_without_inverted_index_;
 };
@@ -1197,17 +1200,26 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     int64_t tablet_id = rs_meta_pb.tablet_id();
     // process inverted indexes
-    std::vector<int64_t> index_ids;
+    std::vector<std::pair<int64_t, std::string>> index_ids;
     index_ids.reserve(rs_meta_pb.tablet_schema().index_size());
     for (auto& i : rs_meta_pb.tablet_schema().index()) {
-        index_ids.push_back(i.index_id());
+        if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+            index_ids.push_back(std::make_pair(i.index_id(), i.index_suffix_name()));
+        }
     }
     std::vector<std::string> file_paths;
-    file_paths.reserve(num_segments * (1 + index_ids.size()));
+    auto tablet_schema = rs_meta_pb.tablet_schema();
     for (int64_t i = 0; i < num_segments; ++i) {
         file_paths.push_back(segment_path(tablet_id, rowset_id, i));
-        for (int64_t index_id : index_ids) {
-            file_paths.push_back(inverted_index_path(tablet_id, rowset_id, i, index_id));
+        if (tablet_schema.has_inverted_index_storage_format()) {
+            if (tablet_schema.inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+                for (const auto& index_id : index_ids) {
+                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
+                                                                index_id.first, index_id.second));
+                }
+            } else if (!index_ids.empty()) {
+                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            }
         }
     }
     // TODO(AlexYue): seems could do do batch
@@ -1218,7 +1230,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
-    for (auto& rs : rowsets) {
+
+    for (const auto& rs : rowsets) {
         {
             std::lock_guard lock(recycled_tablets_mtx_);
             if (recycled_tablets_.count(rs.tablet_id())) {
@@ -1241,14 +1254,21 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
         int64_t num_segments = rs.num_segments();
         if (num_segments <= 0) continue;
 
-        // process inverted indexes
-        std::vector<int64_t> index_ids;
+        // Process inverted indexes
+        std::vector<std::pair<int64_t, std::string>> index_ids;
+        // default format as v2.
+        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V2;
+
         if (rs.has_tablet_schema()) {
-            index_ids.reserve(rs.tablet_schema().index().size());
-            for (auto& index_pb : rs.tablet_schema().index()) {
-                index_ids.push_back(index_pb.index_id());
+            for (const auto& index : rs.tablet_schema().index()) {
+                if (index.has_index_type() && index.index_type() == IndexType::INVERTED) {
+                    index_ids.emplace_back(index.index_id(), index.index_suffix_name());
+                }
             }
-        } else { // Detached schema
+            if (rs.tablet_schema().has_inverted_index_storage_format()) {
+                index_format = rs.tablet_schema().inverted_index_storage_format();
+            }
+        } else {
             if (!rs.has_index_id() || !rs.has_schema_version()) {
                 LOG(WARNING) << "rowset must have either schema or schema_version and index_id, "
                                 "instance_id="
@@ -1257,8 +1277,9 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 ret = -1;
                 continue;
             }
+            InvertedIndexInfo index_info;
             int get_ret =
-                    inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_ids);
+                    inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
             if (get_ret != 0) {
                 if (get_ret == 1) { // Schema kv not found
                     // Check tablet existence
@@ -1276,11 +1297,18 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 ret = -1;
                 continue;
             }
+            index_format = index_info.first;
+            index_ids = std::move(index_info.second);
         }
         for (int64_t i = 0; i < num_segments; ++i) {
             file_paths.push_back(segment_path(tablet_id, rowset_id, i));
-            for (int64_t index_id : index_ids) {
-                file_paths.push_back(inverted_index_path(tablet_id, rowset_id, i, index_id));
+            if (index_format == InvertedIndexStorageFormatPB::V1) {
+                for (const auto& index_id : index_ids) {
+                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
+                                                                index_id.first, index_id.second));
+                }
+            } else if (!index_ids.empty()) {
+                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
     }
