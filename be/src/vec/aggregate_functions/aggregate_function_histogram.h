@@ -195,7 +195,7 @@ public:
             return;
         }
 
-        if constexpr (has_input_param) {
+        if (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
             if (input_max_num_buckets <= 0) {
