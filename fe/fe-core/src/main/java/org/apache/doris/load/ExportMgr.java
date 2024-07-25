@@ -19,6 +19,10 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -33,21 +37,32 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PExportDeleteExistFilesRequest;
+import org.apache.doris.proto.InternalService.PExportDeleteExistFilesResult;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TResultFileSinkOptions;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -56,6 +71,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -107,6 +123,10 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
+            // delete existing files
+            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                exportDeleteExistFiles(job);
+            }
             job.getTaskExecutors().forEach(executor -> {
                 Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
@@ -116,6 +136,56 @@ public class ExportMgr {
             writeUnlock();
         }
         LOG.info("add export job. {}", job);
+    }
+
+    private void exportDeleteExistFiles(ExportJob job) throws Exception {
+        OutFileClause outFileClause = ((Queriable) (job.getSelectStmtListPerParallel().get(0)
+                .get(0))).getOutFileClause();
+
+        // 1. get TResultFileSinkOptions
+        TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
+
+        // 2. get StorageType
+        StorageType storageType = outFileClause.getBrokerDesc() == null
+                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+        if (storageType == StorageType.BROKER) {
+            throw new AnalysisException("Outfile with broker does not support delete existing files.");
+        }
+
+        // 3. prepare PExportDeleteExistFilesRequest
+        PExportDeleteExistFilesRequest request = PExportDeleteExistFilesRequest.newBuilder()
+                .setResultFileSinkOptions(ByteString.copyFrom(new TSerializer().serialize(sinkOptions)))
+                .setStorageType(storageType.toThrift().getValue())
+                .build();
+
+        // 4. get BE
+        TNetworkAddress address = null;
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                break;
+            }
+        }
+        if (address == null) {
+            throw new AnalysisException("No Alive backends");
+        }
+
+        // 5. send rpc to BE
+        Future<PExportDeleteExistFilesResult> future = BackendServiceProxy.getInstance()
+                .exportDeleteExistFilesAsync(address, request);
+        InternalService.PExportDeleteExistFilesResult result = future.get();
+        TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+        String errMsg;
+        if (code != TStatusCode.OK) {
+            if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                errMsg = result.getStatus().getErrorMsgsList().get(0);
+            } else {
+                errMsg = "Outfile write success file failed. backend address: "
+                        + NetUtils
+                        .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+            }
+            throw new AnalysisException(errMsg);
+        }
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {

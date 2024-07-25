@@ -107,6 +107,11 @@ public class BackendServiceClient {
         return stub.fetchArrowFlightSchema(request);
     }
 
+    public Future<InternalService.PExportDeleteExistFilesResult> exportDeleteExistFilesAsync(
+            InternalService.PExportDeleteExistFilesRequest request) {
+        return stub.exportDeleteExistFiles(request);
+    }
+
     public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(
             InternalService.POutfileWriteSuccessRequest request) {
         return stub.outfileWriteSuccess(request);
