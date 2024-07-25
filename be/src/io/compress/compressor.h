@@ -16,8 +16,8 @@ public:
                             size_t& compressed_length) = 0;
     virtual size_t get_bytes_written() = 0;
     virtual void finish() = 0;
+    virtual bool finished() = 0;
     virtual void reset() = 0;
-    virtual std::string debug_string() = 0;
 };
 
 } // namespace doris::io
