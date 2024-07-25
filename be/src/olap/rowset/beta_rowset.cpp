@@ -706,8 +706,10 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                                           rapidjson::Document::AllocatorType& allocator) {
     const auto& fs = _rowset_meta->fs();
     auto storage_format = _schema->get_inverted_index_storage_format();
+    auto format_str = storage_format == InvertedIndexStorageFormatPB::V1 ? "V1" : "V2";
     auto rs_id = rowset_id().to_string();
     rowset_value->AddMember("rowset_id", rapidjson::Value(rs_id.c_str(), allocator), allocator);
+    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator), allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         rapidjson::Value segment(rapidjson::kObjectType);
@@ -720,10 +722,10 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         RETURN_IF_ERROR(inverted_index_file_reader->init());
         auto dirs = inverted_index_file_reader->get_all_directories();
 
-        auto add_file_info_to_json = [&](const std::string& idx_file_name, const std::string& path,
+        auto add_file_info_to_json = [&](const std::string& path,
                                          rapidjson::Value& json_value) -> Status {
-            json_value.AddMember("idx_file_name",
-                                 rapidjson::Value(idx_file_name.c_str(), allocator), allocator);
+            json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator),
+                                 allocator);
             int64_t idx_file_size = 0;
             auto st = fs->file_size(path, &idx_file_size);
             if (st != Status::OK()) {
@@ -762,9 +764,8 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         };
 
         if (storage_format != InvertedIndexStorageFormatPB::V1) {
-            auto idx_file_name = rs_id + "_" + std::to_string(seg_id) + ".idx";
             auto path = InvertedIndexDescriptor::get_index_file_path_v2(index_file_path_prefix);
-            auto st = add_file_info_to_json(idx_file_name, path, segment);
+            auto st = add_file_info_to_json(path, segment);
             if (!st.ok()) {
                 return st;
             }
@@ -803,11 +804,9 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                     index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
                     index.AddMember("index_suffix",
                                     rapidjson::Value(index_suffix.c_str(), allocator), allocator);
-                    auto idx_file_name = rs_id + "_" + std::to_string(seg_id) + "_" +
-                                         std::to_string(index_id) + ".idx";
                     auto path = InvertedIndexDescriptor::get_index_file_path_v1(
                             index_file_path_prefix, index_id, index_suffix);
-                    auto st = add_file_info_to_json(idx_file_name, path, index);
+                    auto st = add_file_info_to_json(path, index);
                     if (!st.ok()) {
                         return st;
                     }
