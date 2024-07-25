@@ -1034,7 +1034,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
-        if (params.getGroupCommitInfo().isGetGroupCommitLoadBeId()) {
+        if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isGetGroupCommitLoadBeId()) {
             final TGroupCommitInfo info = params.getGroupCommitInfo();
             final TMasterOpResult result = new TMasterOpResult();
             try {
@@ -1047,7 +1047,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setPacket("".getBytes());
             return result;
         }
-        if (params.getGroupCommitInfo().isUpdateLoadData()) {
+        if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isUpdateLoadData()) {
             final TGroupCommitInfo info = params.getGroupCommitInfo();
             final TMasterOpResult result = new TMasterOpResult();
             Env.getCurrentEnv().getGroupCommitManager()
