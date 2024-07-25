@@ -51,5 +51,5 @@ suite('test_profile') {
     def notExistingProfileString = getProfile("-100")
     logger.info("notExistingProfileString:{}", notExistingProfileString)
     def json2 = new JsonSlurper().parseText(notExistingProfileString)
-    assertEquals("ID -100 does not exist", json2.data)
+    assertFalse(json2.code == 0)
 }

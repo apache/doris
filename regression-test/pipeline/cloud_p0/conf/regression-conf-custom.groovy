@@ -33,7 +33,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_information_schema_external," +
     "test_pk_uk_case_cluster," +
     "test_point_query_cluster_key," +
-    "test_profile," +
     "test_publish_timeout," +
     "test_refresh_mtmv," + // not supported yet
     "test_report_version_missing," +
