@@ -398,31 +398,14 @@ Status CompactionMixin::execute_compact() {
     int64_t permits = get_compaction_permits();
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
-
-    try {
-        doris::enable_thread_catch_bad_alloc++;
-        Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
-        {
-            Status st = execute_compact_impl(permits);
-            if (UNLIKELY(!st.ok())) {
-                return st;
-            }
-        }
-    } catch (const doris::Exception& e) {
+    auto handle_exception = [&](const doris::Exception& e) {
         _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
+    };
 
-        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
-            return Status::MemoryLimitExceeded(fmt::format(
-                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
-                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
-        }
-        return Status::Error<false>(e.code(), e.to_string());
-    }
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), handle_exception);
+    handle_exception(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -1197,25 +1180,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    try {
-        doris::enable_thread_catch_bad_alloc++;
-        Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
-        {
-            Status st = execute_compact_impl(permits);
-            if (UNLIKELY(!st.ok())) {
-                garbage_collection();
-                return st;
-            }
-        }
-    } catch (const doris::Exception& e) {
-        garbage_collection();
-        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
-            return Status::MemoryLimitExceeded(fmt::format(
-                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
-                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
-        }
-        return Status::Error<false>(e.code(), e.to_string());
-    }
+    HANDLE_ERROR_IF_CATCH_EXCEPTION_OR_RETURN_ERROR(execute_compact_impl(permits),
+                                                    [&]() { garbage_collection(); });
     _load_segment_to_cache();
     return Status::OK();
 }
