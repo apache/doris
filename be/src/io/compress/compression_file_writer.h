@@ -29,6 +29,7 @@ public:
             // to be handled in the destructor of the implementation class of FileWriter
             return _file_writer->close(non_block);
         }
+        return Status::OK();
     }
 
     // for reporting error status

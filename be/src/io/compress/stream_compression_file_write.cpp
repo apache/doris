@@ -3,12 +3,23 @@
 namespace doris::io {
 
 Status StreamCompressionFileWriter::appendv(const Slice* data, size_t data_cnt) {
+    if (_compressor->finished()) {
+        return Status::InternalError("write beyond end of stream");
+    }
+
     for (size_t i = 0; i < data_cnt; ++i) {
-        
+        if (data[i].size < 0) {
+            return Status::InternalError("negative data size");
+        } else if (data[i].size == 0) {
+            break;
+        }
+
+        RETURN_IF_ERROR(_compressor->set_input(data[i].get_data(), data[i].size));
+        while (!_compressor->need_input()) {
+            RETURN_IF_ERROR(compress());
+        }
     }
-    while (!_compressor->finished()) {
-        RETURN_IF_ERROR(compress());
-    }
+
     return Status::OK();
 }
 
@@ -18,6 +29,7 @@ Status StreamCompressionFileWriter::init() {
         return Status::InternalError("buffer size is invalid");
     }
     _buffer = new char[_buffer_size];
+    return Status::OK();
 }
 
 Status StreamCompressionFileWriter::finish() {
@@ -27,13 +39,14 @@ Status StreamCompressionFileWriter::finish() {
             RETURN_IF_ERROR(compress());
         }
     }
+    return Status::OK();
 }
 
 Status StreamCompressionFileWriter::compress() {
     size_t len;
-    RETURN_IF_ERROR(_compressor->compress(_buffer, _buffer_size, &len));
+    RETURN_IF_ERROR(_compressor->compress(_buffer, _buffer_size, len));
     if (len > 0) {
-        RETURN_IF_ERROR(_file_writer->append(_buffer, len));
+        RETURN_IF_ERROR(_file_writer->append(Slice(_buffer, len)));
     }
     return Status::OK();
 }
