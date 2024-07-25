@@ -233,10 +233,10 @@ void MemTrackerLimiter::refresh_global_counter() {
             }
         }
     }
-    int64_t all_tracker_mem_sum = 0;
+    int64_t all_trackers_mem_sum = 0;
     for (auto it : type_mem_sum) {
         MemTrackerLimiter::TypeMemSum[it.first]->set(it.second);
-        all_tracker_mem_sum += it.second;
+        all_trackers_mem_sum += it.second;
         switch (it.first) {
         case Type::GLOBAL:
             memory_global_trackers_sum_bytes
@@ -263,7 +263,9 @@ void MemTrackerLimiter::refresh_global_counter() {
                     << it.second - memory_other_trackers_sum_bytes.get_value();
         }
     }
-    memory_all_trackers_sum_bytes << all_tracker_mem_sum -
+    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
+    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
+    memory_all_trackers_sum_bytes << all_trackers_mem_sum -
                                              memory_all_trackers_sum_bytes.get_value();
 }
 
@@ -287,7 +289,7 @@ void MemTrackerLimiter::clean_tracker_limiter_group() {
 
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
     MemTrackerLimiter::refresh_global_counter();
-    int64_t all_tracker_mem_sum = 0;
+    int64_t all_trackers_mem_sum = 0;
     Snapshot snapshot;
     for (auto it : MemTrackerLimiter::TypeMemSum) {
         snapshot.type = "overview";
@@ -296,7 +298,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         snapshot.cur_consumption = it.second->current_value();
         snapshot.peak_consumption = it.second->peak_value();
         (*snapshots).emplace_back(snapshot);
-        all_tracker_mem_sum += it.second->current_value();
+        all_trackers_mem_sum += it.second->current_value();
     }
 
     snapshot.type = "overview";
@@ -305,6 +307,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
+    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
 
     snapshot.type = "overview";
     snapshot.label = "tc/jemalloc_metadata";
@@ -312,19 +315,28 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     snapshot.cur_consumption = MemInfo::allocator_metadata_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
+    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
+
+    snapshot.type = "overview";
+    snapshot.label = "reserved_memory";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
+    snapshot.peak_consumption = -1;
+    (*snapshots).emplace_back(snapshot);
+    all_trackers_mem_sum += GlobalMemoryArbitrator::process_reserved_memory();
 
     snapshot.type = "overview";
     snapshot.label = "sum_of_all_trackers"; // is virtual memory
     snapshot.limit = -1;
-    snapshot.cur_consumption = all_tracker_mem_sum;
+    snapshot.cur_consumption = all_trackers_mem_sum;
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
     snapshot.type = "overview";
 #ifdef ADDRESS_SANITIZER
-    snapshot.label = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "[ASAN]VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
 #else
-    snapshot.label = "process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
 #endif
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
@@ -332,14 +344,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     (*snapshots).emplace_back(snapshot);
 
     snapshot.type = "overview";
-    snapshot.label = "reserve_memory";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-
-    snapshot.type = "overview";
-    snapshot.label = "process virtual memory"; // from /proc VmSize VmPeak
+    snapshot.label = "VmSize(process virtual memory)"; // from /proc VmSize VmPeak
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_size();
     snapshot.peak_consumption = PerfCounters::get_vm_peak();
