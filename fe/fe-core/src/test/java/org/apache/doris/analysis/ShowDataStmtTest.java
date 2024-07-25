@@ -156,7 +156,7 @@ public class ShowDataStmtTest {
         Assert.assertEquals(
                 "SHOW DATA FROM `testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
                 stmt.toString());
-        Assert.assertEquals(6, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
 
         stmt = new ShowDataStmt(null, Arrays.asList(orderByElementOne, orderByElementTwo), null);

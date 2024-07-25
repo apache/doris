@@ -34,7 +34,6 @@ suite("test_big_pad") {
         sql "select rpad('a',15000,'asd');" 
         exception "rpad function the length argument is 15000 exceeded maximum default value"
     }
-    sql """ set repeat_max_num = 2000000001 """ // default value is 10000
     qt_sql_rpad"select length(rpad('a',15000,'asd'));"
 
     sql "insert into d_table values(1,2000000000,1,'a'),(1,2000000000,1,'a'),(1,2000000000,1,'a');"

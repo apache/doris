@@ -303,7 +303,9 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
                             ? (config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                          : io::FileCachePolicy::NO_CACHE)
                             : io::FileCachePolicy::NO_CACHE,
-            .is_doris_table = true};
+            .is_doris_table = true,
+            .cache_base_path {},
+    };
     auto s = segment_v2::Segment::open(io::global_local_filesystem(), path, segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
     if (!s.ok()) {

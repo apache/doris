@@ -193,7 +193,7 @@ struct TQueryOptions {
   // non-pipelinex engine removed. always true.
   57: optional bool enable_pipeline_engine = true
 
-  58: optional i32 repeat_max_num = 0
+  58: optional i32 repeat_max_num = 0 // Deprecated
 
   59: optional i64 external_sort_bytes_threshold = 0
 
@@ -316,6 +316,12 @@ struct TQueryOptions {
   117: optional bool read_csv_empty_line_as_null = false;
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
+
+  119: optional bool enable_match_without_inverted_index = true;
+
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV. 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

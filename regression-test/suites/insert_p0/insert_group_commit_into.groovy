@@ -16,7 +16,8 @@
 // under the License.
 
 import com.mysql.cj.jdbc.StatementImpl
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("insert_group_commit_into") {
     def dbName = "regression_test_insert_p0"
@@ -24,16 +25,13 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        def retry = 0
-        while (retry < 30) {
-            sleep(2000)
-            def rowCount = sql "select count(*) from ${table}"
-            logger.info("rowCount: " + rowCount + ", retry: " + retry)
-            if (rowCount[0][0] >= expectedRowCount) {
-                break
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+            {
+                def result = sql "select count(*) from ${table}"
+                logger.info("table: ${table}, rowCount: ${result}")
+                return result[0][0] == expectedRowCount
             }
-            retry++
-        }
+        )
     }
 
     def getAlterTableState = {

@@ -23,6 +23,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <stack>
@@ -604,8 +605,20 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
                          size_t input_rows_count, const std::string& function_name) {
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
     if (!block.has(result_column_name)) {
-        DBUG_EXECUTE_IF("segment_iterator.fast_execute",
-                        { return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed"); })
+        DBUG_EXECUTE_IF("segment_iterator.fast_execute", {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_index", "column_name", "");
+
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            std::string column_name = block.get_by_position(arguments[0]).name;
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed: {}",
+                                                                result_column_name);
+            }
+        })
         return false;
     }
 
