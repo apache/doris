@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_with_hdfs", "p0") {
+suite("test_outfile_with_hdfs", "external,hive,external_docker") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def table_export_name = "test_outfile_with_hdfs"
