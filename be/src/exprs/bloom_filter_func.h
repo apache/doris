@@ -100,8 +100,12 @@ public:
     virtual ~BloomFilterFuncBase() = default;
 
     void init_params(const RuntimeFilterParams* params) {
-        _bloom_filter_length = params->bloom_filter_size;
+        _bloom_filter_length =
+                params->runtime_bloom_filter_min_size > 0
+                        ? std::max(params->bloom_filter_size, params->runtime_bloom_filter_min_size)
+                        : params->bloom_filter_size;
         _build_bf_exactly = params->build_bf_exactly;
+        _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _null_aware = params->null_aware;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
     }
@@ -124,9 +128,16 @@ public:
             // if FE do use ndv stat to predict the bf size, BE only use the row count. FE have more
             // exactly row count stat. which one is min is more correctly.
             if (_bloom_filter_size_calculated_by_ndv) {
-                _bloom_filter_length = std::min(be_calculate_size, _bloom_filter_length);
+                _bloom_filter_length =
+                        _runtime_bloom_filter_min_size > 0
+                                ? std::max(_runtime_bloom_filter_min_size,
+                                           std::min(be_calculate_size, _bloom_filter_length))
+                                : std::min(be_calculate_size, _bloom_filter_length);
             } else {
-                _bloom_filter_length = be_calculate_size;
+                _bloom_filter_length =
+                        _runtime_bloom_filter_min_size > 0
+                                ? std::max(_runtime_bloom_filter_min_size, be_calculate_size)
+                                : be_calculate_size;
             }
         }
         return init_with_fixed_length(_bloom_filter_length);
@@ -221,8 +232,9 @@ protected:
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
-    bool _inited {};
+    bool _inited = false;
     int64_t _bloom_filter_length;
+    int64_t _runtime_bloom_filter_min_size;
     bool _build_bf_exactly = false;
     bool _bloom_filter_size_calculated_by_ndv = false;
 };

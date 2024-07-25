@@ -127,6 +127,7 @@ struct RuntimeFilterParams {
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int64_t runtime_bloom_filter_min_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
