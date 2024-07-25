@@ -710,7 +710,7 @@ private:
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
+    std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

@@ -25,6 +25,7 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -70,7 +71,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr),
           _query_ctx(ctx) {
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
@@ -117,7 +117,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -153,7 +152,6 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     _query_mem_tracker = ctx->query_mem_tracker;
@@ -185,7 +183,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr),
           _query_ctx(ctx) {
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
@@ -255,8 +252,6 @@ RuntimeState::~RuntimeState() {
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
-        delete _error_log_file;
-        _error_log_file = nullptr;
     }
 
     _obj_pool->clear();
@@ -380,7 +375,7 @@ Status RuntimeState::create_error_log_file() {
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
-    _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);
+    _error_log_file = std::make_unique<std::ofstream>(error_log_absolute_path, std::ifstream::out);
     if (!_error_log_file->is_open()) {
         std::stringstream error_msg;
         error_msg << "Fail to open error file: [" << _error_log_file_path << "].";
@@ -406,8 +401,6 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             LOG(WARNING) << "Create error file log failed. because: " << status;
             if (_error_log_file != nullptr) {
                 _error_log_file->close();
-                delete _error_log_file;
-                _error_log_file = nullptr;
             }
             return status;
         }
@@ -454,8 +447,6 @@ std::string RuntimeState::get_error_log_file_path() {
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
         _error_log_file->close();
-        delete _error_log_file;
-        _error_log_file = nullptr;
         std::string error_log_absolute_path =
                 _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
         // upload error log file to s3
