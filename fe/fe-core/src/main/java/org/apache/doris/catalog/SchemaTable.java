@@ -530,6 +530,16 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PROPERTIES", ScalarType.createStringType())
                                     .build()))
+            .put("backend_memory_tracker",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_memory_tracker", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("LABEL", ScalarType.createStringType())
+                                    .column("PARENT_LABEL", ScalarType.createStringType())
+                                    .column("MEMORY_LIMIT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_MEMORY", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PEAK_MEMORY", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

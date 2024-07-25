@@ -30,6 +30,7 @@ mariadb_jdbc_catalog
 -- !information_schema --
 active_queries
 backend_active_tasks
+backend_memory_tracker
 character_sets
 collations
 column_privileges
