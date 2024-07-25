@@ -72,7 +72,7 @@ public:
     template <typename T>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
                                   T& skip_counter) {
-        if (filter_rows / (scan_rows * 1.0) > ignore_threshold) {
+        if (filter_rows / (scan_rows * 1.0) < ignore_threshold) {
             skip_counter = config::runtime_filter_sampling_frequency;
         }
     }
