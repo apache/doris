@@ -30,6 +30,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -240,6 +241,10 @@ public class SummaryProfile {
     private long filesystemDeleteFileCnt = 0;
     private long filesystemDeleteDirCnt = 0;
     private TransactionType transactionType = TransactionType.UNKNOWN;
+    // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
+    // to FE)
+    private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
+    private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
 
     public SummaryProfile() {
         summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
@@ -502,6 +507,14 @@ public class SummaryProfile {
 
     public void updateFragmentRpcCount(long count) {
         this.fragmentRpcCount += count;
+    }
+
+    public void setRpcPhase1Latency(Map<TNetworkAddress, List<Long>> rpcPhase1Latency) {
+        this.rpcPhase1Latency = rpcPhase1Latency;
+    }
+
+    public void setRpcPhase2Latency(Map<TNetworkAddress, List<Long>> rpcPhase2Latency) {
+        this.rpcPhase2Latency = rpcPhase2Latency;
     }
 
     public static class SummaryBuilder {
