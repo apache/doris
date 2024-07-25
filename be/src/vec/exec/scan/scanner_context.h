@@ -234,6 +234,7 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage_mark = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
+    RuntimeProfile::Counter* _serialization_block_timer = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
 

@@ -33,6 +33,7 @@
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -125,6 +126,7 @@ Status ScannerContext::init() {
     _free_blocks_memory_usage_mark = _local_state->_free_blocks_memory_usage;
     _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
+    _serialization_block_timer = _local_state->_serialization_block_timer;
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -301,8 +303,14 @@ Status ScannerContext::get_serialized_block_from_queue(
         int id) {
     RETURN_IF_ERROR(get_block_from_queue(state, block, eos, id));
     int be_exec_version = 0;
-    return block->serialize(be_exec_version, pblock, uncompressed_bytes, compressed_bytes,
+    Status res = Status::OK();
+
+    {
+        SCOPED_TIMER(this->_serialization_block_timer);
+        res = block->serialize(be_exec_version, pblock, uncompressed_bytes, compressed_bytes,
                             compression_type);
+    }
+    return res;
 }
 
 void ScannerContext::_try_to_scale_up() {

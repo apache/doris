@@ -1295,7 +1295,8 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
-
+    _serialization_block_timer = ADD_TIMER(_scanner_profile, "ScannerSerializationBlockTime");
+    _deserialization_block_timer = ADD_TIMER(_scanner_profile, "ScanNodeDeserializationBlockTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
@@ -1509,7 +1510,11 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
             state, block, pblock.get(), &uncompressed_bytes, &compressed_bytes, compress_type, eos,
             0));
 
-    RETURN_IF_ERROR(block->deserialize(*pblock));
+    {
+        SCOPED_TIMER(local_state._deserialization_block_timer);
+        RETURN_IF_ERROR(block->deserialize(*pblock));
+    }
+    
 
     local_state.reached_limit(block, eos);
     if (*eos) {

@@ -28,6 +28,7 @@
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -126,6 +127,9 @@ protected:
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+
+    RuntimeProfile::Counter* _serialization_block_timer = nullptr;
+    RuntimeProfile::Counter* _deserialization_block_timer = nullptr;
 };
 
 template <typename LocalStateType>
