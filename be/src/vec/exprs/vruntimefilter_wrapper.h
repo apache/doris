@@ -39,12 +39,25 @@ class VExprContext;
 } // namespace vectorized
 } // namespace doris
 
+inline double get_in_list_ignore_thredhold(size_t list_size) {
+    return std::log2(list_size + 1) / 64;
+}
+
+inline double get_comparison_ignore_thredhold() {
+    return 0.1;
+}
+
+inline double get_bloom_filter_ignore_thredhold() {
+    return 0.4;
+}
+
 namespace doris::vectorized {
 class VRuntimeFilterWrapper final : public VExpr {
     ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
 
 public:
-    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl, bool null_aware = false);
+    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl, double ignore_thredhold,
+                          bool null_aware = false);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -65,9 +78,6 @@ public:
         _always_true_counter = always_true_counter;
     }
 
-    // if filter rate less than this, bloom filter will set always true
-    constexpr static double EXPECTED_FILTER_RATE = 0.4;
-
     // return true when we need
     template <typename T>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
@@ -86,6 +96,7 @@ private:
     RuntimeProfile::Counter* _always_true_counter = nullptr;
 
     std::string _expr_name;
+    double _ignore_thredhold;
     bool _null_aware;
 };
 

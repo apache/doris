@@ -183,9 +183,7 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
-    virtual double get_ignore_threshold() const {
-        return vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE;
-    }
+    virtual double get_ignore_threshold() const { return 0; }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
@@ -198,9 +196,6 @@ public:
         _evaluated_rows += size;
         _passed_rows += new_size;
         if (_can_ignore()) {
-            // If the pass rate is very high, for example > 50%, then the filter is useless.
-            // Some filter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
-            // useless.
             vectorized::VRuntimeFilterWrapper::judge_selectivity(
                     get_ignore_threshold(), size - new_size, size, _skip_counter);
         }

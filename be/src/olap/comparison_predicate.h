@@ -360,8 +360,7 @@ public:
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
-    // todo: It may be necessary to set a more reasonable threshold
-    double get_ignore_threshold() const override { return 0.1; }
+    double get_ignore_threshold() const override { return get_comparison_ignore_thredhold(); }
 
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,

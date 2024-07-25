@@ -50,8 +50,8 @@ class VExprContext;
 namespace doris::vectorized {
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
-                                             bool null_aware)
-        : VExpr(node), _impl(impl), _null_aware(null_aware) {}
+                                             double ignore_thredhold, bool null_aware)
+        : VExpr(node), _impl(impl), _ignore_thredhold(ignore_thredhold), _null_aware(null_aware) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -114,8 +114,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         }
 
         filter_rows = rows - calculate_false_number(result_column.column);
-        judge_selectivity(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, filter_rows, input_rows,
-                          _skip_counter);
+        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _skip_counter);
         return Status::OK();
     }
 }
