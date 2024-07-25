@@ -2014,6 +2014,15 @@ Status Tablet::_read_cooldown_meta(const StorageResource& storage_resource,
                                    TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path = storage_resource.cooldown_tablet_meta_path(
             tablet_id(), _cooldown_conf.cooldown_replica_id, _cooldown_conf.term);
+    // remote meta path may not exists yet
+    bool exists = true;
+    RETURN_IF_ERROR(fs->exists(remote_meta_path, &exists));
+    if (!exists) {
+        LOG(WARNING) << "remote tablet meta not exists, it may have not cooldowned yet. "
+                     << "tablet_id = " << tablet_id();
+        return Status::InternalError<false>("remote tablet meta path not exists, tablet: {}",
+                                            tablet_id());
+    }
     io::FileReaderSPtr tablet_meta_reader;
     RETURN_IF_ERROR(storage_resource.fs->open_file(remote_meta_path, &tablet_meta_reader));
     auto file_size = tablet_meta_reader->size();
@@ -2139,7 +2148,7 @@ Status Tablet::_follow_cooldowned_data() {
     TabletMetaPB cooldown_meta_pb;
     auto st = _read_cooldown_meta(storage_resource, &cooldown_meta_pb);
     if (!st.ok()) {
-        LOG(INFO) << "cannot read cooldown meta: " << st;
+        LOG(WARNING) << "cannot read cooldown meta: " << st;
         return Status::InternalError<false>("cannot read cooldown meta");
     }
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
