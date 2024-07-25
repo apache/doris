@@ -365,6 +365,9 @@ public class LoadAction extends RestBaseController {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
+            // We set this variable to fulfill required field 'user' in
+            // TMasterOpRequest(FrontendService.thrift)
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setThreadLocalInfo();
 
             try {
