@@ -16,29 +16,29 @@
 // under the License.
 
 
-suite("test_agg_table_with_inverted_index", "p0"){
-    def aggTable = "test_agg_table_with_inverted_index"
-    sql "DROP TABLE IF EXISTS ${aggTable}"
+suite("test_mor_table_with_inverted_index", "p0"){
+    def morTable = "test_mor_table_with_inverted_index"
+    sql "DROP TABLE IF EXISTS ${morTable}"
 
     sql """
-        CREATE TABLE ${aggTable} (
+        CREATE TABLE ${morTable} (
             `foo` varchar(500) NULL,
             `fee` varchar(500) NULL,
-            `voo` int SUM DEFAULT '0',
-            `vo2` int SUM DEFAULT '0',
+            `voo` int DEFAULT '0',
+            `vo2` int DEFAULT '0',
             INDEX idx_foo(foo) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true")
         ) ENGINE=OLAP 
-        AGGREGATE KEY(`foo`, `fee`) DISTRIBUTED BY HASH(`foo`, `fee`) BUCKETS 1  
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "compression" = "ZSTD");
+        UNIQUE KEY(`foo`, `fee`) DISTRIBUTED BY HASH(`foo`, `fee`) BUCKETS 1  
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "compression" = "ZSTD", "enable_unique_key_merge_on_write" = "false");
     """
     
-    sql """ INSERT INTO ${aggTable} values ('bar', 'aar', 20, 20); """
-    sql """ INSERT INTO ${aggTable} values ('bae', 'aae', 20, 20); """
-    sql """ INSERT INTO ${aggTable} values ('bae', 'aae', 20, 20); """
+    sql """ INSERT INTO ${morTable} values ('bar', 'aar', 20, 20); """
+    sql """ INSERT INTO ${morTable} values ('bae', 'aae', 20, 20); """
+    sql """ INSERT INTO ${morTable} values ('bae', 'aae', 20, 20); """
     sql """ set enable_match_without_inverted_index = false; """
 
-    qt_sql """ select count() from ${aggTable} where foo MATCH_REGEXP 'b*'; """
-    qt_sql """ select count() from ${aggTable} where foo MATCH_REGEXP 'b*' and fee > 'a'; """
-    qt_sql """ select count() from ${aggTable} where foo MATCH_REGEXP 'b*' or fee > 'a'; """
-    qt_sql """ select * from ${aggTable} where foo MATCH_REGEXP 'b*' order by foo, fee; """
+    qt_sql """ select count() from ${morTable} where foo MATCH_REGEXP 'b*'; """
+    qt_sql """ select count() from ${morTable} where foo MATCH_REGEXP 'b*' and fee > 'a'; """
+    qt_sql """ select count() from ${morTable} where foo MATCH_REGEXP 'b*' or fee > 'a'; """
+    qt_sql """ select * from ${morTable} where foo MATCH_REGEXP 'b*' order by foo, fee; """
 }

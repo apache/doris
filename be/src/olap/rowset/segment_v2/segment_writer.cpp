@@ -137,10 +137,15 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
         }
     }
     if (_tablet_schema->has_inverted_index()) {
+        std::string segment_file_path = file_writer->path().c_str();
+        // if file_writer is a StreamSinkFileWriter, path is empty
+        if (segment_file_path.empty()) {
+            segment_file_path = _opts.rowset_ctx->segment_path(segment_id);
+        }
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        file_writer->path().c_str())},
+                std::string {
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path)},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
                 std::move(inverted_file_writer));

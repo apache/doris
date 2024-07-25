@@ -97,6 +97,10 @@ private:
     std::vector<int> _normal_columns_idx; // key column on agg mode, all column on uniq mode
     std::vector<int> _agg_columns_idx;
     std::vector<int> _return_columns_loc;
+    // before reading the segment, some expressions will compute results through the index to generate result columns
+    // retain this result column when calculating the agg value
+    int _index_result_columns = 0;
+    std::vector<int> _index_result_columns_idx;
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
