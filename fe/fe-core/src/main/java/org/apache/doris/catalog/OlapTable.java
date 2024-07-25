@@ -348,6 +348,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
     }
 
+    public void setPartitionInfo(PartitionInfo info) {
+        partitionInfo = info;
+    }
+
     public boolean hasMaterializedIndex(String indexName) {
         return indexNameToId.containsKey(indexName);
     }
