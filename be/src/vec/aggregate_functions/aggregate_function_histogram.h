@@ -28,6 +28,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
@@ -61,6 +63,9 @@ struct AggregateFunctionHistogramData {
     void set_parameters(int input_max_num_buckets) {
         if (input_max_num_buckets > 0) {
             max_num_buckets = (size_t)input_max_num_buckets;
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid max_num_buckets {}",
+                                   input_max_num_buckets);
         }
     }
 
@@ -190,7 +195,14 @@ public:
             return;
         }
 
-        if (has_input_param) {
+        if constexpr (has_input_param) {
+            Int32 input_max_num_buckets =
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            if (input_max_num_buckets <= 0) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid max_num_buckets {}, row_num {}",
+                                       input_max_num_buckets, row_num);
+            }
             this->data(place).set_parameters(
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
