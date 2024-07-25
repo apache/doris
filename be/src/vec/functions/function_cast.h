@@ -117,8 +117,8 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
               check_and_get_data_type<DataTypeUInt16>(arg_type) ||
               check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
-        LOG(FATAL) << fmt::format("Illegal type of toDecimal() scale {}",
-                                  named_column.type->get_name());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
+                               named_column.type->get_name());
     }
 
     Field field;
@@ -1583,8 +1583,10 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
-
+            auto error_type = std::make_shared<ToDataType>();
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "something wrong type in function {}.", get_name(),
+                                   error_type->get_name());
         } else {
             res = std::make_shared<ToDataType>();
         }

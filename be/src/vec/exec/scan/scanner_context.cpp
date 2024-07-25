@@ -106,7 +106,8 @@ ScannerContext::ScannerContext(
         }
     }
 
-    _query_thread_context = {_query_id, _state->query_mem_tracker()};
+    _query_thread_context = {_query_id, _state->query_mem_tracker(),
+                             _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
 }
 

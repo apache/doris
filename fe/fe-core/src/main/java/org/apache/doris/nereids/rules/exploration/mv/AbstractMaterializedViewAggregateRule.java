@@ -119,7 +119,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    true,
                     queryStructInfo.getTableBitSet());
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {

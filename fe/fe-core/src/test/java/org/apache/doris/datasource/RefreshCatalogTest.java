@@ -145,9 +145,12 @@ public class RefreshCatalogTest extends TestWithFeService {
         // not triggered init method
         long l3 = test2.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
+        // when use_meta_cache is true, the table will be recreated after refresh.
+        // so we need to get table again
+        table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertFalse(table.isObjectCreated());
         test2.getDbNullable("db1").getTables();
-        // Assertions.assertFalse(table.isObjectCreated());
+        Assertions.assertFalse(table.isObjectCreated());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {

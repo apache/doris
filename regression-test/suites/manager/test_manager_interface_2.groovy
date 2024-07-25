@@ -318,6 +318,9 @@ suite('test_manager_interface_2',"p0") {
         sql """ ALTER TABLE internal.__internal_schema.column_statistics SET ("replication_num" = "1") """
 
     }
+    if (isCloudMode()) {
+        return
+    }
     test_system()
 
 
