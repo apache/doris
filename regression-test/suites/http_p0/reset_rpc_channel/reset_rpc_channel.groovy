@@ -16,6 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import static org.apache.doris.regression.ConfigOptions.*
+
 suite('reset_rpc_channel') {
-    curl("POST",config.feSourceThriftAddress+"/api/reset_rpc_channel/all")
+    curl("POST",config.beHttpAddress+"/api/reset_rpc_channel/all")
 }
