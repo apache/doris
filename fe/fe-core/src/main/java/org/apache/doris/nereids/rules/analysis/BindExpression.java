@@ -117,7 +117,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -550,18 +549,19 @@ public class BindExpression implements AnalysisRuleFactory {
         plan.foreach(p -> {
             if (p instanceof LogicalSubQueryAlias) {
                 String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
-                if (p.children().get(0) instanceof LogicalCatalogRelation) {
-                    String dbName = ((LogicalCatalogRelation) p.children().get(0)).getDatabase().getFullName();
-                    String result = dbName + '.' + alias;
-                    checkAlias.accept(result);
-                    return stopCheckChildren;
-                }
-                if (p.children().get(0) instanceof LogicalProject) {
-                    String dbName = "default" + UUID.randomUUID();
-                    String result = dbName + '.' + alias;
-                    checkAlias.accept(result);
-                    return stopCheckChildren;
-                }
+                p.children().get(0).foreach(p2 -> {
+                    if (p2 instanceof LogicalCatalogRelation) {
+                        String dbName = ((LogicalCatalogRelation) p.children().get(0)).getDatabase().getFullName();
+                        String result = dbName + '.' + alias;
+                        checkAlias.accept(result);
+                        return stopCheckChildren;
+                    } else {
+                        String dbName = "defalut-doris";
+                        String result = dbName + '.' + alias;
+                        checkAlias.accept(result);
+                        return stopCheckChildren;
+                    }
+                });
                 return stopCheckChildren;
             } else if (p instanceof LogicalCatalogRelation) {
                 String table = ((LogicalCatalogRelation) p).qualifiedName();

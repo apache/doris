@@ -152,6 +152,12 @@ suite("alias_conflict") {
         exception "Not unique table/alias: 'a'"
     }
 
+    // Complex query with alias conflict
+    test {
+        sql "select 1 from (select 1 from test_alias_conflict1 where 1 = 1 group by 1 order by 1 limit 1 ) a, (select 1 from test_alias_conflict1 where 1 = 1 group by 1 order by 1 limit 1 ) a;"
+        exception "Not unique table/alias: 'a'"
+    }
+
     // Test for no conflict
     qt_select_no_conflict """select * from test_alias_conflict1 t1, test_alias_conflict2 t2 where t1.id = t2.id;"""
 
