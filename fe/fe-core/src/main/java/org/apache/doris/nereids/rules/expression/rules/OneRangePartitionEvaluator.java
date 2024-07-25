@@ -522,6 +522,9 @@ public class OneRangePartitionEvaluator
         for (int i = 0; i < partitionSlotTypes.size(); i++) {
             PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
             Slot slot = partitionSlots.get(i);
+            if (!context.columnRanges.containsKey(slot)) {
+                return context;
+            }
             switch (partitionSlotType) {
                 case CONST: continue;
                 case RANGE:
