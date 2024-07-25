@@ -178,7 +178,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
-        [['array_contains_all'], 'BOOLEAN', ['ARRAY<T>', 'ARRAY<T>'], 'ALWAYS_NULLABLE', ['T']],
+        [['array_contains_all'], 'BOOLEAN', ['ARRAY<T>', 'ARRAY<T>'], '', ['T']],
 
         [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
