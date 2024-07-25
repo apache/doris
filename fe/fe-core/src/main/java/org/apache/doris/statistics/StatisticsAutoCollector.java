@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
@@ -33,6 +32,7 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.collect.Sets;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -181,6 +181,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             List<AnalysisInfo> analysisInfos, TableIf table) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(db.getCatalog().getId())
@@ -203,6 +204,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setJobType(JobType.SYSTEM)
                 .setTblUpdateTime(table.getUpdateTime())
                 .setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0)
+                .setRowCount(rowCount)
                 .build();
         analysisInfos.add(jobInfo);
     }
@@ -228,10 +230,12 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             Set<String> partitionColumnNames = olapTable.getPartitionInfo().getPartitionColumns().stream()
                     .map(Column::getName).collect(Collectors.toSet());
             colNames = partitionColumnNames.stream().collect(Collectors.joining(","));
-            Set<String> partitionNames = olapTable.getAllPartitions().stream()
-                    .map(Partition::getName).collect(Collectors.toSet());
+            Set<String> partitions = Sets.newHashSet();
+            // No need to filter unchanged partitions, because it may bring unexpected behavior.
+            // Use dummy partition to skip it.
+            partitions.add("Dummy Partition");
             for (String column : partitionColumnNames) {
-                needRunPartitions.put(column, partitionNames);
+                needRunPartitions.put(column, partitions);
             }
         }
 
