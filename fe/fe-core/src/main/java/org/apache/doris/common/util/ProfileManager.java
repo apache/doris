@@ -76,7 +76,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ProfileManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static volatile ProfileManager INSTANCE = null;
-    private static final String PROFILE_STORAGE_PATH = Config.audit_log_dir + File.separator + "profile";
+    private static final String PROFILE_STORAGE_PATH = Config.spilled_profile_storage_path;
 
     public enum ProfileType {
         QUERY,
@@ -572,7 +572,9 @@ public class ProfileManager extends MasterDaemon {
 
             File[] files = profileDir.listFiles();
             for (File file : files) {
-                res.add(file.getAbsolutePath());
+                if (file.isFile()) {
+                    res.add(file.getAbsolutePath());
+                }
             }
         } catch (Exception e) {
             LOG.error("Failed to get profile meta from storage", e);
@@ -718,23 +720,32 @@ public class ProfileManager extends MasterDaemon {
         // By order of query finish timestamp
         // The profile with the least storage timestamp will be on the top of heap
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
-                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));        
+                (ProfileElement profileElement) -> profileElement.profile.getQueryFinishTimestamp()));
+
+        long totalProfileSize = 0;
 
         // Collect all profiles that has been stored to storage
-        queryIdToProfileMap.forEach((queryId, profileElement) -> {
-            if (profileElement.profile.shouldStoreToStorage()) {
+        for (ProfileElement profileElement : queryIdToProfileMap.values()) {
+            if (profileElement.profile.profileHasBeenStored()) {
+                totalProfileSize += profileElement.profile.getProfileSize();
                 profileDeque.add(profileElement);
             }
-        });
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{} profiles size on storage: {}", profileDeque.size(),
+                        DebugUtil.printByteWithUnit(totalProfileSize));
+        }
 
         final int maxSpilledProfileNum = Config.max_spilled_profile_num;
-        final int spilledProfileLimitBytes = Config.spilled_profile_storage_limit_bytes;
-
+        final long spilledProfileLimitBytes = Config.spilled_profile_storage_limit_bytes;
         List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
 
-        while (profileDeque.size() > maxSpilledProfileNum) {
+        while (profileDeque.size() > maxSpilledProfileNum || totalProfileSize >= spilledProfileLimitBytes) {
             // First profile is the oldest profile
-            queryIdToBeRemoved.add(profileDeque.poll());
+            ProfileElement profileElement = profileDeque.poll();
+            totalProfileSize -= profileElement.profile.getProfileSize();
+            queryIdToBeRemoved.add(profileElement);
         }
 
         return queryIdToBeRemoved;

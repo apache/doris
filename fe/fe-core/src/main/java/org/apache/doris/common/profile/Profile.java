@@ -105,6 +105,8 @@ public class Profile {
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
     private long autoProfileDurationMs = 500;
+    // Profile size is the size of profile file
+    private long profileSize = 0;
 
     // Need default constructor for read from storage
     public Profile() {}
@@ -172,6 +174,8 @@ public class Profile {
             if (profileFileInputStream == null) {
                 return null;
             }
+            File profileFile = new File(path);
+            long fileSize = profileFile.length();
             // read method will move the cursor to the end of the summary profile
             DataInput dataInput = new DataInputStream(profileFileInputStream);
             Profile res = new Profile();
@@ -179,6 +183,7 @@ public class Profile {
             res.setId(res.summaryProfile.getProfileId());
             res.profileStoragePath = path;
             res.isQueryFinished = true;
+            res.profileSize = fileSize;
             String[] parts = path.split(File.separator);
             String queryFinishTimeStr = parseProfileFileName(parts[parts.length - 1])[0];
             // queryFinishTime is used for sorting profile by finish time.
@@ -471,7 +476,7 @@ public class Profile {
             long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
             // time cost of this query is large enough.
             if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs
-                    > this.executionProfiles.size() * autoProfileDurationMs) {
+                    > (this.executionProfiles.size() * autoProfileDurationMs)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
                             id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
@@ -487,7 +492,7 @@ public class Profile {
         }
 
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && System.currentTimeMillis() - this.queryFinishTimestamp > autoProfileDurationMs) {
+                    && (System.currentTimeMillis() - this.queryFinishTimestamp) > autoProfileDurationMs) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, query finished time: {}", id,
                     System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
@@ -571,6 +576,8 @@ public class Profile {
             dataOutputStream.writeInt(buf.length);
             dataOutputStream.write(buf);
             build = null;
+            dataOutputStream.flush();
+            this.profileSize = profileFile.length();
         } catch (Exception e) {
             LOG.error("write {} summary profile failed", id, e);
             return;
@@ -585,10 +592,6 @@ public class Profile {
         }
 
         this.profileStoragePath = profileFilePath;
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Store profile: {}, path {}", id, this.profileStoragePath);
-        }
     }
 
     // remove profile from storage
@@ -615,5 +618,9 @@ public class Profile {
         if (!FileUtils.deleteQuietly(profileFile)) {
             LOG.warn("remove profile {} failed", profileFile.getAbsolutePath());
         }
+    }
+
+    public long getProfileSize() {
+        return this.profileSize;
     }
 }
