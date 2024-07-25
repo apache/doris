@@ -69,10 +69,9 @@ public:
     }
 
 private:
-    // key: index indicates src segment.
-    // value: index indicates row id of source segment,
-    // inner pairs indicates row id of destination segment.
-    // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
+    // key:   index indicates src segment.
+    // value: index indicates row id of source segment, value indicates row id of destination
+    //        segment. UINT32_MAX indicates current row not exist.
     std::map<uint32_t, std::vector<uint32_t>> _segments_rowid_map;
 
     // dst rowset id
