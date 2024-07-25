@@ -17,24 +17,29 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstring>
-
 #include "common/status.h"
+#include "io/compress/stream_compression_file_writer.h"
 
 namespace doris::io {
 
-class Compressor {
+class BlockCompressionFileWriter : public StreamCompressionFileWriter {
 public:
-    virtual ~Compressor() = default;
-    virtual Status set_input(const char* data, size_t length) = 0;
-    virtual bool need_input() = 0;
-    virtual size_t get_bytes_read() = 0;
-    virtual Status compress(char* buffer, size_t length, size_t& compressed_length) = 0;
-    virtual size_t get_bytes_written() = 0;
-    virtual void finish() = 0;
-    virtual bool finished() = 0;
-    virtual void reset() = 0;
+    BlockCompressionFileWriter(std::unique_ptr<FileWriter> file_writer,
+                               std::unique_ptr<Compressor> compressor, size_t buffer_size,
+                               size_t compression_overhead)
+            : StreamCompressionFileWriter(std::move(file_writer), std::move(compressor),
+                                          buffer_size),
+              _max_input_size(buffer_size - compression_overhead) {}
+
+    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status finish() override;
+
+protected:
+    Status _compress() override;
+
+private:
+    Status _write_length(size_t length);
+    const size_t _max_input_size;
 };
 
 } // namespace doris::io

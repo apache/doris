@@ -1,9 +1,29 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #pragma once
+
 #include <memory>
 
 #include "io/compress/compressor.h"
 #include "io/fs/file_writer.h"
+
 namespace doris::io {
+
 class CompressionFileWriter : public FileWriter {
 public:
     CompressionFileWriter(std::unique_ptr<FileWriter> file_writer,
@@ -26,13 +46,13 @@ public:
             _closed = true;
             RETURN_IF_ERROR(finish());
             // It doesn't matter even if it is not closed, because it is assumed
-            // to be handled in the destructor of the implementation class of FileWriter
+            // to be handled in the destructor of the implementation class of FileWriter.
             return _file_writer->close(non_block);
         }
         return Status::OK();
     }
 
-    // for reporting error status
+    // For reporting error status
     virtual Status init() {
         if (_file_writer == nullptr) {
             return Status::InternalError("file writer is null");
