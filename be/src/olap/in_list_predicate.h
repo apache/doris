@@ -340,7 +340,9 @@ public:
         return PT == PredicateType::IN_LIST && !ngram;
     }
 
-    double get_ignore_threshold() const override { return get_in_list_ignore_thredhold(_values->size()); }
+    double get_ignore_threshold() const override {
+        return get_in_list_ignore_thredhold(_values->size());
+    }
 
 private:
     bool _can_ignore() const override { return _values->is_runtime_filter(); }
