@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_show_nested_index_file_http_action") {
     def show_nested_index_file_on_tablet = { ip, port, tablet ->
-        return curl("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet))
+        return http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet))
     }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

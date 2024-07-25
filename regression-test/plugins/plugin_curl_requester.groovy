@@ -18,7 +18,96 @@
 import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.NodeType
+@Grab(group='org.apache.httpcomponents', module='httpclient', version='4.5.13')
+import org.apache.http.client.methods.*
+import org.apache.http.impl.client.*
+import org.apache.http.util.EntityUtils
+import org.apache.http.client.config.RequestConfig
+import org.apache.http.conn.ConnectTimeoutException
+import org.apache.http.conn.HttpHostConnectException
 import org.codehaus.groovy.runtime.IOGroovyMethods
+
+Suite.metaClass.http_client = { String method, String url /* param */ ->
+    Suite suite = delegate as Suite
+    if (method != "GET" && method != "POST") {
+        throw new Exception("Invalid method: ${method}")
+    }
+    if (!url || !(url =~ /^https?:\/\/.+/)) {
+        throw new Exception("Invalid url: ${url}")
+    }
+    
+    Integer timeout = 10 // seconds
+    Integer maxRetries = 10
+    Integer retryCount = 0
+    Integer sleepTime = 1000 // milliseconds
+
+    logger.info("HTTP request: ${method} ${url}")
+
+    CloseableHttpClient httpClient = HttpClients.custom()
+        .setRetryHandler(new DefaultHttpRequestRetryHandler(3, true))
+        .build()
+
+    int code
+    String err
+    String out
+
+    try {
+        while (retryCount < maxRetries) {
+            HttpRequestBase request
+            if (method == "GET") {
+                request = new HttpGet(url)
+            } else if (method == "POST") {
+                request = new HttpPost(url)
+            }
+
+            RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(timeout * 1000)
+                .setSocketTimeout(timeout * 1000)
+                .build()
+            request.setConfig(requestConfig)
+
+            try {
+                CloseableHttpResponse response = httpClient.execute(request)
+                try {
+                    int statusCode = response.getStatusLine().getStatusCode()
+                    String responseBody = EntityUtils.toString(response.getEntity())
+                    
+                    if (statusCode >= 200 && statusCode < 300) {
+                        code = 0 // to be compatible with the old curl function
+                        out = responseBody
+                        err = ""
+                        return [code, out, err]
+                    } else {
+                        logger.warn("HTTP request failed with status code ${statusCode}, retrying (${retryCount++}/${maxRetries})")
+                    }
+                } finally {
+                    response.close()
+                }
+            } catch (ConnectTimeoutException | HttpHostConnectException e) {
+                logger.warn("Connection failed, retrying (${retryCount++}/${maxRetries}): ${e.message}")
+            } catch (Exception e) {
+                logger.error("Error executing HTTP request: ${e.message}")
+                code = -1
+                out = ""
+                err = e.message
+                return [code, out, err]
+            }
+
+            sleep(sleepTime)
+            sleepTime = Math.min(sleepTime * 2, 60000) 
+        }
+
+        logger.error("HTTP request failed after ${maxRetries} attempts")
+        code = -1
+        out = ""
+        err = "Failed after ${maxRetries} attempts"
+        return [code, out, err]
+    } finally {
+        httpClient.close()
+    }
+}
+
+logger.info("Added 'http_client' function to Suite")
 
 Suite.metaClass.curl = { String method, String url /* param */-> 
     Suite suite = delegate as Suite

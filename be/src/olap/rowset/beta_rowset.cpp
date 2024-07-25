@@ -709,7 +709,8 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     auto format_str = storage_format == InvertedIndexStorageFormatPB::V1 ? "V1" : "V2";
     auto rs_id = rowset_id().to_string();
     rowset_value->AddMember("rowset_id", rapidjson::Value(rs_id.c_str(), allocator), allocator);
-    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator), allocator);
+    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator),
+                            allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         rapidjson::Value segment(rapidjson::kObjectType);
@@ -795,26 +796,29 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
             segments.PushBack(segment, allocator);
         } else {
             rapidjson::Value indices(rapidjson::kArrayType);
-            auto index_metas = _rowset_meta->tablet_schema()->indexes();
-            for (auto index_meta : index_metas) {
-                if (index_meta.index_type() == IndexType::INVERTED) {
-                    rapidjson::Value index(rapidjson::kObjectType);
-                    auto index_id = index_meta.index_id();
-                    auto index_suffix = index_meta.get_index_suffix();
-                    index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
-                    index.AddMember("index_suffix",
-                                    rapidjson::Value(index_suffix.c_str(), allocator), allocator);
-                    auto path = InvertedIndexDescriptor::get_index_file_path_v1(
-                            index_file_path_prefix, index_id, index_suffix);
-                    auto st = add_file_info_to_json(path, index);
-                    if (!st.ok()) {
-                        return st;
-                    }
+            for (auto column : _rowset_meta->tablet_schema()->columns()) {
+                const auto* index_meta = _rowset_meta->tablet_schema()->get_inverted_index(*column);
+                if (index_meta == nullptr) {
+                    continue;
+                }
+                rapidjson::Value index(rapidjson::kObjectType);
+                auto index_id = index_meta->index_id();
+                auto index_suffix = index_meta->get_index_suffix();
+                index.AddMember("index_id", rapidjson::Value(index_id).Move(), allocator);
+                index.AddMember("index_suffix", rapidjson::Value(index_suffix.c_str(), allocator),
+                                allocator);
+                auto path = InvertedIndexDescriptor::get_index_file_path_v1(index_file_path_prefix,
+                                                                            index_id, index_suffix);
+                auto st = add_file_info_to_json(path, index);
+                if (!st.ok()) {
+                    return st;
+                }
 
-                    auto status = process_files(index_meta, indices, index);
-                    if (!status.ok()) {
-                        return status;
-                    }
+                auto status = process_files(*index_meta, indices, index);
+                if (!status.ok()) {
+                    return status;
+                }
+                if (_rowset_meta->tablet_schema()->has_inverted_index(*column)) {
                 }
             }
             segment.AddMember("indices", indices, allocator);
