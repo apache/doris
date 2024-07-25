@@ -257,20 +257,6 @@ RuntimeState::~RuntimeState() {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
-        if (_s3_error_fs) {
-            std::string error_log_absolute_path =
-                    _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
-            // upload error log file to s3
-            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-            if (st.ok()) {
-                // remove local error log file
-                std::filesystem::remove(error_log_absolute_path);
-            } else {
-                // remove local error log file later by clean_expired_temp_path thread
-                LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
-                             << _error_log_file_path << ", error=" << st;
-            }
-        }
     }
 
     _obj_pool->clear();
@@ -464,13 +450,30 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     return Status::OK();
 }
 
-std::string RuntimeState::get_error_log_file_path() const {
-    if (_s3_error_fs) {
+std::string RuntimeState::get_error_log_file_path() {
+    if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
+        // close error log file
+        _error_log_file->close();
+        delete _error_log_file;
+        _error_log_file = nullptr;
+        std::string error_log_absolute_path =
+                _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+        // upload error log file to s3
+        Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
+        if (st.ok()) {
+            // remove local error log file
+            std::filesystem::remove(error_log_absolute_path);
+        } else {
+            // upload failed and return local error log file path
+            LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                         << _error_log_file_path << ", error=" << st;
+            return _error_log_file_path;
+        }
         // expiration must be less than a week (in seconds) for presigned url
         static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
         // We should return a public endpoint to user.
-        return _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
-                                                    true);
+        _error_log_file_path = _s3_error_fs->generate_presigned_url(_s3_error_log_file_path,
+                                                                    EXPIRATION_SECONDS, true);
     }
     return _error_log_file_path;
 }
