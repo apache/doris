@@ -329,14 +329,14 @@ int64_t Compaction::merge_way_num() {
     int64_t permits = get_compaction_permits();
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
-    auto handle_exception = [&](const doris::Exception& e) {
+    auto handle_error = [&]() {
         _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
     };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), handle_exception);
-    handle_exception(doris::Exception());
+    HANDLE_ERROR_IF_CATCH_EXCEPTION_OR_RETURN_ERROR(execute_compact_impl(permits), handle_error);
+    handle_error();
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
