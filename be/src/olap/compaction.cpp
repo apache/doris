@@ -399,14 +399,16 @@ Status CompactionMixin::execute_compact() {
     int64_t permits = get_compaction_permits();
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
-    auto handle_error = [&]() {
+
+    auto record_compaction_stats = [&]() {
         _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
     };
 
-    HANDLE_ERROR_IF_CATCH_EXCEPTION_OR_RETURN_ERROR(execute_compact_impl(permits), handle_error);
-    handle_error();
+    HANDLE_ERROR_IF_CATCH_EXCEPTION_OR_RETURN_ERROR(execute_compact_impl(permits),
+                                                    record_compaction_stats);
+    record_compaction_stats();
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
