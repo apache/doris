@@ -551,8 +551,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
                 p.children().get(0).foreach(p2 -> {
                     if (p2 instanceof LogicalCatalogRelation) {
-                        String dbName = ((LogicalCatalogRelation) p.children().get(0)).getDatabase().getFullName();
-                        String result = dbName + '.' + alias;
+                        String[] split = ((LogicalCatalogRelation) p2).qualifiedName().split("\\.");
+                        String result = split[1] + '.' + alias;
                         checkAlias.accept(result);
                         return stopCheckChildren;
                     } else {
