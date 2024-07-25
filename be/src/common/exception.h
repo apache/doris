@@ -148,6 +148,7 @@ inline const std::string& Exception::to_string() const {
             {                                                                                    \
                 Status _status_ = (stmt);                                                        \
                 if (UNLIKELY(!_status_.ok())) {                                                  \
+                    handle_exception(doris::Exception());                                        \
                     return _status_;                                                             \
                 }                                                                                \
             }                                                                                    \
