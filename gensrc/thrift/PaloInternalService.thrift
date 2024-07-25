@@ -306,7 +306,9 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV. 
+  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+
+  122: optional i32 runtime_bloom_filter_min_size = 1048576;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
