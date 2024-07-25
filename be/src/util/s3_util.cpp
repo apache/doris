@@ -67,8 +67,20 @@ bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 
 namespace {
 
-bool is_s3_conf_valid(const S3ClientConf& conf) {
-    return !conf.endpoint.empty() && !conf.region.empty() && !conf.ak.empty() && !conf.sk.empty();
+doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
+    if (conf.endpoint.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
+    }
+    if (conf.region.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    if (conf.ak.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
+    }
+    if (conf.sk.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+    }
+    return Status::OK();
 }
 
 // Return true is convert `str` to int successfully
@@ -195,7 +207,7 @@ S3ClientFactory& S3ClientFactory::instance() {
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf& s3_conf) {
-    if (!is_s3_conf_valid(s3_conf)) {
+    if (!is_s3_conf_valid(s3_conf).ok()) {
         return nullptr;
     }
 
@@ -364,8 +376,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         s3_conf->client_conf.use_virtual_addressing = it->second != "true";
     }
 
-    if (!is_s3_conf_valid(s3_conf->client_conf)) {
-        return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
+    if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
+        return st;
     }
     return Status::OK();
 }
