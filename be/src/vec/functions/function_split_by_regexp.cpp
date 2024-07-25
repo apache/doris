@@ -370,7 +370,7 @@ struct ThreeArgumentImpl {
     }
 };
 
-void register_function_random(SimpleFunctionFactory& factory) {
+void register_function_split_by_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<SplitByRegexp<TwoArgumentImpl>>();
     factory.register_function<SplitByRegexp<ThreeArgumentImpl>>();
 }
