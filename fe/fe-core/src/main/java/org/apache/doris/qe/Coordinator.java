@@ -1195,9 +1195,6 @@ public class Coordinator implements CoordInterface {
                 }
                 cancelInternal(new Status(TStatusCode.LIMIT_REACH, "query reach limit"));
             }
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
         }
 
         return resultBatch;
