@@ -134,6 +134,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
         if (!_tasks[i].empty()) {
+            _tasks[i].front()->runtime_state()->handle_error_log_if_need();
             _call_back(_tasks[i].front()->runtime_state(), &st);
         }
     }

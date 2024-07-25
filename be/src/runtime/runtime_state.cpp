@@ -252,26 +252,6 @@ RuntimeState::RuntimeState()
 
 RuntimeState::~RuntimeState() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
-    // close error log file
-    if (_error_log_file != nullptr && _error_log_file->is_open()) {
-        _error_log_file->close();
-        delete _error_log_file;
-        _error_log_file = nullptr;
-        if (_s3_error_fs) {
-            std::string error_log_absolute_path =
-                    _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
-            // upload error log file to s3
-            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-            if (st.ok()) {
-                // remove local error log file
-                std::filesystem::remove(error_log_absolute_path);
-            } else {
-                // remove local error log file later by clean_expired_temp_path thread
-                LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
-                             << _error_log_file_path << ", error=" << st;
-            }
-        }
-    }
 
     _obj_pool->clear();
     _runtime_filter_mgr.reset();
@@ -404,6 +384,29 @@ Status RuntimeState::create_error_log_file() {
     VLOG_FILE << "create error log file: " << _error_log_file_path;
 
     return Status::OK();
+}
+
+void RuntimeState::handle_error_log_if_need() {
+    // close error log file
+    if (_error_log_file != nullptr && _error_log_file->is_open()) {
+        _error_log_file->close();
+        delete _error_log_file;
+        _error_log_file = nullptr;
+        if (_s3_error_fs) {
+            std::string error_log_absolute_path =
+                    _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+            // upload error log file to s3
+            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
+            if (st.ok()) {
+                // remove local error log file
+                std::filesystem::remove(error_log_absolute_path);
+            } else {
+                // remove local error log file later by clean_expired_temp_path thread
+                LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                             << _error_log_file_path << ", error=" << st;
+            }
+        }
+    }
 }
 
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,

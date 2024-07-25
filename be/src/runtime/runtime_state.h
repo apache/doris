@@ -265,6 +265,8 @@ public:
 
     std::string get_error_log_file_path() const;
 
+    void handle_error_log_if_need();
+
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
