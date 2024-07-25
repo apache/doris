@@ -27,14 +27,17 @@ import org.apache.paimon.table.source.Split;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
 
+    private static final Path DUMMY_PATH = new Path("hdfs://dummyPath");
+
     public PaimonSplit(Split split) {
-        super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
+        super(DUMMY_PATH, 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
@@ -45,6 +48,14 @@ public class PaimonSplit extends FileSplit {
         super(file, start, length, fileLength, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
+    }
+
+    @Override
+    public String getConsistentHashString() {
+        if (this.path == DUMMY_PATH) {
+            return UUID.randomUUID().toString();
+        }
+        return getPathString();
     }
 
     public Split getSplit() {
