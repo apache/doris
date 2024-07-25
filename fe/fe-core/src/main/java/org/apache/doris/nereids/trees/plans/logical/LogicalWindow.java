@@ -17,19 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -44,6 +52,8 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * logical node to deal with window functions;
@@ -171,61 +181,149 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     /**
+     * check and get valid window function and partition limit value
+     */
+    public Pair<WindowExpression, Long> checkAndGetValidWindowFunc(LogicalFilter filter, long partitionLimit) {
+        if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
+            return null;
+        }
+        // We have already done such optimization rule, so just ignore it.
+        if (child(0) instanceof LogicalPartitionTopN) {
+            return null;
+        }
+
+        // Check the window function. There are some restrictions for window function:
+        // 1. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
+        // 2. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+        // 3. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+        WindowExpression chosenWindowFunc = null;
+        long chosenPartitionLimit = Long.MAX_VALUE;
+        for (NamedExpression windowExpr : windowExpressions) {
+            WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+            if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+                continue;
+            }
+
+            // Check the window function name.
+            if (!(windowFunc.getFunction() instanceof RowNumber
+                    || windowFunc.getFunction() instanceof Rank
+                    || windowFunc.getFunction() instanceof DenseRank)) {
+                continue;
+            }
+
+            // Check the partition key and order key.
+            if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
+                continue;
+            }
+
+            // Check the window type and window frame.
+            Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
+            if (windowFrame.isPresent()) {
+                WindowFrame frame = windowFrame.get();
+                if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
+                        && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW)) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            // Check filter conditions
+            if (filter != null) {
+                // we currently only support simple conditions of the form
+                // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
+                boolean hasPartitionLimit = false;
+                long curPartitionLimit = Long.MAX_VALUE;
+                Set<Expression> conjuncts = filter.getConjuncts();
+                Set<Expression> relatedConjuncts = extractRelatedConjuncts(conjuncts, windowExpr.getExprId());
+                for (Expression conjunct : relatedConjuncts) {
+                    Preconditions.checkArgument(conjunct instanceof BinaryOperator);
+                    BinaryOperator op = (BinaryOperator) conjunct;
+                    Expression leftChild = op.children().get(0);
+                    Expression rightChild = op.children().get(1);
+
+                    Preconditions.checkArgument(leftChild instanceof SlotReference
+                            && rightChild instanceof IntegerLikeLiteral);
+
+                    long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
+                    // Adjust the value for 'limitVal' based on the comparison operators.
+                    if (conjunct instanceof LessThan) {
+                        limitVal--;
+                    }
+                    if (limitVal < 0) {
+                        //return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
+                    }
+                    if (hasPartitionLimit) {
+                        curPartitionLimit = Math.min(curPartitionLimit, limitVal);
+                    } else {
+                        curPartitionLimit = limitVal;
+                        hasPartitionLimit = true;
+                    }
+                }
+
+                if (!hasPartitionLimit) {
+                    continue;
+                }
+
+                if (windowFunc.getFunction() instanceof RowNumber) {
+                    // choose row_number first any way
+                    chosenWindowFunc = windowFunc;
+                    chosenPartitionLimit = curPartitionLimit;
+                    break;
+                } else {
+                    // if no row_number, choose the one with minimal limit value
+                    if (curPartitionLimit < chosenPartitionLimit) {
+                        chosenPartitionLimit = curPartitionLimit;
+                        chosenWindowFunc = windowFunc;
+                    }
+                }
+            } else {
+                // limit
+                if (windowFunc.getFunction() instanceof RowNumber) {
+                    chosenWindowFunc = windowFunc;
+                    chosenPartitionLimit = partitionLimit;
+                    break;
+                }
+            }
+        }
+        return Pair.of(chosenWindowFunc, chosenPartitionLimit);
+    }
+
+    /**
      * pushPartitionLimitThroughWindow is used to push the partitionLimit through the window
      * and generate the partitionTopN. If the window can not meet the requirement,
      * it will return null. So when we use this function, we need check the null in the outside.
      */
-    public Optional<Plan> pushPartitionLimitThroughWindow(long partitionLimit, boolean hasGlobalLimit) {
-        if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
-            return Optional.empty();
-        }
-        // We have already done such optimization rule, so just ignore it.
-        if (child(0) instanceof LogicalPartitionTopN) {
-            return Optional.empty();
-        }
-
-        // Check the window function. There are some restrictions for window function:
-        // 1. The number of window function should be 1.
-        // 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
-        // 3. The window frame should be 'UNBOUNDED' to 'CURRENT'.
-        // 4. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
-        if (windowExpressions.size() != 1) {
-            return Optional.empty();
-        }
-        NamedExpression windowExpr = windowExpressions.get(0);
-        if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
-            return Optional.empty();
-        }
-
-        WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-        // Check the window function name.
-        if (!(windowFunc.getFunction() instanceof RowNumber
-                || windowFunc.getFunction() instanceof Rank
-                || windowFunc.getFunction() instanceof DenseRank)) {
-            return Optional.empty();
-        }
-
-        // Check the partition key and order key.
-        if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
-            return Optional.empty();
-        }
-
-        // Check the window type and window frame.
-        Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
-        if (windowFrame.isPresent()) {
-            WindowFrame frame = windowFrame.get();
-            if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
-                    && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW)) {
-                return Optional.empty();
-            }
-        } else {
-            return Optional.empty();
-        }
-
+    public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
+            long partitionLimit, boolean hasGlobalLimit) {
         LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit,
                 partitionLimit, child(0)));
+        return window;
+    }
 
-        return Optional.ofNullable(window);
+    private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {
+        Predicate<Expression> condition = conjunct -> {
+            if (!(conjunct instanceof BinaryOperator)) {
+                return false;
+            }
+            BinaryOperator op = (BinaryOperator) conjunct;
+            Expression leftChild = op.children().get(0);
+            Expression rightChild = op.children().get(1);
+
+            if (!(conjunct instanceof LessThan || conjunct instanceof LessThanEqual || conjunct instanceof EqualTo)) {
+                return false;
+            }
+
+            // TODO: Now, we only support the column on the left side.
+            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof IntegerLikeLiteral)) {
+                return false;
+            }
+            return ((SlotReference) leftChild).getExprId() == slotRefID;
+        };
+
+        return conjuncts.stream()
+                .filter(condition)
+                .collect(ImmutableSet.toImmutableSet());
     }
 
     private boolean isUnique(NamedExpression namedExpression) {
