@@ -401,6 +401,7 @@ public class StmtExecutor {
         }
         builder.taskState(taskState);
         builder.user(context.getQualifiedUser());
+        builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
         builder.sqlStatement(originStmt.originStmt);
