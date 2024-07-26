@@ -1278,9 +1278,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, Colum
                                               const DataTypePtr& data_type,
                                               const orc::Type* orc_column_type,
                                               orc::ColumnVectorBatch* cvb, size_t num_values) {
-
-
-
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
@@ -1306,9 +1303,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, Colum
         data_column = doris_column->assume_mutable();
     }
 
-    return _fill_doris_data_column<is_filter>(col_name, data_column,
-                                                       data_type,
-                                                       orc_column_type, cvb, num_values);
+    return _fill_doris_data_column<is_filter>(col_name, data_column, data_type, orc_column_type,
+                                              cvb, num_values);
 }
 
 template <bool is_filter>
