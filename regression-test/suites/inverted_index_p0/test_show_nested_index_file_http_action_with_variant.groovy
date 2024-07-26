@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_nested_index_file_http_action_with_variant", "p0") {
+suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0") {
     def show_nested_index_file_on_tablet = { ip, port, tablet ->
         return http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet))
     }
@@ -59,6 +59,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "p0") {
     }
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     def run_test = { format ->
         def tableName = "test_show_nested_index_file_http_action_with_variant_" + format
 

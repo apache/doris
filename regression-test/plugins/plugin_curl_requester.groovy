@@ -36,7 +36,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
         throw new Exception("Invalid url: ${url}")
     }
     
-    Integer timeout = 10 // seconds
+    Integer timeout = 60 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
     Integer sleepTime = 1000 // milliseconds
@@ -78,13 +78,16 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                         err = ""
                         return [code, out, err]
                     } else {
-                        logger.warn("HTTP request failed with status code ${statusCode}, retrying (${retryCount++}/${maxRetries})")
+                        logger.warn("HTTP request failed with status code ${statusCode}, retrying (${++retryCount}/${maxRetries})")
                     }
                 } finally {
                     response.close()
                 }
             } catch (ConnectTimeoutException | HttpHostConnectException e) {
-                logger.warn("Connection failed, retrying (${retryCount++}/${maxRetries}): ${e.message}")
+                logger.warn("Connection failed, retrying (${++retryCount}/${maxRetries}): ${e.message}")
+            } catch (SocketTimeoutException e) {
+                timeout = timeout + 10
+                logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
                 logger.error("Error executing HTTP request: ${e.message}")
                 code = -1
