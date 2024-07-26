@@ -46,8 +46,40 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    def calc_file_crc_on_tablet = { ip, port, tablet ->
-        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
+    def check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format -> 
+        def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
+        logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
+        if (code == 500) {
+            assertEquals("E-6003", parseJson(out.trim()).status)
+            assertTrue(parseJson(out.trim()).msg.contains("not found"))
+            return
+        }
+        assertTrue(code == 0)
+        assertEquals(tablet_id, parseJson(out.trim()).tablet_id.toString())
+        def rowsets_count = parseJson(out.trim()).rowsets.size();
+        assertEquals(expected_rowsets_count, rowsets_count)
+        def index_files_count = 0
+        def segment_files_count = 0
+        for (def rowset in parseJson(out.trim()).rowsets) {
+            assertEquals(format, rowset.index_storage_format)
+            for (int i = 0; i < rowset.segments.size(); i++) {
+                def segment = rowset.segments[i]
+                assertEquals(i, segment.segment_id)
+                def indices_count = segment.indices.size()
+                assertEquals(expected_indices_count, indices_count)
+                if (format == "V1") {
+                    index_files_count += indices_count
+                } else {
+                    index_files_count++
+                }
+            }
+            segment_files_count += rowset.segments.size()
+        }
+        if (format == "V1") {
+            assertEquals(index_files_count, segment_files_count * expected_indices_count)
+        } else {
+            assertEquals(index_files_count, segment_files_count)
+        }
     }
 
     def calc_segment_count = { tablet -> 
@@ -175,18 +207,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
             backend_id = tablet.BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            int segment_count = calc_segment_count(tablet)
-            logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            def (c, o, e) = calc_file_crc_on_tablet(ip, port, tablet_id)
-            logger.info("Run calc_file_crc_on_tablet: code=" + c + ", out=" + o + ", err=" + e)
-            assertTrue(c == 0)
-            assertTrue(o.contains("crc_value"))
-            assertTrue(o.contains("used_time_ms"))
-            assertEquals("0", parseJson(o.trim()).start_version)
-            assertEquals("9", parseJson(o.trim()).end_version)
-            assertEquals("9", parseJson(o.trim()).rowset_count)
-            int file_count = segment_count * 2
-            assertEquals(file_count, Integer.parseInt(parseJson(o.trim()).file_count))
+            check_nested_index_file(ip, port, tablet_id, 9, 3, "V2")
 
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
@@ -244,19 +265,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
 
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            int segment_count = calc_segment_count(tablet)
-            logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            def (c, o, e) = calc_file_crc_on_tablet(ip, port, tablet_id)
-            logger.info("Run calc_file_crc_on_tablet: code=" + c + ", out=" + o + ", err=" + e)
-            assertTrue(c == 0)
-            assertTrue(o.contains("crc_value"))
-            assertTrue(o.contains("used_time_ms"))
-            assertEquals("0", parseJson(o.trim()).start_version)
-            assertEquals("9", parseJson(o.trim()).end_version)
-            // after compaction, there are 2 rwosets.
-            assertEquals("2", parseJson(o.trim()).rowset_count)
-            int file_count = segment_count * 2
-            assertEquals(file_count, Integer.parseInt(parseJson(o.trim()).file_count))
+            check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
         }
 
         int segmentsCount = 0

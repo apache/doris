@@ -69,16 +69,17 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
             try {
                 CloseableHttpResponse response = httpClient.execute(request)
                 try {
-                    int statusCode = response.getStatusLine().getStatusCode()
-                    String responseBody = EntityUtils.toString(response.getEntity())
+                    code = response.getStatusLine().getStatusCode()
+                    out = EntityUtils.toString(response.getEntity())
                     
-                    if (statusCode >= 200 && statusCode < 300) {
+                    if (code >= 200 && code < 300) {
                         code = 0 // to be compatible with the old curl function
-                        out = responseBody
                         err = ""
                         return [code, out, err]
+                    } else if (code == 500) {
+                        return [code, out, "Internal Server Error"]
                     } else {
-                        logger.warn("HTTP request failed with status code ${statusCode}, retrying (${++retryCount}/${maxRetries})")
+                        logger.warn("HTTP request failed with status code ${code}, response ${out}, retrying (${++retryCount}/${maxRetries})")
                     }
                 } finally {
                     response.close()
@@ -90,8 +91,6 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
                 logger.error("Error executing HTTP request: ${e.message}")
-                code = -1
-                out = ""
                 err = e.message
                 return [code, out, err]
             }
@@ -101,8 +100,6 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
         }
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
-        code = -1
-        out = ""
         err = "Failed after ${maxRetries} attempts"
         return [code, out, err]
     } finally {
