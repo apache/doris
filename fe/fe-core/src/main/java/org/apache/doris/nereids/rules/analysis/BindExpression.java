@@ -549,20 +549,11 @@ public class BindExpression implements AnalysisRuleFactory {
         plan.foreach(p -> {
             if (p instanceof LogicalSubQueryAlias) {
                 String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
-                p.children().get(0).foreach(p2 -> {
-                    if (p2 instanceof LogicalCatalogRelation) {
-                        String[] split = ((LogicalCatalogRelation) p2).qualifiedName().split("\\.");
-                        String result = split[1] + '.' + alias;
-                        checkAlias.accept(result);
-                        return stopCheckChildren;
-                    } else {
-                        String dbName = "defalut-doris";
-                        String result = dbName + '.' + alias;
-                        checkAlias.accept(result);
-                        return stopCheckChildren;
-                    }
-                });
+                String dbName = getDbName(p.children().get(0));
+                String result = dbName + "." + alias;
+                checkAlias.accept(result);
                 return stopCheckChildren;
+
             } else if (p instanceof LogicalCatalogRelation) {
                 String table = ((LogicalCatalogRelation) p).qualifiedName();
                 checkAlias.accept(table);
@@ -571,6 +562,19 @@ public class BindExpression implements AnalysisRuleFactory {
                 return !stopCheckChildren;
             }
         });
+    }
+
+    private String getDbName(Plan plan) {
+        if (plan instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[0]
+                    + ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[1];
+        } else if (plan instanceof LogicalSubQueryAlias) {
+            return ((LogicalSubQueryAlias<?>) plan).getQualifier().get(0)
+                    + ((LogicalSubQueryAlias<?>) plan).getQualifier().get(1);
+
+        } else {
+            return "default-catalog" + "default-db";
+        }
     }
 
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {

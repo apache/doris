@@ -95,6 +95,40 @@ suite("alias_conflict") {
     """
 
     sql """
+        CREATE TABLE `alias_conflict1`.`test_alias_conflict2` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `alias_conflict1`.`test_alias_conflict8` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
         CREATE TABLE `alias_conflict2`.`test_alias_conflict1` (
         `id` varchar(64) NULL,
         `name` varchar(64) NULL,
@@ -117,8 +151,28 @@ suite("alias_conflict") {
     sql """insert into alias_conflict1.test_alias_conflict1 values('1','a',12);"""
     sql """insert into alias_conflict2.test_alias_conflict1 values('1','a',12);"""
 
+    //create view
+    sql """create view alias_conflict2.test_alias_conflict8 as select * from alias_conflict1.test_alias_conflict8;"""
+
+    //create catalog
+    sql """
+        CREATE CATALOG jdbc_alias_conflict properties(
+       'type'='jdbc',
+       'user'='root',
+       'password'='',
+       'jdbc_url' = 'jdbc:mysql://127.0.0.1:9030/alias_conflict1',
+       'driver_url' = 'https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.jar',
+       'driver_class' = 'com.mysql.cj.jdbc.Driver'
+        );
+    """
+
+
     // Valid query
     qt_select_normal """select t3.id from test_alias_conflict1 t1 inner join test_alias_conflict2 t2 on true inner join test_alias_conflict3 t3 on t3.id = t2.id;"""
+
+    qt_catalog_normal """select * from internal.alias_conflict1.test_alias_conflict2, jdbc_alias_conflict.alias_conflict2.test_alias_conflict1;"""
+
+    qt_view_normal """select * from alias_conflict2.test_alias_conflict8, alias_conflict1.test_alias_conflict8"""
 
     // Test for alias conflict
     test {
@@ -129,6 +183,20 @@ suite("alias_conflict") {
     // Test for table name conflict
     test {
         sql "select * from test_alias_conflict1 t1, test_alias_conflict2 t1;"
+        exception "Not unique table/alias: 't1'"
+    }
+
+
+
+    // Test for view name conflict
+    test {
+        sql "select * from alias_conflict2.test_alias_conflict8 t1, alias_conflict2.test_alias_conflict1 t1;"
+        exception "Not unique table/alias: 't1'"
+    }
+
+    // Test for view name conflict
+    test {
+        sql "select * from (select * from alias_conflict2.test_alias_conflict8) t1, (select 100 id) t1;"
         exception "Not unique table/alias: 't1'"
     }
 
@@ -196,5 +264,6 @@ suite("alias_conflict") {
     sql """ DROP TABLE IF EXISTS `alias_conflict2`.`test_alias_conflict1` """
     sql """ DROP DATABASE IF EXISTS `alias_conflict1` """
     sql """ DROP DATABASE IF EXISTS `alias_conflict2` """
+    sql """ DROP CATALOG IF EXISTS `jdbc_alias_conflict` """
 }
 

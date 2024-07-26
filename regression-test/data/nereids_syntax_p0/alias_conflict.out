@@ -2,6 +2,10 @@
 -- !select_normal --
 1
 
+-- !catalog_normal --
+
+-- !view_normal --
+
 -- !select_no_conflict --
 1	a	12	1	a	12
 
