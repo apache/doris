@@ -33,7 +33,7 @@ import java.util.List;
  */
 public class TreeNode<NodeType extends TreeNode<NodeType>> {
     @SerializedName("children")
-    protected ArrayList<NodeType> children = Lists.newArrayList();
+    protected ArrayList<NodeType> children = Lists.newArrayListWithCapacity(2);
 
     public NodeType getChild(int i) {
         return hasChild(i) ? children.get(i) : null;

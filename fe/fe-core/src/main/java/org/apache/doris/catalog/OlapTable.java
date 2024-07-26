@@ -1216,10 +1216,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+    // for those elements equal in partiton ids, get their names.
+    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
-        for (Long id : partitionIds) {
-            names.add(idToPartition.get(id).getName());
+        for (int i = 0; i < partitionIds1.size(); i++) {
+            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
+                names.add(getPartition(partitionIds1.get(i)).getName());
+            }
         }
         return names;
     }
@@ -1428,19 +1431,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-        }
-        return rowCount;
+        return getRowCountForIndex(baseIndexId);
     }
 
     public long getRowCountForIndex(long indexId) {
-        Map<Long, Long> indexesRowCount = statistics.getIndexesRowCount();
-        if (indexesRowCount == null || !indexesRowCount.containsKey(indexId)) {
-            return -1;
+        long rowCount = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            MaterializedIndex index = entry.getValue().getIndex(indexId);
+            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
-        return indexesRowCount.get(indexId);
+        return rowCount;
     }
 
     @Override
@@ -1989,9 +1989,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public int hashCode() {
-        return Objects.hash(state, indexIdToMeta, indexNameToId, keysType, partitionInfo, idToPartition,
-                nameToPartition, defaultDistributionInfo, tempPartitions, bfColumns, bfFpp, colocateGroup,
-                hasSequenceCol, sequenceType, indexes, baseIndexId, tableProperty);
+        return (int) baseIndexId;
     }
 
     public Column getBaseColumn(String columnName) {
@@ -2995,9 +2993,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long segmentCount;
 
-        @Getter
-        private Map<Long, Long> indexesRowCount;
-
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3018,7 +3013,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         public Statistics(String dbName, String tableName,
                 Long dataSize, Long totalReplicaDataSize,
                 Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount, Map<Long, Long> indexesRowCount) {
+                Long rowsetCount, Long segmentCount) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3033,7 +3028,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = rowCount;
             this.rowsetCount = rowsetCount;
             this.segmentCount = segmentCount;
-            this.indexesRowCount = indexesRowCount;
         }
     }
 

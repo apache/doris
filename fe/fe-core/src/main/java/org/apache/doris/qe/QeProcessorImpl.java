@@ -167,18 +167,13 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(queryId);
-            if (executionProfile != null) {
-                executionProfile.setQueryFinishTime(System.currentTimeMillis());
-                if (queryInfo.connectContext != null) {
-                    long autoProfileThresholdMs = queryInfo.connectContext
-                            .getSessionVariable().getAutoProfileThresholdMs();
-                    if (autoProfileThresholdMs > 0 && System.currentTimeMillis() - queryInfo.getStartExecTime()
-                            < autoProfileThresholdMs) {
-                        ProfileManager.getInstance().removeProfile(executionProfile.getSummaryProfile().getProfileId());
-                    }
-                }
+
+            // Here we shuold use query option instead of ConnectContext,
+            // because for the coordinator of load task, it does not have ConnectContext.
+            if (queryInfo.getCoord().getQueryOptions().enable_profile) {
+                ProfileManager.getInstance().markExecutionProfileFinished(queryId);
             }
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {

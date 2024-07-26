@@ -263,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    std::string get_error_log_file_path() const;
+    std::string get_error_log_file_path();
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -561,12 +561,12 @@ public:
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge,
-                                            doris::IRuntimeFilter** producer_filter,
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            doris::IRuntimeFilter** producer_filter);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
     bool enable_join_spill() const {
@@ -710,7 +710,7 @@ private:
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
+    std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

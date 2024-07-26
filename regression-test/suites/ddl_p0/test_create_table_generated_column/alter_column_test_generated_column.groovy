@@ -16,46 +16,6 @@
 // under the License.
 
 suite("alter_column_test_generated_column") {
-    def waitSchemaChangeJob = { String tableName /* param */ ->
-        int tryTimes = 30
-        while (tryTimes-- > 0) {
-            def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-            if (jobResult == null || jobResult.isEmpty()) {
-                sleep(3000)
-                return;
-            }
-            def jobState = jobResult[0][9].toString()
-            if ('cancelled'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                throw new IllegalStateException("${tableName}'s job has been cancelled")
-            }
-            if ('finished'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                sleep(3000)
-                return
-            }
-            sleep(1000)
-        }
-        assertTrue(false)
-    }
-    def getMVJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
-        return jobStateResult[0][8]
-    }
-    def waitForMVJob =  (tbName, timeout) -> {
-        while (timeout--){
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
-    }
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 
@@ -65,7 +25,10 @@ suite("alter_column_test_generated_column") {
     duplicate key(a) distributed by hash(a) PROPERTIES("replication_num" = "1");
     alter table alter_column_gen_col add rollup r1 (c,b,a)
     """
-    waitForMVJob("alter_column_gen_col", 3000)
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='alter_column_gen_col' order by createtime desc limit 1"""
+        time 600
+    }
     // add column
     test {
         sql "alter table alter_column_gen_col add column f int as (a+1);"
@@ -95,8 +58,13 @@ suite("alter_column_test_generated_column") {
         sql "select c,b from alter_column_gen_col where c=10;"
         contains "r1"
     }
+
     qt_drop_gen_col_rollup "alter table alter_column_gen_col drop column c from r1;"
-    waitSchemaChangeJob("alter_column_gen_col")
+    waitForSchemaChangeDone {
+        sql """show alter table column where tablename='alter_column_gen_col' order by createtime desc limit 1"""
+        time 600
+    }
+
     explain {
         sql "select b from alter_column_gen_col where b=10;"
         contains "r1"
@@ -117,7 +85,10 @@ suite("alter_column_test_generated_column") {
 
     // reorder column
     qt_reorder "alter table alter_column_gen_col order by(a,c,b,d,e);"
-    waitSchemaChangeJob("alter_column_gen_col")
+    waitForSchemaChangeDone {
+        sql """show alter table column where tablename='alter_column_gen_col' order by createtime desc limit 1"""
+        time 600
+    }
 
     test {
         sql "alter table alter_column_gen_col order by(a,d,b,c,e);"
@@ -125,15 +96,17 @@ suite("alter_column_test_generated_column") {
     }
     qt_after_reorder_insert "insert into alter_column_gen_col(a,b,e) values(12,3,4);"
     qt_reorder_rollup "alter table alter_column_gen_col order by (a,b) from r1"
-    waitSchemaChangeJob("alter_column_gen_col")
+    waitForSchemaChangeDone {
+        sql """show alter table column where tablename='alter_column_gen_col' order by createtime desc limit 1"""
+        time 600
+    }
 
     // rename column
     test {
         sql "alter table alter_column_gen_col rename column c c1"
-        exception ""
+        exception "Cannot rename column, because column 'c' has a generated column dependency on :[d]"
     }
     qt_rename_gen_col  "alter table alter_column_gen_col rename column d d1"
-    waitSchemaChangeJob("alter_column_gen_col")
     qt_after_rename_insert "insert into alter_column_gen_col(a,b,e) values(16,2,4);"
     qt_after_rename_insert_select "select * from alter_column_gen_col order by 1,2,3,4,5"
 }

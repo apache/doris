@@ -87,4 +87,9 @@ public class AlterResourceStmt extends DdlStmt {
     public boolean needAuditEncryption() {
         return true;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }
