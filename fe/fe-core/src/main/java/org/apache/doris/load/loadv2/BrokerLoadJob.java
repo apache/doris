@@ -38,6 +38,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -327,6 +328,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
         summaryProfile.addInfoString(ProfileManager.USER,
                 getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
+        summaryProfile.addInfoString(ProfileManager.DEFAULT_CATALOG, InternalCatalog.INTERNAL_CATALOG_NAME);
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, getDefaultDb());
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
