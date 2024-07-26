@@ -234,6 +234,8 @@ public class FileSystemManager {
             brokerFileSystem = getGooseFSFileSystem(path, properties);
         } else if (scheme.equals(GCS_SCHEME)) {
             brokerFileSystem = getGCSFileSystem(path, properties);
+        } else if (scheme.equals(AFS_SCHEME)) {
+            brokerFileSystem = getAfsFileSystem(path, properties);
         } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
@@ -1008,7 +1010,7 @@ public class FileSystemManager {
                 conf.set(HADOOP_JOB_UGI, afsUgi);
                 conf.set(HADOOP_JOB_GROUP_NAME, group);
                 conf.set(FS_DEFAULT_NAME, host);
-                conf.set(FS_AFS_IMPL, "org.apache.hadoop.fs.DFileSystem");
+                conf.set(FS_AFS_IMPL, properties.getOrDefault(FS_AFS_IMPL, "org.apache.hadoop.fs.LiteFileSystem"));
                 conf.set(DFS_CLIENT_AUTH_METHOD, properties.getOrDefault(DFS_CLIENT_AUTH_METHOD, "3"));
                 conf.set(DFS_AGENT_PORT, properties.getOrDefault(DFS_AGENT_PORT, "20001"));
                 conf.set(DFS_RPC_TIMEOUT, properties.getOrDefault(DFS_RPC_TIMEOUT, "300000"));

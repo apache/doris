@@ -143,11 +143,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         // No uniform slot for catalog relation
     }
 
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return computeFdItems(Utils.fastToImmutableSet(getOutputSet()));
-    }
-
     private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 

@@ -92,4 +92,47 @@ suite("load") {
     sql """
         insert into expr_test_not_nullable select * from expr_test where id is not null
     """
+
+    sql "set enable_decimal256=true;"
+    sql """
+        CREATE TABLE IF NOT EXISTS `expr_test2` (
+            `id` int null,
+            `kipv4` ipv4 null,
+            `kipv6` ipv6 null,
+            `kdcml256v3` decimalv3(76, 66) null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `expr_test_not_nullable2` (
+            `id` int null,
+            `kipv4` ipv4 not null,
+            `kipv6` ipv6 not null,
+            `kdcml256v3` decimalv3(76, 66) not null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+
+    sql"""
+    insert into expr_test2 values(1,"192.168.1.1","ffff:0000:0000:0000:0000:0000:0000:0001",1.1),(2,"192.168.1.2","ffff:0000:0000:0000:0000:0000:0000:0002",2.2),(3,"192.168.1.3","ffff:0000:0000:0000:0000:0000:0000:0003",3.3),(4,"192.168.1.4","ffff:0000:0000:0000:0000:0000:0000:0004",4.4),(5,"192.168.1.5","ffff:0000:0000:0000:0000:0000:0000:0005",5.5)
+    """
+
+    sql"""
+    insert into expr_test2 values(1,"192.168.11.1","ffff:0000:0000:0000:0000:0000:0100:0001",11.1),(2,"192.168.11.2","ffff:0000:0000:0000:0000:0000:0010:0002",22.2),(3,"192.168.11.3","ffff:0000:0000:0000:0000:0000:0001:0003",33.3),(4,"192.168.11.4","ffff:0000:0000:0000:0000:0100:0000:0004",44.4),(5,"192.168.11.5","ffff:0000:0000:0000:0000:0000:0100:0005",55.5)
+    """
+
+    sql"""
+    insert into expr_test2 values(1,null,null,null),(2,null,null,null),(3,null,null,null),(4,"192.168.1.4","ffff:0000:0000:0000:0000:0000:0000:0004",null),(5,"192.168.1.5","ffff:0000:0000:0000:0000:0000:0000:0005",null)
+    """
+
+    sql"""
+    insert into expr_test_not_nullable2 values(1,"192.168.11.1","ffff:0000:0000:0000:0000:0000:0100:0001",11.1),(2,"192.168.11.2","ffff:0000:0000:0000:0000:0000:0010:0002",22.2),(3,"192.168.11.3","ffff:0000:0000:0000:0000:0000:0001:0003",33.3),(4,"192.168.11.4","ffff:0000:0000:0000:0000:0100:0000:0004",44.4),(5,"192.168.11.5","ffff:0000:0000:0000:0000:0000:0100:0005",55.5)
+    """
+
+    sql"""
+    insert into expr_test_not_nullable2 values(1,"192.168.11.1","ffff:0000:0000:0000:0000:0000:0100:0001",32.1),(2,"192.168.11.2","ffff:0000:0000:0000:0000:0000:0010:0002",21.3),(3,"192.168.11.3","ffff:0000:0000:0000:0000:0000:0001:0003",12.4),(4,"192.168.11.4","ffff:0000:0000:0000:0000:0100:0000:0004",5.5),(5,"192.168.11.5","ffff:0000:0000:0000:0000:0000:0100:0005",6.7)
+    """
 }

@@ -297,6 +297,11 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         code = cast_as<ErrCategory::READ>(err);
         return;
     }
+    if (!job_pb.ParseFromString(job_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "pb deserialization failed";
+        return;
+    }
     job_pb.mutable_idx()->CopyFrom(request->job().idx());
     // FE can ensure that a tablet does not have more than one schema_change job at the same time,
     // so we can directly preempt previous schema_change job.

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 
@@ -55,10 +57,10 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(IRuntimeFilter* rf) : runtime_filter(rf) {}
+        RuntimeFilterContext(std::shared_ptr<IRuntimeFilter> rf) : runtime_filter(std::move(rf)) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark = false;
-        IRuntimeFilter* runtime_filter = nullptr;
+        std::shared_ptr<IRuntimeFilter> runtime_filter;
         pipeline::RuntimeFilterDependency* runtime_filter_dependency = nullptr;
     };
 

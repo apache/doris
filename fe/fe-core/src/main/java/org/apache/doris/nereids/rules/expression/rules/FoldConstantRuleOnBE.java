@@ -277,7 +277,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
 
             TQueryOptions tQueryOptions = new TQueryOptions();
-            tQueryOptions.setRepeatMaxNum(context.getSessionVariable().repeatMaxNum);
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);

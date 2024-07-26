@@ -55,7 +55,6 @@ import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -497,8 +496,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // tag
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // waiting query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
+            trow.addToColumnValue(
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(17))); // running query num
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(18))); // waiting query num
             dataBatch.add(trow);
         }
 
@@ -593,14 +595,8 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell());
             }
 
-            TokenState tokenState = queryInfo.getQueueStatus();
-            if (tokenState == null) {
-                trow.addToColumnValue(new TCell());
-            } else if (tokenState == TokenState.READY_TO_RUN) {
-                trow.addToColumnValue(new TCell().setStringVal("RUNNING"));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal("QUEUED"));
-            }
+            String queueMsg = queryInfo.getQueueStatus();
+            trow.addToColumnValue(new TCell().setStringVal(queueMsg));
 
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
             dataBatch.add(trow);

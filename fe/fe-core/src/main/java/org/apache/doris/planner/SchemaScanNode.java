@@ -62,6 +62,18 @@ public class SchemaScanNode extends ScanNode {
         this.tableName = desc.getTable().getName();
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getSchemaDb() {
+        return desc.getTable().getDatabase().getFullName();
+    }
+
+    public String getSchemaCatalog() {
+        return desc.getTable().getDatabase().getCatalog().getName();
+    }
+
     @Override
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);

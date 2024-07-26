@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -472,6 +474,13 @@ public class MaterializedViewUtils {
                 return null;
             }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
+            Expr definExpr = mvReferenceColumn.getDefineExpr();
+            if (definExpr instanceof SlotRef) {
+                Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
+                if (referenceRollupColumn != null) {
+                    mvReferenceColumn = referenceRollupColumn;
+                }
+            }
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);

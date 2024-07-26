@@ -44,7 +44,7 @@ private:
     void calculate_metrics_thread();
     void je_purge_dirty_pages_thread() const;
     void report_runtime_query_statistics_thread();
-    void wg_mem_used_refresh_thread();
+    void wg_weighted_memory_ratio_refresh_thread();
     void be_proc_monitor_thread();
 
     CountDownLatch _stop_background_threads_latch;

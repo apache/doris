@@ -50,7 +50,6 @@ public abstract class AbstractMaterializedViewScanRule extends AbstractMateriali
                 queryStructInfo.getTopPlan(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
-                true,
                 queryStructInfo.getTableBitSet()
         );
         // Can not rewrite, bail out

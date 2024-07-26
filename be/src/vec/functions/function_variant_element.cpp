@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "simdjson.h"
+#include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -102,8 +103,11 @@ private:
     static Status get_element_column(const ColumnObject& src, const ColumnPtr& index_column,
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
+        Defer finalize([&]() { (*result)->assume_mutable()->finalize(); });
         if (src.empty()) {
             *result = ColumnObject::create(true);
+            // src subcolumns empty but src row count may not be 0
+            (*result)->assume_mutable()->insert_many_defaults(src.size());
             return Status::OK();
         }
         if (src.is_scalar_variant() &&
@@ -135,8 +139,10 @@ private:
             PathInData path(field_name);
             ColumnObject::Subcolumns subcolumns = mutable_ptr->get_subcolumns();
             const auto* node = subcolumns.find_exact(path);
-            auto result_col = ColumnObject::create(true, false /*should not create root*/);
+            MutableColumnPtr result_col;
             if (node != nullptr) {
+                // Create without root, since root will be added
+                result_col = ColumnObject::create(true, false /*should not create root*/);
                 std::vector<decltype(node)> nodes;
                 PathsInData paths;
                 ColumnObject::Subcolumns::get_leaves_of_node(node, nodes, paths);
@@ -162,6 +168,8 @@ private:
                 auto container = ColumnObject::create(std::move(new_subcolumns), true);
                 result_col->insert_range_from(*container, 0, container->size());
             } else {
+                // Create with root, otherwise the root type maybe type Nothing
+                result_col = ColumnObject::create(true);
                 result_col->insert_many_defaults(src.size());
             }
             *result = result_col->get_ptr();

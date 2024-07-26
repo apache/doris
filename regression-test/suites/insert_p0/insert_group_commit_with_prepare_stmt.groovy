@@ -148,8 +148,6 @@ suite("insert_group_commit_with_prepare_stmt") {
             );
             """
 
-            sql """ set enable_insert_strict = false; """
-
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """
             assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, insert_stmt.class)
@@ -211,8 +209,6 @@ suite("insert_group_commit_with_prepare_stmt") {
                 "replication_num" = "1"
             );
             """
-
-            sql """ set enable_insert_strict = false; """
 
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """

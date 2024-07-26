@@ -14,13 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionCount.h
-// and modified by Doris
 
 #pragma once
 
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
 #include <array>
+#include <boost/dynamic_bitset.hpp>
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -28,9 +30,44 @@
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
-#include "vec/utils/count_by_enum_helpers.hpp"
 
 namespace doris::vectorized {
+
+struct CountByEnumData {
+    std::unordered_map<std::string, uint64_t> cbe;
+    uint64_t not_null = 0;
+    uint64_t null = 0;
+    uint64_t all = 0;
+};
+
+void build_json_from_vec(rapidjson::StringBuffer& buffer,
+                         const std::vector<CountByEnumData>& data_vec) {
+    rapidjson::Document doc;
+    doc.SetArray();
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+    int vec_size_number = data_vec.size();
+    for (int idx = 0; idx < vec_size_number; ++idx) {
+        rapidjson::Value obj(rapidjson::kObjectType);
+
+        rapidjson::Value obj_cbe(rapidjson::kObjectType);
+        std::unordered_map<std::string, uint64_t> unordered_map = data_vec[idx].cbe;
+        for (auto it : unordered_map) {
+            rapidjson::Value key_cbe(it.first.c_str(), allocator);
+            rapidjson::Value value_cbe(it.second);
+            obj_cbe.AddMember(key_cbe, value_cbe, allocator);
+        }
+        obj.AddMember("cbe", obj_cbe, allocator);
+        obj.AddMember("notnull", data_vec[idx].not_null, allocator);
+        obj.AddMember("null", data_vec[idx].null, allocator);
+        obj.AddMember("all", data_vec[idx].all, allocator);
+
+        doc.PushBack(obj, allocator);
+    }
+
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+}
 
 struct AggregateFunctionCountByEnumData {
     using MapType = std::unordered_map<std::string, uint64_t>;

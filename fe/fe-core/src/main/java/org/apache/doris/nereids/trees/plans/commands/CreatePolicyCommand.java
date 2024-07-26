@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ColumnName;
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
@@ -110,5 +111,10 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         }
         ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new AnalysisException("Not support create policy command in Nereids now");
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

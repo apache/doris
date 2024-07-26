@@ -221,7 +221,7 @@ public:
     }
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
-    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator tg_tracker_limiter_group_it;
+    std::list<std::weak_ptr<MemTrackerLimiter>>::iterator wg_tracker_limiter_group_it;
 
 private:
     friend class ThreadMemTrackerMgr;

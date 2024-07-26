@@ -129,11 +129,16 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
 
     public TrinoConnectorJniScanner(int batchSize, Map<String, String> params) {
-        catalogNameString = params.get("catalog_name");
-        super.batchSize = batchSize;
-        super.fields = params.get("required_fields").split(",");
+        String[] requiredFields = params.get("required_fields").split(",");
+        String[] requiredTypes = params.get("columns_types").split("#");
+        ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
+        for (int i = 0; i < requiredTypes.length; i++) {
+            columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+        }
+        initTableInfo(columnTypes, requiredFields, batchSize);
         appendDataTimeNs = new long[fields.length];
 
+        catalogNameString = params.get("catalog_name");
         connectorSplitString = params.get("trino_connector_split");
         connectorTableHandleString = params.get("trino_connector_table_handle");
         connectorColumnHandleString = params.get("trino_connector_column_handles");
@@ -336,7 +341,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     private void parseRequiredTypes() {
-        ColumnType[] columnTypes = new ColumnType[fields.length];
         appendDataTimeNs = new long[fields.length];
         trinoTypeList = Lists.newArrayList();
         for (int i = 0; i < fields.length; i++) {
@@ -345,12 +349,8 @@ public class TrinoConnectorJniScanner extends JniScanner {
                 throw new RuntimeException(String.format("Cannot find field %s in schema %s",
                         fields[i], trinoConnectorAllFieldNames));
             }
-
             trinoTypeList.add(columnMetadataList.get(index).getType());
-            String hiveType = TrinoTypeToHiveTypeTranslator.fromTrinoTypeToHiveType(trinoTypeList.get(i));
-            columnTypes[i] = ColumnType.parseType(fields[i], hiveType);
         }
-        super.types = columnTypes;
     }
 
     private Session createSession(TrinoConnectorServicesProvider trinoConnectorServicesProvider) {

@@ -148,7 +148,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             Config.max_hive_table_cache_num,
                             ignored -> listTableNames(),
                             tableName -> Optional.ofNullable(
-                                    buildTableForInit(tableName, Util.genTableIdByName(tableName), extCatalog)),
+                                    buildTableForInit(tableName,
+                                            Util.genIdByName(extCatalog.getName(), name, tableName), extCatalog)),
                             (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -375,7 +376,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
-            return metaCache.getMetaObj(tableName).orElse(null);
+            // must use full qualified name to generate id.
+            // otherwise, if 2 databases have the same table name, the id will be the same.
+            return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;
@@ -492,5 +495,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
+    }
+
+    public String getQualifiedName(String tblName) {
+        return String.join(".", extCatalog.getName(), name, tblName);
     }
 }

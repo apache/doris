@@ -104,4 +104,9 @@ public class CancelAlterTableStmt extends CancelStmt {
         return toSql();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
+
 }

@@ -26,6 +26,7 @@ services:
     depends_on:
       - rest
       - minio
+      - mc
     volumes:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks

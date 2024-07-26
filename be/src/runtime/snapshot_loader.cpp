@@ -458,7 +458,6 @@ Status SnapshotLoader::remote_http_download(
     }
 
     // Step 3: Validate remote tablet snapshot paths && remote files map
-    // TODO(Drogon): Add md5sum check
     // key is remote snapshot paths, value is filelist
     // get all these use http download action
     // http://172.16.0.14:6781/api/_tablet/_download?token=e804dd27-86da-4072-af58-70724075d2a4&file=/home/ubuntu/doris_master/output/be/storage/snapshot/20230410102306.9.180//2774718/217609978/2774718.hdr

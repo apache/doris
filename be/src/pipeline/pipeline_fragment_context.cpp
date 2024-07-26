@@ -124,12 +124,11 @@ PipelineFragmentContext::PipelineFragmentContext(
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb) {
     _fragment_watcher.start();
-    _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -1182,11 +1181,19 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
                                          ": group by and output is empty");
         }
-        if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
+
+        const bool group_by_limit_opt =
+                tnode.agg_node.__isset.agg_sort_info_by_group_key && tnode.limit > 0;
+
+        /// PartitionedAggSourceOperatorX does not support "group by limit opt(#29641)" yet.
+        /// If `group_by_limit_opt` is true, then it might not need to spill at all.
+        const bool enable_spill = _runtime_state->enable_agg_spill() &&
+                                  !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt;
+
+        if (tnode.agg_node.aggregate_functions.empty() && !enable_spill &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty() &&
-            !tnode.agg_node.__isset.agg_sort_info_by_group_key) {
+            !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
             _require_bucket_distribution =
@@ -1198,7 +1205,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
-            if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
+            if (enable_spill) {
                 op.reset(new PartitionedAggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             } else {
                 op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1213,7 +1220,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
             DataSinkOperatorXPtr sink;
-            if (_runtime_state->enable_agg_spill() && !tnode.agg_node.grouping_exprs.empty()) {
+            if (enable_spill) {
                 sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
                                                            descs, _require_bucket_distribution));
             } else {

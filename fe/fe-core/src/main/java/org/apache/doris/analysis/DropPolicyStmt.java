@@ -111,4 +111,9 @@ public class DropPolicyStmt extends DdlStmt {
         }
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

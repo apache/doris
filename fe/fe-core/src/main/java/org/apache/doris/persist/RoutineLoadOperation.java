@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -35,6 +36,8 @@ public class RoutineLoadOperation implements Writable {
     private long id;
     @SerializedName("js")
     private JobState jobState;
+    @SerializedName("rs")
+    private ErrorReason reason;
 
     private RoutineLoadOperation() {
     }
@@ -44,12 +47,22 @@ public class RoutineLoadOperation implements Writable {
         this.jobState = jobState;
     }
 
+    public RoutineLoadOperation(long id, JobState jobState, ErrorReason reason) {
+        this.id = id;
+        this.jobState = jobState;
+        this.reason = reason;
+    }
+
     public long getId() {
         return id;
     }
 
     public JobState getJobState() {
         return jobState;
+    }
+
+    public ErrorReason getErrorReason() {
+        return reason;
     }
 
     public static RoutineLoadOperation read(DataInput in) throws IOException {

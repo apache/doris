@@ -70,7 +70,7 @@
     qt_join_where """
                     select a.number as num1, b.number as num2
                     from numbers("number" = "10") a inner join numbers("number" = "10") b 
-                    on a.number=b.number where a.number>4;
+                    on a.number=b.number where a.number>4 order by num1,num2;
                   """
     
     // Test Sub Query

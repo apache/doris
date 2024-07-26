@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -1384,9 +1385,12 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
         auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
         S3ClientConf conf {
+                .endpoint {},
+                .region {},
                 .ak = std::move(new_s3_conf.client_conf.ak),
                 .sk = std::move(new_s3_conf.client_conf.sk),
                 .token = std::move(new_s3_conf.client_conf.token),
+                .bucket {},
                 .provider = new_s3_conf.client_conf.provider,
         };
         st = client->reset(conf);
@@ -1789,7 +1793,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                         if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;

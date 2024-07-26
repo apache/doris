@@ -648,7 +648,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of LARGEINT"
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
             }
 
             test {

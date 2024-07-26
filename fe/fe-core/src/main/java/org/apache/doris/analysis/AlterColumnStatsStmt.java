@@ -219,4 +219,9 @@ public class AlterColumnStatsStmt extends DdlStmt {
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

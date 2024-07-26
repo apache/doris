@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -46,6 +47,17 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), filterFalse)
+                .applyTopDown(new EliminateFilter())
+                .matches(logicalEmptyRelation());
+    }
+
+    @Test
+    void testEliminateFilterNull() {
+        LogicalPlan filterNull = new LogicalPlanBuilder(scan1)
+                .filter(NullLiteral.INSTANCE)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filterNull)
                 .applyTopDown(new EliminateFilter())
                 .matches(logicalEmptyRelation());
     }

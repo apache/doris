@@ -16,7 +16,8 @@
 // under the License.
 
 import com.mysql.cj.jdbc.StatementImpl
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("insert_group_commit_into") {
     def dbName = "regression_test_insert_p0"
@@ -24,34 +25,22 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        def retry = 0
-        while (retry < 30) {
-            sleep(2000)
-            def rowCount = sql "select count(*) from ${table}"
-            logger.info("rowCount: " + rowCount + ", retry: " + retry)
-            if (rowCount[0][0] >= expectedRowCount) {
-                break
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+            {
+                def result = sql "select count(*) from ${table}"
+                logger.info("table: ${table}, rowCount: ${result}")
+                return result[0][0] == expectedRowCount
             }
-            retry++
-        }
+        )
     }
 
     def getAlterTableState = {
-        def retry = 0
         sql "use ${dbName};"
-        while (true) {
-            sleep(2000)
-            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc limit 1"
-            logger.info("alter table state: ${state}")
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 20) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def group_commit_insert = { sql, expected_row_count ->
@@ -222,6 +211,13 @@ suite("insert_group_commit_into") {
                 sql "set enable_insert_strict=false"
                 group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """, 2
                 sql "set enable_insert_strict=true"
+                try {
+                    sql """ insert into ${table} values (102, 'a', 100);  """
+                    assertTrue(false, "insert should fail")
+                } catch (Exception e) {
+                    logger.info("error: " + e.getMessage())
+                    assertTrue(e.getMessage().contains("url:"))
+                }
                 sql """ alter table ${table} ADD ROLLUP r1(name, score); """
                 group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
                 group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1

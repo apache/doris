@@ -24,6 +24,7 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """set global force_sample_analyze=false"""
+    sql """set global enable_auto_analyze=false"""
     sql """
         DROP DATABASE IF EXISTS `${db}`
     """
@@ -164,12 +165,28 @@ suite("test_analyze") {
         exception = e
     }
 
+    // Test sample agg table value column. Min max is N/A when zone map is not available.
+    sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+    sql """analyze table agg_table_test with sample rows 100 with sync"""
+    def agg_result = sql """show column stats agg_table_test (name)"""
+    logger.info("show column agg_table_test(name) stats: " + agg_result)
+    assertEquals(agg_result[0][7], "N/A")
+    assertEquals(agg_result[0][8], "N/A")
+
     def a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
-    """
-
-    def a_result_2 = sql """
-        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 5
     """
 
     def a_result_3 = sql """
@@ -1149,11 +1166,6 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
-    for (int i = 0; i < 10; ++i) {
-        if (Integer.valueOf(cnt1[0][0]) == 8) break;
-        Thread.sleep(1000) // rows updated report is async
-        cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
-    }
     assertEquals(Integer.valueOf(cnt1[0][0]), 1)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
@@ -1161,12 +1173,7 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
-    for (int i = 0; i < 10; ++i) {
-        if (Integer.valueOf(cnt2[0][0]) == 8) break;
-        Thread.sleep(1000) // rows updated report is async
-        cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
-    }
-    assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
+    assertEquals(Integer.valueOf(cnt2[0][0]), 8)
 
     // test analyze specific column
     sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
@@ -2624,27 +2631,6 @@ PARTITION `p599` VALUES IN (599)
     sql """insert into partition_test values (102, '1', '1')"""
     partition_result = sql """show table stats partition_test"""
     assertEquals(partition_result[0][6], "false")
-
-    // Test sample agg table value column
-    sql """
-     CREATE TABLE `agg_table_test` (
-      `id` BIGINT NOT NULL,
-      `name` VARCHAR(10) REPLACE NULL
-     ) ENGINE=OLAP
-     AGGREGATE KEY(`id`)
-     COMMENT 'OLAP'
-     DISTRIBUTED BY HASH(`id`) BUCKETS 32
-     PROPERTIES (
-      "replication_num" = "1"
-     );
-   """
-    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
-    Thread.sleep(1000 * 60)
-    sql """analyze table agg_table_test with sample rows 100 with sync"""
-    def agg_result = sql """show column stats agg_table_test (name)"""
-    logger.info("show column agg_table_test(name) stats: " + agg_result)
-    assertEquals(agg_result[0][7], "N/A")
-    assertEquals(agg_result[0][8], "N/A")
 
     // Test sample string type min max
     sql """

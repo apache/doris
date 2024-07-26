@@ -32,6 +32,7 @@ suite("test_delete_on_value") {
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true"
             );"""
     sql """ insert into ${tableName} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6),(7,7,7),(8,8,8),(9,9,9); """
@@ -65,6 +66,7 @@ suite("test_delete_on_value") {
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
+                "disable_auto_compaction" = "true",
                 "replication_num" = "1"
             );"""
     sql """ insert into ${tableName2} values(1,1,1); """
@@ -87,6 +89,7 @@ suite("test_delete_on_value") {
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
+                "disable_auto_compaction" = "true",
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
                 "function_column.sequence_col" = "z"
@@ -123,6 +126,7 @@ suite("test_delete_on_value") {
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
+                "disable_auto_compaction" = "true",
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "false",
                 "function_column.sequence_col" = "z"

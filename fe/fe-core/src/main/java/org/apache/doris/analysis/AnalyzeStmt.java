@@ -114,4 +114,9 @@ public class AnalyzeStmt extends StatementBase {
     public boolean usingSqlForExternalTable() {
         return analyzeProperties.usingSqlForExternalTable();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ANALYZE;
+    }
 }

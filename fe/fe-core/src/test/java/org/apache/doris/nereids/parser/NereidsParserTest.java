@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
@@ -419,5 +420,25 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "SELECT BINARY 'abc' FROM information_schema.partitions order by AUTO_INCREMENT";
         NereidsParser nereidsParser = new NereidsParser();
         nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseStmtType() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "select a from b";
+        LogicalPlan plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.SELECT);
+
+        sql = "use a";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.OTHER);
+
+        sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.CREATE);
+
+        sql = "update a set b =1";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(plan.stmtType(), StmtType.UPDATE);
     }
 }

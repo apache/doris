@@ -73,4 +73,9 @@ public class AlterDatabaseRename extends DdlStmt {
         return "ALTER DATABASE " + dbName + " RENAME " + newDbName;
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
+
 }

@@ -204,7 +204,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                  *  TODO: group these rules to make sure the result plan is what we expected.
                                  */
                                 new CorrelateApplyToUnCorrelateApply(),
-                                new ApplyToJoin()
+                                new ApplyToJoin(),
+                                // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
+                                // The later rule CheckPrivileges which inherent from ColumnPruning only works
+                                // if the aggregation node is normalized, so we need call NormalizeAggregate here
+                                new NormalizeAggregate()
                         )
                 ),
                 // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,

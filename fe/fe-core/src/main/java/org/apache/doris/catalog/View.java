@@ -250,8 +250,13 @@ public class View extends Table implements GsonPostProcessable {
         return GsonUtils.GSON.fromJson(Text.readString(in), View.class);
     }
 
-    public void resetIdsForRestore(Env env) {
+    public void resetIdsForRestore(Env env, String srcDbName, String dbName) {
         id = env.getNextId();
+
+        // the source db name is not setted in old BackupMeta, keep compatible with the old one.
+        if (srcDbName != null) {
+            inlineViewDef = inlineViewDef.replaceAll(srcDbName, dbName);
+        }
     }
 
     @Override

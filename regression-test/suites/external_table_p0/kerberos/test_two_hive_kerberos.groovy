@@ -1,3 +1,5 @@
+import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -14,6 +16,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.junit.Assert;
 
 suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
@@ -66,7 +70,36 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         sql """ use test_krb_hive_db """
         order_qt_q02 """ select * from test_krb_hive_db.test_krb_hive_tbl """
 
+        // 3. multi thread test
+        Thread thread1 = new Thread(() -> {
+            try {
+                for (int i = 0; i < 1000; i++) {
+                    sql """ select * from ${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+                }
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                Assert.fail();
+            }
+        })
+
+        Thread thread2 = new Thread(() -> {
+            try {
+                for (int i = 0; i < 1000; i++) {
+                    sql """ select * from other_${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+                }
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                Assert.fail();
+            }
+        })
+        sleep(5000L)
+        thread1.start()
+        thread2.start()
+
+        thread1.join()
+        thread2.join()
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""
+        // TODO: add tvf case
     }
 }

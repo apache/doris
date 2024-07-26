@@ -363,6 +363,8 @@ public:
 
     void clear() override;
 
+    void resize(size_t n) override;
+
     void clear_subcolumns_data();
 
     std::string get_name() const override {

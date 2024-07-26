@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -40,6 +42,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -98,6 +101,7 @@ public abstract class MaterializationContext {
     // The key is the query belonged group expression objectId, the value is the fail reasons because
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
+    protected List<String> identifier;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -209,9 +213,22 @@ public abstract class MaterializationContext {
     abstract Plan doGenerateScanPlan(CascadesContext cascadesContext);
 
     /**
-     * Get materialization unique qualifier which identify it
+     * Get materialization unique identifier which identify it
      */
-    abstract List<String> getMaterializationQualifier();
+    abstract List<String> generateMaterializationIdentifier();
+
+    /**
+     * Common method for generating materialization identifier
+     */
+    public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
+        return indexName == null
+                ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName())
+                : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName(), indexName);
+    }
 
     /**
      * Get String info which is used for to string
@@ -344,7 +361,7 @@ public abstract class MaterializationContext {
             public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
                 for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
                     if (rewrittenContext.isFinalChosen(physicalRelation)) {
-                        chosenMaterializationQualifiers.add(rewrittenContext.getMaterializationQualifier());
+                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
                     }
                 }
                 return null;
@@ -357,18 +374,18 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", \n"));
+                    builder.append(generateIdentifierName(materializationQualifier)).append(", \n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
         Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
-                .map(MaterializationContext::getMaterializationQualifier)
+                .map(MaterializationContext::generateMaterializationIdentifier)
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
             builder.append("  Names: ");
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
+                    builder.append(generateIdentifierName(materializationQualifier)).append(", "));
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -377,7 +394,7 @@ public abstract class MaterializationContext {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
-                        .append("  Name: ").append(generateQualifierName(ctx.getMaterializationQualifier()))
+                        .append("  Name: ").append(generateIdentifierName(ctx.generateMaterializationIdentifier()))
                         .append("\n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
@@ -385,7 +402,7 @@ public abstract class MaterializationContext {
         return builder.toString();
     }
 
-    private static String generateQualifierName(List<String> qualifiers) {
+    private static String generateIdentifierName(List<String> qualifiers) {
         return String.join("#", qualifiers);
     }
 
@@ -398,11 +415,11 @@ public abstract class MaterializationContext {
             return false;
         }
         MaterializationContext context = (MaterializationContext) o;
-        return getMaterializationQualifier().equals(context.getMaterializationQualifier());
+        return generateMaterializationIdentifier().equals(context.generateMaterializationIdentifier());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(getMaterializationQualifier());
+        return Objects.hash(generateMaterializationIdentifier());
     }
 }

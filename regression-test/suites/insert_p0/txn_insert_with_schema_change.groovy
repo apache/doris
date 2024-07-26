@@ -73,21 +73,24 @@ suite("txn_insert_with_schema_change") {
     def txnInsert = { sqls ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            logger.info("execute sql: begin")
-            statement.execute("begin")
-            logger.info("execute sql: ${sqls[0]}")
-            statement.execute(sqls[0])
+            try {
+                logger.info("execute sql: begin")
+                statement.execute("begin")
+                logger.info("execute sql: ${sqls[0]}")
+                statement.execute(sqls[0])
 
-            schemaChangeLatch.countDown()
-            insertLatch.await(5, TimeUnit.MINUTES)
+                schemaChangeLatch.countDown()
+                insertLatch.await(5, TimeUnit.MINUTES)
 
-            logger.info("execute sql: ${sqls[1]}")
-            statement.execute(sqls[1])
-            logger.info("execute sql: commit")
-            statement.execute("commit")
-        } catch (Throwable e) {
-            logger.error("txn insert failed", e)
-            errors.add("txn insert failed " + e.getMessage())
+                logger.info("execute sql: ${sqls[1]}")
+                statement.execute(sqls[1])
+                logger.info("execute sql: commit")
+                statement.execute("commit")
+            } catch (Throwable e) {
+                logger.error("txn insert failed", e)
+                errors.add("txn insert failed " + e.getMessage())
+                statement.execute("rollback")
+            }
         }
     }
 

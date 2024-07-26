@@ -149,6 +149,7 @@ public class JoinOrderJobTest extends SqlTestBase {
     @Disabled
     @Test
     void test64CliqueJoin() {
+        connectContext.getSessionVariable().joinReorderTimeLimit = 10000000;
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(64, 64 * 63 / 2);

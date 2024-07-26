@@ -689,4 +689,8 @@ public class LoadStmt extends DdlStmt {
 
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.LOAD;
+    }
 }

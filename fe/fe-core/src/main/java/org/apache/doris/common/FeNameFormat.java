@@ -148,14 +148,16 @@ public class FeNameFormat {
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name) || !name.matches(getCommonNameRegex())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        final String regex = getCommonNameRegex();
+        if (Strings.isNullOrEmpty(name) || !name.matches(regex)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name, regex);
         }
     }
 
     public static void checkOutfileSuccessFileName(String type, String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name) || !name.matches(getOutfileSuccessFileNameRegex())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        final String regex = getOutfileSuccessFileNameRegex();
+        if (Strings.isNullOrEmpty(name) || !name.matches(regex)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name, regex);
         }
     }
 

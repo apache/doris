@@ -549,4 +549,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.dataSourceProperties.setTimezone(this.timezone);
         this.dataSourceProperties.analyze();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

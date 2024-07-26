@@ -147,18 +147,6 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
-                          bool include_stale = false) {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
-            visitor(rs);
-        }
-    }
-
     inline Version max_version() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->max_version();
@@ -205,6 +193,9 @@ public:
     int64_t last_base_compaction_success_time_ms = 0;
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
+
+    // Return merged extended schema
+    TabletSchemaSPtr merged_tablet_schema() const override;
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

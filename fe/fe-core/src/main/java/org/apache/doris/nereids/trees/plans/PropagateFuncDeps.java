@@ -18,10 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * Propagate fd, keep children's fd
@@ -38,22 +35,6 @@ public interface PropagateFuncDeps extends LogicalPlan {
         children().stream()
                 .map(p -> p.getLogicalProperties().getTrait())
                 .forEach(builder::addDataTrait);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
-        return builder.build();
-    }
-
-    @Override
-    default ImmutableSet<FdItem> computeFdItems() {
-        if (children().size() == 1) {
-            // Note when changing function dependencies, we always clone it.
-            // So it's safe to return a reference
-            return child(0).getLogicalProperties().getTrait().getFdItems();
-        }
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        children().stream()
-                .map(p -> p.getLogicalProperties().getTrait().getFdItems())
-                .forEach(builder::addAll);
         return builder.build();
     }
 

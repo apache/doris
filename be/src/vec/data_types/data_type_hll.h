@@ -89,7 +89,7 @@ public:
     Field get_default() const override { return HyperLogLog::empty(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for HLL";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for HLL");
         __builtin_unreachable();
     }
 

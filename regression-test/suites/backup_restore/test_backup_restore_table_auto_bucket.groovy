@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_table_auto_bucket", "backup_restore") {
-    String repoName = "test_backup_restore_table_auto_bucket_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "backup_restore_table_with_auto_bucket_db"
     String tableName = "auto_bucket_table"
 

@@ -94,4 +94,9 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
                 + quotaType.name()
                 + " QUOTA " + quotaValue;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

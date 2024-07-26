@@ -87,4 +87,9 @@ public class InstallPluginStmt extends DdlStmt {
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSTALL;
+    }
 }

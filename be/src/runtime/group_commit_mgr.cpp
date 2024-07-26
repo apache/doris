@@ -442,6 +442,13 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
+        request.__set_groupCommit(true);
+        request.__set_receiveBytes(state->num_bytes_load_total());
+        if (_exec_env->master_info()->__isset.backend_id) {
+            request.__set_backendId(_exec_env->master_info()->backend_id);
+        } else {
+            LOG(WARNING) << "_exec_env->master_info not set backend_id";
+        }
         if (state) {
             request.__set_commitInfos(state->tablet_commit_infos());
         }

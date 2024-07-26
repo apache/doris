@@ -939,13 +939,19 @@ Status VFileScanner::_get_next_reader() {
         }
 
         COUNTER_UPDATE(_file_counter, 1);
-        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
-            // The VFileScanner for external table may try to open not exist files,
-            // Because FE file cache for external table may out of date.
-            // So, NOT_FOUND for VFileScanner is not a fail case.
-            // Will remove this after file reader refactor.
+        // The VFileScanner for external table may try to open not exist files,
+        // Because FE file cache for external table may out of date.
+        // So, NOT_FOUND for VFileScanner is not a fail case.
+        // Will remove this after file reader refactor.
+        if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
+        } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
+            if (config::ignore_not_found_file_in_external_table) {
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }

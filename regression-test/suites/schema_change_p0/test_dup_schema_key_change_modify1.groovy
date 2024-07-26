@@ -253,7 +253,7 @@ suite("test_dup_schema_key_change_modify1","p0") {
 
      //TODO Test the dup model by modify a  key type from LARGEINT  to VARCHAR
      //Test the dup model by modify a key type from LARGEINT  to VARCHAR
-     errorMessage = "errCode = 2, detailMessage = Can not change from wider type LARGEINT to narrower type VARCHAR(2)"
+     errorMessage = "errCode = 2, detailMessage = Can not change from wider type largeint to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData

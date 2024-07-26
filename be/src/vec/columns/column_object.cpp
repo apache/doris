@@ -509,7 +509,22 @@ MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
         res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
                             subcolumn->data.get_least_common_type());
     }
+    check_consistency();
     return res;
+}
+
+void ColumnObject::resize(size_t n) {
+    if (n == num_rows) {
+        return;
+    }
+    if (n > num_rows) {
+        insert_many_defaults(n - num_rows);
+    } else {
+        for (auto& subcolumn : subcolumns) {
+            subcolumn->data.pop_back(num_rows - n);
+        }
+    }
+    num_rows = n;
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
@@ -697,8 +712,16 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     if (new_size == 0) {
         return ColumnObject::create(is_nullable);
     }
-    return apply_for_subcolumns(
+    // If subcolumns are empty, then res will be empty but new_size > 0
+    if (subcolumns.empty()) {
+        // Add an emtpy column with new_size rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(new_size);
+        return res;
+    }
+    auto res = apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.clone_resized(new_size); });
+    return res;
 }
 
 size_t ColumnObject::byte_size() const {
@@ -838,7 +861,10 @@ Field ColumnObject::operator[](size_t n) const {
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    assert(n < size());
+    if (UNLIKELY(n >= size())) {
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Index ({}) for getting field is out of range", n);
+    }
     res = VariantMap();
     auto& object = res.get<VariantMap&>();
 
@@ -886,11 +912,32 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
+    if (subcolumns.empty()) {
+        // Add an emtpy column with offsets.back rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(offsets.back());
+    }
     return apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
+    if (subcolumns.empty()) {
+        if (limit == 0) {
+            limit = num_rows;
+        } else {
+            limit = std::min(num_rows, limit);
+        }
+
+        if (perm.size() < limit) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of permutation is less than required.");
+        }
+        // Add an emtpy column with limit rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(limit);
+        return res;
+    }
     return apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.permute(perm, limit); });
 }
@@ -1420,6 +1467,12 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         return finalized_object.apply_for_subcolumns(
                 [&](const auto& subcolumn) { return subcolumn.filter(filter, count); });
     }
+    if (subcolumns.empty()) {
+        // Add an emtpy column with filtered rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(count_bytes_in_filter(filter));
+        return res;
+    }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
         auto subcolumn = entry->data.get_finalized_column().filter(filter, count);
@@ -1432,6 +1485,10 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     if (!is_finalized()) {
         finalize();
+    }
+    if (subcolumns.empty()) {
+        assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
+        return Status::OK();
     }
     auto* res = assert_cast<ColumnObject*>(col_ptr);
     for (const auto& subcolumn : subcolumns) {

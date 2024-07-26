@@ -279,8 +279,6 @@ void AnalyticLocalState::_destroy_agg_status() {
     }
 }
 
-//now is execute for lead/lag row_number/rank/dense_rank/ntile functions
-//sum min max count avg first_value last_value functions
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -292,7 +290,7 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), nullptr);
+                agg_columns.data(), _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         _current_window_empty =

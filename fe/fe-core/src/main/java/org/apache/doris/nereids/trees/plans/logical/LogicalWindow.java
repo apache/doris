@@ -294,19 +294,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        for (NamedExpression namedExpression : windowExpressions) {
-            updateFuncDepsByWindowExpr(namedExpression, builder);
-        }
-
-        return builder.build();
-    }
-
-    @Override
     public void computeUnique(Builder builder) {
         builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         for (NamedExpression namedExpression : windowExpressions) {

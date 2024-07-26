@@ -387,7 +387,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             );
         }
         double probeShortcutFactor = 1.0;
-        if (physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
+        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+                && !ConnectContext.get().getStatementContext().isHasUnknownColStats()
+                && physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
                 && physicalHashJoin.getOtherJoinConjuncts().isEmpty()
                 && physicalHashJoin.getMarkJoinConjuncts().isEmpty()) {
             // left semi/anti has short-cut opt, add probe side factor for distinguishing from the right ones
@@ -414,15 +416,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 }
             }
             return CostV1.of(context.getSessionVariable(),
-                    leftRowCount * probeShortcutFactor
-                            + rightRowCount * buildSideFactor
+                    leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor * buildSideFactor
                             + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
         }
         return CostV1.of(context.getSessionVariable(),
-                leftRowCount * probeShortcutFactor + rightRowCount + outputRowCount,
+                leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor + outputRowCount,
                         rightRowCount, 0
         );
     }

@@ -209,7 +209,8 @@ std::unique_ptr<ObjectListIterator> AzureObjClient::list_objects(ObjectStoragePa
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
 // > Each batch request supports a maximum of 256 subrequests.
 ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
-                                                     std::vector<std::string> keys) {
+                                                     std::vector<std::string> keys,
+                                                     ObjClientOptions option) {
     if (keys.empty()) {
         return {0};
     }
@@ -275,8 +276,9 @@ ObjectStorageResponse AzureObjClient::delete_object(ObjectStoragePathRef path) {
 }
 
 ObjectStorageResponse AzureObjClient::delete_objects_recursively(ObjectStoragePathRef path,
+                                                                 ObjClientOptions option,
                                                                  int64_t expiration_time) {
-    return delete_objects_recursively_(path, expiration_time, BlobBatchMaxOperations);
+    return delete_objects_recursively_(path, option, expiration_time, BlobBatchMaxOperations);
 }
 
 ObjectStorageResponse AzureObjClient::get_life_cycle(const std::string& bucket,

@@ -162,6 +162,14 @@ else()
     find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
 
+# Set if use libazure or not
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE STREQUAL "ON")
+    add_definitions(-DUSE_AZURE)
+endif()
+
+
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 include (cmake/thirdparty.cmake)

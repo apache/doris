@@ -166,6 +166,8 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
+    private List<PlannerHook> plannerHooks = new ArrayList<>();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -489,6 +491,14 @@ public class StatementContext implements Closeable {
 
     public FormatOptions getFormatOptions() {
         return formatOptions;
+    }
+
+    public List<PlannerHook> getPlannerHooks() {
+        return plannerHooks;
+    }
+
+    public void addPlannerHook(PlannerHook plannerHook) {
+        this.plannerHooks.add(plannerHook);
     }
 
     private static class CloseableResource implements Closeable {

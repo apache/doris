@@ -29,8 +29,10 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -97,18 +99,23 @@ public class UnassignedJobBuilder {
             // e.g. select 100 union select 200
             unassignedJob = buildQueryConstantJob(planFragment);
         } else if (olapScanNodeNum == 0) {
-            // only scan external tables or cloud tables or table valued functions
-            // e,g. select * from numbers('number'='100')
-            unassignedJob = buildScanRemoteTableJob(planFragment, scanNodes, inputJobs, scanWorkerSelector);
+            ScanNode scanNode = scanNodes.get(0);
+            if (scanNode instanceof SchemaScanNode) {
+                // select * from information_schema.tables
+                unassignedJob = buildScanMetadataJob(planFragment, (SchemaScanNode) scanNode, scanWorkerSelector);
+            } else {
+                // only scan external tables or cloud tables or table valued functions
+                // e,g. select * from numbers('number'='100')
+                unassignedJob = buildScanRemoteTableJob(planFragment, scanNodes, inputJobs, scanWorkerSelector);
+            }
         }
 
         if (unassignedJob != null) {
             return unassignedJob;
         }
 
-        throw new IllegalStateException(
-                "Unsupported fragment which contains multiple scan nodes and some of them are not OlapScanNode"
-        );
+        throw new IllegalStateException("Unsupported build UnassignedJob for fragment: "
+                + planFragment.getExplainString(TExplainLevel.VERBOSE));
     }
 
     private UnassignedJob buildSpecifyInstancesJob(
@@ -128,7 +135,8 @@ public class UnassignedJobBuilder {
                     planFragment, olapScanNodes.get(0), inputJobs, scanWorkerSelector);
         } else {
             throw new IllegalStateException("Not supported multiple scan multiple "
-                    + "OlapTable but not contains colocate join or bucket shuffle join");
+                    + "OlapTable but not contains colocate join or bucket shuffle join: "
+                    + planFragment.getExplainString(TExplainLevel.VERBOSE));
         }
     }
 
@@ -152,6 +160,11 @@ public class UnassignedJobBuilder {
 
     private UnassignedQueryConstantJob buildQueryConstantJob(PlanFragment planFragment) {
         return new UnassignedQueryConstantJob(planFragment);
+    }
+
+    private UnassignedJob buildScanMetadataJob(
+            PlanFragment fragment, SchemaScanNode schemaScanNode, ScanWorkerSelector scanWorkerSelector) {
+        return new UnassignedScanMetadataJob(fragment, schemaScanNode, scanWorkerSelector);
     }
 
     private UnassignedJob buildScanRemoteTableJob(

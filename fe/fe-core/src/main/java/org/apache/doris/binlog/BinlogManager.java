@@ -380,6 +380,20 @@ public class BinlogManager {
         }
     }
 
+    // get the dropped tables of the db.
+    public List<Long> getDroppedTables(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedTables();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     public List<BinlogTombstone> gc() {
         LOG.info("begin gc binlog");
 

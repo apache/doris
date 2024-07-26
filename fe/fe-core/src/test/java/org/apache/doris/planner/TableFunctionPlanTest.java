@@ -79,7 +79,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case2 without output explode column
@@ -95,7 +95,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case3 group by explode column
@@ -116,7 +116,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
         // group by tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=null"));
     }
@@ -135,7 +135,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("`e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case5 where normal column
@@ -151,7 +151,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
         Assert.assertTrue(explainString.contains("`k1` = 1"));
     }
@@ -171,10 +171,10 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, colUniqueId=-1, type=varchar"));
         // lateral view 1 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=tmp1"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     // test explode_split function
@@ -188,11 +188,11 @@ public class TableFunctionPlanTest {
     public void errorParam() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1, e1 from db1.tbl1 lateral view explode_split(k2) tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(VARCHAR(1))"));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(varchar(1))"));
 
         sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1, e1 from db1.tbl1 lateral view explode_split(k1) tmp as e1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(INT)"));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(int)"));
     }
 
     /* Case2 table function in where stmt
@@ -203,7 +203,7 @@ public class TableFunctionPlanTest {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertTrue(explainString,
-                explainString.contains("No matching function with signature: explode_split(VARCHAR(1), VARCHAR(65533))."));
+                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar(65533))."));
     }
 
     // test projection
@@ -350,8 +350,8 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(concat(`a`.`k2`, ',', `a`.`k3`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, colUniqueId=1, type=VARCHAR(1)"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, colUniqueId=2, type=VARCHAR(1)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, colUniqueId=1, type=varchar(1)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, colUniqueId=2, type=varchar(1)"));
     }
 
     // lateral view of subquery
@@ -368,7 +368,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 2"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 2"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /*
@@ -384,7 +384,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, colUniqueId=-1, type=VARCHAR"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /*
@@ -403,19 +403,19 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
         String formatString = explainString.replaceAll(" ", "");
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=0,col=k1,colUniqueId=0,type=INT"
+                "SlotDescriptor{id=0,col=k1,colUniqueId=0,type=int"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=1,col=k2,colUniqueId=1,type=VARCHAR(1)"
+                "SlotDescriptor{id=1,col=k2,colUniqueId=1,type=varchar(1)"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=2,col=k1,colUniqueId=0,type=INT"
+                "SlotDescriptor{id=2,col=k1,colUniqueId=0,type=int"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=3,col=null,colUniqueId=null,type=VARCHAR"
+                "SlotDescriptor{id=3,col=null,colUniqueId=null,type=varchar"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=6,col=e1,colUniqueId=-1,type=VARCHAR"
+                "SlotDescriptor{id=6,col=e1,colUniqueId=-1,type=varchar"
         ));
     }
 

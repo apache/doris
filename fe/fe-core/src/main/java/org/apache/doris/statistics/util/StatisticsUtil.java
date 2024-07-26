@@ -1058,11 +1058,14 @@ public class StatisticsUtil {
         if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
             return false;
         }
-        Collection<Partition> partitions = table.getPartitions();
+        if (tableStatsStatus.partitionChanged != null && tableStatsStatus.partitionChanged.get()) {
+            return true;
+        }
         ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
         if (partitionUpdateRows == null) {
             return true;
         }
+        Collection<Partition> partitions = table.getPartitions();
         // New partition added or old partition deleted.
         if (partitions.size() != partitionUpdateRows.size()) {
             return true;

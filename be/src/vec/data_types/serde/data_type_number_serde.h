@@ -319,7 +319,8 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
     } else if constexpr (std::is_same_v<T, double>) {
         result.SetDouble(data[row_num]);
     } else {
-        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "unknown column type {} for writing to jsonb " + column.get_name());
         __builtin_unreachable();
     }
     return Status::OK();

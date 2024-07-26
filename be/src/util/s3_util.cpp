@@ -29,7 +29,9 @@
 #include <util/string_util.h>
 
 #include <atomic>
+#ifdef USE_AZURE
 #include <azure/storage/blobs/blob_container_client.hpp>
+#endif
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -41,7 +43,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
+#endif
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
@@ -218,6 +222,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
+#ifdef USE_AZURE
     auto cred =
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
@@ -228,6 +233,10 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+#else
+    LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
+    return nullptr;
+#endif
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
@@ -257,7 +266,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
         aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
 #endif
     }
 
@@ -370,6 +379,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .region = info.region(),
                     .ak = info.ak(),
                     .sk = info.sk(),
+                    .token {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageType::AWS,
             },

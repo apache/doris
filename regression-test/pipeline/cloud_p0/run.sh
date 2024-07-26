@@ -69,8 +69,8 @@ run() {
         --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 14 \
-        -suiteParallel 14 \
+        -parallel 8 \
+        -suiteParallel 8 \
         -actionParallel 2; then
         echo
     else

@@ -280,7 +280,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 remoteObjects.add(new RemoteObject(blobItem.getName(), "", blobItem.getProperties().getETag(),
                         blobItem.getProperties().getContentLength()));
             }
-            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() == null,
+            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() != null,
                     pagedResponse.getContinuationToken());
         } catch (BlobStorageException e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", remotePath), e);

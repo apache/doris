@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -82,6 +83,7 @@ public class SqlCacheContext {
 
     private volatile List<Expr> resultExprs;
     private volatile List<String> colLabels;
+    private volatile List<FieldInfo> fieldInfos;
 
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
@@ -318,6 +320,14 @@ public class SqlCacheContext {
 
     public void setColLabels(List<String> colLabels) {
         this.colLabels = ImmutableList.copyOf(colLabels);
+    }
+
+    public List<FieldInfo> getFieldInfos() {
+        return fieldInfos;
+    }
+
+    public void setFieldInfos(List<FieldInfo> fieldInfos) {
+        this.fieldInfos = fieldInfos;
     }
 
     public TUniqueId getQueryId() {

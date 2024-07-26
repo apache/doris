@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -126,11 +124,6 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ((LogicalPlan) child()).computeFdItems();
     }
 
     @Override

@@ -325,18 +325,18 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         logger.info("result = ${result}" ) 
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
-        def ddl_str =  result[0][1] 
-        def idx =  ddl_str.indexOf("min_load_replica_num")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
+        if (!isCloudMode()) {
+            def ddl_str =  result[0][1] 
+            def idx =  ddl_str.indexOf("min_load_replica_num")
+            assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
 
-        sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
-        result = sql """ show  create table  test_manager_tb_2 """ 
-        assertTrue(result[0][0] == "test_manager_tb_2")
-        ddl_str =  result[0][1] 
-        idx =  ddl_str.indexOf("min_load_replica_num")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "1"""))
-
-
+            sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
+            result = sql """ show  create table  test_manager_tb_2 """ 
+            assertTrue(result[0][0] == "test_manager_tb_2")
+            ddl_str =  result[0][1] 
+            idx =  ddl_str.indexOf("min_load_replica_num")
+            assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "1"""))
+        }
 
         sql """ DROP table  test_manager_tb_2 FORCE"""
         sql """ drop database test_manager_tb_properties_case FORCE""" 

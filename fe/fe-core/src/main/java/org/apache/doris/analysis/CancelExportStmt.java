@@ -169,4 +169,9 @@ public class CancelExportStmt extends DdlStmt {
         return toSql();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
+
 }

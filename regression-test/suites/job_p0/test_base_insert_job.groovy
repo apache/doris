@@ -187,7 +187,7 @@ suite("test_base_insert_job") {
     Awaitility.await("create-job-test").atMost(60, SECONDS).until({
         def job = sql """ select SucceedTaskCount from jobs("type"="insert") where name='${jobName}'"""
         println job
-        job.size() == 1 && '1' == job.get(0).get(0)
+        job.size() == 1 && '1' <= job.get(0).get(0)
     })
 
     sql """

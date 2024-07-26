@@ -17,6 +17,10 @@
 
 package org.apache.doris.datasource.statistics;
 
+/**
+ * This class provides operations related to file statistics, including object and field granularity add, min, max
+ * and other merge operations
+ */
 public class CommonStatistics {
 
     public static final CommonStatistics EMPTY = new CommonStatistics(0L, 0L, 0L);

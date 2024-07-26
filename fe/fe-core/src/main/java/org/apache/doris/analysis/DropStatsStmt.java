@@ -193,4 +193,9 @@ public class DropStatsStmt extends DdlStmt {
                     dbName + "." + tblName);
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

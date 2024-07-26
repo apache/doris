@@ -19,5 +19,9 @@ suite("test_conv") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     qt_select "SELECT CONV(15,10,2)"
+    qt_select2 "select conv('ffffffffffffff', 24, 2);"
+    qt_select3 "select conv('-ff', 24, 2);"
+    // if beyond the max value of uint64, use max_uint64 as res
+    qt_select4 "select conv('fffffffffffffffffffffffffffffffff', 24, 10);"
 }
 

@@ -43,6 +43,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -120,10 +121,7 @@ private:
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr = nullptr;
 
-#ifdef USE_MEM_TRACKER
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
-    TUniqueId _query_id;
-#endif
+    QueryThreadContext _query_thread_context;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;

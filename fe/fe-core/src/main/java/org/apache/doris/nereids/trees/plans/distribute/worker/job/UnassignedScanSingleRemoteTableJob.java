@@ -27,6 +27,7 @@ import org.apache.doris.planner.ScanNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -49,5 +50,16 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(scanNodes.get(0));
+    }
+
+    @Override
+    protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        if (assignedJobs.isEmpty()) {
+            // the file scan have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            assignedJobs = fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 }
