@@ -160,6 +160,11 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
         if (_idx != _total_len) {
             len = update_reading_bound(start);
         } else {
+            // It needs to set the result to nullptr for matching enclose may not be read
+            // after reading the output buf.
+            // Therefore, if the result is not set to nullptr,
+            // the parser will consider reading a line as there is a line delimiter.
+            _result = nullptr;
             break;
         }
     } while (true);
