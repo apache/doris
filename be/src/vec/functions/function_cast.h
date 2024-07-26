@@ -2260,8 +2260,7 @@ private:
 
             if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
                             IsTimeV2Type<ToDataType> ||
-                            std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                            std::is_same_v<ToDataType, DataTypeTime>)) {
+                            std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
             return call_on_index_and_data_type<
@@ -2270,8 +2269,7 @@ private:
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
                                 IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
-                                std::is_same_v<FromDataType, DataTypeTimeV2> ||
-                                std::is_same_v<FromDataType, DataTypeTime>)) {
+                                std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -2422,7 +2420,6 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
                           std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
                           std::is_same_v<ToDataType, DataTypeIPv4> ||
                           std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),

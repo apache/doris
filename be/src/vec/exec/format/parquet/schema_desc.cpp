@@ -326,7 +326,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type = TypeDescriptor(TYPE_TIME);
+        type = TypeDescriptor(TYPE_TIMEV2);
     } else if (logicalType.__isset.TIMESTAMP) {
         type = TypeDescriptor(TYPE_DATETIMEV2);
         const auto& time_unit = logicalType.TIMESTAMP.unit;
