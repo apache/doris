@@ -1505,7 +1505,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     std::unique_ptr<PBlock> pblock = std::make_unique<PBlock>();
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    segment_v2::CompressionTypePB compress_type = segment_v2::LZ4;
+    segment_v2::CompressionTypePB compress_type = segment_v2::NO_COMPRESSION;
     RETURN_IF_ERROR(local_state._scanner_ctx->get_serialized_block_from_queue(
             state, block, pblock.get(), &uncompressed_bytes, &compressed_bytes, compress_type, eos,
             0));
