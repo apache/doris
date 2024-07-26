@@ -101,7 +101,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified,
+                                                   List<Integer> clusterKeyIndexes)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -129,7 +130,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         long version = partition.getVisibleVersion();
 
         final String storageVaultName = tbl.getStorageVaultName();
-        boolean storageVaultIdSet = false;
+        boolean storageVaultIdSet = tbl.getStorageVaultId().isEmpty();
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -172,7 +173,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getEnableMowLightDelete(),
-                        tbl.getInvertedIndexFileStorageFormat());
+                        tbl.getInvertedIndexFileStorageFormat(),
+                        tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -220,7 +222,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws DdlException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -346,6 +348,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             }
         }
+        schemaBuilder.setRowStorePageSize(pageSize);
+
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
         // rowset
@@ -935,7 +939,12 @@ public class CloudInternalCatalog extends InternalCatalog {
                 List<Long> tabletIds = info.getTabletIds();
                 for (int i = 0; i < tabletIds.size(); ++i) {
                     Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
-                    Replica replica = tablet.getReplicas().get(0);
+                    Replica replica;
+                    if (info.getReplicaIds().isEmpty()) {
+                        replica = tablet.getReplicas().get(0);
+                    } else {
+                        replica = tablet.getReplicaById(info.getReplicaIds().get(i));
+                    }
                     Preconditions.checkNotNull(replica, info);
 
                     String clusterId = info.getClusterId();

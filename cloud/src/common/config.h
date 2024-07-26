@@ -62,6 +62,8 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 CONF_mInt32(instance_recycler_worker_pool_size, "1");
 CONF_Bool(enable_checker, "false");
+// The parallelism for parallel recycle operation
+CONF_Int32(recycle_pool_parallelism, "10");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // interval for scanning instances to do checks and inspections

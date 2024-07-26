@@ -32,22 +32,6 @@ suite("upper_case_column_name", "p2,external,hive,external_remote,external_remot
     def hiveOrc6 = """select id from hive_upper_case_orc where id=1;"""
     def hiveOrc7 = """select name from hive_upper_case_orc where id=1;"""
     def hiveOrc8 = """select id, name from hive_upper_case_orc where id=1;"""
-    def icebergParquet1 = """select * from iceberg_upper_case_parquet;"""
-    def icebergParquet2 = """select * from iceberg_upper_case_parquet where id=1;"""
-    def icebergParquet3 = """select * from iceberg_upper_case_parquet where id>1;"""
-    def icebergParquet4 = """select * from iceberg_upper_case_parquet where name='name';"""
-    def icebergParquet5 = """select * from iceberg_upper_case_parquet where name!='name';"""
-    def icebergParquet6 = """select id from iceberg_upper_case_parquet where id=1;"""
-    def icebergParquet7 = """select name from iceberg_upper_case_parquet where id=1;"""
-    def icebergParquet8 = """select id, name from iceberg_upper_case_parquet where id=1;"""
-    def icebergOrc1 = """select * from iceberg_upper_case_orc;"""
-    def icebergOrc2 = """select * from iceberg_upper_case_orc where id=1;"""
-    def icebergOrc3 = """select * from iceberg_upper_case_orc where id>1;"""
-    def icebergOrc4 = """select * from iceberg_upper_case_orc where name='name';"""
-    def icebergOrc5 = """select * from iceberg_upper_case_orc where name!='name';"""
-    def icebergOrc6 = """select id from iceberg_upper_case_orc where id=1;"""
-    def icebergOrc7 = """select name from iceberg_upper_case_orc where id=1;"""
-    def icebergOrc8 = """select id, name from iceberg_upper_case_orc where id=1;"""
 
 
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
@@ -82,22 +66,6 @@ suite("upper_case_column_name", "p2,external,hive,external_remote,external_remot
         qt_hiveOrc6 hiveOrc6
         qt_hiveOrc7 hiveOrc7
         qt_hiveOrc8 hiveOrc8
-        qt_icebergParquet1 icebergParquet1
-        qt_icebergParquet2 icebergParquet2
-        qt_icebergParquet3 icebergParquet3
-        qt_icebergParquet4 icebergParquet4
-        qt_icebergParquet5 icebergParquet5
-        qt_icebergParquet6 icebergParquet6
-        qt_icebergParquet7 icebergParquet7
-        qt_icebergParquet8 icebergParquet8
-        qt_icebergOrc1 icebergOrc1
-        qt_icebergOrc2 icebergOrc2
-        qt_icebergOrc3 icebergOrc3
-        qt_icebergOrc4 icebergOrc4
-        qt_icebergOrc5 icebergOrc5
-        qt_icebergOrc6 icebergOrc6
-        qt_icebergOrc7 icebergOrc7
-        qt_icebergOrc8 icebergOrc8
     }
 }
 

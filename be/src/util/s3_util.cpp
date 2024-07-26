@@ -29,7 +29,9 @@
 #include <util/string_util.h>
 
 #include <atomic>
+#ifdef USE_AZURE
 #include <azure/storage/blobs/blob_container_client.hpp>
+#endif
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -41,7 +43,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
+#endif
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
@@ -87,9 +91,20 @@ constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 
 } // namespace
+
+bvar::Adder<int64_t> get_rate_limit_ms("get_rate_limit_ms");
+bvar::Adder<int64_t> put_rate_limit_ms("put_rate_limit_ms");
+
 S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
     return _rate_limiters[static_cast<size_t>(type)].get();
+}
+
+int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit) {
+    if (type == S3RateLimitType::UNKNOWN) {
+        return -1;
+    }
+    return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
@@ -149,6 +164,14 @@ S3ClientFactory::S3ClientFactory() {
     };
     Aws::InitAPI(_aws_options);
     _ca_cert_file_path = get_valid_ca_cert_path();
+    _rate_limiters = {std::make_unique<S3RateLimiterHolder>(
+                              S3RateLimitType::GET, config::s3_get_token_per_second,
+                              config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                              [&](int64_t ms) { get_rate_limit_ms << ms; }),
+                      std::make_unique<S3RateLimiterHolder>(
+                              S3RateLimitType::PUT, config::s3_put_token_per_second,
+                              config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                              [&](int64_t ms) { put_rate_limit_ms << ms; })};
 }
 
 string S3ClientFactory::get_valid_ca_cert_path() {
@@ -199,6 +222,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
+#ifdef USE_AZURE
     auto cred =
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
@@ -209,6 +233,10 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+#else
+    LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
+    return nullptr;
+#endif
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
@@ -238,7 +266,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
         aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
 #endif
     }
 
@@ -351,6 +379,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .region = info.region(),
                     .ak = info.ak(),
                     .sk = info.sk(),
+                    .token {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageType::AWS,
             },

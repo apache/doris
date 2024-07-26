@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -30,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.Collection;
 import java.util.List;
@@ -70,10 +67,12 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> getMaterializationQualifier() {
-        return ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
-                olapTable.getName(), indexName);
+    List<String> generateMaterializationIdentifier() {
+        if (super.identifier == null) {
+            // for performance
+            super.identifier = MaterializationContext.generateMaterializationIdentifier(olapTable, indexName);
+        }
+        return super.identifier;
     }
 
     @Override
@@ -89,7 +88,7 @@ public class SyncMaterializationContext extends MaterializationContext {
             }
         }
         failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
+        return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }

@@ -62,10 +62,12 @@ public class AuditEventProcessorTest {
                 .setScanRows(200000)
                 .setReturnRows(1)
                 .setStmtId(1234)
+                .setStmtType("SELECT")
                 .setStmt("select * from tbl1").build();
 
         Assert.assertEquals("127.0.0.1", event.clientIp);
         Assert.assertEquals(200000, event.scanRows);
+        Assert.assertEquals("SELECT", event.stmtType);
     }
 
     @Test

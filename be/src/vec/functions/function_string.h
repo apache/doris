@@ -56,6 +56,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
@@ -846,9 +847,8 @@ public:
                 }
             }
         }
-        if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
-            return Status::BufferAllocFailed("concat output is too large to allocate");
-        }
+
+        ColumnString::check_chars_length(res_reserve_size, 0);
 
         res_data.resize(res_reserve_size);
 
@@ -1202,14 +1202,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
-    std::string error_msg(int default_value, int repeat_value) const {
-        auto error_msg = fmt::format(
-                "The second parameter of repeat function exceeded maximum default value, "
-                "default_value is {}, and now input is {} . you could try change default value "
-                "greater than value eg: set repeat_max_num = {}.",
-                default_value, repeat_value, repeat_value + 10);
-        return error_msg;
-    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -1225,22 +1217,18 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         argument_ptr[1] = block.get_by_position(arguments[1]).column;
 
-        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
-            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+        if (const auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (const auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
                                               col2->get_data(), res->get_chars(),
-                                              res->get_offsets(), null_map->get_data(),
-                                              context->state()->repeat_max_num()));
+                                              res->get_offsets(), null_map->get_data()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
-            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+            } else if (const auto* col2_const =
+                               check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = col2_const->get_int(0);
-                if (repeat > context->state()->repeat_max_num()) {
-                    return Status::InvalidArgument(
-                            error_msg(context->state()->repeat_max_num(), repeat));
-                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1260,8 +1248,8 @@ public:
 
     Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                         ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map,
-                         const int repeat_max_num) const {
+                         ColumnString::Offsets& res_offsets,
+                         ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
 
         fmt::memory_buffer buffer;
@@ -1272,15 +1260,10 @@ public:
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
-            if (repeat > repeat_max_num) {
-                return Status::InvalidArgument(error_msg(repeat_max_num, repeat));
-            }
-
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
-            } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else {
+                ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
                 for (int j = 0; j < repeat; ++j) {
                     buffer.append(raw_str, raw_str + size);
                 }
@@ -1306,16 +1289,13 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
+            ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
 
-            if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            } else {
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
             }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
         }
     }
 };
@@ -1369,7 +1349,6 @@ public:
         const bool str_const = col_const[0];
         const bool len_const = col_const[1];
         const bool pad_const = col_const[2];
-        const int repeat_max_num = context->state()->repeat_max_num();
         for (size_t i = 0; i < input_rows_count; ++i) {
             str_index.clear();
             pad_index.clear();
@@ -1404,15 +1383,6 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
-                if (len > repeat_max_num) {
-                    return Status::InvalidArgument(
-                            " {} function the length argument is {} exceeded maximum default "
-                            "value: {}."
-                            "if you really need this length, you could change the session "
-                            "variable "
-                            "set repeat_max_num = xxx.",
-                            get_name(), len, repeat_max_num);
-                }
 
                 // make compatible with mysql. return empty string if pad is empty
                 if (pad_char_size == 0) {
@@ -1422,7 +1392,9 @@ public:
 
                 const int32_t pad_times = (len - str_char_size) / pad_char_size;
                 const int32_t pad_remainder = (len - str_char_size) % pad_char_size;
-                buffer.reserve(str_len + (pad_times + 1) * pad_len);
+                size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
+                ColumnString::check_chars_length(new_capacity, 0);
+                buffer.reserve(new_capacity);
                 auto* buffer_data = buffer.data();
                 int32_t buffer_len = 0;
                 if constexpr (!Impl::is_lpad) {
@@ -2454,7 +2426,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
-        std::vector<uint8_t> random_bytes;
+        std::vector<uint8_t, Allocator_<uint8_t>> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
@@ -2470,7 +2442,7 @@ public:
                 byte = distribution(gen);
             }
 
-            std::ostringstream oss;
+            std::basic_ostringstream<char, std::char_traits<char>, Allocator_<char>> oss;
             for (const auto& byte : random_bytes) {
                 oss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(byte);
             }
@@ -2993,6 +2965,8 @@ private:
                     return str;
                 }
                 std::string result;
+                ColumnString::check_chars_length(
+                        str.length() * (new_str.length() + 1) + new_str.length(), 0);
                 result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
                 for (char c : str) {
                     result += new_str;
@@ -3211,6 +3185,7 @@ public:
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
         // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
+        ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
         res_chars.resize(str_chars.size() * 2 + input_rows_count);
 
         size_t in_len = 0, out_len = 0;
@@ -3493,7 +3468,7 @@ public:
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
             return Status::BufferAllocFailed("function char output is too large to allocate");
         }
-
+        ColumnString::check_chars_length(res_reserve_size, 0);
         res_data.resize(res_reserve_size);
         res_offset.resize(input_rows_count);
 
@@ -3700,4 +3675,130 @@ private:
         }
     }
 };
+
+class FunctionNgramSearch : public IFunction {
+public:
+    static constexpr auto name = "ngram_search";
+    static FunctionPtr create() { return std::make_shared<FunctionNgramSearch>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    // ngram_search(text,pattern,gram_num)
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnFloat64::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        // There is no need to check if the 2-th,3-th parameters are const here because fe has already checked them.
+        auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
+        auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        if (col_const[0]) {
+            _execute_impl<true>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        } else {
+            _execute_impl<false>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    using NgramMap = phmap::flat_hash_map<uint32_t, uint8_t>;
+    // In the map, the key is the CRC32 hash result of a substring in the string,
+    // and the value indicates whether this hash is found in the text or pattern.
+    constexpr static auto not_found = 0b00;
+    constexpr static auto found_in_pattern = 0b01;
+    constexpr static auto found_in_text = 0b10;
+    constexpr static auto found_in_pattern_and_text = 0b11;
+
+    uint32_t sub_str_hash(const char* data, int32_t length) const {
+        constexpr static uint32_t seed = 0;
+        return HashUtil::crc_hash(data, length, seed);
+    }
+
+    template <bool column_const>
+    void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
+                       ColumnFloat64& res, size_t size) const {
+        auto& res_data = res.get_data();
+        res_data.resize_fill(size, 0);
+        // If the length of the pattern is less than gram_num, return 0.
+        if (pattern.size < gram_num) {
+            return;
+        }
+
+        // Build a map by pattern string, which will be used repeatedly in the following loop.
+        NgramMap pattern_map;
+        int pattern_count = get_pattern_set(pattern_map, pattern, gram_num);
+        // Each time a loop is executed, the map will be modified, so it needs to be restored afterward.
+        std::vector<uint32_t> restore_map;
+
+        for (int i = 0; i < size; i++) {
+            auto text = text_col->get_data_at(index_check_const<column_const>(i));
+            if (text.size < gram_num) {
+                // If the length of the text is less than gram_num, return 0.
+                continue;
+            }
+            restore_map.reserve(text.size);
+            auto [text_count, intersection_count] =
+                    get_text_set(text, gram_num, pattern_map, restore_map);
+
+            // 2 * |Intersection| / (|text substr set| + |pattern substr set|)
+            res_data[i] = 2.0 * intersection_count / (text_count + pattern_count);
+        }
+    }
+
+    size_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
+        size_t pattern_count = 0;
+        for (int i = 0; i + gram_num <= pattern.size; i++) {
+            uint32_t cur_hash = sub_str_hash(pattern.data + i, gram_num);
+            if (!pattern_map.contains(cur_hash)) {
+                pattern_map[cur_hash] = found_in_pattern;
+                pattern_count++;
+            }
+        }
+        return pattern_count;
+    }
+
+    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                      std::vector<uint32_t>& restore_map) const {
+        restore_map.clear();
+        //intersection_count indicates a substring both in pattern and text.
+        size_t text_count = 0, intersection_count = 0;
+        for (int i = 0; i + gram_num <= text.size; i++) {
+            uint32_t cur_hash = sub_str_hash(text.data + i, gram_num);
+            auto& val = pattern_map[cur_hash];
+            if (val == not_found) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_text);
+                // only found in text
+                text_count++;
+                restore_map.push_back(cur_hash);
+            } else if (val == found_in_pattern) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_pattern_and_text);
+                // found in text and pattern
+                text_count++;
+                intersection_count++;
+                restore_map.push_back(cur_hash);
+            }
+        }
+        // Restore the pattern_map.
+        for (auto& restore_hash : restore_map) {
+            pattern_map[restore_hash] ^= found_in_text;
+        }
+
+        return {text_count, intersection_count};
+    }
+};
+
 } // namespace doris::vectorized

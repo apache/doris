@@ -27,12 +27,14 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "io/fs/local_file_reader.h"
 #include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/runtime_profile.h"
@@ -62,7 +64,15 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
           _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num),
           _spill_low_watermark(tg_info.spill_low_watermark),
-          _spill_high_watermark(tg_info.spill_high_watermark) {}
+          _spill_high_watermark(tg_info.spill_high_watermark),
+          _scan_bytes_per_second(tg_info.read_bytes_per_second),
+          _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second) {
+    std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
+    for (const auto& data_dir : data_dir_list) {
+        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>();
+    }
+    _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+}
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
@@ -70,11 +80,13 @@ std::string WorkloadGroup::debug_string() const {
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}]",
+            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}, "
+            "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size());
+            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size(),
+            _scan_bytes_per_second, _remote_scan_bytes_per_second);
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -101,45 +113,67 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _min_remote_scan_thread_num = tg_info.min_remote_scan_thread_num;
             _spill_low_watermark = tg_info.spill_low_watermark;
             _spill_high_watermark = tg_info.spill_high_watermark;
+            _scan_bytes_per_second = tg_info.read_bytes_per_second;
+            _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
         } else {
             return;
         }
     }
 }
 
-int64_t WorkloadGroup::memory_used() {
+int64_t WorkloadGroup::make_memory_tracker_snapshots(
+        std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots) {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (const auto& trackerWptr : mem_tracker_group.trackers) {
             auto tracker = trackerWptr.lock();
             CHECK(tracker != nullptr);
+            if (tracker_snapshots != nullptr) {
+                tracker_snapshots->insert(tracker_snapshots->end(), tracker);
+            }
             used_memory += tracker->consumption();
         }
     }
+    refresh_memory(used_memory);
     return used_memory;
 }
 
-void WorkloadGroup::set_weighted_memory_used(int64_t wg_total_mem_used, double ratio) {
-    _weighted_mem_used.store(int64_t(wg_total_mem_used * ratio), std::memory_order_relaxed);
+int64_t WorkloadGroup::memory_used() {
+    return make_memory_tracker_snapshots(nullptr);
+}
+
+void WorkloadGroup::refresh_memory(int64_t used_memory) {
+    // refresh total memory used.
+    _total_mem_used = used_memory;
+    // reserve memory is recorded in the query mem tracker
+    // and _total_mem_used already contains all the current reserve memory.
+    // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
+    _wg_refresh_interval_memory_growth.store(0.0);
+}
+
+void WorkloadGroup::set_weighted_memory_ratio(double ratio) {
+    _weighted_mem_ratio = ratio;
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    mem_tracker_ptr->tg_tracker_limiter_group_it =
+    mem_tracker_ptr->wg_tracker_limiter_group_it =
             _mem_tracker_limiter_pool[group_num].trackers.insert(
                     _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
 void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    if (mem_tracker_ptr->tg_tracker_limiter_group_it !=
+    if (mem_tracker_ptr->wg_tracker_limiter_group_it !=
         _mem_tracker_limiter_pool[group_num].trackers.end()) {
         _mem_tracker_limiter_pool[group_num].trackers.erase(
-                mem_tracker_ptr->tg_tracker_limiter_group_it);
-        mem_tracker_ptr->tg_tracker_limiter_group_it =
+                mem_tracker_ptr->wg_tracker_limiter_group_it);
+        mem_tracker_ptr->wg_tracker_limiter_group_it =
                 _mem_tracker_limiter_pool[group_num].trackers.end();
     }
 }
@@ -252,7 +286,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.id) {
         tg_id = tworkload_group_info.id;
     } else {
-        return {.valid = false};
+        return {.name = "", .valid = false};
     }
 
     // 2 name
@@ -266,7 +300,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (tworkload_group_info.__isset.version) {
         version = tworkload_group_info.version;
     } else {
-        return {.valid = false};
+        return {.name {}, .valid = false};
     }
 
     // 4 cpu_share
@@ -316,7 +350,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 11 min remote scan thread num
-    int min_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+    int min_remote_scan_thread_num = config::doris_scanner_min_thread_pool_thread_num;
     if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
         tworkload_group_info.min_remote_scan_thread_num > 0) {
         min_remote_scan_thread_num = tworkload_group_info.min_remote_scan_thread_num;
@@ -334,19 +368,33 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         spill_high_watermark = tworkload_group_info.spill_threshold_high_watermark;
     }
 
-    return {tg_id,
-            name,
-            cpu_share,
-            mem_limit,
-            enable_memory_overcommit,
-            version,
-            cpu_hard_limit,
-            enable_cpu_hard_limit,
-            scan_thread_num,
-            max_remote_scan_thread_num,
-            min_remote_scan_thread_num,
-            spill_low_watermark,
-            spill_high_watermark};
+    // 14 scan io
+    int read_bytes_per_second = -1;
+    if (tworkload_group_info.__isset.read_bytes_per_second) {
+        read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
+    }
+
+    // 15 remote scan io
+    int remote_read_bytes_per_second = -1;
+    if (tworkload_group_info.__isset.remote_read_bytes_per_second) {
+        remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
+    }
+
+    return {.id = tg_id,
+            .name = name,
+            .cpu_share = cpu_share,
+            .memory_limit = mem_limit,
+            .enable_memory_overcommit = enable_memory_overcommit,
+            .version = version,
+            .cpu_hard_limit = cpu_hard_limit,
+            .enable_cpu_hard_limit = enable_cpu_hard_limit,
+            .scan_thread_num = scan_thread_num,
+            .max_remote_scan_thread_num = max_remote_scan_thread_num,
+            .min_remote_scan_thread_num = min_remote_scan_thread_num,
+            .spill_low_watermark = spill_low_watermark,
+            .spill_high_watermark = spill_high_watermark,
+            .read_bytes_per_second = read_bytes_per_second,
+            .remote_read_bytes_per_second = remote_read_bytes_per_second};
 }
 
 void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {
@@ -415,7 +463,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
                                                                       cg_cpu_ctl_ptr);
-        Status ret = remote_scan_scheduler->start(remote_max_thread_num, remote_max_thread_num,
+        Status ret = remote_scan_scheduler->start(remote_max_thread_num,
+                                                  config::doris_scanner_min_thread_pool_thread_num,
                                                   remote_scan_thread_queue_size);
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
@@ -518,6 +567,25 @@ std::string WorkloadGroup::thread_debug_info() {
                            exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
     }
     return str;
+}
+
+void WorkloadGroup::upsert_scan_io_throttle(WorkloadGroupInfo* tg_info) {
+    for (const auto& [key, io_throttle] : _scan_io_throttle_map) {
+        io_throttle->set_io_bytes_per_second(tg_info->read_bytes_per_second);
+    }
+
+    _remote_scan_io_throttle->set_io_bytes_per_second(tg_info->remote_read_bytes_per_second);
+}
+
+std::shared_ptr<IOThrottle> WorkloadGroup::get_scan_io_throttle(const std::string& disk_dir) {
+    if (disk_dir == io::FileReader::VIRTUAL_REMOTE_DATA_DIR) {
+        return _remote_scan_io_throttle;
+    }
+    auto find_ret = _scan_io_throttle_map.find(disk_dir);
+    if (find_ret != _scan_io_throttle_map.end()) {
+        return find_ret->second;
+    }
+    return nullptr;
 }
 
 void WorkloadGroup::try_stop_schedulers() {
