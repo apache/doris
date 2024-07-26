@@ -310,8 +310,10 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
-                this.context.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                this.context.getSessionVariable().enableProfile(),
+                this.context.getSessionVariable().getProfileLevel(),
+                this.context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
     // for test
@@ -341,8 +343,10 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
-                context.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                            context.getSessionVariable().enableProfile(),
+                            context.getSessionVariable().getProfileLevel(),
+                            context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
@@ -387,6 +391,10 @@ public class StmtExecutor {
         }
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
+        // TODO: Never use custom data format when deliverying information between two systems.
+        // UI can not order profile by TOTAL_TIME since its not a sortable string (2h1m3s > 2h1s?)
+        // to get decoded info, UI need to decode it first, it means others need to
+        // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
             builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
@@ -1200,7 +1208,7 @@ public class StmtExecutor {
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
+            profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
@@ -3415,7 +3423,10 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
             RowBatch batch;
-            coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
+            if (Config.enable_collect_internal_query_profile) {
+                context.getSessionVariable().enableProfile = true;
+            }
+            coord = EnvFactory.getInstance().createCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
@@ -3424,7 +3435,7 @@ public class StmtExecutor {
             } catch (UserException e) {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
-
+            updateProfile(false);
             try {
                 coord.exec();
             } catch (Exception e) {
@@ -3454,10 +3465,8 @@ public class StmtExecutor {
             }
             AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
-            if (Config.enable_collect_internal_query_profile) {
-                updateProfile(true);
-            }
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            updateProfile(true);
         }
     }
 

@@ -366,7 +366,12 @@ public class Coordinator implements CoordInterface {
         }
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
-        this.executionProfile = new ExecutionProfile(queryId, fragments);
+
+        List<Integer> fragmentIds = new ArrayList<>();
+        for (PlanFragment fragment : fragments) {
+            fragmentIds.add(fragment.getFragmentId().asInt());
+        }
+        this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
     }
 
     // Used for broker load task/export task/update coordinator
@@ -386,7 +391,12 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.executionProfile = new ExecutionProfile(queryId, fragments);
+
+        List<Integer> fragmentIds = new ArrayList<>();
+        for (PlanFragment fragment : fragments) {
+            fragmentIds.add(fragment.getFragmentId().asInt());
+        }
+        this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
