@@ -1481,7 +1481,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     // for mow with cluster key table, we should get key range from short key index.
     DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
 
-    if (has_seq_col) {
+    // if full key is exact_match, the primary key without sequence column should also the same
+    if (has_seq_col && !exact_match) {
         size_t seq_col_length =
                 _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())
                         .length() +
