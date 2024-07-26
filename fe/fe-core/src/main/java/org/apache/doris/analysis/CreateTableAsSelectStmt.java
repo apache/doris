@@ -126,4 +126,9 @@ public class CreateTableAsSelectStmt extends DdlStmt implements NotFallbackInPar
         super.reset();
         queryStmt.reset();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

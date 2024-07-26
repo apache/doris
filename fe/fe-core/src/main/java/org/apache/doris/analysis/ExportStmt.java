@@ -447,4 +447,9 @@ public class ExportStmt extends StatementBase {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPORT;
+    }
 }

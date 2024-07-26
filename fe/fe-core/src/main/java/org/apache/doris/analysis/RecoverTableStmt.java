@@ -91,4 +91,9 @@ public class RecoverTableStmt extends DdlStmt {
         }
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
+    }
 }
