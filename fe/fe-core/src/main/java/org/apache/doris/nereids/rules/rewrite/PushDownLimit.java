@@ -73,6 +73,9 @@ public class PushDownLimit implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalWindow<Plan> window = limit.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
+                            if (partitionLimit <= 0) {
+                                return limit;
+                            }
                             Pair<WindowExpression, Long> windowFuncLongPair = window
                                     .checkAndGetValidWindowFunc(null, partitionLimit);
                             if (windowFuncLongPair == null) {
@@ -89,6 +92,9 @@ public class PushDownLimit implements RewriteRuleFactory {
                             LogicalProject<LogicalWindow<Plan>> project = limit.child();
                             LogicalWindow<Plan> window = project.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
+                            if (partitionLimit <= 0) {
+                                return limit;
+                            }
                             Pair<WindowExpression, Long> windowFuncLongPair = window
                                     .checkAndGetValidWindowFunc(null, partitionLimit);
                             if (windowFuncLongPair == null) {

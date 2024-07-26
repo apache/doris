@@ -183,7 +183,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     /**
      * check and get valid window function and partition limit value
      */
-    public Pair<WindowExpression, Long> checkAndGetValidWindowFunc(LogicalFilter filter, long partitionLimit) {
+    public Pair<WindowExpression, Long> checkAndGetValidWindowFunc(LogicalFilter<?> filter, long partitionLimit) {
         if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
             return null;
         }
@@ -201,6 +201,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         // 3. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
         WindowExpression chosenWindowFunc = null;
         long chosenPartitionLimit = Long.MAX_VALUE;
+        long chosenRowNumberPartitionLimit = Long.MAX_VALUE;
+        boolean hasRowNumber = false;
         for (NamedExpression windowExpr : windowExpressions) {
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
             if (windowFunc == null || windowExpr.children().size() != 1
@@ -266,15 +268,17 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                     }
                 }
                 if (chosenPartitionLimit == -1) {
+                    chosenWindowFunc = windowFunc;
                     break;
-                } else if (!hasPartitionLimit) {
-                    continue;
                 } else if (windowFunc.getFunction() instanceof RowNumber) {
                     // choose row_number first any way
-                    chosenWindowFunc = windowFunc;
-                    chosenPartitionLimit = curPartitionLimit;
-                    break;
-                } else {
+                    // if multiple exists, choose the one with minimal limit value
+                    if (curPartitionLimit < chosenRowNumberPartitionLimit) {
+                        chosenRowNumberPartitionLimit = curPartitionLimit;
+                        chosenWindowFunc = windowFunc;
+                    }
+                    hasRowNumber = true;
+                } else if (!hasRowNumber) {
                     // if no row_number, choose the one with minimal limit value
                     if (curPartitionLimit < chosenPartitionLimit) {
                         chosenPartitionLimit = curPartitionLimit;
@@ -283,17 +287,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 }
             } else {
                 // limit
+                chosenWindowFunc = windowFunc;
+                chosenPartitionLimit = partitionLimit;
                 if (windowFunc.getFunction() instanceof RowNumber) {
-                    chosenWindowFunc = windowFunc;
-                    chosenPartitionLimit = partitionLimit;
                     break;
                 }
             }
         }
-        if (chosenWindowFunc == null || chosenPartitionLimit == Long.MAX_VALUE) {
+        if (chosenWindowFunc == null || (chosenPartitionLimit == Long.MAX_VALUE
+                && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
         } else {
-            return Pair.of(chosenWindowFunc, chosenPartitionLimit);
+            return Pair.of(chosenWindowFunc, hasRowNumber ? chosenRowNumberPartitionLimit : chosenPartitionLimit);
         }
     }
 
