@@ -496,8 +496,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // tag
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // waiting query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
+            trow.addToColumnValue(
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(17))); // running query num
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(18))); // waiting query num
             dataBatch.add(trow);
         }
 
