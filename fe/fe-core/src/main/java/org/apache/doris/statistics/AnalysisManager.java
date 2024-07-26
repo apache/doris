@@ -354,6 +354,8 @@ public class AnalysisManager implements Writable {
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
         infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0
                 && analysisMethod.equals(AnalysisMethod.SAMPLE));
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
+        infoBuilder.setRowCount(rowCount);
         return infoBuilder.build();
     }
 
