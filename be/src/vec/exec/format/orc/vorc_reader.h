@@ -139,14 +139,15 @@ public:
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     ~OrcReader() override;
-
+    //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
+            const bool hive_use_column_names = true);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -183,9 +184,10 @@ public:
     Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
                                          std::vector<uint64_t>* col_attributes,
                                          std::string attribute);
-    void set_table_col_to_file_col(
-            std::unordered_map<std::string, std::string> table_col_to_file_col) {
-        _table_col_to_file_col = table_col_to_file_col;
+    void set_col_name_to_file_col_name(
+            std::unordered_map<std::string, std::string> col_name_to_file_col_name) {
+        _provide_column_name_mapping = true;
+        _col_name_to_file_col_name = col_name_to_file_col_name;
     }
 
     void set_position_delete_rowids(vector<int64_t>* delete_rows) {
@@ -570,9 +572,16 @@ private:
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
     std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
-    // Flag for hive engine. True if the external table engine is Hive1.x with orc col name
-    // as _col1, col2, ...
-    bool _is_hive1_orc = false;
+    // Flag for hive engine.
+    // 1. True if the external table engine is Hive1.x with orc col name as _col1, col2, ...
+    // 2. If true, use indexes instead of column names when reading orc tables.
+    bool _is_hive1_orc_or_use_idx = false;
+
+    //    Have you provided a mapping from the table column name to the file column name,
+    //    i.e. set_col_name_to_file_col_name() ?
+    //    If provide_column_name_mapping is true, it means that the mapping you provided will be used.
+    //    Iceberg reader should provide such mapping.
+    bool _provide_column_name_mapping = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
@@ -620,8 +629,6 @@ private:
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
-    //for iceberg table , when table column name != file column name
-    std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
 };

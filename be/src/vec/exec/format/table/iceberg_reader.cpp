@@ -120,7 +120,7 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     // To support iceberg schema evolution. We change the column name in block to
     // make it match with the column name in parquet file before reading data. and
     // Set the name back to table column name before return this block.
-    if (_has_schema_change) {
+    if (_has_schema_change && _file_format == PARQUET) {
         for (int i = 0; i < block->columns(); i++) {
             ColumnWithTypeAndName& col = block->get_by_position(i);
             auto iter = _table_col_to_file_col.find(col.name);
@@ -133,7 +133,7 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
 
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
     // Set the name back to table column name before return this block.
-    if (_has_schema_change) {
+    if (_has_schema_change && _file_format == PARQUET) {
         for (int i = 0; i < block->columns(); i++) {
             ColumnWithTypeAndName& col = block->get_by_position(i);
             auto iter = _file_col_to_table_col.find(col.name);
@@ -620,11 +620,11 @@ Status IcebergOrcReader::init_reader(
     RETURN_IF_ERROR(_gen_col_name_maps(orc_reader));
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
-    orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
+    orc_reader->set_col_name_to_file_col_name(_table_col_to_file_col);
     RETURN_IF_ERROR(init_row_filters(_range));
     return orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
                                    conjuncts, false, tuple_descriptor, row_descriptor,
-                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,true);
 }
 
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
