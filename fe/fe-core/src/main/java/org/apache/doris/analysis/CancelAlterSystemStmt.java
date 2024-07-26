@@ -90,4 +90,9 @@ public class CancelAlterSystemStmt extends CancelStmt {
 
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
 }

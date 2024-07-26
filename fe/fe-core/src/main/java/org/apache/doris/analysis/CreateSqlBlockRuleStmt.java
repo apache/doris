@@ -166,4 +166,9 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
                 .append(new PrintableMap<>(properties, " = ", true, true, true)).append(")");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }
