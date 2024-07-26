@@ -128,8 +128,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
             ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
             throw new AnalysisException("Fallback to legacy planner temporary.");
         }
-        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
-                ctx.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                ctx.getSessionVariable().enableProfile,
+                ctx.getSessionVariable().profileLevel,
+                ctx.getSessionVariable().getAutoProfileThresholdMs());
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),

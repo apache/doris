@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import java.io.File;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2700,6 +2702,17 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cooldown_replica_affinity = true;
+
+    @ConfField
+    public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
+
+    // The max number of profiles that can be stored to storage.
+    @ConfField
+    public static int max_spilled_profile_num = 500;
+
+    // The total size of profiles that can be stored to storage.
+    @ConfField
+    public static long spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     //==========================================================================
     //                    begin of cloud config
