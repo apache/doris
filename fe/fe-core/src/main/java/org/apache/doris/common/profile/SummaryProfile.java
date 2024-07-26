@@ -49,6 +49,7 @@ public class SummaryProfile {
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
     public static final String USER = "User";
+    public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
@@ -117,7 +118,7 @@ public class SummaryProfile {
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
     public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
             .addAll(SUMMARY_CAPTIONS)
             .add(PHYSICAL_PLAN)
@@ -615,6 +616,11 @@ public class SummaryProfile {
 
         public SummaryBuilder user(String val) {
             map.put(USER, val);
+            return this;
+        }
+
+        public SummaryBuilder defaultCatalog(String val) {
+            map.put(DEFAULT_CATALOG, val);
             return this;
         }
 
