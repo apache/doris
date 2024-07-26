@@ -84,4 +84,8 @@ public class RefreshCatalogStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.REFRESH;
+    }
 }

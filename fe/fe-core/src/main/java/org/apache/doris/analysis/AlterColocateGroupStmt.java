@@ -79,4 +79,9 @@ public class AlterColocateGroupStmt extends DdlStmt {
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }
