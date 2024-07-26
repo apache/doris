@@ -643,52 +643,6 @@ public class OneRangePartitionEvaluator
         return computeMonotonicFunctionRange(result);
     }
 
-    private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
-        Function func = (Function) result.result;
-        if (rangeMap.containsKey(func)) {
-            return new EvaluateRangeResult(func, ImmutableMap.of(func, rangeMap.get(func)), result.childrenResult);
-        }
-        int childIndex = func.getMonotonicFunctionChildIndex();
-        Expression funcChild = func.child(childIndex);
-        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
-            return result;
-        }
-        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
-        if (childRange.isEmptyRange() || childRange.isCompletelyInfinite()) {
-            return result;
-        }
-        Range<ColumnBound> span = childRange.span();
-        Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
-        Literal upper = span.hasUpperBound() ? span.upperEndpoint().getValue() : null;
-        Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
-                expressionRewriteContext) : null;
-        Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
-                    expressionRewriteContext) : null;
-        if (!func.getMonotonicity().isPositive) {
-            Expression temp = lowerValue;
-            lowerValue = upperValue;
-            upperValue = temp;
-        }
-        LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap();
-        ColumnRange newRange = ColumnRange.all();
-        if (lowerValue instanceof Literal && upperValue instanceof Literal && lowerValue.equals(upperValue)) {
-            newRange = ColumnRange.singleton((Literal) lowerValue);
-            rangeMap.put(func, newRange);
-            newRanges.put(func, newRange);
-            return new EvaluateRangeResult(lowerValue, newRanges, result.childrenResult);
-        } else {
-            if (lowerValue instanceof Literal) {
-                newRange = newRange.withLowerBound((Literal) lowerValue);
-            }
-            if (upperValue instanceof Literal) {
-                newRange = newRange.withUpperBound((Literal) upperValue);
-            }
-            rangeMap.put(func, newRange);
-            newRanges.put(func, newRange);
-            return new EvaluateRangeResult(func, newRanges, result.childrenResult);
-        }
-    }
-
     @Override
     public EvaluateRangeResult visitDate(Date date, EvaluateRangeInput context) {
         EvaluateRangeResult result = super.visitDate(date, context);
@@ -900,5 +854,51 @@ public class OneRangePartitionEvaluator
             builder.put(entry);
         }
         return new EvaluateRangeResult(result.result, builder.build(), result.childrenResult);
+    }
+
+    private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
+        Function func = (Function) result.result;
+        if (rangeMap.containsKey(func)) {
+            return new EvaluateRangeResult(func, ImmutableMap.of(func, rangeMap.get(func)), result.childrenResult);
+        }
+        int childIndex = func.getMonotonicFunctionChildIndex();
+        Expression funcChild = func.child(childIndex);
+        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
+            return result;
+        }
+        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
+        if (childRange.isEmptyRange() || childRange.isCompletelyInfinite()) {
+            return result;
+        }
+        Range<ColumnBound> span = childRange.span();
+        Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
+        Literal upper = span.hasUpperBound() ? span.upperEndpoint().getValue() : null;
+        Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
+                expressionRewriteContext) : null;
+        Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
+                expressionRewriteContext) : null;
+        if (!func.getMonotonicity().isPositive) {
+            Expression temp = lowerValue;
+            lowerValue = upperValue;
+            upperValue = temp;
+        }
+        LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap();
+        ColumnRange newRange = ColumnRange.all();
+        if (lowerValue instanceof Literal && upperValue instanceof Literal && lowerValue.equals(upperValue)) {
+            newRange = ColumnRange.singleton((Literal) lowerValue);
+            rangeMap.put(func, newRange);
+            newRanges.put(func, newRange);
+            return new EvaluateRangeResult(lowerValue, newRanges, result.childrenResult);
+        } else {
+            if (lowerValue instanceof Literal) {
+                newRange = newRange.withLowerBound((Literal) lowerValue);
+            }
+            if (upperValue instanceof Literal) {
+                newRange = newRange.withUpperBound((Literal) upperValue);
+            }
+            rangeMap.put(func, newRange);
+            newRanges.put(func, newRange);
+            return new EvaluateRangeResult(func, newRanges, result.childrenResult);
+        }
     }
 }
