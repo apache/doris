@@ -82,6 +82,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -1405,6 +1406,58 @@ public class Auth implements Writable {
         }
 
         userAuthInfos.add(userAuthInfo);
+    }
+
+    public static boolean isAdminPriv(GlobalPrivTable userGlobalPrivTable) {
+        PrivBitSet globalPrivs = new PrivBitSet();
+        for (PrivEntry pe : userGlobalPrivTable.getEntries()) {
+            globalPrivs.or(pe.privSet);
+        }
+        if (globalPrivs.satisfy(PrivPredicate.ADMIN)) {
+            return true;
+        }
+        return false;
+    }
+
+    public void getUserRoleWorkloadGroupPrivs(List<List<String>> result, UserIdentity currentUserIdentity) {
+        readLock();
+        try {
+            boolean isCurrentUserAdmin = isAdminPriv(getUserGlobalPrivTable(currentUserIdentity));
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver()) {
+                        if (!isCurrentUserAdmin && !currentUserIdentity.equals(user.getUserIdentity())) {
+                            continue;
+                        }
+                        GlobalPrivTable userGlobalPrivTable = getUserGlobalPrivTable(user.getUserIdentity());
+                        String isGrantable = isAdminPriv(userGlobalPrivTable) ? "YES" : "NO";
+
+                        // workload group
+                        for (PrivEntry entry : getUserWorkloadGroupPrivTable(user.getUserIdentity()).entries) {
+                            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+                            PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
+
+                            List<String> row = Lists.newArrayList();
+                            row.add(user.getUserIdentity().toString());
+                            row.add(workloadGroupPrivEntry.getOrigWorkloadGroupName());
+                            row.add(savedPrivs.toString());
+                            row.add(isGrantable);
+                            result.add(row);
+                        }
+                    }
+                }
+            }
+
+            Set<String> currentUserRole = null;
+            if (!isCurrentUserAdmin) {
+                currentUserRole = userRoleManager.getRolesByUser(currentUserIdentity, false);
+                currentUserRole = currentUserRole == null ? new HashSet<>() : currentUserRole;
+            }
+            roleManager.getRoleWorkloadGroupPrivs(result, currentUserRole);
+        } finally {
+            readUnlock();
+        }
     }
 
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
