@@ -52,8 +52,11 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             precision = scalar_type.precision;
             scale = scalar_type.scale;
         } else if (type == TYPE_TIMEV2) {
-            DCHECK(scalar_type.__isset.scale);
-            scale = scalar_type.scale;
+            if (scalar_type.__isset.scale) {
+                scale = scalar_type.scale;
+            } else {
+                scale = 0;
+            }
         } else if (type == TYPE_STRING) {
             if (scalar_type.__isset.len) {
                 len = scalar_type.len;
