@@ -314,6 +314,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -1612,6 +1613,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNegative(Negative negative, C context) {
         return visitScalarFunction(negative, context);
+    }
+
+    default R visitNgramSearch(NgramSearch ngramSearch, C context) {
+        return visitScalarFunction(ngramSearch, context);
     }
 
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
