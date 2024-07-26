@@ -635,7 +635,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
 bool instance_is_valid(const InstanceInfoPB& instance) {
     // check has fe node
     for (auto& c : instance.clusters()) {
-        if (c.type() == ClusterPB::SQL) {
+        if (c.has_type() && c.type() == ClusterPB::SQL) {
             int master = 0;
             int follower = 0;
             std::string mode = "multi-followers";
