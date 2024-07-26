@@ -57,6 +57,10 @@ suite("test_split_by_regexp") {
         sql " select split_by_regexp(NULL, 'a12bc23de345f', -10) from test_split_by_regexp"
         exception "function must be a positive constant"
     }
+    test {
+        sql " select split_by_regexp(NULL, 'a12bc23de345f', 1 + 2) from test_split_by_regexp"
+        exception "function must be a positive constant"
+    }
     qt_select5 "select split_by_regexp(v1, ',') from test_split_by_regexp order by k1;"
     qt_select6 "select split_by_regexp('do,ris', v2) from test_split_by_regexp order by k1;"
     qt_select7 "select split_by_regexp(v1, v2) from test_split_by_regexp order by k1;"
