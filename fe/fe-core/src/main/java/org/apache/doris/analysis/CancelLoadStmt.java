@@ -173,4 +173,9 @@ public class CancelLoadStmt extends DdlStmt {
         return toSql();
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
+
 }

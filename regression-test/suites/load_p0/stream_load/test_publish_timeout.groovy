@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_publish_timeout", "nonConcurrent") {
+    if (isCloudMode()) {
+        return
+    }
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

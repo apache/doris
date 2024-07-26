@@ -42,6 +42,7 @@ suite ("distinctQuery") {
     createMV("create materialized view distinctQuery_mv2 as select empid, deptno, count(salary) from distinctQuery group by empid, deptno;")
 
     sql """insert into distinctQuery values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into distinctQuery values("2020-01-01",2,"a",1,1,1);"""
 
     sql "analyze table distinctQuery with sync;"
     sql """set enable_stats=false;"""

@@ -82,7 +82,7 @@ struct NameQuoteImpl {
     }
 };
 
-struct NameStringLenght {
+struct NameStringLength {
     static constexpr auto name = "length";
 };
 
@@ -99,6 +99,28 @@ struct StringLengthImpl {
         for (int i = 0; i < size; ++i) {
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
+        }
+        return Status::OK();
+    }
+};
+
+struct NameCrc32 {
+    static constexpr auto name = "crc32";
+};
+
+struct Crc32Impl {
+    using ReturnType = DataTypeInt64;
+    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    using Type = String;
+    using ReturnColumnType = ColumnVector<Int64>;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int64>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            res[i] = crc32_z(0L, (const unsigned char*)data.data() + offsets[i - 1],
+                             offsets[i] - offsets[i - 1]);
         }
         return Status::OK();
     }
@@ -598,8 +620,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
         return arguments[0];
     }
@@ -716,12 +739,13 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        fmt::memory_buffer buffer;
+        std::vector<char, Allocator_<char>> buffer;
         for (size_t i = 0; i < input_size; ++i) {
             buffer.clear();
             if (data[i] > 0) {
+                buffer.resize(data[i]);
                 for (size_t j = 0; j < data[i]; ++j) {
-                    buffer.push_back(' ');
+                    buffer[i] = ' ';
                 }
                 StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                             res_data, res_offsets);
@@ -940,7 +964,8 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
-using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLenght>;
+using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
+using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionStringStartsWith =
@@ -975,6 +1000,7 @@ using FunctionStringRPad = FunctionStringPad<StringRPad>;
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
+    factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
     factory.register_function<FunctionStringSpace>();
     factory.register_function<FunctionStringStartsWith>();
@@ -1036,6 +1062,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
+    factory.register_function<FunctionNgramSearch>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
