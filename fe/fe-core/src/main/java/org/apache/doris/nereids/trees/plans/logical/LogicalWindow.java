@@ -188,7 +188,10 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             return null;
         }
         // We have already done such optimization rule, so just ignore it.
-        if (child(0) instanceof LogicalPartitionTopN) {
+        if (child(0) instanceof LogicalPartitionTopN
+                || (child(0) instanceof LogicalFilter
+                && child(0).child(0) != null
+                && child(0).child(0) instanceof LogicalPartitionTopN)) {
             return null;
         }
 
@@ -200,7 +203,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         long chosenPartitionLimit = Long.MAX_VALUE;
         for (NamedExpression windowExpr : windowExpressions) {
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-            if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+            if (windowFunc == null || windowExpr.children().size() != 1
+                    || !(windowExpr.child(0) instanceof WindowExpression)) {
                 continue;
             }
 
@@ -228,10 +232,10 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 continue;
             }
 
-            // Check filter conditions
+            // Check filter conditions.
             if (filter != null) {
-                // we currently only support simple conditions of the form
-                // 'column </ <=/ = constant'. We will extract some related conjuncts and do some check.
+                // We currently only support simple conditions of the form 'column </ <=/ = constant'.
+                // We will extract some related conjuncts and do some check.
                 boolean hasPartitionLimit = false;
                 long curPartitionLimit = Long.MAX_VALUE;
                 Set<Expression> conjuncts = filter.getConjuncts();
@@ -251,7 +255,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                         limitVal--;
                     }
                     if (limitVal < 0) {
-                        //return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
+                        chosenPartitionLimit = -1;
+                        break;
                     }
                     if (hasPartitionLimit) {
                         curPartitionLimit = Math.min(curPartitionLimit, limitVal);
@@ -260,12 +265,11 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                         hasPartitionLimit = true;
                     }
                 }
-
-                if (!hasPartitionLimit) {
+                if (chosenPartitionLimit == -1) {
+                    break;
+                } else if (!hasPartitionLimit) {
                     continue;
-                }
-
-                if (windowFunc.getFunction() instanceof RowNumber) {
+                } else if (windowFunc.getFunction() instanceof RowNumber) {
                     // choose row_number first any way
                     chosenWindowFunc = windowFunc;
                     chosenPartitionLimit = curPartitionLimit;
@@ -286,7 +290,11 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 }
             }
         }
-        return Pair.of(chosenWindowFunc, chosenPartitionLimit);
+        if (chosenWindowFunc == null || chosenPartitionLimit == Long.MAX_VALUE) {
+            return null;
+        } else {
+            return Pair.of(chosenWindowFunc, chosenPartitionLimit);
+        }
     }
 
     /**

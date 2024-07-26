@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -76,10 +77,13 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
             Pair<WindowExpression, Long> windowFuncPair = window.checkAndGetValidWindowFunc(filter, Long.MAX_VALUE);
             if (windowFuncPair == null) {
                 return filter;
+            } else if (windowFuncPair.second == -1) {
+                return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
+            } else {
+                Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncPair.first,
+                        windowFuncPair.second, false);
+                return filter.withChildren(newWindow);
             }
-            Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncPair.first,
-                    windowFuncPair.second, false);
-            return filter.withChildren(newWindow);
         }).toRule(RuleType.CREATE_PARTITION_TOPN_FOR_WINDOW);
     }
 }
