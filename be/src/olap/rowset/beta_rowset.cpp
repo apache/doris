@@ -818,8 +818,6 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                 if (!status.ok()) {
                     return status;
                 }
-                if (_rowset_meta->tablet_schema()->has_inverted_index(*column)) {
-                }
             }
             segment.AddMember("indices", indices, allocator);
             segments.PushBack(segment, allocator);
