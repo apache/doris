@@ -42,6 +42,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()

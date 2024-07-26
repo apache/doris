@@ -6,8 +6,8 @@
 2
 
 -- !show_1 --
-normal	20	50%	true	2147483647	0	0	1%	16	
-test_group	10	10%	true	2147483647	0	0	-1	-1	
+normal	20	50%	true	2147483647	0	0	1%	16		-1	-1
+test_group	10	10%	true	2147483647	0	0	-1	-1		-1	-1
 
 -- !show_del_wg_1 --
 normal	20	50%	true	2147483647	0	0	1%	16	
@@ -46,8 +46,8 @@ test_group	10	11%	false	2147483647	0	0	20%	-1
 2
 
 -- !show_queue --
-normal	20	50%	true	2147483647	0	0	1%	16
-test_group	10	11%	false	100	0	0	20%	-1
+normal	20	50%	true	2147483647	0	0	1%	16	-1	-1
+test_group	10	11%	false	100	0	0	20%	-1	104857600	104857600
 
 -- !select_tvf_1 --
 normal	20	50%	true	2147483647	0	0	1%	16
