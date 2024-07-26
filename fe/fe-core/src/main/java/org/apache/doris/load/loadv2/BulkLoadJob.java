@@ -231,6 +231,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 idToTasks.remove(loadTask.getSignature());
                 if (loadTask instanceof LoadLoadingTask) {
                     loadStatistic.removeLoad(((LoadLoadingTask) loadTask).getLoadId());
+                    // restore load progress
+                    Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(id));
                 }
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
