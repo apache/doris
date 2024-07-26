@@ -86,6 +86,22 @@ suite("test_javaudf_string") {
                 test_javaudf_string
                 JOIN test_javaudf_string_2 ON test_javaudf_string.user_id = test_javaudf_string_2.user_id order by 1,2;
         """
+        test {
+            sql """ CREATE FUNCTION java_udf_string_test(varchar, int, int) RETURNS string PROPERTIES (
+                "file"="file://${jarPath}",
+                "symbol"="org.apache.doris.udf.StringTest",
+                "type"="JAVA_UDF"
+            ); """
+            exception "does not support type"
+        }
+        test {
+            sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS varchar PROPERTIES (
+                "file"="file://${jarPath}",
+                "symbol"="org.apache.doris.udf.StringTest",
+                "type"="JAVA_UDF"
+            ); """
+            exception "does not support type"
+        }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
