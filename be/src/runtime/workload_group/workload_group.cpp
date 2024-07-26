@@ -27,12 +27,14 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "io/fs/local_file_reader.h"
 #include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/runtime_profile.h"
@@ -62,7 +64,15 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
           _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num),
           _spill_low_watermark(tg_info.spill_low_watermark),
-          _spill_high_watermark(tg_info.spill_high_watermark) {}
+          _spill_high_watermark(tg_info.spill_high_watermark),
+          _scan_bytes_per_second(tg_info.read_bytes_per_second),
+          _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second) {
+    std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
+    for (const auto& data_dir : data_dir_list) {
+        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>();
+    }
+    _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+}
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
@@ -70,11 +80,13 @@ std::string WorkloadGroup::debug_string() const {
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
             "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}]",
+            "spill_low_watermark={}, spill_high_watermark={}, is_shutdown={}, query_num={}, "
+            "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size());
+            _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size(),
+            _scan_bytes_per_second, _remote_scan_bytes_per_second);
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -101,6 +113,8 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _min_remote_scan_thread_num = tg_info.min_remote_scan_thread_num;
             _spill_low_watermark = tg_info.spill_low_watermark;
             _spill_high_watermark = tg_info.spill_high_watermark;
+            _scan_bytes_per_second = tg_info.read_bytes_per_second;
+            _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
         } else {
             return;
         }
@@ -350,19 +364,33 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         spill_high_watermark = tworkload_group_info.spill_threshold_high_watermark;
     }
 
-    return {tg_id,
-            name,
-            cpu_share,
-            mem_limit,
-            enable_memory_overcommit,
-            version,
-            cpu_hard_limit,
-            enable_cpu_hard_limit,
-            scan_thread_num,
-            max_remote_scan_thread_num,
-            min_remote_scan_thread_num,
-            spill_low_watermark,
-            spill_high_watermark};
+    // 14 scan io
+    int read_bytes_per_second = -1;
+    if (tworkload_group_info.__isset.read_bytes_per_second) {
+        read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
+    }
+
+    // 15 remote scan io
+    int remote_read_bytes_per_second = -1;
+    if (tworkload_group_info.__isset.remote_read_bytes_per_second) {
+        remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
+    }
+
+    return {.id = tg_id,
+            .name = name,
+            .cpu_share = cpu_share,
+            .memory_limit = mem_limit,
+            .enable_memory_overcommit = enable_memory_overcommit,
+            .version = version,
+            .cpu_hard_limit = cpu_hard_limit,
+            .enable_cpu_hard_limit = enable_cpu_hard_limit,
+            .scan_thread_num = scan_thread_num,
+            .max_remote_scan_thread_num = max_remote_scan_thread_num,
+            .min_remote_scan_thread_num = min_remote_scan_thread_num,
+            .spill_low_watermark = spill_low_watermark,
+            .spill_high_watermark = spill_high_watermark,
+            .read_bytes_per_second = read_bytes_per_second,
+            .remote_read_bytes_per_second = remote_read_bytes_per_second};
 }
 
 void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {
@@ -535,6 +563,25 @@ std::string WorkloadGroup::thread_debug_info() {
                            exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
     }
     return str;
+}
+
+void WorkloadGroup::upsert_scan_io_throttle(WorkloadGroupInfo* tg_info) {
+    for (const auto& [key, io_throttle] : _scan_io_throttle_map) {
+        io_throttle->set_io_bytes_per_second(tg_info->read_bytes_per_second);
+    }
+
+    _remote_scan_io_throttle->set_io_bytes_per_second(tg_info->remote_read_bytes_per_second);
+}
+
+std::shared_ptr<IOThrottle> WorkloadGroup::get_scan_io_throttle(const std::string& disk_dir) {
+    if (disk_dir == io::FileReader::VIRTUAL_REMOTE_DATA_DIR) {
+        return _remote_scan_io_throttle;
+    }
+    auto find_ret = _scan_io_throttle_map.find(disk_dir);
+    if (find_ret != _scan_io_throttle_map.end()) {
+        return find_ret->second;
+    }
+    return nullptr;
 }
 
 void WorkloadGroup::try_stop_schedulers() {
