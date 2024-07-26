@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -54,7 +55,8 @@ public class SyncMaterializationContext extends MaterializationContext {
     public SyncMaterializationContext(Plan mvPlan, Plan mvOriginalPlan, OlapTable olapTable,
             long indexId, String indexName, CascadesContext cascadesContext, Statistics statistics) {
         super(mvPlan, mvOriginalPlan,
-                MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, cascadesContext), cascadesContext, null);
+                MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+                        PreAggStatus.unset(), cascadesContext), cascadesContext, null);
         this.olapTable = olapTable;
         this.indexId = indexId;
         this.indexName = indexName;
@@ -63,7 +65,8 @@ public class SyncMaterializationContext extends MaterializationContext {
 
     @Override
     Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, cascadesContext);
+        return MaterializedViewUtils.generateMvScanPlan(olapTable, indexId, olapTable.getPartitionIds(),
+                PreAggStatus.unset(), cascadesContext);
     }
 
     @Override
