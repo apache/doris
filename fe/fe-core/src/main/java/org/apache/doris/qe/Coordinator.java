@@ -1001,6 +1001,7 @@ public class Coordinator implements CoordInterface {
             } catch (InterruptedException e) {
                 exception = e;
                 code = TStatusCode.INTERNAL_ERROR;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (TimeoutException e) {
                 exception = e;
                 errMsg = String.format(
@@ -1008,6 +1009,7 @@ public class Coordinator implements CoordInterface {
                                             operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
                 LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             }
 
             try {
