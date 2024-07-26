@@ -810,6 +810,53 @@ public class DatabaseTransactionMgr {
         LOG.info("transaction:[{}] successfully committed", transactionState);
     }
 
+    public void batchCommitTransaction2PC(List<Long> txnIds) throws UserException {
+        // check status
+        // the caller method already own tables' write lock
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
+        List<TransactionState> txnStates = new ArrayList();
+        readLock();
+        try {
+            for (long transactionId : txnIds) {
+                txnStates.add(unprotectedGetTransactionState(transactionId));
+            }
+        } finally {
+            readUnlock();
+        }
+
+        for (TransactionState transactionState : txnStates) {
+            checkTransactionStateBeforeCommit(db, null, transactionState.getTransactionId(), true, transactionState);
+            // before state transform
+            transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
+        }
+
+        // transaction state transform
+        boolean txnOperated = false;
+        writeLock();
+        try {
+            unprotectedBatchCommitTransaction2PC(txnStates, db);
+            // persist transactionState
+            editLog.logBatchInsertTransactionState(txnStates);
+            txnOperated = true;
+        } finally {
+            writeUnlock();
+            // after state transform
+            for (TransactionState transactionState : txnStates) {
+                try {
+                    transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+                } catch (Throwable e) {
+                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+                }
+            }
+        }
+        for (TransactionState transactionState : txnStates) {
+            // update nextVersion because of the failure of persistent transaction resulting in error version
+            updateCatalogAfterCommitted(transactionState, db, false);
+            LOG.info("transaction:[{}] successfully committed", transactionState);
+        }
+        LOG.info("transactions: {} successfully committed", txnIds);
+    }
+
     public void commitTransaction(long transactionId, List<Table> tableList,
             List<SubTransactionState> subTransactionStates) throws UserException {
         // check status
@@ -1623,6 +1670,57 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         editLog.logInsertTransactionState(transactionState);
+    }
+
+    protected void unprotectedBatchCommitTransaction2PC(List<TransactionState> txnStates, Database db) {
+        Map<Long, Long> partitionIdToVersionMap = Maps.newHashMap();
+        for (TransactionState transactionState : txnStates) {
+            // transaction state is modified during check if the transaction could committed
+            if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
+                LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
+                        transactionState.getTransactionId());
+                return;
+            }
+            // update transaction state version
+            transactionState.setCommitTime(System.currentTimeMillis());
+            transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
+
+            Iterator<TableCommitInfo> tableCommitInfoIterator
+                    = transactionState.getIdToTableCommitInfos().values().iterator();
+            while (tableCommitInfoIterator.hasNext()) {
+                TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
+                long tableId = tableCommitInfo.getTableId();
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                // table maybe dropped between commit and publish, ignore this error
+                if (table == null) {
+                    tableCommitInfoIterator.remove();
+                    LOG.warn("table {} is dropped, skip and remove it from transaction state {}",
+                            tableId,
+                            transactionState);
+                    continue;
+                }
+                Iterator<PartitionCommitInfo> partitionCommitInfoIterator
+                        = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
+                while (partitionCommitInfoIterator.hasNext()) {
+                    PartitionCommitInfo partitionCommitInfo = partitionCommitInfoIterator.next();
+                    long partitionId = partitionCommitInfo.getPartitionId();
+                    Partition partition = table.getPartition(partitionId);
+                    // partition maybe dropped between commit and publish version, ignore this error
+                    if (partition == null) {
+                        partitionCommitInfoIterator.remove();
+                        LOG.warn("partition {} is dropped, skip and remove it from transaction state {}",
+                                partitionId,
+                                transactionState);
+                        continue;
+                    }
+                    long partitionNextVersion =
+                            partitionIdToVersionMap.getOrDefault(partitionId, partition.getNextVersion());
+                    partitionCommitInfo.setVersion(partitionNextVersion);
+                    partitionIdToVersionMap.put(partitionId, partitionNextVersion + 1);
+                    partitionCommitInfo.setVersionTime(System.currentTimeMillis());
+                }
+            }
+        }
     }
 
     // for add/update/delete TransactionState

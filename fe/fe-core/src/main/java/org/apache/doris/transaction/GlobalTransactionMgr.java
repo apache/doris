@@ -351,6 +351,29 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 + " data will be visable later.", transactionId, stopWatch.getTime());
     }
 
+    public void batchCommitTransaction2PC(Database db, List<Table> tableList, List<Long> txnIds, long timeoutMillis)
+            throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            if (Config.disable_load_job) {
+                throw new TransactionCommitFailedException("disable_load_job is set to true, "
+                        + "all load jobs are prevented");
+            }
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
+            dbTransactionMgr.batchCommitTransaction2PC(txnIds);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
+        stopWatch.stop();
+        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms."
+                + " data will be visable later.", txnIds, stopWatch.getTime());
+    }
+
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);

@@ -59,7 +59,18 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
         msg.append("transaction [" + req_txn_id + "] ");
         try {
-            ctx->txn_id = std::stoull(req_txn_id);
+            std::stringstream ss(req_txn_id);
+            std::string token;
+            std::set<int64_t> txn_id_set;
+            while (std::getline(ss, token, ',')) {
+                txn_id_set.insert(std::stoi(token));
+            }
+            if (txn_id_set.size() > 1) {
+                std::vector txn_ids(txn_id_set.begin(), txn_id_set.end());
+                ctx->txn_ids = txn_ids;
+            } else {
+                ctx->txn_id = std::stoull(req_txn_id);
+            }
         } catch (const std::exception& e) {
             status = Status::InternalError("convert txn_id [{}] failed, reason={}", req_txn_id,
                                            e.what());

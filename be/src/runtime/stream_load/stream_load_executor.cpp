@@ -262,6 +262,10 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
         request.__set_txnId(ctx->txn_id);
     }
 
+    if (ctx->txn_ids.size() > 1) {
+        request.__set_txnIds(ctx->txn_ids);
+    }
+
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;
     int64_t duration_ns = 0;

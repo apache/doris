@@ -44,6 +44,7 @@ import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -100,10 +101,12 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -1334,6 +1337,67 @@ public class EditLog {
         return logId;
     }
 
+    private synchronized List<Long> logEdit(List<Pair<Short, ? extends  Writable>> logBatch) {
+        if (this.getNumEditStreams() == 0) {
+            LOG.error("Fatal Error : no editLog stream", new Exception());
+            throw new Error("Fatal Error : no editLog stream");
+        }
+
+        long start = System.currentTimeMillis();
+        List<Long> logIds = new ArrayList<>();
+        int batchSize = logBatch.size();
+        Preconditions.checkState(batchSize > 0);
+        try {
+            JournalBatch journalBatch = new JournalBatch();
+            for (int i = 0; i < batchSize; ++i) {
+                short op = logBatch.get(i).first;
+                Writable log = logBatch.get(i).second;
+                journalBatch.addJournal(op, log);
+            }
+            long firstId = journal.write(journalBatch);
+            for (int i = 0; i < batchSize; ++i) {
+                logIds.add(firstId + i);
+            }
+        } catch (Throwable t) {
+            // Throwable contains all Exception and Error, such as IOException and
+            // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
+            LOG.error("Fatal Error : write stream Exception", t);
+            System.exit(-1);
+        }
+
+        // get a new transactionId
+        txId += batchSize;
+
+        // update statistics
+        long end = System.currentTimeMillis();
+        numTransactions += batchSize;
+        totalTimeTransactions += (end - start);
+        if (MetricRepo.isInit) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+            MetricRepo.COUNTER_EDIT_LOG_CURRENT.increase(1L);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, delta = {}",
+                    txId, numTransactions, totalTimeTransactions, end - start);
+        }
+
+        if (txId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+                    Config.edit_log_roll_num);
+            rollEditLog();
+            txId = 0;
+        }
+
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(1L);
+        }
+        return logIds;
+    }
+
     /**
      * Return the size of the current EditLog
      */
@@ -1615,6 +1679,31 @@ public class EditLog {
             UpsertRecord record = new UpsertRecord(logId, transactionState);
             Env.getCurrentEnv().getBinlogManager().addUpsertRecord(record);
             end = System.currentTimeMillis();
+        }
+        if (end - start > Config.lock_reporting_threshold_ms) {
+            LOG.warn("edit log insert transaction take a lot time, write bdb {} ms, write binlog {} ms",
+                    logEditEnd - start, end - logEditEnd);
+        }
+    }
+
+    public void logBatchInsertTransactionState(List<TransactionState> transactionStates) {
+        long start = System.currentTimeMillis();
+        List<Pair<Short, ? extends Writable>> logBatch = new ArrayList<>();
+        for (TransactionState state : transactionStates) {
+            logBatch.add(Pair.of(OperationType.OP_UPSERT_TRANSACTION_STATE, state));
+        }
+        List<Long> logIds = logEdit(logBatch);
+        long logEditEnd = System.currentTimeMillis();
+        long end = logEditEnd;
+        Preconditions.checkArgument(logIds.size() == transactionStates.size());
+        for (int i = 0; i < logIds.size(); ++i) {
+            long logId =  logIds.get(i);
+            TransactionState state = transactionStates.get(i);
+            if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                UpsertRecord record = new UpsertRecord(logId, state);
+                Env.getCurrentEnv().getBinlogManager().addUpsertRecord(record);
+                end = System.currentTimeMillis();
+            }
         }
         if (end - start > Config.lock_reporting_threshold_ms) {
             LOG.warn("edit log insert transaction take a lot time, write bdb {} ms, write binlog {} ms",

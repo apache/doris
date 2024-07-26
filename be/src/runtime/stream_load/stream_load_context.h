@@ -167,6 +167,7 @@ public:
     bool is_chunked_transfer = false;
 
     int64_t txn_id = default_txn_id;
+    std::vector<int64_t> txn_ids;
 
     // http stream
     bool is_read_schema = true;

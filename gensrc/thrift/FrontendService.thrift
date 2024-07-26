@@ -858,6 +858,7 @@ struct TLoadTxn2PCRequest {
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
+    12: optional list<i64> txnIds;
 
     // For cloud
     1000: optional string auth_code_uuid

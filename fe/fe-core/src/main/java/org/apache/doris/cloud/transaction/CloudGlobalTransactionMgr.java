@@ -950,6 +950,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public void batchCommitTransaction2PC(Database db, List<Table> tableList, List<Long> txnIds, long timeoutMillis)
+            throws UserException {
+        throw new UserException(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);

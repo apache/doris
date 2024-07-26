@@ -1497,11 +1497,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     NOT_MASTER_ERR_MSG, request, clientAddr);
             return result;
         }
-
+        boolean isBatchCommit = false;
         try {
-            loadTxn2PCImpl(request);
+            if (request.isSetTxnIds()) {
+                batchLoadTxn2PCImpl(request);
+                isBatchCommit = true;
+            } else {
+                loadTxn2PCImpl(request);
+            }
         } catch (UserException e) {
-            LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
+            if (isBatchCommit) {
+                LOG.warn("failed to batch {} txns {}: {}", request.getOperation(), request.getTxnIds(), e.getMessage());
+            } else {
+                LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
+            }
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -1569,6 +1578,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
+        }
+    }
+
+
+    private void batchLoadTxn2PCImpl(TLoadTxn2PCRequest request) throws UserException {
+        String dbName = request.getDb();
+        if (Strings.isNullOrEmpty(dbName)) {
+            throw new UserException("No database selected.");
+        }
+
+        String fullDbName = dbName;
+
+        // get database
+        Env env = Env.getCurrentEnv();
+        Database database = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (database == null) {
+            throw new UserException("unknown database, database=" + fullDbName);
+        }
+
+        String txnOperation = request.getOperation().trim();
+
+        // Batch rollback of transactions is not supported
+        if (txnOperation.equalsIgnoreCase("abort")) {
+            throw new UserException("Batch rollback of transactions is not supported.");
+        }
+
+        List<Long> txnIds = request.getTxnIds();
+        Set<Long> tableIdSet = new HashSet();
+        for (long txnId : txnIds) {
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(database.getId(), txnId);
+            if (transactionState == null) {
+                throw new UserException("transaction [" + txnId + "] not found");
+            }
+            tableIdSet.addAll(transactionState.getTableIdList());
+        }
+        List<Long> tableIdList = new ArrayList(tableIdSet);
+        List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
+        for (Table table : tableList) {
+            // check auth
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    table.getName(),
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        if (txnOperation.equalsIgnoreCase("commit")) {
+            long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+            Env.getCurrentGlobalTransactionMgr()
+                        .batchCommitTransaction2PC(database, tableList, txnIds, timeoutMs);
+        } else {
+            throw new UserException("batch transaction operation should be \'commit\'");
         }
     }
 
