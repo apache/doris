@@ -571,6 +571,10 @@ public class OneRangePartitionEvaluator
         Map<Slot, ColumnRange> leftRanges = left.columnRanges;
         Map<Slot, ColumnRange> rightRanges = right.columnRanges;
 
+        if (leftRanges.equals(rightRanges)) {
+            return new EvaluateRangeResult(originResult, leftRanges, ImmutableList.of(left, right));
+        }
+
         Set<Slot> slots = ImmutableSet.<Slot>builder()
                 .addAll(leftRanges.keySet())
                 .addAll(rightRanges.keySet())
