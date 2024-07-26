@@ -251,7 +251,7 @@ suite("agg_optimize_when_uniform") {
             min(o_totalprice),
             count(*)
             from orders
-            where o_orderdate = '2023-12-09' and o_shippriority = 'a' and o_totalprice = 11.5
+            where o_orderdate = '2023-12-12' and o_shippriority = 2 and o_totalprice = 56.2
             group by
             o_comment;
             """
@@ -290,7 +290,7 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query4_0_before "${query4_0}"
     // query success but add agg
-    check_mv_rewrite_successs_without_check_chosen(db, mv4_0, query4_0, "mv4_0")
+    check_mv_rewrite_success_without_check_chosen(db, mv4_0, query4_0, "mv4_0")
     qt_shape4_0_after """explain shape plan ${query4_0}"""
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""

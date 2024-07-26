@@ -38,15 +38,17 @@ PhysicalResultSink
 yy	11.50	11.50	11.50	1
 
 -- !query3_1_before --
+mi	56.20	56.20	56.20	1
 
 -- !shape3_1_after --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------filter((cast(o_shippriority as DOUBLE) = cast('a' as DOUBLE)) and (orders.o_orderdate = '2023-12-09') and (orders.o_totalprice = 11.50))
+------filter((orders.o_orderdate = '2023-12-12') and (orders.o_shippriority = 2) and (orders.o_totalprice = 56.20))
 --------PhysicalOlapScan[orders]
 
 -- !query3_1_after --
+mi	56.20	56.20	56.20	1
 
 -- !query4_0_before --
 yy	11.50	11.50	11.50	1

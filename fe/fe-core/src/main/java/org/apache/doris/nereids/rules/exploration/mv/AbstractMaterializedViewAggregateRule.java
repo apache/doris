@@ -339,11 +339,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
 
-        Set<Expression> queryGroupShuttledExpression = new HashSet<>();
-        for (Expression queryExpression : ExpressionUtils.shuttleExpressionWithLineage(
-                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet())) {
-            queryGroupShuttledExpression.add(queryExpression);
-        }
+        Set<Expression> queryGroupShuttledExpression = new HashSet<>(ExpressionUtils.shuttleExpressionWithLineage(
+                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet()));
 
         // try to eliminate group by dimension by function dependency if group by expression is not in query
         Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap = new HashMap<>();
@@ -363,7 +360,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     viewGroupExpressionQueryBased
             );
         }
-        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.values())) {
+        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.keySet())) {
             // return true, if equals directly
             return true;
         }
@@ -378,7 +375,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // check is equals by equal filter eliminate
         Optional<LogicalFilter<Plan>> filterOptional = tempRewrittenPlan.collectFirst(LogicalFilter.class::isInstance);
         if (!filterOptional.isPresent()) {
-            return false;
+            return isGroupByEquals;
         }
         isGroupByEquals |= isGroupByEqualsAfterEqualFilterEliminate(
                 (LogicalPlan) tempRewrittenPlan,
@@ -409,6 +406,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return false;
         }
         Set<Expression> viewShouldUniformExpressionSet = new HashSet<>();
+        // calc the group by expr which is needed to roll up and should be uniform
         for (Map.Entry<Expression, Expression> expressionEntry :
                 viewShuttledExprQueryBasedToViewGroupByExprMap.entrySet()) {
             if (queryGroupShuttledExpression.contains(expressionEntry.getKey())) {
