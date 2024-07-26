@@ -74,6 +74,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String TAG = "tag";
 
+    public static final String READ_BYTES_PER_SECOND = "read_bytes_per_second";
+
+    public static final String REMOTE_READ_BYTES_PER_SECOND = "remote_read_bytes_per_second";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
@@ -82,7 +86,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
-            .add(TAG).build();
+            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).build();
 
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
@@ -383,6 +387,35 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     + SPILL_THRESHOLD_LOW_WATERMARK + "(" + lowWaterMark + ")");
         }
 
+        if (properties.containsKey(READ_BYTES_PER_SECOND)) {
+            String readBytesVal = properties.get(READ_BYTES_PER_SECOND);
+            try {
+                long longVal = Long.parseLong(readBytesVal);
+                boolean isValidValue = longVal == -1 || longVal > 0;
+                if (!isValidValue) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        READ_BYTES_PER_SECOND + " should be -1 or an integer value bigger than 0, but input value is "
+                                + readBytesVal);
+            }
+        }
+
+        if (properties.containsKey(REMOTE_READ_BYTES_PER_SECOND)) {
+            String readBytesVal = properties.get(REMOTE_READ_BYTES_PER_SECOND);
+            try {
+                long longVal = Long.parseLong(readBytesVal);
+                boolean isValidValue = longVal == -1 || longVal > 0;
+                if (!isValidValue) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(REMOTE_READ_BYTES_PER_SECOND
+                        + " should be -1 or an integer value bigger than 0, but input value is " + readBytesVal);
+            }
+        }
+
     }
 
     public long getId() {
@@ -473,6 +506,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 } else {
                     row.add(val);
                 }
+            } else if (READ_BYTES_PER_SECOND.equals(key) || REMOTE_READ_BYTES_PER_SECOND.equals(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add("-1");
+                } else {
+                    row.add(val);
+                }
             } else {
                 row.add(properties.get(key));
             }
@@ -553,6 +593,16 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String spillHighWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
         if (spillHighWatermarkStr != null) {
             tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
+        }
+
+        String readBytesPerSecStr = properties.get(READ_BYTES_PER_SECOND);
+        if (readBytesPerSecStr != null) {
+            tWorkloadGroupInfo.setReadBytesPerSecond(Long.valueOf(readBytesPerSecStr));
+        }
+
+        String remoteReadBytesPerSecStr = properties.get(REMOTE_READ_BYTES_PER_SECOND);
+        if (remoteReadBytesPerSecStr != null) {
+            tWorkloadGroupInfo.setRemoteReadBytesPerSecond(Long.valueOf(remoteReadBytesPerSecStr));
         }
 
         TopicInfo topicInfo = new TopicInfo();
