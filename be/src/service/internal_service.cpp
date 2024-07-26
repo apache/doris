@@ -668,7 +668,7 @@ void PInternalService::export_delete_exist_files(google::protobuf::RpcController
 
         pipeline::ResultFileOptions pipleline_file_opts = pipeline::ResultFileOptions(file_options);
         // TODO(ftw): get from FE
-        auto storage_type = static_cast<TStorageBackendType::type>(2);
+        auto storage_type = static_cast<TStorageBackendType::type>(request->storage_type());
 
         // delete files
         TUniqueId unique_id;
