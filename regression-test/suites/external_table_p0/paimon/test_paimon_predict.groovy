@@ -19,6 +19,7 @@ suite("test_paimon_predict", "p0,external,doris,external_docker,external_docker_
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test")
+        return
     }
 
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
