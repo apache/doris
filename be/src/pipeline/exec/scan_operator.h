@@ -130,6 +130,9 @@ protected:
 
     RuntimeProfile::Counter* _serialization_block_timer = nullptr;
     RuntimeProfile::Counter* _deserialization_block_timer = nullptr;
+    RuntimeProfile::Counter* _column_count = nullptr;
+    RuntimeProfile::Counter* _serialized_binay_size = nullptr;
+    RuntimeProfile::Counter* _block_size = nullptr;
 };
 
 template <typename LocalStateType>

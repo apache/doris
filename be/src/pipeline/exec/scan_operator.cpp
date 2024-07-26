@@ -1295,12 +1295,15 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
-    _serialization_block_timer = ADD_TIMER(_scanner_profile, "ScannerSerializationBlockTime");
-    _deserialization_block_timer = ADD_TIMER(_scanner_profile, "ScanNodeDeserializationBlockTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
-
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+
+    _serialization_block_timer = ADD_TIMER(_scanner_profile, "ScannerSerializationBlockTime");
+    _deserialization_block_timer = ADD_TIMER(_scanner_profile, "ScanNodeDeserializationBlockTime");
+    _serialized_binay_size = ADD_COUNTER(_scanner_profile, "SerializedBinarySize", TUnit::BYTES);
+    _block_size = ADD_COUNTER(_scanner_profile, "BlockSize", TUnit::BYTES);
+    _column_count = ADD_COUNTER(_scanner_profile, "ColumnCount", TUnit::UNIT);
 
     return Status::OK();
 }
@@ -1509,6 +1512,10 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     RETURN_IF_ERROR(local_state._scanner_ctx->get_serialized_block_from_queue(
             state, block, pblock.get(), &uncompressed_bytes, &compressed_bytes, compress_type, eos,
             0));
+    
+    COUNTER_UPDATE(local_state._serialized_binay_size, compressed_bytes);
+    COUNTER_UPDATE(local_state._block_size, uncompressed_bytes);
+    COUNTER_SET(local_state._column_count, (int64_t)block->columns());
 
     {
         SCOPED_TIMER(local_state._deserialization_block_timer);
