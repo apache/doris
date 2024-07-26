@@ -420,10 +420,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public String getLastQueryId() {
-        return queryIdDeque.getLast();
-    }
-
     public String getProfileBrief(String queryID) {
         readLock.lock();
         try {
@@ -914,5 +910,11 @@ public class ProfileManager extends MasterDaemon {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public String getLastProfileId() {
+        PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
+        ProfileElement profileElement = queueIdDeque.poll();
+        return profileElement.profile.getSummaryProfile().getProfileId();
     }
 }
