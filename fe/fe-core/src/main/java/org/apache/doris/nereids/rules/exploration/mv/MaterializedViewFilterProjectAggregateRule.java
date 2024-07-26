@@ -44,6 +44,6 @@ public class MaterializedViewFilterProjectAggregateRule extends AbstractMaterial
                         .thenApplyMultiNoThrow(ctx -> {
                             LogicalFilter<LogicalProject<LogicalAggregate<Plan>>> root = ctx.root;
                             return rewrite(root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_AGGREGATE));
+                        }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_PROJECT_AGGREGATE));
     }
 }

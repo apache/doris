@@ -54,6 +54,8 @@ public:
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType rle_page_builder(builder_options);
+        Status ret0 = rle_page_builder.init();
+        EXPECT_TRUE(ret0.ok());
         rle_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = rle_page_builder.finish();
         EXPECT_EQ(size, rle_page_builder.count());
@@ -155,6 +157,8 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
+    Status ret0 = rle_page_builder.init();
+    EXPECT_TRUE(ret0.ok());
     rle_page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header
@@ -191,6 +195,8 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
     segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
+    Status ret0 = rle_page_builder.init();
+    EXPECT_TRUE(ret0.ok());
     rle_page_builder.add(reinterpret_cast<const uint8_t*>(bools.get()), &size);
     OwnedSlice s = rle_page_builder.finish();
     // 4 bytes header

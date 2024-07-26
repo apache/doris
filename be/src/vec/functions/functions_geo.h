@@ -56,11 +56,12 @@ struct StContainsState {
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
-template <typename Impl, typename ReturnType = DataTypeString>
+template <typename Impl>
 class GeoFunction : public IFunction {
 public:
     static constexpr auto name = Impl::NAME;
-    static FunctionPtr create() { return std::make_shared<GeoFunction<Impl, ReturnType>>(); }
+    using ReturnType = typename Impl::Type;
+    static FunctionPtr create() { return std::make_shared<GeoFunction<Impl>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
     bool is_variadic() const override { return false; }

@@ -5,15 +5,9 @@
 -- !test_select --
 1	2
 
--- !test_show --
-test_create_table_without_distribution	CREATE TABLE `test_create_table_without_distribution` (\n  `a` INT NULL,\n  `b` INT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`a`, `b`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY RANDOM BUCKETS AUTO\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V1",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"binlog.enable" = "false",\n"binlog.ttl_seconds" = "86400",\n"binlog.max_bytes" = "9223372036854775807",\n"binlog.max_history_nums" = "9223372036854775807",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
-
 -- !test_insert_old_planner --
 1
 
 -- !test_select_old_planner --
 1	2
-
--- !test_show_old_planner --
-test_create_table_without_distribution	CREATE TABLE `test_create_table_without_distribution` (\n  `a` INT NULL,\n  `b` INT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`a`, `b`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY RANDOM BUCKETS AUTO\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V1",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"binlog.enable" = "false",\n"binlog.ttl_seconds" = "86400",\n"binlog.max_bytes" = "9223372036854775807",\n"binlog.max_history_nums" = "9223372036854775807",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
 

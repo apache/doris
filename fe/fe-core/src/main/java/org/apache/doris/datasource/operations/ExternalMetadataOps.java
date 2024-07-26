@@ -62,6 +62,14 @@ public interface ExternalMetadataOps {
 
     /**
      *
+     * @param dbName
+     * @param tblName
+     * @param partitions
+     */
+    void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException;
+
+    /**
+     *
      * @return
      */
     List<String> listDatabaseNames();
@@ -82,4 +90,9 @@ public interface ExternalMetadataOps {
     boolean tableExist(String dbName, String tblName);
 
     boolean databaseExist(String dbName);
+
+    /**
+     * close the connection, eg, to hms
+     */
+    void close();
 }

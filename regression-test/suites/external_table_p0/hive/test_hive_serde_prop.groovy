@@ -37,6 +37,14 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
             );"""
 
 		qt_1 """select * from ${catalog_name}.${ex_db_name}.employee_gz order by name;"""
+
+
+        qt_2 """select * from ${catalog_name}.regression.serde_test1 order by id;"""
+        qt_3 """select * from ${catalog_name}.regression.serde_test2 order by id;"""
+        qt_4 """select * from ${catalog_name}.regression.serde_test3 order by id;"""
+        qt_5 """select * from ${catalog_name}.regression.serde_test4 order by id;"""
+        qt_6 """select * from ${catalog_name}.regression.serde_test5 order by id;"""
+        qt_7 """select * from ${catalog_name}.regression.serde_test6 order by id;"""
     }
 }
 

@@ -45,7 +45,7 @@ PredicateType MatchPredicate::type() const {
     return PredicateType::MATCH;
 }
 
-Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                                 InvertedIndexIterator* iterator, uint32_t num_rows,
                                 roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {

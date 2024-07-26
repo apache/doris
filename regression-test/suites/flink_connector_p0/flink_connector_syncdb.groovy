@@ -39,7 +39,8 @@ UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"light_schema_change" = "true"
+"light_schema_change" = "true",
+"enable_unique_key_merge_on_write" = "false"
 );
     """
     sql """
@@ -53,15 +54,25 @@ UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"light_schema_change" = "true"
+"light_schema_change" = "true",
+"enable_unique_key_merge_on_write" = "false"
 );"""
 
     logger.info("start delete local flink-doris-syncdb.jar....")
     def delete_local_flink_jar = "rm -rf flink-doris-syncdb.jar".execute()
-    logger.info("start download flink-doris-syncdb.jar ....")
+    logger.info("start download regression/flink-doris-syncdb.jar ....")
     logger.info("getS3Url: ${getS3Url()}")
-    def download_flink_jar = "curl ${getS3Url()}/regression/flink-doris-syncdb.jar  --output flink-doris-syncdb.jar".execute().getText()
-    logger.info("finish download flink-doris-syncdb.jar ...")
+    def download_flink_jar = "wget --quiet --continue --tries=5 ${getS3Url()}/regression/flink-doris-syncdb.jar".execute().getText()
+
+    def file = new File('flink-doris-syncdb.jar')
+    if (file.exists()) {
+        def fileSize = file.length()
+        logger.info("finish download flink-doris-syncdb.jar, size " + fileSize)
+    } else {
+        logger.info("flink-doris-syncdb.jar download failed")
+        throw new Exception("File flink-doris-syncdb.jar download failed.")
+    }
+
     def run_cmd = "java -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()

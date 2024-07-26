@@ -92,6 +92,8 @@ suite("test_crud_wlg") {
     sql "alter workload group normal properties ( 'queue_timeout'='0' );"
     sql "alter workload group normal properties ( 'cpu_hard_limit'='1%' );"
     sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'remote_read_bytes_per_second'='-1' );"
 
     sql "set workload_group=normal;"
 
@@ -126,7 +128,7 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test drop workload group
     sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
@@ -196,9 +198,31 @@ suite("test_crud_wlg") {
         exception "requires a positive integer"
     }
 
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
+    sql "alter workload group test_group properties('remote_read_bytes_per_second'='104857600')"
+    sql "alter workload group test_group properties('read_bytes_per_second'='104857600')"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
     // failed for cpu_share
@@ -282,6 +306,15 @@ suite("test_crud_wlg") {
     sql """drop user if exists test_wlg_user"""
     sql "CREATE USER 'test_wlg_user'@'%' IDENTIFIED BY '12345';"
     sql """grant SELECT_PRIV on *.*.* to test_wlg_user;"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+    }
+
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
             sql """ select count(1) from information_schema.backend_active_tasks; """
     }
@@ -332,7 +365,7 @@ suite("test_crud_wlg") {
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
-        exception "query wait timeout"
+        exception "query queue timeout"
     }
 
     // test query queue running query/waiting num
@@ -527,7 +560,7 @@ suite("test_crud_wlg") {
     sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
     sql "set workload_group=bypass_group;"
     test {
-        sql "select count(1) from information_schema.active_queries;"
+        sql "select count(1) from ${table_name};"
         exception "query waiting queue is full"
     }
 

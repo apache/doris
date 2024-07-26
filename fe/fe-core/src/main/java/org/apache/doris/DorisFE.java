@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
@@ -226,6 +227,11 @@ public class DorisFE {
     }
 
     private static void checkAllPorts() throws IOException {
+        if (Config.enable_check_compatibility_mode) {
+            // The compatibility mode does not need to listen ports.
+            return;
+        }
+
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
                 "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
@@ -386,11 +392,11 @@ public class DorisFE {
     }
 
     private static void printVersion() {
-        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+        LogUtils.stdout("Build version: " + Version.DORIS_BUILD_VERSION);
+        LogUtils.stdout("Build time: " + Version.DORIS_BUILD_TIME);
+        LogUtils.stdout("Build info: " + Version.DORIS_BUILD_INFO);
+        LogUtils.stdout("Build hash: " + Version.DORIS_BUILD_HASH);
+        LogUtils.stdout("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
 
         LOG.info("Build version: {}", Version.DORIS_BUILD_VERSION);
         LOG.info("Build time: {}", Version.DORIS_BUILD_TIME);
@@ -413,16 +419,16 @@ public class DorisFE {
         } else if (cmdLineOpts.runImageTool()) {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
-                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                LogUtils.stderr("image does not exist: " + imageFile.getAbsolutePath()
                         + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
-                System.out.println("Start to load image: ");
+                LogUtils.stdout("Start to load image: ");
                 try {
                     MetaReader.read(imageFile, Env.getCurrentEnv());
-                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                    LogUtils.stdout("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
-                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    LogUtils.stderr("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
                     LOG.warn("", e);
                 } finally {
                     System.exit(0);
@@ -481,9 +487,7 @@ public class DorisFE {
                 + "same time");
     }
 
-
     private static void releaseFileLockAndCloseFileChannel() {
-
         if (processFileLock != null && processFileLock.isValid()) {
             try {
                 processFileLock.release();
@@ -498,7 +502,6 @@ public class DorisFE {
                 LOG.warn("release process lock file failed", ignored);
             }
         }
-
     }
 
     public static void overwriteConfigs() {

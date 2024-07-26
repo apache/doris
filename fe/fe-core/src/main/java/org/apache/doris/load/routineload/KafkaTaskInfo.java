@@ -94,11 +94,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         if (!isMultiTable) {
             Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
             tRoutineLoadTask.setTbl(tbl.getName());
-            if (Config.enable_pipeline_load) {
-                tRoutineLoadTask.setPipelineParams(rePlanForPipeline(routineLoadJob));
-            } else {
-                throw new UserException("Pipeline load should be enabled");
-            }
+            tRoutineLoadTask.setPipelineParams(rePlan(routineLoadJob));
         } else {
             Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
         }
@@ -132,39 +128,6 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
-        TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
-        // it needs update timeout to make task timeout backoff work
-        long timeoutS = this.getTimeoutMs() / 1000;
-        tPlanFragment.getOutputSink().getOlapTableSink().setLoadChannelTimeoutS(timeoutS);
-        tExecPlanFragmentParams.getQueryOptions().setQueryTimeout((int) timeoutS);
-        tExecPlanFragmentParams.getQueryOptions().setExecutionTimeout((int) timeoutS);
-
-        if (Config.enable_workload_group) {
-            long wgId = routineLoadJob.getWorkloadId();
-            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-            if (wgId > 0) {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getTWorkloadGroupById(wgId);
-                if (tWgList.size() == 0) {
-                    throw new UserException("can not find workload group, id=" + wgId);
-                }
-            } else {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
-            }
-            if (tWgList.size() != 0) {
-                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
-            }
-        }
-
-        return tExecPlanFragmentParams;
-    }
-
-    private TPipelineFragmentParams rePlanForPipeline(RoutineLoadJob routineLoadJob) throws UserException {
-        TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
-        // plan for each task, in case table has change(rollup or schema change)
-        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.planForPipeline(loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         // it needs update timeout to make task timeout backoff work

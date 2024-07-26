@@ -140,25 +140,42 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
 
     /**
      * if user trigger, return true
-     * if system trigger, Check if there are any system triggered tasks, and if so, return false
+     * else, only can have 2 task. because every task can refresh all data.
      *
      * @param taskContext
      * @return
      */
     @Override
     public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
-        if (taskContext != null) {
+        if (isManual(taskContext)) {
             return true;
         }
         List<MTMVTask> runningTasks = getRunningTasks();
+        int runningNum = 0;
         for (MTMVTask task : runningTasks) {
-            if (task.getTaskContext() == null || task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.SYSTEM) {
-                LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
-                        task);
-                return false;
+            if (!isManual(task.getTaskContext())) {
+                runningNum++;
+                // Prerequisite: Each refresh will calculate which partitions to refresh
+                //
+                // For example, there is currently a running task that is refreshing partition p1.
+                // If the data of p2 changes at this time and triggers a refresh task t2,
+                // according to the logic (>=1), t2 will be lost
+                //
+                // If the logic is >=2, t2 will wait lock of MTMVJob.
+                // If the p3 data changes again and triggers the refresh task t3,
+                // then t3 will be discarded. However, when t2 runs, both p2 and p3 data will be refreshed.
+                if (runningNum >= 2) {
+                    LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
+                            task);
+                    return false;
+                }
             }
         }
         return true;
+    }
+
+    private boolean isManual(MTMVTaskContext taskContext) {
+        return taskContext != null && taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL;
     }
 
     @Override

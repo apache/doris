@@ -35,24 +35,32 @@ namespace doris::vectorized {
 
 class DataTypeAggState : public DataTypeString {
 public:
-    DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name)
+    DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name,
+                     int be_exec_version)
             : _result_is_nullable(result_is_nullable),
               _sub_types(std::move(sub_types)),
-              _function_name(std::move(function_name)) {
+              _function_name(std::move(function_name)),
+              _be_exec_version(be_exec_version) {
         _agg_function = AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
                                                                        _result_is_nullable);
         if (_agg_function == nullptr) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "DataTypeAggState function get failed, type={}", do_get_name());
         }
+        if (!BeExecVersionManager::check_be_exec_version(be_exec_version)) {
+            LOG(WARNING) << "meet old agg-state, be_exec_version=" << be_exec_version;
+        }
+        _agg_function->set_version(be_exec_version);
         _agg_serialized_type = _agg_function->get_serialized_type();
     }
 
     const char* get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
-        return fmt::format("AggState(function_name={},result_is_nullable={},arguments=[{}])",
-                           _function_name, _result_is_nullable, get_types_string());
+        return fmt::format(
+                "AggState(function_name={},result_is_nullable={},arguments=[{}],be_exec_version={}"
+                ")",
+                _function_name, _result_is_nullable, get_types_string(), _be_exec_version);
     }
 
     std::string get_function_name() const { return _function_name; }
@@ -87,6 +95,7 @@ public:
         }
         col_meta->set_function_name(_function_name);
         col_meta->set_result_is_nullable(_result_is_nullable);
+        col_meta->set_be_exec_version(_be_exec_version);
     }
 
     AggregateFunctionPtr get_nested_function() const { return _agg_function; }
@@ -133,6 +142,7 @@ private:
     AggregateFunctionPtr _agg_function;
     DataTypes _sub_types;
     std::string _function_name;
+    int _be_exec_version;
 };
 
 } // namespace doris::vectorized

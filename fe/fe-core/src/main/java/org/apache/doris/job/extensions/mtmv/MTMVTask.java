@@ -41,6 +41,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -107,6 +108,7 @@ public class MTMVTask extends AbstractTask {
 
     public enum MTMVTaskTriggerMode {
         MANUAL,
+        COMMIT,
         SYSTEM
     }
 
@@ -221,6 +223,9 @@ public class MTMVTask extends AbstractTask {
     private void exec(ConnectContext ctx, Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
+        Objects.requireNonNull(ctx, "ctx should not be null");
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set

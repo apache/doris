@@ -25,9 +25,12 @@ suite("test_distribute") {
 
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
-
+    sql 'set be_number_for_test=1'
+    sql "set parallel_pipeline_task_num=1"
+    
     // create tables
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""

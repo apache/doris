@@ -26,7 +26,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/s3_common.h"
@@ -96,7 +96,8 @@ FileBuffer::~FileBuffer() {
  * 1. write to file cache otherwise, then we'll wait for free buffer and to rob it
  */
 Status UploadFileBuffer::append_data(const Slice& data) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::append_data", Status::OK());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::append_data", Status::OK(), this,
+                                      data.get_size());
     std::memcpy((void*)(_inner_data->data().get_data() + _size), data.get_data(), data.get_size());
     _size += data.get_size();
     _crc_value = crc32c::Extend(_crc_value, data.get_data(), data.get_size());
@@ -137,6 +138,10 @@ Status FileBuffer::submit(std::shared_ptr<FileBuffer> buf) {
         CHECK(false) << "should never come here, the illegal type is " << buf->_type;
     };
     return Status::InternalError("should never come here");
+}
+
+std::string_view FileBuffer::get_string_view_data() const {
+    return {_inner_data->data().get_data(), _size};
 }
 
 void UploadFileBuffer::on_upload() {

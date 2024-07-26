@@ -190,14 +190,11 @@ public class ShowDataStmt extends ShowStmt {
                     long tableSize = 0;
                     long replicaCount = 0;
                     long remoteSize = 0;
-                    olapTable.readLock();
-                    try {
-                        tableSize = olapTable.getDataSize();
-                        replicaCount = olapTable.getReplicaCount();
-                        remoteSize = olapTable.getRemoteDataSize();
-                    } finally {
-                        olapTable.readUnlock();
-                    }
+
+                    tableSize = olapTable.getDataSize();
+                    replicaCount = olapTable.getReplicaCount();
+                    remoteSize = olapTable.getRemoteDataSize();
+
                     //|TableName|Size|ReplicaCount|RemoteSize
                     List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
                     totalRowsObject.add(row);
@@ -295,7 +292,7 @@ public class ShowDataStmt extends ShowStmt {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
-                        indexRowCount += mIndex.getRowCount();
+                        indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                         indexRemoteSize += mIndex.getRemoteDataSize();
                     }
 

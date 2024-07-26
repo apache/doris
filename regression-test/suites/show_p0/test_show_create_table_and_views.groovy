@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_show_create_table_and_views", "show") {
+    sql "SET enable_nereids_planner=false;"
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
@@ -36,7 +37,9 @@ suite("test_show_create_table_and_views", "show") {
         CREATE TABLE ${dbName}.${tableName} (
             `user_id` LARGEINT NOT NULL,
             `good_id` LARGEINT NOT NULL,
-            `cost` BIGINT SUM DEFAULT "0"
+            `cost` BIGINT SUM DEFAULT "0",
+            INDEX index_user_id (`user_id`) USING INVERTED COMMENT 'test index comment',
+            INDEX index_good_id (`good_id`) USING INVERTED COMMENT 'test index" comment'
         )
         AGGREGATE KEY(`user_id`, `good_id`)
         PARTITION BY RANGE(`good_id`)

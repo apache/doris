@@ -150,6 +150,7 @@ public:
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
+        DCHECK(pos);
         _get_null_map_column().insert_many_vals(0, num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
@@ -414,7 +415,7 @@ private:
     WrappedPtr null_map;
 
     bool _need_update_has_null = true;
-    bool _has_null;
+    bool _has_null = true;
 
     void _update_has_null();
     template <bool negative>

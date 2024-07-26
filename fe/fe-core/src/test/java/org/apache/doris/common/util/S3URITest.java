@@ -170,6 +170,19 @@ public class S3URITest {
         Assert.assertTrue(uri1.getQueryParams().get().get("partNumber").contains("88"));
     }
 
+    @Test
+    public void testHadoopEncodedString() throws UserException {
+        String p1 = "s3://bucket/path%20to%20file/abc%3Aqqq=xyz%2Fyyy zzz";
+        boolean isPathStyle = false;
+        boolean forceParsingStandardUri = false;
+        S3URI uri1 = S3URI.create(p1, isPathStyle, forceParsingStandardUri);
+
+        Assert.assertEquals("bucket", uri1.getBucket());
+        Assert.assertEquals("path%20to%20file/abc%3Aqqq=xyz%2Fyyy zzz", uri1.getKey());
+        Assert.assertEquals(Optional.empty(), uri1.getEndpoint());
+        Assert.assertEquals(Optional.empty(), uri1.getRegion());
+    }
+
     @Test(expected = UserException.class)
     public void missingBucket() throws UserException {
         S3URI.create("https:///");

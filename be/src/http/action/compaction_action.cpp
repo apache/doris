@@ -61,7 +61,7 @@ CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env
                                    TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
 
-/// check param and fetch tablet_id from req
+/// check param and fetch tablet_id & table_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
     const auto& req_tablet_id = req->param(TABLET_ID_KEY);
@@ -75,7 +75,7 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
             try {
                 *table_id = std::stoull(req_table_id);
             } catch (const std::exception& e) {
-                return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+                return Status::InternalError("convert table_id failed, {}", e.what());
             }
             return Status::OK();
         }
@@ -83,7 +83,7 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
         try {
             *tablet_id = std::stoull(req_tablet_id);
         } catch (const std::exception& e) {
-            return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
+            return Status::InternalError("convert tablet_id failed, {}", e.what());
         }
         return Status::OK();
     } else {
@@ -92,11 +92,29 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* tabl
     }
 }
 
+/// retrieve specific id from req
+static Status _check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name) {
+    const auto& req_id_param = req->param(param_name);
+    if (!req_id_param.empty()) {
+        try {
+            *id_param = std::stoull(req_id_param);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert {} failed, {}", param_name, e.what());
+        }
+    }
+
+    return Status::OK();
+}
+
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+    if (tablet_id == 0) {
+        return Status::InternalError("check param failed: missing tablet_id");
+    }
 
     TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -178,14 +196,13 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint64_t table_id = 0;
-
-    // check req_tablet_id is not empty
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
 
     if (tablet_id == 0) {
         // overall compaction status
-        RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
+        _engine.get_compaction_status_json(json_result);
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id

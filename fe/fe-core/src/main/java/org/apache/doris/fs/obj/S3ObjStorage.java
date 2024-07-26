@@ -20,9 +20,9 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
@@ -54,6 +54,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.File;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -169,14 +170,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     @Override
-    public Status putObject(String remotePath, @Nullable RequestBody requestBody) {
+    public Status putObject(String remotePath, @Nullable InputStream content, long contentLength) {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            RequestBody body = RequestBody.fromInputStream(content, contentLength);
             PutObjectResponse response =
                     getClient()
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
-                                    requestBody);
+                                    body);
             LOG.info("put object success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {

@@ -23,7 +23,6 @@ suite("test_point_query_partition") {
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".tbl_point_query_partition"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-
     // Parse url
     String jdbcUrl = context.config.jdbcUrl
     String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -113,5 +112,41 @@ suite("test_point_query_partition") {
         qe_point_select stmt
         stmt.setInt(1, 1000)
         qe_point_select stmt
+    }
+
+    sql "DROP TABLE IF EXISTS regression_test_serving_p0.customer";
+    sql """
+        CREATE TABLE regression_test_serving_p0.customer (
+          `customer_key` BIGINT NULL,
+          `customer_value_0` TEXT NULL,
+          `customer_value_1` TEXT NULL,
+          `customer_value_2` TEXT NULL,
+          `customer_value_3` TEXT NULL,
+          `customer_value_4` TEXT NULL,
+          `customer_value_5` TEXT NULL,
+          `customer_value_6` TEXT NULL,
+          `customer_value_7` TEXT NULL,
+          `customer_value_8` TEXT NULL,
+          `customer_value_10` TEXT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`customer_key`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`customer_key`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "store_row_column" = "true"
+        ); 
+    """  
+    sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686612, "686612", "686612")"""
+    sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686613, "686613", "686613")"""
+    def result3 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_serving_p0.customer where customer_key = ?"
+        stmt.setInt(1, 686612)
+        qe_point_selectxxx stmt 
+        qe_point_selectyyy stmt 
+        qe_point_selectzzz stmt 
+        stmt.setInt(1, 686613)
+        qe_point_selectmmm stmt 
+        qe_point_selecteee stmt 
     }
 } 

@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <utility>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
@@ -951,7 +952,7 @@ private:
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
 
-    SharedRuntimeFilterContext _context;
+    RuntimeFilterContextSPtr _context;
     uint32_t _filter_id;
 };
 
@@ -964,7 +965,7 @@ Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* poo
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
 
-SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref() {
+RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
     return _wrapper->_context;
 }
 
@@ -1029,7 +1030,44 @@ Status IRuntimeFilter::publish(bool publish_local) {
     return Status::OK();
 }
 
-Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
+class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
+                                                  DummyBrpcCallback<PSendFilterSizeResponse>> {
+    std::shared_ptr<pipeline::Dependency> _dependency;
+    RuntimeFilterContextSPtr _rf_context;
+    std::string _rf_debug_info;
+    using Base =
+            AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
+    ENABLE_FACTORY_CREATOR(SyncSizeClosure);
+
+    void _process_if_rpc_failed() override {
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _rf_debug_info;
+        Base::_process_if_rpc_failed();
+    }
+
+    void _process_if_meet_error_status(const Status& status) override {
+        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
+            _rf_context->ignored = true;
+        } else {
+            LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
+            Base::_process_if_meet_error_status(status);
+        }
+    }
+
+public:
+    SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
+                    std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
+                    std::shared_ptr<pipeline::Dependency> dependency,
+                    RuntimeFilterContextSPtr rf_context, std::string_view rf_debug_info)
+            : Base(req, callback),
+              _dependency(std::move(dependency)),
+              _rf_context(rf_context),
+              _rf_debug_info(rf_debug_info) {}
+};
+
+Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
     if (_need_local_merge) {
@@ -1069,10 +1107,10 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
-    auto closure =
-            AutoReleaseClosure<PSendFilterSizeRequest,
-                               DummyBrpcCallback<PSendFilterSizeResponse>>::create_unique(request,
-                                                                                          callback);
+    // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
+    // a raw pointer in closure. Has to use the context's shared ptr.
+    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency,
+                                                  _wrapper->_context, this->debug_string());
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
@@ -1083,7 +1121,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(wait_time_ms());
+    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
@@ -1117,7 +1155,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
+    merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
     merge_filter_request->set_column_type(to_proto(column_type));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
@@ -1170,35 +1208,21 @@ bool IRuntimeFilter::await() {
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
                                     : runtime_filter_wait_time_ms;
-    if (_enable_pipeline_exec) {
-        auto expected = _rf_state_atomic.load(std::memory_order_acquire);
-        if (expected == RuntimeFilterState::NOT_READY) {
-            if (!_rf_state_atomic.compare_exchange_strong(
-                        expected,
-                        MonotonicMillis() - registration_time_ >= wait_times_ms
-                                ? RuntimeFilterState::TIME_OUT
-                                : RuntimeFilterState::NOT_READY,
-                        std::memory_order_acq_rel)) {
-                DCHECK(expected == RuntimeFilterState::READY ||
-                       expected == RuntimeFilterState::TIME_OUT);
-                return (expected == RuntimeFilterState::READY);
-            }
-            return false;
-        } else if (expected == RuntimeFilterState::TIME_OUT) {
-            return false;
+    auto expected = _rf_state_atomic.load(std::memory_order_acquire);
+    if (expected == RuntimeFilterState::NOT_READY) {
+        if (!_rf_state_atomic.compare_exchange_strong(
+                    expected,
+                    MonotonicMillis() - registration_time_ >= wait_times_ms
+                            ? RuntimeFilterState::TIME_OUT
+                            : RuntimeFilterState::NOT_READY,
+                    std::memory_order_acq_rel)) {
+            DCHECK(expected == RuntimeFilterState::READY ||
+                   expected == RuntimeFilterState::TIME_OUT);
+            return (expected == RuntimeFilterState::READY);
         }
-    } else {
-        std::unique_lock lock(_inner_mutex);
-        if (_rf_state != RuntimeFilterState::READY) {
-            int64_t ms_since_registration = MonotonicMillis() - registration_time_;
-            int64_t ms_remaining = wait_times_ms - ms_since_registration;
-            _rf_state = RuntimeFilterState::TIME_OUT;
-            if (ms_remaining <= 0) {
-                return false;
-            }
-            return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
-                                      [this] { return _rf_state == RuntimeFilterState::READY; });
-        }
+        return false;
+    } else if (expected == RuntimeFilterState::TIME_OUT) {
+        return false;
     }
     return true;
 }
@@ -1212,7 +1236,6 @@ void IRuntimeFilter::update_state() {
                                     ? execution_timeout
                                     : runtime_filter_wait_time_ms;
     auto expected = _rf_state_atomic.load(std::memory_order_acquire);
-    DCHECK(_enable_pipeline_exec);
     // In pipelineX, runtime filters will be ready or timeout before open phase.
     if (expected == RuntimeFilterState::NOT_READY) {
         DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
@@ -1234,17 +1257,11 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    if (_enable_pipeline_exec) {
-        _rf_state_atomic.store(RuntimeFilterState::READY);
-        if (!_filter_timer.empty()) {
-            for (auto& timer : _filter_timer) {
-                timer->call_ready();
-            }
+    _rf_state_atomic.store(RuntimeFilterState::READY);
+    if (!_filter_timer.empty()) {
+        for (auto& timer : _filter_timer) {
+            timer->call_ready();
         }
-    } else {
-        std::unique_lock lock(_inner_mutex);
-        _rf_state = RuntimeFilterState::READY;
-        _inner_cv.notify_all();
     }
 
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
@@ -1315,6 +1332,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
     params.max_in_num = options->runtime_filter_max_in_num;
+    params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
+                                                   ? options->runtime_bloom_filter_min_size
+                                                   : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join

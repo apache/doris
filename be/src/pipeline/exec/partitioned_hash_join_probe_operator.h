@@ -24,14 +24,12 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "vec/runtime/partitioner.h"
+#include "pipeline/exec/spill_utils.h"
 
 namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
-using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinProbeOperatorX;
 
@@ -59,6 +57,8 @@ public:
     void update_build_profile(RuntimeProfile* child_profile);
     void update_probe_profile(RuntimeProfile* child_profile);
 
+    std::string debug_string(int indentation_level = 0) const override;
+
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:
@@ -82,7 +82,7 @@ private:
 
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
-    std::unique_ptr<PartitionerType> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -177,6 +177,9 @@ public:
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
     }
+    bool require_data_distribution() const override {
+        return _inner_probe_operator->require_data_distribution();
+    }
 
 private:
     Status _revoke_memory(RuntimeState* state);
@@ -207,6 +210,7 @@ private:
     const DescriptorTbl _descriptor_tbl;
 
     const uint32_t _partition_count;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 
 } // namespace pipeline

@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -66,10 +67,8 @@ public abstract class FileScanNode extends ExternalScanNode {
     public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
-    protected long inputSplitsNum = 0;
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
-    protected long readPartitionNum = 0;
     protected long fileSplitSize;
     public long rowCount = 0;
 
@@ -98,6 +97,13 @@ public abstract class FileScanNode extends ExternalScanNode {
         super.toThrift(planNode);
     }
 
+    public long getPushDownCount() {
+        // 1. Do not use `0`: If the number of entries in the table is 0,
+        //                    it is unclear whether optimization has been performed.
+        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
+        return -1;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -110,9 +116,13 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+        output.append(prefix);
+        if (isBatchMode()) {
+            output.append("(approximate)");
+        }
+        output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
-        output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
+        output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE) {
@@ -169,7 +179,14 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
-        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
+
+        // pushdown agg
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
+        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
+            output.append(" (").append(getPushDownCount()).append(")");
+        }
+        output.append("\n");
+
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -294,9 +311,5 @@ public abstract class FileScanNode extends ExternalScanNode {
         BlockLocation last = blkLocations[blkLocations.length - 1];
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
-    }
-
-    public long getReadPartitionNum() {
-        return this.readPartitionNum;
     }
 }

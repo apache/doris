@@ -59,6 +59,7 @@ suite("test_primary_key_partial_update_with_row_column", "p0") {
     qt_select_default """
         select * from ${tableName} order by id
     """
+    qt_sql "select  sum(length(__DORIS_ROW_STORE_COL__)) from ${tableName}"
 
     // drop drop
     sql """ DROP TABLE IF EXISTS ${tableName} """

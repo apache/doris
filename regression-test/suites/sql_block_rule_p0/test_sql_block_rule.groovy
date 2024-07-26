@@ -235,6 +235,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
         CREATE SQL_BLOCK_RULE if not exists test_rule_alter_view PROPERTIES ( "sql"="alter view", "global" = "true",
         "enable"="true");
     """
+    sql """ drop view if exists table_test_rule_alter_view """
     sql "create view table_test_rule_alter_view as select 2"
     try {
         test {

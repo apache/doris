@@ -90,6 +90,11 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             def compactJson = parseJson(out.trim())
             assertTrue(compactJson.msg.toLowerCase().contains("is not running"))
         }
+
+        (code, out, err) = be_get_overall_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        logger.info("Get overall compaction status: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        assertTrue(out.toLowerCase().contains("cumulativecompaction"))
     } catch (Exception e) {
         logger.info(e.getMessage())
         exception = true;

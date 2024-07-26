@@ -341,6 +341,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
+            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
@@ -453,6 +454,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             if (has_attachment) {
                 closure->cntl_->request_attachment().append(request_attachment);
             }
+            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
             // set fragment-id
             for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
                 PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
@@ -500,7 +502,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* sta
             state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = state->enable_pipeline_x_exec();
     params->execution_timeout = state->execution_timeout();
     params->runtime_filter_mgr = state->local_runtime_filter_mgr();
     params->exec_env = state->exec_env();
@@ -516,7 +517,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     RuntimeFilterParamsContext* params = query_ctx->obj_pool.add(new RuntimeFilterParamsContext());
     params->runtime_filter_wait_infinitely = query_ctx->runtime_filter_wait_infinitely();
     params->runtime_filter_wait_time_ms = query_ctx->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = query_ctx->enable_pipeline_x_exec();
     params->execution_timeout = query_ctx->execution_timeout();
     params->runtime_filter_mgr = query_ctx->runtime_filter_mgr();
     params->exec_env = query_ctx->exec_env();

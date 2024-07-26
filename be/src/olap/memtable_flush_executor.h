@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
@@ -54,10 +55,11 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 // 1. Immediately disallow submission of any subsequent memtable
 // 2. For the memtables that have already been submitted, there is no need to flush,
 //    because the entire job will definitely fail;
-class FlushToken {
+class FlushToken : public std::enable_shared_from_this<FlushToken> {
+    ENABLE_FACTORY_CREATOR(FlushToken);
+
 public:
-    explicit FlushToken(ThreadPool* thread_pool)
-            : _flush_status(Status::OK()), _thread_pool(thread_pool) {}
+    FlushToken(ThreadPool* thread_pool) : _flush_status(Status::OK()), _thread_pool(thread_pool) {}
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
@@ -71,7 +73,9 @@ public:
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
-    void set_rowset_writer(RowsetWriter* rowset_writer) { _rowset_writer = rowset_writer; }
+    void set_rowset_writer(std::shared_ptr<RowsetWriter> rowset_writer) {
+        _rowset_writer = rowset_writer;
+    }
 
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
@@ -95,12 +99,15 @@ private:
 
     FlushStatistic _stats;
 
-    RowsetWriter* _rowset_writer = nullptr;
+    std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
 
     MemTableStat _memtable_stat;
 
     std::atomic<bool> _shutdown = false;
     ThreadPool* _thread_pool = nullptr;
+
+    std::mutex _mutex;
+    std::condition_variable _cond;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
@@ -125,10 +132,11 @@ public:
     // because it needs path hash of each data dir.
     void init(int num_disk);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
-                              bool is_high_priority);
+    Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
+                              std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
+    Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
+                              std::shared_ptr<RowsetWriter> rowset_writer,
                               ThreadPool* wg_flush_pool_ptr);
 
 private:

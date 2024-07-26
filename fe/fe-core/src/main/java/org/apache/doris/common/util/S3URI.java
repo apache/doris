@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -60,11 +62,12 @@ import java.util.stream.Collectors;
  * Virtual Host AWS Client (Hadoop S3) Mixed Style: <code>isPathStyle = false && forceParsingByStandardUri = true</code>
  * Path AWS Client (Hadoop S3) Mixed Style: <code>isPathStyle = true && forceParsingByStandardUri = true</code>
  *
- * When the incoming location is url encoded, the encoded string will be returned.
- * For <code>getKey()</code>, <code>getQueryParams()</code> will return the encoding string
  */
 
 public class S3URI {
+
+    private static final Pattern URI_PATTERN =
+            Pattern.compile("^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?");
     public static final String SCHEME_DELIM = "://";
     public static final String PATH_DELIM = "/";
     private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n",
@@ -117,7 +120,8 @@ public class S3URI {
     }
 
     private void parseUri(String location, boolean forceParsingStandardUri) throws UserException {
-        validateUri(location);
+        parseURILocation(location);
+        validateUri();
 
         if (!forceParsingStandardUri && OS_SCHEMES.contains(uri.getScheme().toLowerCase())) {
             parseAwsCliStyleUri();
@@ -127,12 +131,29 @@ public class S3URI {
         parseEndpointAndRegion();
     }
 
-    private void validateUri(String location) throws UserException {
+    /**
+     * parse uri location and encode to a URI.
+     * @param location
+     * @throws UserException
+     */
+    private void parseURILocation(String location) throws UserException {
+        Matcher matcher = URI_PATTERN.matcher(location);
+        if (!matcher.matches()) {
+            throw new UserException("Failed to parse uri: " + location);
+        }
+        String scheme = matcher.group(2);
+        String authority = matcher.group(4);
+        String path = matcher.group(5);
+        String query = matcher.group(7);
+        String fragment = matcher.group(9);
         try {
-            uri = new URI(location);
+            uri = new URI(scheme, authority, path, query, fragment).normalize();
         } catch (URISyntaxException e) {
             throw new UserException(e);
         }
+    }
+
+    private void validateUri() throws UserException {
         if (uri.getScheme() == null || !VALID_SCHEMES.contains(uri.getScheme().toLowerCase())) {
             throw new UserException("Invalid scheme: " + this.uri);
         }
@@ -143,7 +164,7 @@ public class S3URI {
         if (bucket == null) {
             throw new UserException("missing bucket: " + uri);
         }
-        String path = uri.getRawPath();
+        String path = uri.getPath();
         if (path.length() > 1) {
             key = path.substring(1);
         } else {
@@ -173,7 +194,7 @@ public class S3URI {
 
     private void addQueryParamsIfNeeded() {
         if (uri.getQuery() != null) {
-            queryParams = splitQueryString(uri.getRawQuery()).stream().map((s) -> s.split("="))
+            queryParams = splitQueryString(uri.getQuery()).stream().map((s) -> s.split("="))
                     .map((s) -> s.length == 1 ? new String[] {s[0], null} : s).collect(
                             Collectors.groupingBy((a) -> a[0],
                                     Collectors.mapping((a) -> a[1], Collectors.toList())));
@@ -201,7 +222,7 @@ public class S3URI {
     }
 
     private void parsePathStyleUri() throws UserException {
-        String path = uri.getRawPath();
+        String path = uri.getPath();
 
         if (!StringUtils.isEmpty(path) && !"/".equals(path)) {
             int index = path.indexOf('/', 1);
@@ -226,7 +247,7 @@ public class S3URI {
     private void parseVirtualHostedStyleUri() throws UserException {
         bucket = uri.getHost().split("\\.")[0];
 
-        String path = uri.getRawPath();
+        String path = uri.getPath();
         if (!StringUtils.isEmpty(path) && !"/".equals(path)) {
             key = path.substring(1);
         } else {

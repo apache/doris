@@ -73,7 +73,7 @@ suite("insert_with_null") {
             sql """ set group_commit = async_mode; """
             sql """ set enable_nereids_dml = true; """
             sql """ set enable_nereids_planner=true; """
-            //sql """ set enable_fallback_to_original_planner=false; """
+            sql """ set enable_fallback_to_original_planner=false; """
         }
 
         sql """ insert into ${table} values(1, '"b"', ["k1=v1, k2=v2"]); """

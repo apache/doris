@@ -25,7 +25,7 @@
 
 #include "gutil/dynamic_annotations.h"
 #include "gutil/port.h"
-#include "gutil/strings/fastmem.h"
+#include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
 
@@ -123,7 +123,7 @@ public:
                 *p++ = *src++;
             }
         } else {
-            strings::memcpy_inlined(&data_[len_], src, count);
+            memcpy_inlined(&data_[len_], src, count);
         }
         len_ += count;
     }

@@ -17,10 +17,16 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "operator.h"
-#include "vec/sink/vresult_file_sink.h"
+#include "vec/sink/writer/vfile_result_writer.h"
+
+namespace doris::vectorized {
+template <typename Parent>
+class BlockSerializer;
+template <typename Parent>
+class Channel;
+class BroadcastPBlockHolder;
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -31,6 +37,7 @@ public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -57,7 +64,7 @@ private:
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
-    vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
+    std::unique_ptr<vectorized::BlockSerializer<ResultFileSinkLocalState>> _serializer;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
@@ -95,12 +102,12 @@ private:
     const std::vector<TPlanFragmentDestination> _dests;
 
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<ResultFileOptions> _file_opts;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
-    int _buf_size = 1024; // Allocated from _pool
+    int _buf_size = 4096; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;
     std::string _header_type;

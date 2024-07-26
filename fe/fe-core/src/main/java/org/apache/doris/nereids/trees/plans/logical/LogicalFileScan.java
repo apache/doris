@@ -45,14 +45,14 @@ import java.util.Set;
  */
 public class LogicalFileScan extends LogicalExternalRelation {
 
-    private final SelectedPartitions selectedPartitions;
-    private final Optional<TableSample> tableSample;
-    private final Optional<TableSnapshot> tableSnapshot;
+    protected final SelectedPartitions selectedPartitions;
+    protected final Optional<TableSample> tableSample;
+    protected final Optional<TableSnapshot> tableSnapshot;
 
     /**
      * Constructor for LogicalFileScan.
      */
-    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+    protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             Set<Expression> conjuncts, SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot) {

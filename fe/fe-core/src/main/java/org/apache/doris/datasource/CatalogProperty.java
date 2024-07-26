@@ -61,7 +61,7 @@ public class CatalogProperty implements Writable {
     }
 
     private Resource catalogResource() {
-        if (catalogResource == null) {
+        if (!Strings.isNullOrEmpty(resource) && catalogResource == null) {
             synchronized (this) {
                 if (catalogResource == null) {
                     catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);

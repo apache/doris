@@ -408,7 +408,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         // need memory order
         multi_table_pipe->handle_consume_finished();
-        HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
+        HANDLE_MULTI_TABLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     } else {
         // start to consume, this may block a while
         HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");

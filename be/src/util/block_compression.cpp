@@ -25,6 +25,8 @@
         defined(__i386) || defined(_M_IX86)
 #include <libdeflate.h>
 #endif
+#include <glog/log_severity.h>
+#include <glog/logging.h>
 #include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
@@ -230,12 +232,18 @@ private:
 
 class HadoopLz4BlockCompression : public Lz4BlockCompression {
 public:
+    HadoopLz4BlockCompression() {
+        Status st = Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor);
+        if (!st.ok()) {
+            LOG(FATAL) << "HadoopLz4BlockCompression construction failed. status = " << st << "\n";
+        }
+    }
+
     static HadoopLz4BlockCompression* instance() {
         static HadoopLz4BlockCompression s_instance;
         return &s_instance;
     }
     Status decompress(const Slice& input, Slice* output) override {
-        RETURN_IF_ERROR(Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor));
         size_t input_bytes_read = 0;
         size_t decompressed_len = 0;
         size_t more_input_bytes = 0;
@@ -669,7 +677,7 @@ public:
     // REQUIRES: Available() >= n
     void Skip(size_t n) override {
         _available -= n;
-        do {
+        while (n > 0) {
             auto left = _slices[_cur_slice].size - _slice_off;
             if (left > n) {
                 // n can be digest in current slice
@@ -679,7 +687,7 @@ public:
             _slice_off = 0;
             _cur_slice++;
             n -= left;
-        } while (n > 0);
+        }
     }
 
 private:

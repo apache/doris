@@ -31,13 +31,16 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilder {
+class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type> > {
 public:
-    PlainPageBuilder(const PageBuilderOptions& options) : _options(options) {
+    using Self = PlainPageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
-        _buffer.reserve(_options.data_page_size + 1024);
-        reset();
+        RETURN_IF_CATCH_EXCEPTION(_buffer.reserve(_options.data_page_size + 1024));
+        return reset();
     }
 
     bool is_page_full() override { return _buffer.size() > _options.data_page_size; }
@@ -66,11 +69,14 @@ public:
         return _buffer.build();
     }
 
-    void reset() override {
-        _buffer.reserve(_options.data_page_size + 1024);
-        _count = 0;
-        _buffer.clear();
-        _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
+    Status reset() override {
+        RETURN_IF_CATCH_EXCEPTION({
+            _buffer.reserve(_options.data_page_size + 1024);
+            _count = 0;
+            _buffer.clear();
+            _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
+        });
+        return Status::OK();
     }
 
     size_t count() const override { return _count; }
@@ -94,6 +100,8 @@ public:
     }
 
 private:
+    PlainPageBuilder(const PageBuilderOptions& options) : _options(options) {}
+
     faststring _buffer;
     PageBuilderOptions _options;
     size_t _count;

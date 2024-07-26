@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
-#include "vec/exec/vexchange_node.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -85,9 +84,10 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-
-    RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
-            state, vsort_exec_exprs));
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    if (p.is_merging()) {
+        RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, vsort_exec_exprs));
+    }
     return Status::OK();
 }
 

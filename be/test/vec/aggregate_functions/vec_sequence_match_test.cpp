@@ -132,7 +132,7 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -203,7 +203,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -268,7 +268,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -309,7 +309,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
@@ -357,7 +357,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -398,7 +398,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 

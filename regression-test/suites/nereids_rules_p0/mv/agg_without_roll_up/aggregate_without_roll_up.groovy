@@ -18,12 +18,8 @@
 suite("aggregate_without_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
     sql "SET enable_agg_state = true"
 
     sql """
@@ -148,18 +144,20 @@ suite("aggregate_without_roll_up") {
             "group by " +
             "o_shippriority, " +
             "o_comment "
-    def query1_0 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_shippriority in (1, 2)" +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
+    def query1_0 = """
+    select o_shippriority, o_comment, 
+    count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, 
+    count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, 
+    sum(o_totalprice), 
+    max(o_totalprice), 
+    min(o_totalprice), 
+    count(*) 
+    from orders 
+    where o_shippriority in (1, 2)
+    group by 
+    o_shippriority, 
+    o_comment;
+    """
      order_qt_query1_0_before "${query1_0}"
      check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
      order_qt_query1_0_after "${query1_0}"
@@ -839,7 +837,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_3_before "${query19_3}"
     check_mv_rewrite_success(db, mv19_3, query19_3, "mv19_3")
     order_qt_query19_3_after "${query19_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_3"""
 
 
     // without group, scalar aggregate
@@ -915,7 +913,7 @@ suite("aggregate_without_roll_up") {
             on lineitem.L_ORDERKEY = orders.O_ORDERKEY
     """
     order_qt_query20_1_before "${query20_1}"
-    check_mv_rewrite_fail(db, mv20_1, query20_1, "mv20_1")
+    check_mv_rewrite_success(db, mv20_1, query20_1, "mv20_1")
     order_qt_query20_1_after "${query20_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
 

@@ -42,6 +42,9 @@ suite ("mvljc") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;")
         contains "(mvljc)"
@@ -53,4 +56,15 @@ suite ("mvljc") {
         contains "(mvljc)"
     }
     qt_select_mv "SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;")
+        contains "(mvljc)"
+    }
+
+    explain {
+        sql("SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;")
+        contains "(mvljc)"
+    }
 }

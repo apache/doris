@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -44,12 +45,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -86,7 +85,7 @@ import java.util.stream.IntStream;
 public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected static final int NUM_SPLITS_PER_PARTITION = 10;
-    protected static final int NUM_PARTITIONS_PER_LOOP = 100;
+    protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -97,6 +96,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+    protected SplitAssignment splitAssignment = null;
+
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -171,15 +174,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // 2. key column slot is distribution column and first column
     protected boolean isKeySearch() {
         return false;
-    }
-
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
@@ -407,7 +401,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
-                LiteralExpr literal = (LiteralExpr) slotBinding;
+                LiteralExpr literal = slotBinding instanceof PlaceHolderExpr
+                        ? ((PlaceHolderExpr) slotBinding).getLiteral() : (LiteralExpr) slotBinding;
                 BinaryPredicate.Operator op = binPredicate.getOp();
                 if (!binPredicate.slotIsLeft()) {
                     op = op.commutative();
@@ -568,9 +563,12 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     @Override
     public String toString() {
-        return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
-                desc.getTable().getName()).add("keyRanges", "").addValue(
-                super.debugString()).toString();
+        return MoreObjects.toStringHelper(this)
+                .add("id", getId().asInt())
+                .add("tid", desc.getId().asInt())
+                .add("tblName", desc.getTable().getName())
+                .add("keyRanges", "")
+                .addValue(super.debugString()).toString();
     }
 
     // Some of scan node(eg, DataGenScanNode) does not need to check column priv
@@ -720,22 +718,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanRangeLocation;
     }
 
-    // some scan should not enable the shared scan opt to prevent the performance problem
-    // 1. is key search
-    // 2. session variable not enable_shared_scan
-    public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || context == null
-                || !context.getSessionVariable().getEnableSharedScan()
-                || !context.getSessionVariable().getEnablePipelineEngine()
-                || context.getSessionVariable().getEnablePipelineXEngine()
-                || this instanceof FileScanNode
-                || getShouldColoScan();
-    }
-
     public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
@@ -820,7 +805,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected void toThrift(TPlanNode msg) {
         // topn filter
-        if (useTopnFilter() && SessionVariable.enablePipelineEngineX()) {
+        if (useTopnFilter()) {
             List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
                     .stream()
                     .map(sortNode -> sortNode.getId().asInt())
@@ -841,4 +826,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return !topnFilterSortNodes.isEmpty();
     }
 
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
+    }
 }

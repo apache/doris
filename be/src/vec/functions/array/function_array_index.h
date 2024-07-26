@@ -79,7 +79,7 @@ struct ParamValue {
     Field value;
 };
 
-template <typename ConcreteAction, bool OldVersion = false>
+template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
@@ -119,7 +119,7 @@ public:
      * eval inverted index. we can filter array rows with inverted index iter
      */
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
@@ -129,13 +129,32 @@ public:
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, param_value is nullptr or value is null");
         }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+        }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                 param_value->type, &param_value->value, query_param));
         if (is_string_type(param_value->type)) {
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
+            Status st = iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
+            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+                // if analyzed param with no term, we do not filter any rows
+                // return all rows with OK status
+                bitmap->addRange(0, num_rows);
+                return Status::OK();
+            } else if (st != Status::OK()) {
+                return st;
+            }
         } else {
             RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
@@ -157,14 +176,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if constexpr (OldVersion) {
+        if (arguments[0]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
         } else {
-            if (arguments[0]->is_nullable()) {
-                return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
-            } else {
-                return std::make_shared<DataTypeNumber<ResultType>>();
-            }
+            return std::make_shared<DataTypeNumber<ResultType>>();
         }
     }
 
@@ -236,14 +251,11 @@ private:
             }
             dst_data[row] = res;
         }
-        if constexpr (OldVersion) {
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
-            if (outer_null_map == nullptr) {
-                return dst;
-            }
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+
+        if (outer_null_map == nullptr) {
+            return dst;
         }
+        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     template <typename NestedColumnType, typename RightColumnType>
@@ -300,14 +312,11 @@ private:
             }
             dst_data[row] = res;
         }
-        if constexpr (OldVersion) {
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-        } else {
-            if (outer_null_map == nullptr) {
-                return dst;
-            }
-            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+
+        if (outer_null_map == nullptr) {
+            return dst;
         }
+        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     template <typename NestedColumnType>

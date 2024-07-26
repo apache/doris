@@ -35,8 +35,9 @@
 
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
+#include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
-#include "util/libjvm_loader.h"
+// #include "util/libjvm_loader.h"
 
 using std::string;
 
@@ -176,6 +177,7 @@ jmethodID JniUtil::get_jmx_json_ = nullptr;
 jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
 jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
 jlong JniUtil::max_jvm_heap_memory_size_ = 0;
+jmethodID JniUtil::_clean_udf_cache_method_id = nullptr;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -440,6 +442,25 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
     }
     env->CallVoidMethod(jni_scanner_loader_obj_, load_jni_scanner);
     RETURN_ERROR_IF_EXC(env);
+
+    _clean_udf_cache_method_id = env->GetMethodID(jni_scanner_loader_cls, "cleanUdfClassLoader",
+                                                  "(Ljava/lang/String;)V");
+    if (_clean_udf_cache_method_id == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::InternalError("Failed to find removeUdfClassLoader method.");
+    }
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
+}
+
+Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature) {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallVoidMethod(jni_scanner_loader_obj_, _clean_udf_cache_method_id,
+                        env->NewStringUTF(function_signature.c_str()));
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -455,7 +476,7 @@ Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
 }
 
 Status JniUtil::Init() {
-    RETURN_IF_ERROR(LibJVMLoader::instance().load());
+    // RETURN_IF_ERROR(LibJVMLoader::instance().load());
 
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env = nullptr;
@@ -571,6 +592,7 @@ Status JniUtil::Init() {
     }
     RETURN_IF_ERROR(init_jni_scanner_loader(env));
     jvm_inited_ = true;
+    DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
 

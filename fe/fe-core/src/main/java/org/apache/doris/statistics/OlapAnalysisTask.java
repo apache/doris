@@ -19,11 +19,14 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -33,6 +36,8 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
@@ -86,6 +91,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 2. estimate partition stats
      * 3. insert col stats and partition stats
      */
+    @Override
     protected void doSample() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
@@ -99,7 +105,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
-            LOG.warn("Scale factor is infinite or Nan, will set scale factor to 1.");
+            LOG.debug("Scale factor is infinite or Nan, will set scale factor to 1.");
             scaleFactor = 1;
             tabletIds = Collections.emptyList();
             pair.second = totalRowCount;
@@ -198,6 +204,49 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
             runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+        }
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
+        TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
+        if (tableStats == null) {
+            return;
+        }
+        OlapTable table = (OlapTable) tbl;
+        String indexName = info.indexId == -1 ? table.getName() : table.getIndexNameById(info.indexId);
+        ColStatsMeta columnStats = tableStats.findColumnStatsMeta(indexName, info.colName);
+        if (columnStats == null || columnStats.partitionUpdateRows == null
+                || columnStats.partitionUpdateRows.isEmpty()) {
+            return;
+        }
+        // When a partition was dropped, partitionChanged will be set to true.
+        // So we don't need to check dropped partition if partitionChanged is false.
+        if (!tableStats.partitionChanged.get()
+                && columnStats.partitionUpdateRows.size() == table.getPartitions().size()) {
+            return;
+        }
+        Set<Long> expiredPartition = Sets.newHashSet();
+        String columnCondition = "AND col_id = " + StatisticsUtil.quote(col.getName());
+        for (long partId : columnStats.partitionUpdateRows.keySet()) {
+            Partition partition = table.getPartition(partId);
+            if (partition == null) {
+                columnStats.partitionUpdateRows.remove(partId);
+                tableStats.partitionUpdateRows.remove(partId);
+                jobInfo.partitionUpdateRows.remove(partId);
+                expiredPartition.add(partId);
+                if (expiredPartition.size() == Config.max_allowed_in_element_num_of_delete) {
+                    String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";
+                    StatisticsRepository.dropPartitionsColumnStatistics(info.catalogId, info.dbId, info.tblId,
+                            columnCondition, partitionCondition);
+                    expiredPartition.clear();
+                }
+            }
+        }
+        if (expiredPartition.size() > 0) {
+            String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";
+            StatisticsRepository.dropPartitionsColumnStatistics(info.catalogId, info.dbId, info.tblId,
+                    columnCondition, partitionCondition);
         }
     }
 

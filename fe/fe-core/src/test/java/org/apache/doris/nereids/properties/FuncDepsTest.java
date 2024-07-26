@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class FuncDepsTest {
         Set<Set<Slot>> slotSet = Sets.newHashSet(set1, set2, set3, set4);
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
         expected.add(set1);
         expected.add(set3);
@@ -58,7 +59,7 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
         expected.add(set1);
         Assertions.assertEquals(expected, slots);
@@ -71,7 +72,7 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s4));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
         expected.add(set1);
         Assertions.assertEquals(expected, slots);
@@ -83,9 +84,9 @@ class FuncDepsTest {
         FuncDeps funcDeps = new FuncDeps();
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s1));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
-        expected.add(set2);
+        expected.add(set1);
         expected.add(set3);
         expected.add(set4);
         Assertions.assertEquals(expected, slots);
@@ -99,9 +100,9 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s2), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
         funcDeps.addFuncItems(Sets.newHashSet(s4), Sets.newHashSet(s1));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
-        expected.add(set3);
+        expected.add(set1);
         Assertions.assertEquals(expected, slots);
     }
 
@@ -112,7 +113,7 @@ class FuncDepsTest {
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s2));
         funcDeps.addFuncItems(Sets.newHashSet(s1), Sets.newHashSet(s3));
         funcDeps.addFuncItems(Sets.newHashSet(s3), Sets.newHashSet(s4));
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet);
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(slotSet, ImmutableSet.of());
         Set<Set<Slot>> expected = new HashSet<>();
         expected.add(set1);
         Assertions.assertEquals(expected, slots);

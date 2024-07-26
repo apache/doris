@@ -27,7 +27,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -39,7 +38,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -59,7 +57,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 public class JdbcScanNode extends ExternalScanNode {
@@ -260,12 +257,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
-            throws UserException {
-        createJdbcColumns();
-    }
-
-    @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }
@@ -303,8 +294,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
     }
 
     @Override

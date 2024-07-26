@@ -27,11 +27,19 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
+    @SerializedName("db")
     private String dbName;
+
+    @SerializedName("qt")
     private QuotaType quotaType;
+
+    @SerializedName("qv")
     private String quotaValue;
+
+    @SerializedName("q")
     private long quota;
 
     public enum QuotaType {

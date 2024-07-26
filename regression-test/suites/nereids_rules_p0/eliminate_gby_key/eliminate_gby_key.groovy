@@ -18,7 +18,7 @@
 suite("eliminate_gby_key") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 	sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
+    sql 'set be_number_for_test=3'
 
 	sql """DROP TABLE IF EXISTS t1;"""
     sql """DROP TABLE IF EXISTS t2;"""
@@ -124,7 +124,7 @@ suite("eliminate_gby_key") {
         select cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
     }
 
     explain {
@@ -204,7 +204,7 @@ suite("eliminate_gby_key") {
         select t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
     }
 
     explain {
@@ -224,7 +224,7 @@ suite("eliminate_gby_key") {
         select c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
     }
 
     explain {
@@ -244,7 +244,7 @@ suite("eliminate_gby_key") {
         select t2_c1, c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
     }
 
     explain {
@@ -284,6 +284,6 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18, count(*) AS `cnt`#20]")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18,")
     }
 }

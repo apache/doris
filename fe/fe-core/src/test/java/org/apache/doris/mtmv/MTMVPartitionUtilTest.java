@@ -130,6 +130,10 @@ public class MTMVPartitionUtilTest {
                 refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
                 minTimes = 0;
                 result = true;
+
+                refreshSnapshot.getSnapshotPartitions(anyString);
+                minTimes = 0;
+                result = Sets.newHashSet("name2");
             }
         };
     }
@@ -158,6 +162,20 @@ public class MTMVPartitionUtilTest {
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
         Assert.assertTrue(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
+        new Expectations() {
+            {
+                refreshSnapshot.getSnapshotPartitions(anyString);
+                minTimes = 0;
+                result = Sets.newHashSet("name2", "name3");
+            }
+        };
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
+        Assert.assertFalse(isSyncWithPartition);
     }
 
     @Test

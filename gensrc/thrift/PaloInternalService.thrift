@@ -81,6 +81,11 @@ struct TResourceLimit {
     1: optional i32 cpu_limit
 }
 
+enum TSerdeDialect {
+  DORIS,
+  PRESTO
+}
+
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
@@ -143,7 +148,7 @@ struct TQueryOptions {
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
-  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
   // Time in ms to wait until runtime filters are delivered.
   33: optional i32 runtime_filter_wait_time_ms = 1000
@@ -185,10 +190,10 @@ struct TQueryOptions {
 
   // For debug purpose, skip delete bitmap when reading data
   56: optional bool skip_delete_bitmap = false
+  // non-pipelinex engine removed. always true.
+  57: optional bool enable_pipeline_engine = true
 
-  57: optional bool enable_pipeline_engine = false
-
-  58: optional i32 repeat_max_num = 0
+  58: optional i32 repeat_max_num = 0 // Deprecated
 
   59: optional i64 external_sort_bytes_threshold = 0
 
@@ -231,8 +236,8 @@ struct TQueryOptions {
   77: optional bool truncate_char_or_varchar_columns = false
 
   78: optional bool enable_hash_join_early_start_probe = false
-
-  79: optional bool enable_pipeline_x_engine = false;
+  // non-pipelinex engine removed. always true.
+  79: optional bool enable_pipeline_x_engine = true;
 
   80: optional bool enable_memtable_on_sink_node = false;
 
@@ -299,7 +304,26 @@ struct TQueryOptions {
   111: optional bool enable_orc_filter_by_min_max = true
 
   112: optional i32 max_column_reader_num = 0
+
+  113: optional bool enable_local_merge_sort = false;
+
+  114: optional bool enable_parallel_result_sink = false;
   
+  115: optional bool enable_short_circuit_query_access_column_store = false;
+
+  116: optional bool enable_no_need_read_data_opt = true;
+  
+  117: optional bool read_csv_empty_line_as_null = false;
+
+  118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
+
+  119: optional bool enable_match_without_inverted_index = true;
+
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+
+  122: optional i32 runtime_bloom_filter_min_size = 1048576;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -417,7 +441,8 @@ struct TTxnParams {
   9: optional i64 db_id
   10: optional double max_filter_ratio
   // For load task with transaction, use this to indicate we use pipeline or not
-  11: optional bool enable_pipeline_txn_load = false;
+  // non-pipelinex engine removed. always true.
+  11: optional bool enable_pipeline_txn_load = true;
 }
 
 // Definition of global dict, global dict is used to accelerate query performance of low cardinality data
@@ -501,6 +526,7 @@ struct TExecPlanFragmentParams {
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
 
+  // deprecated
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
@@ -524,6 +550,8 @@ struct TExecPlanFragmentParams {
   30: optional list<TPipelineWorkloadGroup> workload_groups
 
   31: optional bool is_nereids = true;
+
+  32: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;
@@ -705,6 +733,7 @@ struct TExportStatusResult {
 
 struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
+  // deprecated
   2: optional bool build_hash_table_for_broadcast_join = false;
   3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
   4: optional i32 sender_id
@@ -761,6 +790,7 @@ struct TPipelineFragmentParams {
   40: optional bool is_nereids = true;
   41: optional i64 wal_id
   42: optional i64 content_length
+  43: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;

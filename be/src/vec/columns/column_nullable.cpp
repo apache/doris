@@ -245,22 +245,8 @@ size_t ColumnNullable::get_max_row_byte_size() const {
 
 void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
-    if (has_null()) {
-        const auto& arr = get_null_map_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
-            *val = (arr[i] ? 1 : 0);
-            keys[i].size++;
-        }
-        get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
-            *val = 0;
-            keys[i].size++;
-        }
-        get_nested_column().serialize_vec(keys, num_rows, max_row_byte_size);
-    }
+    const auto& arr = get_null_map_data();
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
@@ -422,6 +408,7 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
     return get_nested_column().compare_at(n, m, nullable_rhs.get_nested_column(),
                                           null_direction_hint);
 }
+
 void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                       int direction, std::vector<uint8>& cmp_res,
                                       uint8* __restrict filter) const {

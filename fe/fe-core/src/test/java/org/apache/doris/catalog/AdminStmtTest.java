@@ -46,7 +46,7 @@ public class AdminStmtTest extends TestWithFeService {
         createDatabase("test");
         createTable("CREATE TABLE test.tbl1 (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"

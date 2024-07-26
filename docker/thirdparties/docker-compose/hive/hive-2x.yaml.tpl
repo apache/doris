@@ -87,6 +87,11 @@ services:
       - ./scripts:/mnt/scripts
     depends_on:
       - hive-metastore-postgresql
+    healthcheck:
+      test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
+      interval: 20s
+      timeout: 60s
+      retries: 120
     network_mode: "host"
 
   hive-metastore-postgresql:
@@ -99,3 +104,11 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+
+  hive-hello-world:
+    image: hello-world
+    container_name: ${CONTAINER_UID}hive2-hello-world
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+    network_mode: "host"

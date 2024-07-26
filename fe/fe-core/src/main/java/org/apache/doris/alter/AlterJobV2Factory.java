@@ -57,19 +57,4 @@ public class AlterJobV2Factory {
                     baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         }
     }
-
-    public static AlterJobV2 rebuildAlterJobV2(AlterJobV2 job) throws AnalysisException {
-        try {
-            if (Config.isCloudMode()) {
-                if (job.getType() == AlterJobV2.JobType.SCHEMA_CHANGE) {
-                    job = CloudSchemaChangeJobV2.buildCloudSchemaChangeJobV2((SchemaChangeJobV2) job);
-                } else if (job.getType() == AlterJobV2.JobType.ROLLUP) {
-                    job = CloudRollupJobV2.buildCloudRollupJobV2((RollupJobV2) job);
-                }
-            }
-            return job;
-        } catch (IllegalAccessException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-    }
 }

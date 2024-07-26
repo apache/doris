@@ -92,16 +92,20 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
-    _path_to_cache[cache_base_path] = cache.get();
-    _caches.push_back(std::move(cache));
+    {
+        std::lock_guard lock(_mtx);
+        _path_to_cache[cache_base_path] = cache.get();
+        _caches.push_back(std::move(cache));
+        _capacity += file_cache_settings.capacity;
+    }
     LOG(INFO) << "[FileCache] path: " << cache_base_path
               << " total_size: " << file_cache_settings.capacity
               << " disk_total_size: " << disk_capacity;
-    _capacity += file_cache_settings.capacity;
     return Status::OK();
 }
 
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
+    // dont need lock mutex because _caches is immutable after create_file_cache
     return _caches[KeyHash()(key) % _caches.size()].get();
 }
 

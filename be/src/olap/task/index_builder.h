@@ -73,6 +73,7 @@ private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
+    std::vector<TabletIndex> _dropped_inverted_indexes;
     bool _is_drop_op;
     std::set<int64_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;

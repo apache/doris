@@ -168,7 +168,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
         List<Boolean> inputNullable = null;
         if (!setOperation.children().isEmpty()) {
-            inputNullable = setOperation.child(0).getOutput().stream()
+            inputNullable = setOperation.getRegularChildOutput(0).stream()
                     .map(ExpressionTrait::nullable).collect(Collectors.toList());
             for (int i = 0; i < setOperation.arity(); i++) {
                 List<Slot> childOutput = setOperation.child(i).getOutput();
@@ -246,7 +246,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         List<NamedExpression> windowExpressions =
                 updateExpressions(window.getWindowExpressions(), replaceMap);
         windowExpressions.forEach(w -> replaceMap.put(w.getExprId(), w.toSlot()));
-        return window.withExpression(windowExpressions, window.child());
+        return window.withExpressionsAndChild(windowExpressions, window.child());
     }
 
     @Override
@@ -293,20 +293,20 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         return result.build();
     }
 
-    private Map<ExprId, Slot> collectChildrenOutputMap(LogicalPlan plan) {
-        return plan.children().stream()
-                .map(Plan::getOutputSet)
-                .flatMap(Set::stream)
-                .collect(Collectors.toMap(NamedExpression::getExprId, s -> s));
-    }
-
     private static class SlotReferenceReplacer extends DefaultExpressionRewriter<Map<ExprId, Slot>> {
         public static SlotReferenceReplacer INSTANCE = new SlotReferenceReplacer();
 
         @Override
         public Expression visitSlotReference(SlotReference slotReference, Map<ExprId, Slot> context) {
             if (context.containsKey(slotReference.getExprId())) {
-                return slotReference.withNullable(context.get(slotReference.getExprId()).nullable());
+                Slot slot = context.get(slotReference.getExprId());
+                if (slot.getDataType().isAggStateType()) {
+                    // we must replace data type, because nested type and agg state contains nullable of their children.
+                    // TODO: remove if statement after we ensure be constant folding do not change expr type at all.
+                    return slotReference.withNullableAndDataType(slot.nullable(), slot.getDataType());
+                } else {
+                    return slotReference.withNullable(slot.nullable());
+                }
             } else {
                 return slotReference;
             }

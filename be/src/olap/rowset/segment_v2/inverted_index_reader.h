@@ -73,7 +73,6 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
-
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
@@ -141,14 +140,13 @@ public:
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
-    Status check_file_exist(const std::string& index_file_key);
-
 protected:
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
     bool _has_null = true;
 };
+using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
@@ -381,6 +379,8 @@ public:
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
     [[nodiscard]] const std::map<string, string>& get_index_properties() const;
     [[nodiscard]] bool has_null() { return _reader->has_null(); };
+
+    const InvertedIndexReaderPtr& reader() { return _reader; }
 
 private:
     OlapReaderStatistics* _stats = nullptr;

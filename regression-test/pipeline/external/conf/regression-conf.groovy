@@ -128,6 +128,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+enableIcebergTest=true
 
 enableEsTest=true
 es_5_port=59200
@@ -140,6 +141,7 @@ cacheDataPath = "/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+s3Provider = "COS"
 
 max_failure_num=50
 
@@ -152,3 +154,12 @@ hdfs_port=8020
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+db2_11_port=50000
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = true
+
+// kerberos docker config
+enableKerberosTest = true
+kerberosHmsPort=9883
+kerberosHdfsPort=8820

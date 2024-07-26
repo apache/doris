@@ -54,17 +54,26 @@ public class ResultReceiver {
     private Long backendId;
     private Thread currentThread;
     private Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
+    private Boolean enableParallelResultSink = false;
 
     int maxMsgSizeOfResultReceiver;
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
-            int maxMsgSizeOfResultReceiver) {
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
         this.timeoutTs = timeoutTs;
         this.maxMsgSizeOfResultReceiver = maxMsgSizeOfResultReceiver;
+        this.enableParallelResultSink = enableParallelResultSink;
+    }
+
+    Types.PUniqueId getRealFinstId() {
+        if (enableParallelResultSink) {
+            return queryId;
+        }
+        return finstId;
     }
 
     public RowBatch getNext(Status status) throws TException {
@@ -75,7 +84,7 @@ public class ResultReceiver {
         try {
             while (!isDone && runStatus.ok()) {
                 InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
-                        .setFinstId(finstId)
+                        .setFinstId(getRealFinstId())
                         .setRespInAttachment(false)
                         .build();
 

@@ -87,6 +87,7 @@ class RemoteSplitSourceConnector : public SplitSourceConnector {
 private:
     std::mutex _range_lock;
     RuntimeState* _state;
+    RuntimeProfile::Counter* _get_split_timer;
     int64 _split_source_id;
     int _num_splits;
 
@@ -96,8 +97,12 @@ private:
     int _range_index = 0;
 
 public:
-    RemoteSplitSourceConnector(RuntimeState* state, int64 split_source_id, int num_splits)
-            : _state(state), _split_source_id(split_source_id), _num_splits(num_splits) {}
+    RemoteSplitSourceConnector(RuntimeState* state, RuntimeProfile::Counter* get_split_timer,
+                               int64 split_source_id, int num_splits)
+            : _state(state),
+              _get_split_timer(get_split_timer),
+              _split_source_id(split_source_id),
+              _num_splits(num_splits) {}
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 

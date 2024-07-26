@@ -28,6 +28,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
@@ -42,13 +43,18 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -255,6 +261,101 @@ public class CloudLoadManager extends LoadManager {
             }
         }
         return loadJobList2;
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        removeCopyJobs();
+    }
+
+    @Override
+    public void removeOldLoadJob() {
+        super.removeOldLoadJob();
+        removeCopyJobs();
+    }
+
+    private void removeCopyJobs() {
+        if (Config.cloud_max_copy_job_per_table <= 0) {
+            return;
+        }
+        Map<Long, Set<String>> dbToLabels = new HashMap<>();
+        readLock();
+        long start = System.currentTimeMillis();
+        try {
+            // group jobs by table
+            Map<String, List<LoadJob>> tableToLoadJobs = dbIdToLabelToLoadJobs.values().stream()
+                    .flatMap(loadJobsMap -> loadJobsMap.values().stream())
+                    .flatMap(loadJobs -> loadJobs.stream())
+                    .filter(loadJob -> (loadJob instanceof CopyJob) && StringUtils.isNotEmpty(
+                            ((CopyJob) loadJob).getTableName()))
+                    .map(copyJob -> Pair.of(copyJob.getDbId() + "#" + ((CopyJob) copyJob).getTableName(), copyJob))
+                    .collect(Collectors.groupingBy(v -> v.first,
+                            Collectors.mapping(jobPairs -> jobPairs.second, Collectors.toList())));
+            // find labels to remove
+            for (List<LoadJob> jobs : tableToLoadJobs.values()) {
+                if (jobs.size() <= Config.cloud_max_copy_job_per_table) {
+                    continue;
+                }
+                jobs.sort((o1, o2) -> Long.compare(o2.getFinishTimestamp(), o1.getFinishTimestamp()));
+                int finishJobCount = 0;
+                boolean found = false;
+                for (LoadJob job : jobs) {
+                    if (!found) {
+                        if (job.getState() == JobState.FINISHED) {
+                            finishJobCount++;
+                            if (finishJobCount >= Config.cloud_max_copy_job_per_table) {
+                                found = true;
+                            }
+                        }
+                    } else {
+                        if (job.isCompleted()) {
+                            dbToLabels.computeIfAbsent(job.getDbId(), (k) -> new HashSet<>()).add(job.getLabel());
+                        }
+                    }
+                }
+            }
+        } catch (Throwable e) {
+            LOG.warn("Failed to remove copy jobs", e);
+        } finally {
+            readUnlock();
+        }
+        if (dbToLabels.isEmpty()) {
+            return;
+        }
+        writeLock();
+        long copyJobNum = idToLoadJob.size();
+        try {
+            for (Map.Entry<Long, Set<String>> entry : dbToLabels.entrySet()) {
+                long dbId = entry.getKey();
+                if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                    continue;
+                }
+                Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+                for (String label : entry.getValue()) {
+                    List<LoadJob> jobs = labelToJob.get(label);
+                    if (jobs == null) {
+                        continue;
+                    }
+                    Iterator<LoadJob> iter = jobs.iterator();
+                    while (iter.hasNext()) {
+                        CopyJob job = (CopyJob) iter.next();
+                        iter.remove();
+                        idToLoadJob.remove(job.getId());
+                        job.recycleProgress();
+                    }
+                    if (jobs.isEmpty()) {
+                        labelToJob.remove(label);
+                    }
+                }
+            }
+            LOG.info("remove copy jobs from {} to {}, cost={}ms", copyJobNum, idToLoadJob.size(),
+                    System.currentTimeMillis() - start);
+        } catch (Throwable e) {
+            LOG.warn("Failed to remove copy jobs", e);
+        } finally {
+            writeUnlock();
+        }
     }
 }
 

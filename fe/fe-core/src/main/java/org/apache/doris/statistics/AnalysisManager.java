@@ -24,10 +24,12 @@ import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -61,7 +63,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -71,6 +72,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TQueryColumn;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -91,6 +93,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -131,6 +134,7 @@ public class AnalysisManager implements Writable {
     private StatisticsCache statisticsCache;
 
     private AnalysisTaskExecutor taskExecutor;
+    private ThreadPoolExecutor dropStatsExecutors;
 
     // Store task information in metadata.
     protected final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
@@ -154,6 +158,11 @@ public class AnalysisManager implements Writable {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
                     Integer.MAX_VALUE);
             this.statisticsCache = new StatisticsCache();
+            this.dropStatsExecutors = ThreadPoolManager.newDaemonThreadPool(
+                1, 1, 0,
+                TimeUnit.DAYS, new LinkedBlockingQueue<>(10),
+                new ThreadPoolExecutor.AbortPolicy(),
+                "Drop stats executor", true);
         }
     }
 
@@ -319,7 +328,6 @@ public class AnalysisManager implements Writable {
         long jobId = Env.getCurrentEnv().getNextId();
         TableIf table = stmt.getTable();
         Set<String> columnNames = stmt.getColumnNames();
-        Set<String> partitionNames = stmt.getPartitionNames();
         boolean partitionOnly = stmt.isPartitionOnly();
         boolean isSamplingPartition = stmt.isSamplingPartition();
         boolean isAllPartition = stmt.isStarPartition();
@@ -327,16 +335,16 @@ public class AnalysisManager implements Writable {
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
-        AnalysisMode analysisMode = stmt.getAnalysisMode();
         AnalysisMethod analysisMethod = stmt.getAnalysisMethod();
         ScheduleType scheduleType = stmt.getScheduleType();
         CronExpression cronExpression = stmt.getCron();
 
         infoBuilder.setJobId(jobId);
+        infoBuilder.setTaskId(-1);
         infoBuilder.setCatalogId(stmt.getCatalogId());
         infoBuilder.setDBId(stmt.getDbId());
         infoBuilder.setTblId(stmt.getTable().getId());
-        infoBuilder.setPartitionNames(partitionNames);
+        infoBuilder.setPartitionNames(stmt.getPartitionNames());
         infoBuilder.setPartitionOnly(partitionOnly);
         infoBuilder.setSamplingPartition(isSamplingPartition);
         infoBuilder.setAllPartition(isAllPartition);
@@ -345,7 +353,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setState(AnalysisState.PENDING);
         infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         infoBuilder.setAnalysisType(analysisType);
-        infoBuilder.setAnalysisMode(analysisMode);
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setCronExpression(cronExpression);
@@ -382,6 +389,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
+        infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
         return infoBuilder.build();
     }
 
@@ -390,9 +398,7 @@ public class AnalysisManager implements Writable {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
-        AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-        AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
-        replayCreateAnalysisJob(analysisInfo);
+        replayCreateAnalysisJob(jobInfo);
     }
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
@@ -564,11 +570,7 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
-        return findShowAnalyzeResult(stmt);
-    }
-
-    private List<AnalysisInfo> findShowAnalyzeResult(ShowAnalyzeStmt stmt) {
+    public List<AnalysisInfo> findAnalysisJobs(ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
         TableIf tbl = null;
@@ -646,6 +648,7 @@ public class AnalysisManager implements Writable {
         }
 
         Set<String> cols = dropStatsStmt.getColumnNames();
+        PartitionNames partitionNames = dropStatsStmt.getPartitionNames();
         long catalogId = dropStatsStmt.getCatalogIdId();
         long dbId = dropStatsStmt.getDbId();
         long tblId = dropStatsStmt.getTblId();
@@ -653,13 +656,17 @@ public class AnalysisManager implements Writable {
         if (tableStats == null) {
             return;
         }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tblId, cols);
-        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, null);
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
     }
 
-    public void dropStats(TableIf table) throws DdlException {
+    public void dropStats(TableIf table, PartitionNames partitionNames) throws DdlException {
         TableStatsMeta tableStats = findTableStatsStatus(table.getId());
         if (tableStats == null) {
             return;
@@ -667,22 +674,74 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
-        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
+        submitAsyncDropStatsTask(catalogId, dbId, tableId, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, null);
-        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, null);
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        // Drop stats ddl is master only operation.
+        invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
+        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, partitions);
     }
 
-    public void invalidateLocalStats(long catalogId, long dbId, long tableId,
-                                     Set<String> columns, TableStatsMeta tableStats) {
+    class DropStatsTask implements Runnable {
+        private final long catalogId;
+        private final long dbId;
+        private final long tableId;
+        private final Set<String> columns;
+        private final TableStatsMeta tableStats;
+        private final PartitionNames partitionNames;
+
+        public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
+                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+            this.catalogId = catalogId;
+            this.dbId = dbId;
+            this.tableId = tableId;
+            this.columns = columns;
+            this.tableStats = tableStats;
+            this.partitionNames = partitionNames;
+        }
+
+        @Override
+        public void run() {
+            invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+        }
+    }
+
+    public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
+                                         TableStatsMeta tableStats, PartitionNames partitionNames) {
+        try {
+            dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null, tableStats, partitionNames));
+        } catch (Throwable t) {
+            LOG.info("Failed to drop stats for truncate table {}.{}.{}. Reason:{}",
+                    catalogId, dbId, tableId, t.getMessage());
+        }
+    }
+
+    public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
+                                     TableStatsMeta tableStats, PartitionNames partitionNames) {
         if (tableStats == null) {
             return;
         }
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
-        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
         if (columns == null) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
+        }
+
+        Set<String> partNames = new HashSet<>();
+        boolean allPartition = false;
+        if (table.isPartitionedTable()) {
+            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                partNames = table.getPartitionNames();
+                allPartition = true;
+            } else {
+                partNames = new HashSet<>(partitionNames.getPartitionNames());
+            }
+        } else {
+            allPartition = true;
         }
 
         for (String column : columns) {
@@ -702,8 +761,20 @@ public class AnalysisManager implements Writable {
                         indexName = olapTable.getIndexNameById(indexId);
                     }
                 }
-                tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
+                statsCache.invalidateColumnStatsCache(catalogId, dbId, tableId, indexId, column);
+                if (allPartition) {
+                    tableStats.removeColumn(indexName, column);
+                }
+                ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(indexName, column);
+                for (String part : partNames) {
+                    statsCache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, part, column);
+                    if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                        Partition partition = table.getPartition(part);
+                        if (partition != null) {
+                            columnStatsMeta.partitionUpdateRows.remove(partition.getId());
+                        }
+                    }
+                }
             }
         }
         tableStats.updatedTime = 0;
@@ -711,8 +782,10 @@ public class AnalysisManager implements Writable {
         tableStats.rowCount = table.getRowCount();
     }
 
-    public void invalidateRemoteStats(long catalogId, long dbId, long tableId, Set<String> columns) {
-        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns);
+    public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
+                                      Set<String> columns, Set<String> partitions, boolean isTruncate) {
+        InvalidateStatsTarget target = new InvalidateStatsTarget(
+                catalogId, dbId, tableId, columns, partitions, isTruncate);
         TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
@@ -730,6 +803,56 @@ public class AnalysisManager implements Writable {
             LOG.warn("Failed to invalidate all remote stats by rpc for table {}, use edit log.", tableId);
             TableStatsMeta tableStats = findTableStatsStatus(tableId);
             logCreateTableStats(tableStats);
+        }
+    }
+
+    public void updatePartitionStatsCache(long catalogId, long dbId, long tableId, long indexId,
+                                        Set<String> partNames, String colName) {
+        updateLocalPartitionStatsCache(catalogId, dbId, tableId, indexId, partNames, colName);
+        updateRemotePartitionStats(catalogId, dbId, tableId, indexId, partNames, colName);
+    }
+
+    public void updateLocalPartitionStatsCache(long catalogId, long dbId, long tableId, long indexId,
+                                               Set<String> partNames, String colName) {
+        if (partNames == null || partNames.isEmpty()) {
+            return;
+        }
+        Iterator<String> iterator = partNames.iterator();
+        StringBuilder partNamePredicate = new StringBuilder();
+        while (iterator.hasNext()) {
+            partNamePredicate.append("'");
+            partNamePredicate.append(StatisticsUtil.escapeSQL(iterator.next()));
+            partNamePredicate.append("'");
+            partNamePredicate.append(",");
+        }
+        if (partNamePredicate.length() > 0) {
+            partNamePredicate.delete(partNamePredicate.length() - 1, partNamePredicate.length());
+        }
+        List<ResultRow> resultRows = StatisticsRepository.loadPartitionColumnStats(
+                catalogId, dbId, tableId, indexId, partNamePredicate.toString(), colName);
+        // row : [catalog_id, db_id, tbl_id, idx_id, part_name, col_id,
+        //        count, ndv, null_count, min, max, data_size, update_time]
+        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
+        for (ResultRow row : resultRows) {
+            cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
+                    PartitionColumnStatistic.fromResultRow(row));
+        }
+    }
+
+    public void updateRemotePartitionStats(long catalogId, long dbId, long tableId, long indexId,
+                                           Set<String> partNames, String colName) {
+        UpdatePartitionStatsTarget target = new UpdatePartitionStatsTarget(
+                catalogId, dbId, tableId, indexId, colName, partNames);
+        TUpdateFollowerPartitionStatsCacheRequest request = new TUpdateFollowerPartitionStatsCacheRequest();
+        request.key = GsonUtils.GSON.toJson(target);
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            // Skip master
+            if (selfNode.getHost().equals(frontend.getHost())) {
+                continue;
+            }
+            statisticsCache.updatePartitionStats(frontend, request);
         }
     }
 
@@ -969,8 +1092,12 @@ public class AnalysisManager implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        writeJobInfo(out, analysisJobInfoMap);
-        writeJobInfo(out, analysisTaskInfoMap);
+        synchronized (analysisJobInfoMap) {
+            writeJobInfo(out, analysisJobInfoMap);
+        }
+        synchronized (analysisTaskInfoMap) {
+            writeJobInfo(out, analysisTaskInfoMap);
+        }
         writeTableStats(out);
     }
 
@@ -982,9 +1109,11 @@ public class AnalysisManager implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStats.size());
-        for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
-            entry.getValue().write(out);
+        synchronized (idToTblStats) {
+            out.writeInt(idToTblStats.size());
+            for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
+                entry.getValue().write(out);
+            }
         }
     }
 
@@ -998,33 +1127,46 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this when load transaction finished.
-    public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+    public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
+            LOG.info("Update rows transactionId is {}", txnId);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Invoke this when load truncate table finished.
-    public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+    public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId, long txnId) {
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(partitionToUpdateRows, dbId, tableId);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(partitionToUpdateRows, dbId, tableId);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Invoke this for cloud version load.
     public void updateUpdatedRows(Map<Long, Long> updatedRows) {
-        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-            return;
+        try {
+            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
+            replayUpdateRowsRecord(updateRowsEvent);
+            logUpdateRowsRecord(updateRowsEvent);
+        } catch (Throwable t) {
+            LOG.warn("Failed to record update rows.", t);
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
-        replayUpdateRowsRecord(updateRowsEvent);
-        logUpdateRowsRecord(updateRowsEvent);
     }
 
     // Set to true means new partition loaded data
@@ -1035,7 +1177,7 @@ public class AnalysisManager implements Writable {
         for (long tableId : tableIds) {
             TableStatsMeta statsStatus = idToTblStats.get(tableId);
             if (statsStatus != null) {
-                statsStatus.newPartitionLoaded.set(true);
+                statsStatus.partitionChanged.set(true);
             }
         }
         logNewPartitionLoadedEvent(new NewPartitionLoadedEvent(tableIds));
@@ -1047,7 +1189,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void replayUpdateTableStatsStatus(TableStatsMeta tableStats) {
-        idToTblStats.put(tableStats.tblId, tableStats);
+        synchronized (idToTblStats) {
+            idToTblStats.put(tableStats.tblId, tableStats);
+        }
     }
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
@@ -1080,17 +1224,34 @@ public class AnalysisManager implements Writable {
             for (Entry<Long, Map<Long, Long>> record : event.getTabletRecords().entrySet()) {
                 TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
                 if (statsStatus != null) {
-                    Table table = catalog.getDb(event.getDbId()).get().getTable(record.getKey()).get();
+                    Optional<Database> dbOption = catalog.getDb(event.getDbId());
+                    if (!dbOption.isPresent()) {
+                        LOG.warn("Database {} does not exist.", event.getDbId());
+                        continue;
+                    }
+                    Database database = dbOption.get();
+                    Optional<Table> tableOption = database.getTable(record.getKey());
+                    if (!tableOption.isPresent()) {
+                        LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
+                        continue;
+                    }
+                    Table table = tableOption.get();
                     if (!(table instanceof OlapTable)) {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) table;
                     short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
                     Map<Long, Long> tabletRows = record.getValue();
+                    if (tabletRows == null) {
+                        continue;
+                    }
                     long tableUpdateRows = 0;
                     for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        tableUpdateRows += entry.getValue() / replicaNum;
+                        tableUpdateRows += entry.getValue();
                     }
+                    tableUpdateRows = tableUpdateRows / replicaNum;
+                    LOG.info("Update rows for table {} is {}, replicaNum is {}",
+                            olapTable.getName(), tableUpdateRows, replicaNum);
                     statsStatus.updatedRows.addAndGet(tableUpdateRows);
                     if (StatisticsUtil.enablePartitionAnalyze()) {
                         updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
@@ -1119,13 +1280,16 @@ public class AnalysisManager implements Writable {
     }
 
     protected void updatePartitionRows(OlapTable table, Map<Long, Long> originTabletToRows,
-                                       TableStatsMeta statsStatus, short replicaNum) {
+                                       TableStatsMeta tableStats, short replicaNum) {
+        if (!table.isPartitionedTable()) {
+            return;
+        }
         List<Partition> partitions = table.getPartitions().stream().sorted(
                 Comparator.comparing(Partition::getVisibleVersionTime).reversed()).collect(Collectors.toList());
         Map<Long, Long> tabletToRows = new HashMap<>(originTabletToRows);
         int tabletCount = tabletToRows.size();
-        if (statsStatus.partitionUpdateRows == null) {
-            statsStatus.partitionUpdateRows = new ConcurrentHashMap<>();
+        if (tableStats.partitionUpdateRows == null) {
+            tableStats.partitionUpdateRows = new ConcurrentHashMap<>();
         }
         for (Partition p : partitions) {
             MaterializedIndex baseIndex = p.getBaseIndex();
@@ -1138,9 +1302,9 @@ public class AnalysisManager implements Writable {
                     continue;
                 }
                 long tabletRows = entry.getValue();
-                statsStatus.partitionUpdateRows.computeIfPresent(p.getId(),
+                tableStats.partitionUpdateRows.computeIfPresent(p.getId(),
                         (id, rows) -> rows += tabletRows / replicaNum);
-                statsStatus.partitionUpdateRows.putIfAbsent(p.getId(), tabletRows / replicaNum);
+                tableStats.partitionUpdateRows.putIfAbsent(p.getId(), tabletRows / replicaNum);
                 iterator.remove();
                 tabletCount--;
             }
@@ -1157,7 +1321,7 @@ public class AnalysisManager implements Writable {
         for (long tableId : event.getTableIds()) {
             TableStatsMeta statsStatus = idToTblStats.get(tableId);
             if (statsStatus != null) {
-                statsStatus.newPartitionLoaded.set(true);
+                statsStatus.partitionChanged.set(true);
             }
         }
     }
@@ -1168,7 +1332,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void removeTableStats(long tableId) {
-        idToTblStats.remove(tableId);
+        synchronized (idToTblStats) {
+            idToTblStats.remove(tableId);
+        }
     }
 
     public ColStatsMeta findColStatsMeta(long tblId, String indexName, String colName) {

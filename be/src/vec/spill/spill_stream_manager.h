@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "olap/options.h"
+#include "util/metrics.h"
 #include "util/threadpool.h"
 #include "vec/spill/spill_stream.h"
 namespace doris {
@@ -41,6 +42,10 @@ public:
 
     const std::string& path() const { return _path; }
 
+    std::string get_spill_data_path(const std::string& query_id = "") const;
+
+    std::string get_spill_data_gc_path(const std::string& sub_dir_name = "") const;
+
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
     // check if the capacity reach the limit after adding the incoming data
@@ -52,6 +57,7 @@ public:
     void update_spill_data_usage(int64_t incoming_data_size) {
         std::lock_guard<std::mutex> l(_mutex);
         _spill_data_bytes += incoming_data_size;
+        spill_disk_data_size->set_value(_spill_data_bytes);
     }
 
     int64_t get_spill_data_bytes() {
@@ -63,6 +69,8 @@ public:
         std::lock_guard<std::mutex> l(_mutex);
         return _spill_data_limit_bytes;
     }
+
+    std::string debug_string();
 
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
@@ -85,6 +93,15 @@ private:
     size_t _available_bytes = 0;
     int64_t _spill_data_bytes = 0;
     TStorageMedium::type _storage_medium;
+
+    std::shared_ptr<MetricEntity> spill_data_dir_metric_entity;
+    IntGauge* spill_disk_capacity = nullptr;
+    IntGauge* spill_disk_limit = nullptr;
+    IntGauge* spill_disk_avail_capacity = nullptr;
+    IntGauge* spill_disk_data_size = nullptr;
+    // for test
+    IntGauge* spill_disk_has_spill_data = nullptr;
+    IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
 class SpillStreamManager {
 public:
@@ -102,15 +119,16 @@ public:
 
     // 创建SpillStream并登记
     Status register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                 std::string query_id, std::string operator_name, int32_t node_id,
-                                 int32_t batch_rows, size_t batch_bytes, RuntimeProfile* profile);
+                                 const std::string& query_id, const std::string& operator_name,
+                                 int32_t node_id, int32_t batch_rows, size_t batch_bytes,
+                                 RuntimeProfile* profile);
 
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
     void async_cleanup_query(TUniqueId query_id);
 
-    void gc(int64_t max_file_count);
+    void gc(int32_t max_work_time_ms);
 
     ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 

@@ -43,6 +43,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -86,10 +87,6 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
-    bool sender_queue_empty(int sender_id);
-
-    bool ready_to_read();
-
     Status get_next(Block* block, bool* eos);
 
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -111,6 +108,7 @@ public:
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
     bool exceeds_limit(size_t block_byte_size);
+    bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
@@ -123,10 +121,7 @@ private:
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr = nullptr;
 
-#ifdef USE_MEM_TRACKER
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
-    TUniqueId _query_id;
-#endif
+    QueryThreadContext _query_thread_context;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;
@@ -143,6 +138,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    size_t _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
@@ -165,7 +161,6 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 
@@ -193,8 +188,6 @@ public:
         return _local_channel_dependency;
     }
 
-    bool should_wait();
-
     virtual Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
@@ -208,11 +201,6 @@ public:
 
     void close();
 
-    bool queue_empty() {
-        std::unique_lock<std::mutex> l(_lock);
-        return _block_queue.empty();
-    }
-
     void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
         _source_dependency = dependency;
     }
@@ -220,6 +208,8 @@ public:
     void add_blocks_memory_usage(int64_t size);
 
     void sub_blocks_memory_usage(int64_t size);
+
+    bool exceeds_limit();
 
 protected:
     friend class pipeline::ExchangeLocalState;
@@ -279,6 +269,7 @@ protected:
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
+    std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
     bool _received_first_batch;

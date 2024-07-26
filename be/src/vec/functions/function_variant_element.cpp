@@ -28,10 +28,12 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "simdjson.h"
+#include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -43,6 +45,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
 
@@ -100,8 +103,11 @@ private:
     static Status get_element_column(const ColumnObject& src, const ColumnPtr& index_column,
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
+        Defer finalize([&]() { (*result)->assume_mutable()->finalize(); });
         if (src.empty()) {
             *result = ColumnObject::create(true);
+            // src subcolumns empty but src row count may not be 0
+            (*result)->assume_mutable()->insert_many_defaults(src.size());
             return Status::OK();
         }
         if (src.is_scalar_variant() &&
@@ -128,8 +134,49 @@ private:
             *result = ColumnObject::create(true, type, std::move(result_column));
             return Status::OK();
         } else {
-            return Status::NotSupported("Not support element_at with none scalar variant {}",
-                                        src.debug_string());
+            auto mutable_src = src.clone_finalized();
+            auto* mutable_ptr = assert_cast<ColumnObject*>(mutable_src.get());
+            PathInData path(field_name);
+            ColumnObject::Subcolumns subcolumns = mutable_ptr->get_subcolumns();
+            const auto* node = subcolumns.find_exact(path);
+            MutableColumnPtr result_col;
+            if (node != nullptr) {
+                // Create without root, since root will be added
+                result_col = ColumnObject::create(true, false /*should not create root*/);
+                std::vector<decltype(node)> nodes;
+                PathsInData paths;
+                ColumnObject::Subcolumns::get_leaves_of_node(node, nodes, paths);
+                ColumnObject::Subcolumns new_subcolumns;
+                for (const auto* n : nodes) {
+                    PathInData new_path = n->path.copy_pop_front();
+                    VLOG_DEBUG << "add node " << new_path.get_path()
+                               << ", data size: " << n->data.size()
+                               << ", finalized size: " << n->data.get_finalized_column().size()
+                               << ", common type: " << n->data.get_least_common_type()->get_name();
+                    // if new_path is empty, indicate it's the root column, but adding a root will return false when calling add
+                    if (!new_subcolumns.add(new_path, n->data)) {
+                        VLOG_DEBUG << "failed to add node " << new_path.get_path();
+                    }
+                }
+                // handle the root node
+                if (new_subcolumns.empty() && !nodes.empty()) {
+                    CHECK_EQ(nodes.size(), 1);
+                    new_subcolumns.create_root(ColumnObject::Subcolumn {
+                            nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
+                            nodes[0]->data.get_least_common_type(), true, true});
+                }
+                auto container = ColumnObject::create(std::move(new_subcolumns), true);
+                result_col->insert_range_from(*container, 0, container->size());
+            } else {
+                // Create with root, otherwise the root type maybe type Nothing
+                result_col = ColumnObject::create(true);
+                result_col->insert_many_defaults(src.size());
+            }
+            *result = result_col->get_ptr();
+            VLOG_DEBUG << "dump new object "
+                       << static_cast<const ColumnObject*>(result_col.get())->debug_string()
+                       << ", path " << path.get_path();
+            return Status::OK();
         }
     }
 

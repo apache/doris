@@ -29,6 +29,8 @@ def getProfile = { id ->
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
 suite('s3_load_profile_test') {
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     sql "drop table if exists dup_tbl_basic;"
     sql """
     CREATE TABLE dup_tbl_basic
@@ -97,7 +99,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
 """
-    def loadAttribute =new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
                 "dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "")
 
@@ -128,9 +130,10 @@ PROPERTIES (
         WITH S3 (
             "AWS_ACCESS_KEY" = "$ak",
             "AWS_SECRET_KEY" = "$sk",
-            "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-            "AWS_REGION" = "ap-beijing",
-            "use_path_style" = "$loadAttribute.usePathStyle"
+            "AWS_ENDPOINT" = "${s3Endpoint}",
+            "AWS_REGION" = "${s3Region}",
+            "use_path_style" = "$loadAttribute.usePathStyle",
+            "provider" = "${getS3Provider()}"
         )
         ${prop}
         """
@@ -171,15 +174,14 @@ PROPERTIES (
     profileJson = new JsonSlurper().parseText(profileString)
     assertEquals(0, profileJson.code)
     profileDataString = profileJson.data
-    def taskStateIdx = profileDataString.indexOf("- Task State: FINISHED")
+    logger.info("profileDataString:" + profileDataString)
+    def taskStateIdx = profileDataString.indexOf("Task&nbsp;&nbsp;State:&nbsp;&nbsp;FINISHED")
     assertFalse(taskStateIdx == -1)
-    def fragmentIdx = profileDataString.indexOf(" Fragment 0:")
-    assertFalse(fragmentIdx == -1)
-    def executionProfileIdx = profileDataString.indexOf("Execution Profile")
+    def executionProfileIdx = profileDataString.indexOf("Execution&nbsp;&nbsp;Profile")
     assertFalse(executionProfileIdx == -1)
-    def pattern = ~/Active:\s*([1-9]\d*|0\.\d+|[1-9]\d*\.\d*)ms/
-    def matcher = pattern.matcher(profileDataString)
-    assertTrue(matcher.find())
+    assertTrue(profileDataString.contains("NumScanners"))
+    assertTrue(profileDataString.contains("RowsProduced"))
+    assertTrue(profileDataString.contains("RowsRead"))
 }
 
 class DataDesc {

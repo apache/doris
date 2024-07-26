@@ -453,15 +453,21 @@ public class LoadManager implements Writable {
     }
 
     private void jobRemovedTrigger(LoadJob job) {
-        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-        List<LoadJob> list = map.get(job.getLabel());
-        list.remove(job);
         if (job instanceof SparkLoadJob) {
             ((SparkLoadJob) job).clearSparkLauncherLog();
         }
         if (job instanceof BulkLoadJob) {
             ((BulkLoadJob) job).recycleProgress();
         }
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        if (map == null) {
+            return;
+        }
+        List<LoadJob> list = map.get(job.getLabel());
+        if (list == null) {
+            return;
+        }
+        list.remove(job);
         if (list.isEmpty()) {
             map.remove(job.getLabel());
         }
@@ -927,8 +933,10 @@ public class LoadManager implements Writable {
                 idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
                         .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
 
+        LOG.info("write load job size: {}", loadJobs.size());
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
+            LOG.info("write load job: {}", loadJob.getId());
             loadJob.write(out);
         }
     }
@@ -939,6 +947,7 @@ public class LoadManager implements Writable {
     public void readFields(DataInput in) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         int size = in.readInt();
+        LOG.info("load job num {} ", size);
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
             if (loadJob.isExpired(currentTimeMs)) {

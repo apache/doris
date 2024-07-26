@@ -63,7 +63,7 @@ class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocal
 public:
     using LocalStateType = SpillSortSinkLocalState;
     SpillSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                           const DescriptorTbl& descs);
+                           const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SpillSortSinkLocalState>::_name);
@@ -76,6 +76,9 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _sort_sink_operator->required_data_distribution();
+    }
+    bool require_data_distribution() const override {
+        return _sort_sink_operator->require_data_distribution();
     }
     Status set_child(OperatorXPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
@@ -93,6 +96,5 @@ public:
 private:
     friend class SpillSortSinkLocalState;
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
-    bool _enable_spill = false;
 };
 } // namespace doris::pipeline

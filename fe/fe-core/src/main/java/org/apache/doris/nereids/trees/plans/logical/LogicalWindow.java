@@ -86,7 +86,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return windowExpressions;
     }
 
-    public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
+    public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
         return new LogicalWindow<>(windowExpressions, isChecked, child);
     }
 
@@ -291,19 +291,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         //        .collect(ImmutableSet.toImmutableSet());
         // TODO: if partition by keys are unique, output is uniform
         // TODO: if partition by keys are uniform, output is unique
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        for (NamedExpression namedExpression : windowExpressions) {
-            updateFuncDepsByWindowExpr(namedExpression, builder);
-        }
-
-        return builder.build();
     }
 
     @Override

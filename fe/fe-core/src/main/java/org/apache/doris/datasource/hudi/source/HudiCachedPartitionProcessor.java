@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
@@ -163,7 +164,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
             }
         } catch (Exception e) {
             LOG.warn("Failed to get hudi partitions", e);
-            throw new CacheException("Failed to get hudi partitions", e);
+            throw new CacheException("Failed to get hudi partitions: " + Util.getRootCauseMessage(e), e);
         }
     }
 }

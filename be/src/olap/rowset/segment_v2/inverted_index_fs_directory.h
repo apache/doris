@@ -22,7 +22,6 @@
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/store/IndexOutput.h>
 #include <CLucene/store/_RAMDirectory.h>
-#include <stdint.h>
 
 #include <string>
 #include <vector>
@@ -46,19 +45,14 @@ namespace segment_v2 {
 class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
-    static const char* const COMPOUND_FILE_EXTENSION;
     static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
 private:
     int filemode;
 
 protected:
     mutable std::mutex _this_lock;
-    io::FileSystemSPtr fs;
-    io::FileSystemSPtr compound_fs;
+    io::FileSystemSPtr _fs;
     std::string directory;
-    std::string cfs_directory;
-    bool useCompoundFileWriter {false};
-    size_t compound_file_size = 0;
 
     void priv_getFN(char* buffer, const char* name) const;
     /// Removes an existing file in the directory.
@@ -66,19 +60,18 @@ protected:
 
 public:
     class FSIndexOutput;
+    class FSIndexOutputV2;
     class FSIndexInput;
 
     friend class DorisFSDirectory::FSIndexOutput;
+    friend class DorisFSDirectory::FSIndexOutputV2;
     friend class DorisFSDirectory::FSIndexInput;
 
-    const io::FileSystemSPtr& getFileSystem() { return fs; }
-    const io::FileSystemSPtr& getCompoundFileSystem() { return compound_fs; }
-    size_t getCompoundFileSize() const { return compound_file_size; }
+    const io::FileSystemSPtr& getFileSystem() { return _fs; }
     ~DorisFSDirectory() override;
 
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
-    const char* getCfsDirName() const;
     const std::string& getDirName() const;
     int64_t fileModified(const char* name) const override;
     int64_t fileLength(const char* name) const override;
@@ -87,6 +80,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
+    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();
@@ -95,10 +89,8 @@ public:
 
     DorisFSDirectory();
 
-    virtual void init(const io::FileSystemSPtr& fs, const char* path, bool use_compound_file_writer,
-                      lucene::store::LockFactory* lock_factory = nullptr,
-                      const io::FileSystemSPtr& compound_fs = nullptr,
-                      const char* cfs_path = nullptr);
+    virtual void init(const io::FileSystemSPtr& fs, const char* path,
+                      lucene::store::LockFactory* lock_factory = nullptr);
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
@@ -110,10 +102,8 @@ protected:
 
     // unlike the java Hashtable, FileMap is not synchronized, and all access must be protected by a lock
     FileMap* filesMap;
-    void init(const io::FileSystemSPtr& fs, const char* path, bool use_compound_file_writer,
-              lucene::store::LockFactory* lock_factory = nullptr,
-              const io::FileSystemSPtr& compound_fs = nullptr,
-              const char* cfs_path = nullptr) override;
+    void init(const io::FileSystemSPtr& fs, const char* path,
+              lucene::store::LockFactory* lock_factory = nullptr) override;
 
 public:
     int64_t sizeInBytes;
@@ -222,11 +212,8 @@ protected:
 class DorisFSDirectoryFactory {
 public:
     static DorisFSDirectory* getDirectory(const io::FileSystemSPtr& fs, const char* file,
-                                          bool use_compound_file_writer = false,
                                           bool can_use_ram_dir = false,
-                                          lucene::store::LockFactory* lock_factory = nullptr,
-                                          const io::FileSystemSPtr& cfs_fs = nullptr,
-                                          const char* cfs_file = nullptr);
+                                          lucene::store::LockFactory* lock_factory = nullptr);
 };
 } // namespace segment_v2
 } // namespace doris

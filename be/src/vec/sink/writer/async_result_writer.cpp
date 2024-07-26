@@ -96,25 +96,14 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
-    if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
-        ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
-        RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
-            auto task_lock = task_ctx.lock();
-            if (task_lock == nullptr) {
-                return;
-            }
-            this->process_block(state, profile);
-        }));
-    } else {
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-                [this, state, profile, task_ctx]() {
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return;
-                    }
-                    this->process_block(state, profile);
-                }));
-    }
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+            [this, state, profile, task_ctx]() {
+                auto task_lock = task_ctx.lock();
+                if (task_lock == nullptr) {
+                    return;
+                }
+                this->process_block(state, profile);
+            }));
     return Status::OK();
 }
 
@@ -140,7 +129,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             }
 
             auto block = _get_block_from_queue();
-            auto status = write(*block);
+            auto status = write(state, *block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
                 _writer_status.update(status);

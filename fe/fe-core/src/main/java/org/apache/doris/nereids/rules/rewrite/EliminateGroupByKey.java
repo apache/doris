@@ -91,7 +91,7 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
             return null;
         }
 
-        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()));
+        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(new HashSet<>(groupBySlots.values()), requireOutput);
         Set<Expression> removeExpression = new HashSet<>();
         for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
             if (!minGroupBySlots.contains(entry.getValue())

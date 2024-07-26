@@ -402,8 +402,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             rowset_meta->set_tablet_id(tablet->tablet_id());
             rowset_meta->set_tablet_uid(tablet->tablet_uid());
             rowset_meta->set_rowset_id(k_engine->next_rowset_id());
-            return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
-                                                std::move(rowset_meta));
+            return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
+                                                tablet->tablet_path());
         };
         auto st = tablet->init();
         ASSERT_TRUE(st.ok()) << st;
@@ -421,7 +421,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         create_tablet(id, false, rowset_size++);
     }
 
-    std::unordered_set<TTabletId> cumu_set;
+    std::unordered_set<TabletSharedPtr> cumu_set;
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
             cumulative_compaction_policies;
     cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =

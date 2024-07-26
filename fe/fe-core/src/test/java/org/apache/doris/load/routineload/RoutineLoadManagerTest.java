@@ -638,21 +638,20 @@ public class RoutineLoadManagerTest {
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
 
-        // 第一次自动恢复
         for (int i = 0; i < 3; i++) {
             Deencapsulation.setField(routineLoadJob, "pauseReason",
                     new ErrorReason(InternalErrorCode.REPLICA_FEW_ERR, ""));
+            try {
+                Thread.sleep(((long) Math.pow(2, i) * 10 * 1000L));
+            } catch (InterruptedException e) {
+                throw new UserException("thread sleep failed");
+            }
             routineLoadManager.updateRoutineLoadJob();
             Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
             Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-            boolean autoResumeLock = Deencapsulation.getField(routineLoadJob, "autoResumeLock");
-            Assert.assertEquals(autoResumeLock, false);
         }
-        // 第四次自动恢复 就会锁定
         routineLoadManager.updateRoutineLoadJob();
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
-        boolean autoResumeLock = Deencapsulation.getField(routineLoadJob, "autoResumeLock");
-        Assert.assertEquals(autoResumeLock, true);
     }
 
     @Test

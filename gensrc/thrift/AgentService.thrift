@@ -45,6 +45,9 @@ struct TTabletSchema {
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
     19: optional list<i32> cluster_key_idxes
+    // col unique id for row store column
+    20: optional list<i32> row_store_col_cids
+    21: optional i64 row_store_page_size = 16384
 }
 
 // this enum stands for different storage format in src_backends
@@ -61,6 +64,16 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+enum TObjStorageType {
+    UNKNOWN = 0,
+    AWS = 1,
+    AZURE = 2,
+    BOS = 3,
+    COS = 4,
+    OBS = 5,
+    OSS = 6,
+    GCP = 7
+}
 
 struct TS3StorageParam {
     1: optional string endpoint
@@ -74,6 +87,7 @@ struct TS3StorageParam {
     9: optional string bucket
     10: optional bool use_path_style = false
     11: optional string token
+    12: optional TObjStorageType provider
 }
 
 struct TStoragePolicy {
@@ -101,6 +115,10 @@ struct TPushStoragePolicyReq {
 }
 
 struct TCleanTrashReq {}
+
+struct TCleanUDFCacheReq {
+    1: optional string function_signature //function_name(arg_type)
+}
 
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
@@ -163,7 +181,9 @@ struct TCreateTabletReq {
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
     27: optional i64 time_series_compaction_level_threshold = 1
-    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
+    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
+    29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+
     // For cloud
     1000: optional bool is_in_memory = false
     1001: optional bool is_persistent = false
@@ -273,6 +293,7 @@ struct TPushReq {
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
+    18: optional i32 schema_version
 }
 
 struct TCloneReq {
@@ -289,6 +310,7 @@ struct TCloneReq {
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
+    13: optional i64 table_id = -1
 }
 
 struct TCompactionReq {
@@ -412,6 +434,9 @@ struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required list<Types.TTabletId> tablet_ids
+    4: optional list<i64> base_compaction_cnts
+    5: optional list<i64> cumulative_compaction_cnts
+    6: optional list<i64> cumulative_points
 }
 
 struct TCalcDeleteBitmapRequest {
@@ -521,6 +546,7 @@ struct TAgentTaskRequest {
     33: optional TGcBinlogReq gc_binlog_req
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
+    36: optional TCleanUDFCacheReq clean_udf_cache_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

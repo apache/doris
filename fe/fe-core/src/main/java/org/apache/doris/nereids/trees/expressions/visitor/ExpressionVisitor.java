@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -503,6 +504,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitMatchPhraseEdge(MatchPhraseEdge matchPhraseEdge, C context) {
         return visitMatch(matchPhraseEdge, context);
+    }
+
+    public R visitPlaceholder(Placeholder placeholder, C context) {
+        return visit(placeholder, context);
     }
 
     public R visitAny(Any any, C context) {

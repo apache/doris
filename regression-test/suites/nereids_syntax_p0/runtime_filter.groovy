@@ -116,4 +116,20 @@ suite("runtime_filter") {
         INNER JOIN table_9_undef_partitions2_keys3_properties4_distributed_by5 AS alias2
         INNER JOIN table_20_undef_partitions2_keys3_properties4_distributed_by5 AS alias3 ON alias2.`pk` = alias3.`pk`;    
      """
+
+    // do not generate rf on schemaScan. if rf generated, following sql is blocked
+     multi_sql """
+     set runtime_filter_mode=true;
+     SELECT *
+        FROM(
+        SELECT tab.TABLE_SCHEMA, tab.TABLE_NAME
+        FROM information_schema.TABLES tab
+        WHERE TABLE_TYPE in ('BASE TABLE', 'SYSTEM VIEW')
+        AND tab.TABLE_SCHEMA in ('__internal_schema')
+        AND tab.TABLE_NAME IN ('audit_log')
+        ORDER BY tab.TABLE_SCHEMA, tab.TABLE_NAME LIMIT 0, 100) t inner join information_schema.COLUMNS col on t.TABLE_SCHEMA=col.TABLE_SCHEMA
+        AND t.TABLE_NAME=col.TABLE_NAME
+        ORDER BY col.TABLE_SCHEMA,col.TABLE_NAME,col.ORDINAL_POSITION;
+    """
+
 }

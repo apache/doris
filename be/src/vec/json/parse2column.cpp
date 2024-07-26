@@ -143,8 +143,14 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
-                               std::string_view(src, length));
+        if (config::variant_throw_exeception_on_invalid_json) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
+                                   std::string_view(src, length));
+        }
+        // Treat as string
+        PathInData root_path;
+        Field field(src, length);
+        result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
@@ -163,7 +169,11 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
-        DCHECK_EQ(subcolumn->size(), old_num_rows);
+        if (subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.

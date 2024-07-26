@@ -18,6 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -30,6 +32,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -58,15 +61,17 @@ public class StatisticsCache {
             = ThreadPoolManager.newDaemonFixedThreadPool(
             10, Integer.MAX_VALUE, "STATS_FETCH", true);
 
-    private final ColumnStatisticsCacheLoader columnStatisticsCacheLoader = new ColumnStatisticsCacheLoader();
+    private final ColumnStatisticsCacheLoader columnStatisticCacheLoader = new ColumnStatisticsCacheLoader();
     private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
+    private final PartitionColumnStatisticCacheLoader partitionColumnStatisticCacheLoader
+            = new PartitionColumnStatisticCacheLoader();
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
                     .maximumSize(Config.stats_cache_size)
                     .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
                     .executor(threadPool)
-                    .buildAsync(columnStatisticsCacheLoader);
+                    .buildAsync(columnStatisticCacheLoader);
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
             Caffeine.newBuilder()
@@ -75,9 +80,23 @@ public class StatisticsCache {
                     .executor(threadPool)
                     .buildAsync(histogramCacheLoader);
 
+    private final AsyncLoadingCache<PartitionColumnStatisticCacheKey, Optional<PartitionColumnStatistic>>
+            partitionColumnStatisticCache =
+            Caffeine.newBuilder()
+                .maximumSize(Config.stats_cache_size)
+                .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                .executor(threadPool)
+                .buildAsync(partitionColumnStatisticCacheLoader);
+
     public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        // Need to change base index id to -1 for OlapTable.
+        try {
+            idxId = changeBaseIndexId(catalogId, dbId, tblId, idxId);
+        } catch (Exception e) {
             return ColumnStatistic.UNKNOWN;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
@@ -90,6 +109,46 @@ public class StatisticsCache {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
         return ColumnStatistic.UNKNOWN;
+    }
+
+    public PartitionColumnStatistic getPartitionColumnStatistics(long catalogId, long dbId, long tblId, long idxId,
+                                                  String partName, String colName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().internalSession) {
+            return PartitionColumnStatistic.UNKNOWN;
+        }
+        // Need to change base index id to -1 for OlapTable.
+        try {
+            idxId = changeBaseIndexId(catalogId, dbId, tblId, idxId);
+        } catch (Exception e) {
+            return PartitionColumnStatistic.UNKNOWN;
+        }
+        PartitionColumnStatisticCacheKey k = new PartitionColumnStatisticCacheKey(
+                catalogId, dbId, tblId, idxId, partName, colName);
+        try {
+            CompletableFuture<Optional<PartitionColumnStatistic>> f = partitionColumnStatisticCache.get(k);
+            if (f.isDone()) {
+                return f.get().orElse(PartitionColumnStatistic.UNKNOWN);
+            }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+        }
+        return PartitionColumnStatistic.UNKNOWN;
+    }
+
+    // Base index id should be set to -1 for OlapTable. Because statistics tables use -1 for base index.
+    // TODO: Need to use the real index id in statistics table in later version.
+    private long changeBaseIndexId(long catalogId, long dbId, long tblId, long idxId) {
+        if (idxId != -1) {
+            TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                if (idxId == olapTable.getBaseIndexId()) {
+                    idxId = -1;
+                }
+            }
+        }
+        return idxId;
     }
 
     public Histogram getHistogram(long ctlId, long dbId, long tblId, String colName) {
@@ -113,8 +172,27 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invalidate(long ctlId, long dbId, long tblId, long idxId, String colName) {
+    public void invalidateColumnStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+    }
+
+    public void invalidatePartitionColumnStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                                    String partName, String colName) {
+        if (partName == null) {
+            return;
+        }
+        partitionColumnStatisticCache.synchronous().invalidate(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partName, colName));
+    }
+
+    public void invalidateAllPartitionStatsCache() {
+        partitionColumnStatisticCache.synchronous().invalidateAll();
+    }
+
+    public void updatePartitionColStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                             String partName, String colName, PartitionColumnStatistic statistic) {
+        partitionColumnStatisticCache.synchronous().put(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partName, colName), Optional.of(statistic));
     }
 
     public void updateColStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName,
@@ -178,7 +256,10 @@ public class StatisticsCache {
                 }
                 putCache(k, c);
             } catch (Throwable t) {
-                LOG.warn("Error when preheating stats cache. Row:[{}]", r, t);
+                LOG.warn("Error when preheating stats cache. reason: [{}]. Row:[{}]", t.getMessage(), r);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(t);
+                }
             }
         }
     }
@@ -192,7 +273,7 @@ public class StatisticsCache {
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
+            invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
         }
@@ -248,5 +329,23 @@ public class StatisticsCache {
         CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>();
         f.obtrudeValue(Optional.of(c));
         columnStatisticsCache.put(k, f);
+    }
+
+    @VisibleForTesting
+    public boolean updatePartitionStats(Frontend frontend, TUpdateFollowerPartitionStatsCacheRequest request) {
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
+        FrontendService.Client client = null;
+        try {
+            client = ClientPool.frontendPool.borrowObject(address);
+            client.updatePartitionStatsCache(request);
+        } catch (Throwable t) {
+            LOG.warn("Failed to update partition stats cache of follower: {}", address, t);
+            return false;
+        } finally {
+            if (client != null) {
+                ClientPool.frontendPool.returnObject(address, client);
+            }
+        }
+        return true;
     }
 }

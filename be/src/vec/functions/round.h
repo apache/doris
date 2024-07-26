@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/functions/function.h"
 #if defined(__SSE4_1__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
@@ -39,6 +40,7 @@
 #include <fenv.h>
 #endif
 #include <algorithm>
+#include <type_traits>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -74,7 +76,7 @@ enum class TieBreakingMode {
 };
 
 template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
-          TieBreakingMode tie_breaking_mode>
+          TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
     static const size_t data_count = 1;
 
@@ -122,11 +124,12 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", rounding_mode);
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE T compute(T x, T scale, size_t target_scale) {
+    static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
         switch (scale_mode) {
         case ScaleMode::Zero:
         case ScaleMode::Positive:
@@ -134,14 +137,15 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", scale_mode);
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE void compute(const T* __restrict in, size_t scale, T* __restrict out,
-                                      size_t target_scale) {
+    static ALWAYS_INLINE void compute(const T* __restrict in, U scale, T* __restrict out,
+                                      U target_scale) {
         if constexpr (sizeof(T) <= sizeof(scale) && scale_mode == ScaleMode::Negative) {
-            if (scale > size_t(std::numeric_limits<T>::max())) {
+            if (scale >= std::numeric_limits<T>::max()) {
                 *out = 0;
                 return;
             }
@@ -155,7 +159,7 @@ class DecimalRoundingImpl {
 private:
     using NativeType = typename T::NativeType;
     using Op = IntegerRoundingComputation<NativeType, rounding_mode, ScaleMode::Negative,
-                                          tie_breaking_mode>;
+                                          tie_breaking_mode, NativeType>;
     using Container = typename ColumnDecimal<T>::Container;
 
 public:
@@ -163,15 +167,16 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            size_t scale = int_exp10(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
 
             const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
+                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
+                    Op::compute(p_in, scale, p_out, negative_scale);
                     ++p_in;
                     ++p_out;
                 }
@@ -191,9 +196,10 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            size_t scale = int_exp10(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
             if (out_scale < 0) {
-                Op::compute(&in, scale, &out, int_exp10(-out_scale));
+                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                Op::compute(&in, scale, &out, negative_scale);
             } else {
                 Op::compute(&in, scale, &out, 1);
             }
@@ -220,8 +226,7 @@ inline float roundWithMode(float x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return truncf(x);
     }
-
-    LOG(FATAL) << "__builtin_unreachable";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
     __builtin_unreachable();
 }
 
@@ -242,8 +247,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return trunc(x);
     }
-
-    LOG(FATAL) << "__builtin_unreachable";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
     __builtin_unreachable();
 }
 
@@ -350,7 +354,7 @@ template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct IntegerRoundingImpl {
 private:
-    using Op = IntegerRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode>;
+    using Op = IntegerRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
     using Container = typename ColumnVector<T>::Container;
 
 public:
@@ -412,7 +416,8 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
-            LOG(FATAL) << "__builtin_unreachable";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "IntegerRoundingImpl __builtin_unreachable ", scale);
             __builtin_unreachable();
         }
     }
@@ -496,7 +501,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_const __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -573,7 +581,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_vec __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -655,7 +666,10 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
+            auto error_type = std::make_shared<T>();
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_const_vec __builtin_unreachable {}",
+                                   error_type->get_name());
             __builtin_unreachable();
             return nullptr;
         }
@@ -680,8 +694,10 @@ public:
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if ((arguments.empty()) || (arguments.size() > 2)) {
-            LOG(FATAL) << "Number of arguments for function " + get_name() +
-                                  " doesn't match: should be 1 or 2. ";
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Number of arguments for function {}, doesn't match: should be 1 or 2. ",
+                    get_name());
         }
 
         return arguments[0];

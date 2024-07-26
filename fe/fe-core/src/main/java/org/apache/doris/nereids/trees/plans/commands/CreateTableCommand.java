@@ -107,6 +107,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         LogicalPlan query = ctasQuery.get();
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        // must disable constant folding by be, because be constant folding may return wrong type
+        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         Plan plan = planner.plan(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
@@ -128,16 +130,27 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
-                    if (!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable()) {
-                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                CharacterType.class, StringType.INSTANCE);
+                    if ((!((SlotReference) s).getTable().isPresent()
+                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                        if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
+                                || (createTableInfo.getDistribution() != null
+                                && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                    StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                        } else {
+                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                    CharacterType.class, StringType.INSTANCE);
+                        }
                     }
                 } else {
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    }
                 }
             }
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
@@ -162,7 +175,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(), Optional.empty()).run(
+                        ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);

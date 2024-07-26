@@ -62,9 +62,9 @@ suite("test_agg_foreach") {
     (5,[null,2],[[2],null],[null,'c']);
    """
 
-
+   // this case also test combinator should be case-insensitive
    qt_sql """
-       select min_foreach(a), min_by_foreach(a,a),max_foreach(a),max_by_foreach(a,a) , avg_foreach(a),avg_weighted_foreach(a,a) from foreach_table ;
+       select min_ForEach(a), min_by_foreach(a,a),max_foreach(a),max_by_foreach(a,a) , avg_foreach(a),avg_weighted_foreach(a,a) from foreach_table ;
    """
 
    qt_sql """

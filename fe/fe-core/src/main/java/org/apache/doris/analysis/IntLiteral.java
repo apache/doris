@@ -20,7 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -253,6 +255,9 @@ public class IntLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -284,8 +289,8 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override
@@ -374,19 +379,19 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         switch (type.getPrimitiveType()) {
             case TINYINT:
                 value = data.get();
                 break;
             case SMALLINT:
-                value = data.getChar();
+                value = !isUnsigned ? data.getChar() : ByteBufferUtil.getUnsignedByte(data);
                 break;
             case INT:
-                value = data.getInt();
+                value = !isUnsigned ? data.getInt() : ByteBufferUtil.getUnsignedShort(data);
                 break;
             case BIGINT:
-                value = data.getLong();
+                value = !isUnsigned ? data.getLong() : ByteBufferUtil.getUnsignedInt(data);
                 break;
             default:
                 Preconditions.checkState(false);

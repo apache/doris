@@ -309,6 +309,7 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'env.sh' ]] ||
             [[ "${af}" == 'run-regression-test.sh' ]] ||
             [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/cmake/'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
             echo "cloud-p0 related file changed, return need" && return 0
         fi
@@ -376,4 +377,21 @@ file_changed_performance() {
         fi
     done
     echo "return no need" && return 1
+}
+
+file_changed_meta() {
+    local all_files
+    all_files=$(cat all_files)
+    if [[ -z ${all_files} ]]; then echo "Failed to get pr changed files." && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java' ||
+            "${af}" == 'fe/fe-core/src/main/java/org/apache/doris/persist/OperationType.java' ||
+            "${af}" == 'fe/fe-core/src/main/java/org/apache/doris/persist/meta/PersistMetaModules.java' ||
+            "${af}" == 'fe/fe-core/src/main/java/org/apache/doris/persist/EditLog.java' ||
+            "${af}" == 'gensrc/thrift/'* ||
+            "${af}" == 'gensrc/proto/'* ]]; then
+            echo "Doris meta changed" && return 0
+        fi
+    done
+    echo "Doris meta not changed" && return 1
 }

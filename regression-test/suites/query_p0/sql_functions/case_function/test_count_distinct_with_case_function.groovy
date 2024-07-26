@@ -25,8 +25,8 @@ suite("test_count_distinct_with_case_function") {
     sql """
         CREATE TABLE `a` (
              `k1` int(11) NULL COMMENT "",
-  	     `k2` bitmap BITMAP_UNION NULL COMMENT "",
-  	     `k3` bitmap BITMAP_UNION NULL COMMENT ""
+  	     `k2` bitmap BITMAP_UNION  COMMENT "",
+  	     `k3` bitmap BITMAP_UNION  COMMENT ""
 	) ENGINE=OLAP
 	AGGREGATE KEY(`k1`)
 	DISTRIBUTED BY HASH(`k1`) BUCKETS 10

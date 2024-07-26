@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
+#include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -195,8 +196,9 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             const size_t size_to_append =
                     src_offset_data[src_offset] - src_offset_data[src_offset - 1];
             const size_t offset = src_offset_data[src_offset - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
+
+            memcpy_inlined(dst_data_ptr + dst_chars_pos, src_data_ptr + offset, size_to_append);
+
             dst_chars_pos += size_to_append;
         }
     };
@@ -395,16 +397,41 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 
 template <typename T>
 void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            uint32_t offset(offset_at(i));
-            uint32_t string_size(size_at(i));
+                                               const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
 
-            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
-            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-            keys[i].size += sizeof(string_size) + string_size;
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            if (null_map[i] == 0) {
+                UInt32 offset(offset_at(i));
+                UInt32 string_size(size_at(i));
+
+                memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+                memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+                keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
+            } else {
+                keys[i].size += sizeof(UInt8);
+            }
+        }
+    } else {
+        // All rows are not null, serialize null & value
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            UInt32 offset(offset_at(i));
+            UInt32 string_size(size_at(i));
+
+            memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+            memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
         }
     }
 }
@@ -542,7 +569,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
-    auto sz = this->size();
+    auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
@@ -552,12 +579,8 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
             auto value_a = get_data_at(row_id);
             int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
                                                     cmp_base.size);
-            if (res * direction < 0) {
-                filter[row_id] = 1;
-                cmp_res[row_id] = 1;
-            } else if (res * direction > 0) {
-                cmp_res[row_id] = 1;
-            }
+            cmp_res[row_id] = res != 0;
+            filter[row_id] = res * direction < 0;
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }

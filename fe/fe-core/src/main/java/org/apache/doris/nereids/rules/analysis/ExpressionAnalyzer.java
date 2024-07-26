@@ -35,6 +35,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -68,16 +70,17 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -91,6 +94,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -101,11 +105,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
+    @VisibleForTesting
+    public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
+        @Override
+        public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+            return new ExpressionAnalyzer(
+                    null, new Scope(ImmutableList.of()), null, false, false
+            ).analyze(expr, ctx);
+        }
+    };
 
     private final Plan currentPlan;
     /*
@@ -122,23 +135,33 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
     private boolean currentInLambda;
-
-    // Keep track of which element_at function's level
-    // e.g. element_at(element_at(v, 'repo'), 'name') level 1
-    //      element_at(v, 'repo') level 2
-    // Only works with function ElementAt which satisfy condition PushDownToProjectionFunction.validToPushDown
-    private int currentElementAtLevel = 0;
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
-    public ExpressionAnalyzer(Plan currentPlan, Scope scope, CascadesContext cascadesContext,
-            boolean enableExactMatch, boolean bindSlotInOuterScope) {
+    public ExpressionAnalyzer(Plan currentPlan, Scope scope,
+            @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope) {
         super(scope, cascadesContext);
         this.currentPlan = currentPlan;
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
-        this.wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(
-                cascadesContext.getConnectContext().getSessionVariable());
+        this.wantToParseSqlFromSqlCache = cascadesContext != null
+                && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
+    }
+
+    /** analyzeFunction */
+    public static Expression analyzeFunction(
+            @Nullable LogicalPlan plan, @Nullable CascadesContext cascadesContext, Expression expression) {
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(plan, new Scope(ImmutableList.of()),
+                cascadesContext, false, false);
+        return analyzer.analyze(
+                expression,
+                cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext)
+        );
+    }
+
+    public Expression analyze(Expression expression) {
+        CascadesContext cascadesContext = getCascadesContext();
+        return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));
     }
 
     /** analyze */
@@ -265,10 +288,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     if (tableName.isEmpty()) {
                         tableName = "table list";
                     }
-                    throw new AnalysisException("Unknown column '"
-                            + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                            + "' in '" + tableName + "' in "
-                            + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause");
+                    couldNotFoundColumn(unboundSlot, tableName);
                 }
                 return unboundSlot;
             case 1:
@@ -307,6 +327,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
+    protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
+        String message = "Unknown column '"
+                + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                + "' in '" + tableName;
+        if (currentPlan != null) {
+            message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
+        }
+        throw new AnalysisException(message);
+    }
+
     @Override
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
@@ -315,7 +345,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
-                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -335,9 +364,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        if (unboundFunction.getName().equalsIgnoreCase("element_at")) {
-            ++currentElementAtLevel;
-        }
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
@@ -353,7 +379,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     .build()
                 : (List) unboundFunction.getArguments();
 
-        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+        String dbName = unboundFunction.getDbName();
+        if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
             ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
@@ -365,17 +392,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                unboundFunction.getDbName(), functionName, arguments);
-        Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
-        StatementContext statementContext = context.cascadesContext.getStatementContext();
-        if (buildResult.second instanceof Nondeterministic) {
-            hasNondeterministic = true;
+                dbName, functionName, arguments);
+        // for create view stmt
+        if (builder instanceof UdfBuilder) {
+            unboundFunction.getIndexInSqlString().ifPresent(index -> {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(null == dbName
+                                ? ConnectContext.get().getDatabase() : dbName, functionName)));
+            });
         }
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        if (builder instanceof AliasUdfBuilder
-                || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
-            if (sqlCacheContext.isPresent()) {
-                sqlCacheContext.get().setCannotProcessExpression(true);
+
+        Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
+        Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
+        if (wantToParseSqlFromSqlCache) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            if (buildResult.second instanceof Nondeterministic) {
+                hasNondeterministic = true;
+            }
+            sqlCacheContext = statementContext.getSqlCacheContext();
+            if (builder instanceof AliasUdfBuilder
+                    || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
+                if (sqlCacheContext.isPresent()) {
+                    sqlCacheContext.get().setCannotProcessExpression(true);
+                }
             }
         }
         if (builder instanceof AliasUdfBuilder) {
@@ -387,9 +426,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
             if (castFunction instanceof Count
+                    && context != null
                     && context.cascadesContext.getOuterScope().isPresent()
-                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()
-                    .isEmpty()) {
+                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots().isEmpty()) {
                 // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
                 // when unnest correlated subquery, we create a left join node.
                 // outer query is left table and subquery is right one
@@ -397,17 +436,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 castFunction = new Nvl(castFunction, new BigIntLiteral(0));
-            }
-
-            if (currentElementAtLevel == 1
-                    && PushDownToProjectionFunction.validToPushDown(castFunction)) {
-                // Only rewrite the top level of PushDownToProjectionFunction, otherwise invalid slot will be generated
-                // currentElementAtLevel == 1 means at the top of element_at function, other levels will be ignored.
-                currentElementAtLevel = 0;
-                return visitElementAt((ElementAt) castFunction, context);
-            }
-            if (castFunction instanceof ElementAt) {
-                --currentElementAtLevel;
             }
             return castFunction;
         }
@@ -417,39 +445,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
-    }
-
-    @Override
-    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        ElementAt boundFunction = (ElementAt) visitBoundFunction(elementAt, context);
-        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable() != null
-                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                return boundFunction;
-            }
-            // TODO: push down logic here is very tricky, we will refactor it later
-            Set<Slot> inputSlots = boundFunction.getInputSlots();
-            if (inputSlots.isEmpty()) {
-                return boundFunction;
-            }
-            Slot slot = inputSlots.iterator().next();
-            if (slot.hasUnbound()) {
-                slot = (Slot) slot.accept(this, context);
-            }
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            Expression originBoundFunction = boundFunction.rewriteUp(expr -> {
-                if (expr instanceof SlotReference) {
-                    Expression originalExpr = statementContext.getOriginalExpr((SlotReference) expr);
-                    return originalExpr == null ? expr : originalExpr;
-                }
-                return expr;
-            });
-            // rewrite to slot and bound this slot
-            return PushDownToProjectionFunction.rewriteToSlot(
-                    (PushDownToProjectionFunction) originBoundFunction, (SlotReference) slot);
-        }
-        return boundFunction;
     }
 
     /**
@@ -539,6 +534,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         }
         return expr;
+    }
+
+    @Override
+    public Expression visitPlaceholder(Placeholder placeholder, ExpressionRewriteContext context) {
+        if (context == null) {
+            return super.visitPlaceholder(placeholder, context);
+        }
+        Expression realExpr = context.cascadesContext.getStatementContext()
+                    .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
+        return visit(realExpr, context);
     }
 
     @Override
@@ -722,27 +727,40 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return !extractSlots.isEmpty() ? extractSlots : candidates;
     }
 
+    private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
+        if (!indexInSql.isPresent()) {
+            return slots;
+        }
+        List<Slot> newSlots = new ArrayList<>();
+        for (Slot slot : slots) {
+            newSlots.add(slot.withIndexInSql(indexInSql.get()));
+        }
+        return newSlots;
+    }
+
     /** bindSlotByScope */
     public List<Slot> bindSlotByScope(UnboundSlot unboundSlot, Scope scope) {
         List<String> nameParts = unboundSlot.getNameParts();
+        Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
         int namePartSize = nameParts.size();
         switch (namePartSize) {
             // column
             case 1: {
-                return bindSingleSlotByName(nameParts.get(0), scope);
+                return addSqlIndexInfo(bindSingleSlotByName(nameParts.get(0), scope), idxInSql);
             }
             // table.column
             case 2: {
-                return bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope);
+                return addSqlIndexInfo(bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope), idxInSql);
             }
             // db.table.column
             case 3: {
-                return bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope);
+                return addSqlIndexInfo(bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope),
+                        idxInSql);
             }
             // catalog.db.table.column
             case 4: {
-                return bindSingleSlotByCatalog(
-                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope);
+                return addSqlIndexInfo(bindSingleSlotByCatalog(
+                        nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope), idxInSql);
             }
             default: {
                 throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));
@@ -762,17 +780,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
-    private void checkBoundLambda(Expression lambdaFunction, List<String> argumentNames) {
-        lambdaFunction.foreachUp(e -> {
-            if (e instanceof UnboundSlot) {
-                UnboundSlot unboundSlot = (UnboundSlot) e;
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + argumentNames);
-            }
-        });
-    }
-
     private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         int childrenSize = unboundFunction.children().size();
         List<Expression> subChildren = new ArrayList<>();
@@ -785,16 +792,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression lambdaFunction = lambda.getLambdaFunction();
         List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
 
-        // 1.bindSlot
         List<Slot> boundedSlots = arrayItemReferences.stream()
                 .map(ArrayItemReference::toSlot)
                 .collect(ImmutableList.toImmutableList());
-        lambdaFunction = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
-                true, false).bind(lambdaFunction);
-        checkBoundLambda(lambdaFunction, lambda.getLambdaArgumentNames());
 
-        // 2.bindFunction
-        lambdaFunction = lambdaFunction.accept(this, context);
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(boundedSlots),
+                context == null ? null : context.cascadesContext, true, false) {
+            @Override
+            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
+                throw new AnalysisException("Unknown lambda slot '"
+                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
+            }
+        };
+        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
 
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
@@ -805,15 +816,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
-        if (boundSlot instanceof SlotReference
-                && ((SlotReference) boundSlot).hasSubColPath()) {
-            // already bounded
-            return false;
-        }
-        if (namePartSize > boundSlot.getQualifier().size() + 1) {
-            return false;
-        }
-        return true;
+        return namePartSize <= boundSlot.getQualifier().size() + 1;
     }
 
     private List<Slot> bindSingleSlotByName(String name, Scope scope) {

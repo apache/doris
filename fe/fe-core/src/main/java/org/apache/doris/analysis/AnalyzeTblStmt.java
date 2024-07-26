@@ -30,7 +30,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -242,13 +241,8 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public Set<String> getPartitionNames() {
-        if (partitionNames == null || partitionNames.getPartitionNames() == null) {
-            if (table instanceof ExternalTable) {
-                // External table couldn't return all partitions when partitionNames is not set.
-                // Because Analyze Table command for external table could specify partition names.
-                return Collections.emptySet();
-            }
-            return table.getPartitionNames();
+        if (partitionNames == null || partitionNames.getPartitionNames() == null || partitionNames.isStar()) {
+            return Collections.emptySet();
         }
         Set<String> partitions = Sets.newHashSet();
         partitions.addAll(partitionNames.getPartitionNames());

@@ -134,10 +134,16 @@ public class DebugPointUtil {
         addDebugPoint(name, new DebugPoint());
     }
 
-    public static <E> void addDebugPointWithValue(String name, E value) {
+    public static void addDebugPointWithParams(String name, Map<String, String> params) {
         DebugPoint debugPoint = new DebugPoint();
-        debugPoint.params.put("value", String.format("%s", value));
+        debugPoint.params = params;
         addDebugPoint(name, debugPoint);
+    }
+
+    public static <E> void addDebugPointWithValue(String name, E value) {
+        Map<String, String> params = Maps.newHashMap();
+        params.put("value", String.format("%s", value));
+        addDebugPointWithParams(name, params);
     }
 
     public static void removeDebugPoint(String name) {

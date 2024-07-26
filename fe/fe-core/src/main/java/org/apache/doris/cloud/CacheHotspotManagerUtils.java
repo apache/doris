@@ -19,7 +19,9 @@ package org.apache.doris.cloud;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DbName;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -28,6 +30,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TUniqueId;
@@ -43,6 +46,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class CacheHotspotManagerUtils {
+    public static final int CACHE_HOT_SPOT_INSERT_TIMEOUT_IN_SEC = 300;
     private static final Logger LOG = LogManager.getLogger(CacheHotspotManagerUtils.class);
     private static final String TABLE_NAME = String.format("%s.%s",
             FeConstants.INTERNAL_DB_NAME, FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
@@ -96,8 +100,20 @@ public class CacheHotspotManagerUtils {
             + "partition_name, index_id, insert_day order by insert_day desc,\n"
             + "query_per_day_total desc, query_per_week_total desc)\n"
             + "select distinct table_id, table_name, partition_id, index_id from t;";
-
     private static String INTERNAL_TABLE_ID;
+
+    private static int getCacheHotSpotInsertTimeoutInSecTimeout() {
+        try {
+            SessionVariable sessionVariable = VariableMgr.getDefaultSessionVariable();
+            VariableExpr variableExpr = new VariableExpr(SessionVariable.INTERNAL_CACHE_HOT_SPOT_TIMEOUT,
+                    SetType.GLOBAL);
+            VariableMgr.getValue(sessionVariable, variableExpr);
+            return sessionVariable.cacheHotSpotTimeoutS;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return CACHE_HOT_SPOT_INSERT_TIMEOUT_IN_SEC;
+    }
 
     public static boolean clusterContains(String clusterId) {
         if (clusterId == null) {
@@ -213,6 +229,7 @@ public class CacheHotspotManagerUtils {
         sessionVariable.internalSession = true;
         // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.setInsertMaxFilterRatio(1);
         // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
@@ -224,6 +241,7 @@ public class CacheHotspotManagerUtils {
         connectContext.setStartTime();
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
         return new AutoCloseConnectContext(connectContext);
     }
 

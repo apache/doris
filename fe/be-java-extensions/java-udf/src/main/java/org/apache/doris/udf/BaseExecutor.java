@@ -153,6 +153,7 @@ public abstract class BaseExecutor {
         // We are now un-usable (because the class loader has been
         // closed), so null out method_ and classLoader_.
         classLoader = null;
+        methodAccess = null;
     }
 
     protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz) {

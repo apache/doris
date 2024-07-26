@@ -59,9 +59,9 @@ private:
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=2
+    /// @TEMPORARY: for be_exec_version=4
     /// in order to solve agg of sum/count is not compatibility during the upgrade process
-    constexpr static int AGG_FUNCTION_NEW = 2;
+    constexpr static int AGG_FUNCTION_NEW = 5;
     /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 

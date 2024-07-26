@@ -49,13 +49,9 @@ struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
 
-struct Int128Comparator {
-    bool operator()(const int128_t& a, const int128_t& b) const { return a < b; }
-};
-
 template <>
 struct BloomFilterTraits<int128_t> {
-    using ValueDict = std::set<int128_t, Int128Comparator>;
+    using ValueDict = std::set<int128_t>;
 };
 
 // Builder for bloom filter. In doris, bloom filter index is used in
@@ -79,13 +75,13 @@ public:
 
     ~BloomFilterIndexWriterImpl() override = default;
 
-    void add_values(const void* values, size_t count) override {
+    Status add_values(const void* values, size_t count) override {
         const CppType* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
                     CppType new_value;
-                    _type_info->deep_copy(&new_value, v, &_arena);
+                    RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
                     _values.insert(new_value);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
@@ -97,6 +93,7 @@ public:
             }
             ++v;
         }
+        return Status::OK();
     }
 
     void add_nulls(uint32_t count) override { _has_null = true; }
@@ -175,14 +172,15 @@ private:
 
 } // namespace
 
-void PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        _type_info->deep_copy(&new_value, v, &_arena);
+        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
         _values.push_back(new_value);
         ++v;
     }
+    return Status::OK();
 }
 
 Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
@@ -247,7 +245,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
     static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
-void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
     const Slice* src = reinterpret_cast<const Slice*>(values);
     for (int i = 0; i < count; ++i, ++src) {
         if (src->size < _gram_size) {
@@ -255,6 +253,7 @@ void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t coun
         }
         _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
     }
+    return Status::OK();
 }
 
 Status NGramBloomFilterIndexWriterImpl::flush() {

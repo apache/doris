@@ -21,7 +21,6 @@ suite("nested_mtmv") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
     sql "SET enable_materialized_view_nest_rewrite = true"
 
     sql """
@@ -857,8 +856,5 @@ suite("nested_mtmv") {
         contains "${mv_5}(${mv_5})"
     }
     compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
-
-
-
 
 }

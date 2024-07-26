@@ -92,9 +92,6 @@ public:
 
     Status submit();
 
-    void close_if_prepare_failed(Status st);
-    void close_sink();
-
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
     void cancel(const Status reason);
@@ -120,8 +117,6 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
-    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
-
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
@@ -136,10 +131,13 @@ public:
         }
     }
 
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handlers.emplace_back(handler);
-    }
+    void clear_finished_tasks() {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->stop_if_finished();
+            }
+        }
+    };
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -216,8 +214,6 @@ private:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
-    QueryThreadContext _query_thread_context;
-
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _init_context_timer = nullptr;
@@ -250,9 +246,6 @@ private:
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
     bool _need_local_merge = false;
-
-    // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

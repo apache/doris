@@ -18,6 +18,7 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.meta.MetaContext;
 
@@ -66,7 +67,7 @@ public class BDBTool {
             env = new Environment(new File(metaPath), envConfig);
         } catch (DatabaseException e) {
             LOG.warn("", e);
-            System.err.println("Failed to open BDBJE env: " + Env.getCurrentEnv().getBdbDir() + ". exit");
+            LogUtils.stderr("Failed to open BDBJE env: " + Env.getCurrentEnv().getBdbDir() + ". exit");
             return false;
         }
         Preconditions.checkNotNull(env);
@@ -75,7 +76,7 @@ public class BDBTool {
             if (options.isListDbs()) {
                 // list all databases
                 List<String> dbNames = env.getDatabaseNames();
-                System.out.println(JSONArray.toJSONString(dbNames));
+                LogUtils.stdout(JSONArray.toJSONString(dbNames));
                 return true;
             } else {
                 // db operations
@@ -90,7 +91,7 @@ public class BDBTool {
                     // get db stat
                     Map<String, String> statMap = Maps.newHashMap();
                     statMap.put("count", String.valueOf(db.count()));
-                    System.out.println(JSONObject.toJSONString(statMap));
+                    LogUtils.stdout(JSONObject.toJSONString(statMap));
                     return true;
                 } else {
                     // set from key
@@ -99,7 +100,7 @@ public class BDBTool {
                     try {
                         fromKey = Long.valueOf(fromKeyStr);
                     } catch (NumberFormatException e) {
-                        System.err.println("Not a valid from key: " + fromKeyStr);
+                        LogUtils.stderr("Not a valid from key: " + fromKeyStr);
                         return false;
                     }
 
@@ -109,13 +110,13 @@ public class BDBTool {
                         try {
                             endKey = Long.valueOf(options.getEndKey());
                         } catch (NumberFormatException e) {
-                            System.err.println("Not a valid end key: " + options.getEndKey());
+                            LogUtils.stderr("Not a valid end key: " + options.getEndKey());
                             return false;
                         }
                     }
 
                     if (fromKey > endKey) {
-                        System.err.println("from key should less than or equal to end key["
+                        LogUtils.stderr("from key should less than or equal to end key["
                                 + fromKey + " vs. " + endKey + "]");
                         return false;
                     }
@@ -132,7 +133,7 @@ public class BDBTool {
             }
         } catch (Exception e) {
             LOG.warn("", e);
-            System.err.println("Failed to run bdb tools");
+            LogUtils.stderr("Failed to run bdb tools");
             return false;
         }
         return true;
@@ -155,15 +156,15 @@ public class BDBTool {
                 entity.readFields(in);
             } catch (Exception e) {
                 LOG.warn("", e);
-                System.err.println("Fail to read journal entity for key: " + key + ". reason: " + e.getMessage());
+                LogUtils.stderr("Fail to read journal entity for key: " + key + ". reason: " + e.getMessage());
                 System.exit(-1);
             }
-            System.out.println("key: " + key);
-            System.out.println("op code: " + entity.getOpCode());
-            System.out.println("value: " + entity.getData().toString());
+            LogUtils.stdout("key: " + key);
+            LogUtils.stdout("op code: " + entity.getOpCode());
+            LogUtils.stdout("value: " + entity.getData().toString());
         } else if (status == OperationStatus.NOTFOUND) {
-            System.out.println("key: " + key);
-            System.out.println("value: NOT FOUND");
+            LogUtils.stdout("key: " + key);
+            LogUtils.stdout("value: NOT FOUND");
         }
     }
 }

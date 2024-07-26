@@ -65,13 +65,6 @@ public:
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
-    bool can_write() {
-        std::lock_guard l(_m);
-        return _data_queue_is_available() || _is_finished();
-    }
-
-    [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
-
     // sink the block date to date queue, it is async
     Status sink(Block* block, bool eos);
 

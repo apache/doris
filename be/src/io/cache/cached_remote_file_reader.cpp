@@ -28,7 +28,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
@@ -43,6 +43,8 @@
 namespace doris::io {
 
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
+bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -222,7 +224,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 st = block->finalize();
             }
             if (!st.ok()) {
-                LOG_WARNING("Write data to file cache failed").error(st);
+                LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
             } else {
                 _insert_file_reader(block);
             }
@@ -324,6 +326,9 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     statis->write_cache_io_timer += read_stats.local_write_timer;
+
+    g_skip_cache_num << read_stats.skip_cache;
+    g_skip_cache_sum << read_stats.skip_cache;
 }
 
 } // namespace doris::io

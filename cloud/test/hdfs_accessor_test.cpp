@@ -17,6 +17,7 @@
 
 #include "recycler/hdfs_accessor.h"
 
+#include <butil/guid.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
@@ -24,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 
 using namespace doris;
 
@@ -32,6 +34,11 @@ int main(int argc, char** argv) {
     if (!cloud::config::init(conf_file.c_str(), true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
         return -1;
+    }
+
+    if (cloud::config::test_hdfs_fs_name.empty()) {
+        std::cout << "empty test_hdfs_fs_name, skip HdfsAccessorTest" << std::endl;
+        return 0;
     }
 
     if (!cloud::init_glog("hdfs_accessor_test")) {
@@ -44,99 +51,177 @@ int main(int argc, char** argv) {
 
 namespace doris::cloud {
 
-#define HdfsAccessorTest DISABLED_HdfsAccessorTest
 TEST(HdfsAccessorTest, normal) {
     HdfsVaultInfo info;
-    *info.mutable_prefix() = config::test_hdfs_prefix;
+    info.set_prefix(config::test_hdfs_prefix + "/HdfsAccessorTest/" + butil::GenerateGUID());
     auto* conf = info.mutable_build_conf();
-    *conf->mutable_fs_name() = config::test_hdfs_fs_name;
+    conf->set_fs_name(config::test_hdfs_fs_name);
 
     HdfsAccessor accessor(info);
     int ret = accessor.init();
     ASSERT_EQ(ret, 0);
 
-    ret = accessor.exist("file_1");
-    ASSERT_EQ(ret, 1);
+    std::string file1 = "data/10000/1_0.dat";
 
-    ret = accessor.delete_object("file_1");
-    // Delete not exist path should return success
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.delete_objects_by_prefix("dir_1/");
-    // Delete not exist path should return success
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.put_object("file_2", "abc");
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.exist("file_2");
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.put_object("file_3", "abc");
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.exist("file_3");
-    ASSERT_EQ(ret, 0);
-
-    // HDFS will create parent directories if not exist
-    ret = accessor.put_object("dir_1/file_4", "abc");
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.exist("dir_1/file_4");
-    ASSERT_EQ(ret, 0);
-
-    std::vector<ObjectMeta> files;
-    ret = accessor.list("", &files);
-    ASSERT_EQ(ret, 0);
-    ASSERT_EQ(files.size(), 3);
-    std::sort(files.begin(), files.end(), [](auto&& f1, auto&& f2) { return f1.path < f2.path; });
-    EXPECT_EQ(files[0].path, "dir_1");
-    EXPECT_EQ(files[1].path, "file_2");
-    EXPECT_EQ(files[2].path, "file_3");
-    for (auto& file : files) {
-        std::cout << "file: " << file.path << ' ' << file.size << std::endl;
-    }
-
-    files.clear();
-    ret = accessor.list("dir_1", &files);
-    ASSERT_EQ(ret, 0);
-    ASSERT_EQ(files.size(), 1);
-    EXPECT_EQ(files[0].path, "dir_1/file_4");
-
-    ret = accessor.delete_object("file_2");
-    ASSERT_EQ(ret, 0);
-
-    ret = accessor.exist("file_2");
-    ASSERT_EQ(ret, 1);
-
-    files.clear();
-    ret = accessor.list("", &files);
-    ASSERT_EQ(ret, 0);
-    ASSERT_EQ(files.size(), 2);
-    EXPECT_EQ(files[0].path, "dir_1");
-    EXPECT_EQ(files[1].path, "file_3");
-    for (auto& file : files) {
-        std::cout << "file: " << file.path << ' ' << file.size << std::endl;
-    }
-
-    ret = accessor.delete_objects_by_prefix("dir_1/");
-    ASSERT_EQ(ret, 0);
-    ret = accessor.exist("dir_1");
-    ASSERT_EQ(ret, 1);
-    ret = accessor.exist("dir_1/file_4");
-    ASSERT_EQ(ret, 1);
-
-    // Check existence of the root dir of the accessor
-    ret = accessor.exist("");
-    ASSERT_EQ(ret, 0);
-
-    // Delete the root dir of the accessor
-    ret = accessor.delete_objects_by_prefix("");
-    ASSERT_EQ(ret, 0);
-    ret = accessor.list("", &files);
+    ret = accessor.delete_directory("");
     ASSERT_NE(ret, 0);
-    ret = accessor.exist("");
+    ret = accessor.delete_all();
+    ASSERT_EQ(ret, 0);
+
+    ret = accessor.put_file(file1, "");
+    ASSERT_EQ(ret, 0);
+
+    ret = accessor.exists(file1);
+    ASSERT_EQ(ret, 0);
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    size_t alloc_entries = 0;
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "DirEntries",
+            [&alloc_entries](auto&& args) { alloc_entries += *try_any_cast<size_t*>(args[0]); },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "~DirEntries",
+            [&alloc_entries](auto&& args) { alloc_entries -= *try_any_cast<size_t*>(args[0]); },
+            &guards.emplace_back());
+
+    std::unique_ptr<ListIterator> iter;
+    ret = accessor.list_directory("data", &iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_TRUE(iter);
+    ASSERT_TRUE(iter->is_valid());
+    ASSERT_TRUE(iter->has_next());
+    ASSERT_EQ(iter->next()->path, file1);
+    ASSERT_FALSE(iter->has_next());
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+
+    ret = accessor.list_directory("data/", &iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_TRUE(iter->is_valid());
+    ASSERT_TRUE(iter->has_next());
+    ASSERT_EQ(iter->next()->path, file1);
+    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->next());
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+
+    ret = accessor.list_directory("data/100", &iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->next());
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+
+    ret = accessor.delete_file(file1);
+    ASSERT_EQ(ret, 0);
+    ret = accessor.exists(file1);
     ASSERT_EQ(ret, 1);
+    ret = accessor.list_directory("", &iter);
+    ASSERT_NE(ret, 0);
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->next());
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+    ret = accessor.delete_file(file1);
+    ASSERT_EQ(ret, 0);
+
+    std::vector<std::string> files;
+    for (int dir = 10000; dir < 10005; ++dir) {
+        for (int suffix = 0; suffix < 5; ++suffix) {
+            files.push_back(fmt::format("data/{}/1/{}.dat", dir, suffix));
+        }
+    }
+
+    for (auto&& file : files) {
+        ret = accessor.put_file(file, "");
+        ASSERT_EQ(ret, 0);
+    }
+
+    std::unordered_set<std::string> list_files;
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+    ASSERT_EQ(list_files.size(), files.size());
+    for (auto&& file : files) {
+        EXPECT_TRUE(list_files.contains(file));
+    }
+
+    std::vector<std::string> to_delete_files;
+    to_delete_files.reserve(5);
+    for (int i = 0; i < 5; ++i) {
+        to_delete_files.push_back(std::move(files.back()));
+        files.pop_back();
+    }
+    ret = accessor.delete_files(to_delete_files);
+    ASSERT_EQ(ret, 0);
+
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    list_files.clear();
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+    ASSERT_EQ(list_files.size(), files.size());
+    for (auto&& file : files) {
+        EXPECT_TRUE(list_files.contains(file));
+    }
+
+    std::string to_delete_dir = "data/10001";
+    ret = accessor.delete_directory(to_delete_dir);
+    ASSERT_EQ(ret, 0);
+    files.erase(std::remove_if(files.begin(), files.end(),
+                               [&](auto&& file) { return file.starts_with(to_delete_dir); }),
+                files.end());
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    list_files.clear();
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+    ASSERT_EQ(list_files.size(), files.size());
+    for (auto&& file : files) {
+        EXPECT_TRUE(list_files.contains(file));
+    }
+
+    std::string to_delete_prefix = "data/10003/";
+    ret = accessor.delete_directory(to_delete_prefix);
+    ASSERT_EQ(ret, 0);
+    files.erase(std::remove_if(files.begin(), files.end(),
+                               [&](auto&& file) { return file.starts_with(to_delete_prefix); }),
+                files.end());
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    list_files.clear();
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    iter.reset();
+    ASSERT_EQ(alloc_entries, 0);
+    ASSERT_EQ(list_files.size(), files.size());
+    for (auto&& file : files) {
+        EXPECT_TRUE(list_files.contains(file));
+    }
+
+    ret = accessor.delete_all();
+    ASSERT_EQ(ret, 0);
+    ret = accessor.list_all(&iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->next());
 }
 
 } // namespace doris::cloud

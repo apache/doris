@@ -21,15 +21,12 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
 
-#include <condition_variable>
-#include <functional>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
-#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -274,7 +271,7 @@ private:
 // one is global, originating from QueryContext,
 // and the other is local, originating from RuntimeState.
 // In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
-// RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms and enable_pipeline_exec...
+// RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms...
 struct RuntimeFilterParamsContext {
     RuntimeFilterParamsContext() = default;
     static RuntimeFilterParamsContext* create(RuntimeState* state);
@@ -282,7 +279,6 @@ struct RuntimeFilterParamsContext {
 
     bool runtime_filter_wait_infinitely;
     int32_t runtime_filter_wait_time_ms;
-    bool enable_pipeline_exec;
     int32_t execution_timeout;
     RuntimeFilterMgr* runtime_filter_mgr;
     ExecEnv* exec_env;

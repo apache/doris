@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -41,17 +43,20 @@ import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtils134;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+//import com.google.gson.JsonElement;
+//import com.google.gson.JsonObject;
+//import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -188,7 +193,7 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!Env.isCheckpointThread()) {
+                if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
                         this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
                     } catch (Throwable e) {
@@ -283,6 +288,10 @@ public class MTMV extends OlapTable {
                 writeMvUnlock();
             }
         }
+        return cache;
+    }
+
+    public MTMVCache getCache() {
         return cache;
     }
 
@@ -444,16 +453,17 @@ public class MTMV extends OlapTable {
         this.mvRwLock.writeLock().unlock();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        MTMV materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        MTMV materializedView = null;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            materializedView = GsonUtils134.GSON.fromJson(Text.readString(in), this.getClass());
+        } else {
+            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        }
+
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;

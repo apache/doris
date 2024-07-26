@@ -30,13 +30,13 @@ namespace doris {
 class DataDir;
 class OlapMeta;
 
-const std::string OLD_HEADER_PREFIX = "hdr_";
+constexpr std::string_view OLD_HEADER_PREFIX = "hdr_";
 
-const std::string HEADER_PREFIX = "tabletmeta_";
+constexpr std::string_view HEADER_PREFIX = "tabletmeta_";
 
-const std::string PENDING_PUBLISH_INFO = "ppi_";
+constexpr std::string_view PENDING_PUBLISH_INFO = "ppi_";
 
-const std::string DELETE_BITMAP = "dlb_";
+constexpr std::string_view DELETE_BITMAP = "dlb_";
 
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
@@ -49,16 +49,17 @@ public:
 
     static Status save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                        TabletMetaSharedPtr tablet_meta,
-                       const string& header_prefix = "tabletmeta_");
+                       std::string_view header_prefix = HEADER_PREFIX);
     static Status save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                       const std::string& meta_binary, const string& header_prefix = "tabletmeta_");
+                       const std::string& meta_binary,
+                       std::string_view header_prefix = HEADER_PREFIX);
 
     static Status remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                         const string& header_prefix = "tabletmeta_");
+                         std::string_view header_prefix = HEADER_PREFIX);
 
     static Status traverse_headers(OlapMeta* meta,
-                                   std::function<bool(long, long, const std::string&)> const& func,
-                                   const string& header_prefix = "tabletmeta_");
+                                   std::function<bool(long, long, std::string_view)> const& func,
+                                   std::string_view header_prefix = HEADER_PREFIX);
 
     static Status load_json_meta(DataDir* store, const std::string& meta_path);
 
@@ -70,18 +71,18 @@ public:
                                               int64_t publish_version);
 
     static Status traverse_pending_publish(
-            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, std::string_view)> const& func);
 
     static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                      DeleteBitmapPtr delete_bitmap, int64_t version);
 
     static Status traverse_delete_bitmap(
-            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, std::string_view)> const& func);
 
     static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version);
     static std::string encode_delete_bitmap_key(TTabletId tablet_id);
 
-    static void decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+    static void decode_delete_bitmap_key(std::string_view enc_key, TTabletId* tablet_id,
                                          int64_t* version);
     static Status remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                                    int64_t version);

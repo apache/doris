@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 namespace doris {
@@ -36,62 +37,50 @@ class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
 
-class DorisCompoundFileWriter : LUCENE_BASE {
+class FileInfo {
 public:
-    DorisCompoundFileWriter() = default;
-    DorisCompoundFileWriter(CL_NS(store)::Directory* dir);
-    ~DorisCompoundFileWriter() override = default;
-    /** Returns the directory of the compound file. */
-    CL_NS(store)::Directory* getDirectory();
-    virtual size_t writeCompoundFile();
-    static void copyFile(const char* fileName, lucene::store::Directory* dir,
-                         lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
-
-private:
-    class FileInfo {
-    public:
-        std::string filename;
-        int32_t filesize;
-    };
-
-    void sort_files(std::vector<FileInfo>& file_infos);
-
-    CL_NS(store)::Directory* directory = nullptr;
+    std::string filename;
+    int32_t filesize;
 };
 
 class InvertedIndexFileWriter {
 public:
-    InvertedIndexFileWriter(io::FileSystemSPtr fs, io::Path segment_file_dir,
-                            std::string segment_file_name,
-                            InvertedIndexStorageFormatPB storage_format)
+    InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
+                            std::string rowset_id, int64_t seg_id,
+                            InvertedIndexStorageFormatPB storage_format,
+                            io::FileWriterPtr file_writer = nullptr)
             : _fs(std::move(fs)),
-              _index_file_dir(std::move(segment_file_dir)),
-              _segment_file_name(std::move(segment_file_name)),
-              _storage_format(storage_format) {}
+              _index_path_prefix(std::move(index_path_prefix)),
+              _rowset_id(std::move(rowset_id)),
+              _seg_id(seg_id),
+              _storage_format(storage_format),
+              _idx_v2_writer(std::move(file_writer)) {}
 
     Result<DorisFSDirectory*> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;
-    size_t write();
+    size_t write_v2();
+    size_t write_v1();
     Status close();
     size_t headerLength();
-    const io::Path& get_index_file_dir() const { return _index_file_dir; };
-    std::string get_index_file_name() const {
-        return InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
-    };
-    std::string get_index_file_path(const TabletIndex* index_meta) const;
     size_t get_index_file_size() const { return _file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
+    void sort_files(std::vector<FileInfo>& file_infos);
+    void copyFile(const char* fileName, lucene::store::Directory* dir,
+                  lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
 private:
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
-    io::FileSystemSPtr _lfs;
-    io::Path _index_file_dir;
-    std::string _segment_file_name;
+    std::string _index_path_prefix;
+    std::string _rowset_id;
+    int64_t _seg_id;
     InvertedIndexStorageFormatPB _storage_format;
     size_t _file_size = 0;
+    // write to disk or stream
+    io::FileWriterPtr _idx_v2_writer;
 };
 } // namespace segment_v2
 } // namespace doris

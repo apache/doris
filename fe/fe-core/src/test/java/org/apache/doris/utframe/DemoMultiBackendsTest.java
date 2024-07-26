@@ -125,6 +125,7 @@ public class DemoMultiBackendsTest {
     public void testCreateDbAndTable() throws Exception {
         // 1. create connect context
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setParallelResultSink(false);
         // 2. create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);

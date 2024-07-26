@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -62,14 +61,12 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         DataTrait.Builder fdBuilder = new DataTrait.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
         computeFd(fdBuilder);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        fdBuilder.addFdItems(fdItems);
 
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
@@ -88,10 +85,15 @@ public interface LogicalPlan extends Plan {
             fdBuilder.addUniformByEqualSet(validEqualSet);
             fdBuilder.addUniqueByEqualSet(validEqualSet);
         }
+        Set<Slot> output = this.getOutputSet();
+        for (Plan child : children()) {
+            if (!output.containsAll(child.getOutputSet())) {
+                fdBuilder.pruneSlots(output);
+                break;
+            }
+        }
         return fdBuilder.build();
     }
-
-    ImmutableSet<FdItem> computeFdItems();
 
     void computeUnique(DataTrait.Builder builder);
 

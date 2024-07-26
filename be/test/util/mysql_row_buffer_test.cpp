@@ -24,11 +24,8 @@
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/fastmem.h"
 
 namespace doris {
-
-using namespace strings;
 
 TEST(MysqlRowBufferTest, basic) {
     MysqlRowBuffer mrb;

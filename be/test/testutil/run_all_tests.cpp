@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
@@ -53,13 +54,17 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
-    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
+    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000, 1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     auto st = doris::config::init(conf.c_str(), false);
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
             doris::TabletSchemaCache::create_global_schema_cache(
                     doris::config::tablet_schema_cache_capacity));
     LOG(INFO) << "init config " << st;
+    doris::Status s = doris::config::set_config("enable_stacktrace", "false");
+    if (!s.ok()) {
+        LOG(WARNING) << "set enable_stacktrace=false failed";
+    }
 
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
@@ -76,6 +81,7 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
     return res;

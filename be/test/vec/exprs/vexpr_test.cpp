@@ -478,7 +478,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint8_t second = 46;
         uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+        datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
         std::string date = datetime_v2.debug_string();
 
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));

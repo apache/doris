@@ -48,7 +48,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
@@ -78,7 +77,7 @@ public:
     LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
                   LoadStreamMapPool* pool);
 
-    std::shared_ptr<Streams> get_or_create(int64_t dst_id);
+    std::shared_ptr<Streams> get_or_create(int64_t dst_id, bool incremental = false);
 
     std::shared_ptr<Streams> at(int64_t dst_id);
 
@@ -90,12 +89,16 @@ public:
 
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
+    void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
+        _segments_for_tablet.insert(segments_for_tablet.cbegin(), segments_for_tablet.cend());
+    }
+
     // Return true if the last instance is just released.
     bool release();
 
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
-    Status close_load();
+    Status close_load(bool incremental);
 
 private:
     const UniqueId _load_id;
@@ -109,7 +112,8 @@ private:
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 
     std::mutex _tablets_to_commit_mutex;
-    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_to_commit;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_to_commit;
+    std::unordered_map<int64_t, int32_t> _segments_for_tablet;
 };
 
 class LoadStreamMapPool {

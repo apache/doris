@@ -137,12 +137,13 @@ public class MappingRollupHandler extends AggFunctionRollUpHandler {
     @Override
     public boolean canRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         // handle complex functions roll up by mapping and combinator expression
         // eg: query is count(distinct param), mv sql is bitmap_union(to_bitmap(param))
         Expression viewExpression = mvExprToMvScanExprQueryBasedPair.key();
         if (!super.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
-                mvExprToMvScanExprQueryBasedPair)) {
+                mvExprToMvScanExprQueryBasedPair, mvExprToMvScanExprQueryBasedMap)) {
             return false;
         }
         Function viewFunction = (Function) viewExpression;
@@ -174,7 +175,8 @@ public class MappingRollupHandler extends AggFunctionRollUpHandler {
     @Override
     public Function doRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         Expression rollupParam = mvExprToMvScanExprQueryBasedPair.value();
         return ((RollUpTrait) queryAggregateFunction).constructRollUp(rollupParam);
     }

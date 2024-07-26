@@ -45,25 +45,16 @@ public class MTMVRewriteUtil {
      * @return
      */
     public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx,
-            long currentTimeMills) {
+            long currentTimeMills, boolean forceConsistent) {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
-        // check session variable if enable rewrite
-        if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            return res;
-        }
-        if (MTMVUtil.mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
-                .isMaterializedViewRewriteEnableContainExternalTable()) {
-            return res;
-        }
-
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
             return res;
         }
         // check mv is normal
-        if (!(mtmv.getStatus().getState() == MTMVState.NORMAL
-                && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
+        if (mtmv.getStatus().getState() != MTMVState.NORMAL
+                || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
         Map<String, Set<String>> partitionMappings = null;
@@ -71,7 +62,7 @@ public class MTMVRewriteUtil {
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills)) {
+                    + gracePeriodMills) && !forceConsistent) {
                 res.add(partition);
                 continue;
             }

@@ -61,13 +61,13 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
-#include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -87,33 +87,6 @@ class ShardedKVCache;
 
 namespace doris::vectorized {
 using namespace ErrorCode;
-
-VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _split_source(split_source),
-          _cur_reader(nullptr),
-          _cur_reader_eof(false),
-          _kv_cache(kv_cache),
-          _strict_mode(false) {
-    if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(parent->id()) > 0) {
-        _params = &(state->get_query_ctx()->file_scan_range_params_map[parent->id()]);
-    } else {
-        // old fe thrift protocol
-        _params = _split_source->get_params();
-    }
-    if (_params->__isset.strict_mode) {
-        _strict_mode = _params->strict_mode;
-    }
-
-    // For load scanner, there are input and output tuple.
-    // For query scanner, there is only output tuple
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
-    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
-    _is_load = (_input_tuple_desc != nullptr);
-}
 
 VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
                            int64_t limit,
@@ -150,41 +123,23 @@ Status VFileScanner::prepare(
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _colname_to_value_range = colname_to_value_range;
     _col_name_to_slot_id = colname_to_slot_id;
-    if (get_parent() != nullptr) {
-        _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
-        _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
-        _cast_to_input_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
-        _fill_path_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
-        _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_parent->_scanner_profile, "HasFullyRfFileNumber", TUnit::UNIT);
-    } else {
-        _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
-        _open_reader_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
-        _cast_to_input_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-        _fill_path_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
-        _empty_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
-    }
+    _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
+    _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
+    _cast_to_input_block_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
+    _fill_path_columns_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
+    _fill_missing_columns_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
+    _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
+    _convert_to_output_block_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+    _not_found_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
+    _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+    _has_fully_rf_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -326,7 +281,17 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
-            RETURN_IF_ERROR(_get_next_reader());
+            // The file may not exist because the file list is got from meta cache,
+            // And the file may already be removed from storage.
+            // Just ignore not found files.
+            Status st = _get_next_reader();
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            } else if (!st) {
+                return st;
+            }
         }
 
         if (_scanner_eof) {
@@ -486,13 +451,10 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -807,6 +769,13 @@ Status VFileScanner::_get_next_reader() {
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "lakesoul") {
+                _cur_reader =
+                        LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
+                                                         _file_slot_descs, _state, _profile);
+                init_status = ((LakeSoulJniReader*)_cur_reader.get())
+                                      ->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
@@ -816,20 +785,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            cctz::time_zone* tz;
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                // The timestmap generated by paimon does not carry metadata information (e.g., isAdjustToUTC, etc.),
-                // and the stored data is UTC0 by default, so it is directly set to the UTC time zone.
-                // In version 0.7, paimon fixed this issue and can remove the judgment here
-                tz = const_cast<cctz::time_zone*>(&utc0);
-            } else {
-                tz = const_cast<cctz::time_zone*>(&_state->timezone_obj());
-            }
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size, tz,
-                    _io_ctx.get(), _state,
+                    _profile, *_params, range, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
                     _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
@@ -981,13 +939,19 @@ Status VFileScanner::_get_next_reader() {
         }
 
         COUNTER_UPDATE(_file_counter, 1);
-        if (init_status.is<END_OF_FILE>() || init_status.is<ErrorCode::NOT_FOUND>()) {
-            // The VFileScanner for external table may try to open not exist files,
-            // Because FE file cache for external table may out of date.
-            // So, NOT_FOUND for VFileScanner is not a fail case.
-            // Will remove this after file reader refactor.
+        // The VFileScanner for external table may try to open not exist files,
+        // Because FE file cache for external table may out of date.
+        // So, NOT_FOUND for VFileScanner is not a fail case.
+        // Will remove this after file reader refactor.
+        if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
+        } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
+            if (config::ignore_not_found_file_in_external_table) {
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader, err: {}", init_status.to_string());
         }

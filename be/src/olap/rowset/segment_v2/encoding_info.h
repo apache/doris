@@ -43,7 +43,7 @@ enum EncodingTypePB : int;
 class DataPagePreDecoder {
 public:
     virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                          const std::shared_ptr<MemTrackerLimiter>& mem_tracker) = 0;
+                          bool _use_cache, segment_v2::PageTypePB page_type) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 

@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -43,6 +45,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -50,6 +53,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -66,7 +70,6 @@ import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -98,8 +101,7 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
-    // Set default value to false to be compatible with older version meta data.
-    public static final boolean DEFAULT_USE_META_CACHE = false;
+    public static final boolean DEFAULT_USE_META_CACHE = true;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -147,7 +149,7 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
@@ -178,6 +180,11 @@ public abstract class ExternalCatalog
         }
         useMetaCache = Optional.of(
                 Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
+    }
+
+    // we need check auth fallback for kerberos or simple
+    public boolean ifNotSetFallbackToSimpleAuth() {
+        return catalogProperty.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -234,7 +241,7 @@ public abstract class ExternalCatalog
                             Config.max_hive_table_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genTableIdByName(dbName), logType)),
+                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -282,6 +289,11 @@ public abstract class ExternalCatalog
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
+        }
+
+        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
         }
     }
 
@@ -491,7 +503,9 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObj(realDbName).orElse(null);
+            // must use full qualified name to generate id.
+            // otherwise, if 2 catalogs have the same db name, the id will be the same.
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -592,6 +606,11 @@ public abstract class ExternalCatalog
             // Should not return null.
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
+            if (!db.isPresent()) {
+                LOG.warn("met invalid db id {} in replayInitCatalog, catalog: {}, ignore it to skip bug.",
+                        log.getRefreshDbIds().get(i), name);
+                continue;
+            }
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -642,6 +661,8 @@ public abstract class ExternalCatalog
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
             //case HUDI:
                 //return new HudiExternalDatabase(this, dbId, dbName);
+            case LAKESOUL:
+                return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
@@ -789,11 +810,7 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
-        }
-        return null;
+        return catalogProperty.getProperties().get(HMSExternalCatalog.BIND_BROKER_NAME);
     }
 
     // ATTN: this method only return all cached databases.
@@ -827,5 +844,30 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            TableRef tableRef = stmt.getTblRef();
+            TableName tableName = tableRef.getName();
+            // delete all table data if null
+            List<String> partitions = null;
+            if (tableRef.getPartitionNames() != null) {
+                partitions = tableRef.getPartitionNames().getPartitionNames();
+            }
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
+    }
+
+    public String getQualifiedName(String dbName) {
+        return String.join(".", name, dbName);
     }
 }

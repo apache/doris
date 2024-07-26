@@ -533,18 +533,49 @@ suite("parse_sql_from_sql_cache") {
                 sql "set enable_sql_cache=true"
 
                 sql "set @custom_variable=10"
-                assertNoCache "select @custom_variable from test_use_plan_cache17"
+                assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 // create sql cache
-                sql "select @custom_variable from test_use_plan_cache17"
+                sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 // can use sql cache
-                assertHasCache "select @custom_variable from test_use_plan_cache17"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
 
                 sql "set @custom_variable=20"
-                assertNoCache "select @custom_variable from test_use_plan_cache17"
+                assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+
+                def result2 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertTrue(result2.size() == 1 && result2[0][0].toString().toInteger() == 20)
+
+                // we can switch to origin value and reuse origin cache
+                sql "set @custom_variable=10"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                def result1 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertTrue(result1.size() == 1 && result1[0][0].toString().toInteger() == 10)
+
+
+                sql "set @custom_variable2=1"
+                assertNoCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                def res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 1)
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+
+                sql "set @custom_variable2=2"
+                assertNoCache "select* from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                // should not invalidate cache with @custom_variable2=1
+                res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 2)
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+
+                sql "set @custom_variable2=1"
+                // should reuse cache
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 1)
             }
         }),
         extraThread("test_udf", {
             def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+            scp_udf_file_to_all_be(jarPath)
             try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
             try_sql("DROP TABLE IF EXISTS test_javaudf_string")
 
@@ -681,12 +712,14 @@ suite("parse_sql_from_sql_cache") {
             sql "set enable_fallback_to_original_planner=false"
             sql "set enable_sql_cache=true"
 
-            assertNoCache "select * from (select 100 as id)a"
-            def result1 = sql "select * from (select 100 as id)a"
+            int randomInt = Math.random() * 2000000000
+
+            assertNoCache "select * from (select $randomInt as id)a"
+            def result1 = sql "select * from (select $randomInt as id)a"
             assertTrue(result1.size() == 1)
 
-            assertHasCache "select * from (select 100 as id)a"
-            def result2 = sql "select * from (select 100 as id)a"
+            assertHasCache "select * from (select $randomInt as id)a"
+            def result2 = sql "select * from (select $randomInt as id)a"
             assertTrue(result2.size() == 1)
 
             assertNoCache "select * from test_use_plan_cache20 limit 0"
@@ -717,8 +750,6 @@ suite("parse_sql_from_sql_cache") {
                        )
                        distributed by hash(id)
                        properties('replication_num'='1')"""
-
-
 
             sql "insert into test_use_plan_cache21 values('2', '2')"
             sleep(100)

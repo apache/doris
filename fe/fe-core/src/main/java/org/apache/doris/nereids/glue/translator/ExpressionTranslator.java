@@ -92,7 +92,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -102,7 +101,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -211,20 +209,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitElementAt(ElementAt elementAt, PlanTranslatorContext context) {
-        if (PushDownToProjectionFunction.validToPushDown(elementAt)) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable() != null
-                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                throw new AnalysisException(
-                        "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
-            }
-            SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
-                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
-            // rewrittenSlot == null means variant is not from table. so keep element_at function
-            if (rewrittenSlot != null) {
-                return context.findSlotRef(rewrittenSlot.getExprId());
-            }
-        }
         return visitScalarFunction(elementAt, context);
     }
 

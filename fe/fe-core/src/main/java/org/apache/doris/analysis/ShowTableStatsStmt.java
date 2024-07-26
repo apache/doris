@@ -26,12 +26,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
@@ -42,7 +44,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class ShowTableStatsStmt extends ShowStmt {
 
@@ -65,15 +70,25 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("row_count")
                     .build();
 
-    private final TableName tableName;
+    private static final ImmutableList<String> COLUMN_PARTITION_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                .add("index_name")
+                .add("column_name")
+                .add("partition_name")
+                .add("updated_rows")
+                .build();
 
+    private final TableName tableName;
+    private final List<String> columnNames;
     private final PartitionNames partitionNames;
     private final boolean cached;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
+    public ShowTableStatsStmt(TableName tableName, List<String> columnNames,
+                              PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
+        this.columnNames = columnNames;
         this.partitionNames = partitionNames;
         this.cached = cached;
     }
@@ -88,6 +103,9 @@ public class ShowTableStatsStmt extends ShowStmt {
         tableName.analyze(analyzer);
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
+        }
+        if (columnNames != null && partitionNames == null) {
+            ErrorReport.reportAnalysisException(String.format("Must specify partitions when columns are specified."));
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
@@ -122,7 +140,15 @@ public class ShowTableStatsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        ImmutableList<String> titles = partitionNames == null ? TABLE_TITLE_NAMES : PARTITION_TITLE_NAMES;
+        ImmutableList<String> titles;
+        // If columnNames != null, partitionNames is also not null. Guaranteed in analyze()
+        if (columnNames != null) {
+            titles = COLUMN_PARTITION_TITLE_NAMES;
+        } else if (partitionNames != null) {
+            titles = PARTITION_TITLE_NAMES;
+        } else {
+            titles = TABLE_TITLE_NAMES;
+        }
         for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
@@ -136,8 +162,11 @@ public class ShowTableStatsStmt extends ShowStmt {
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
         if (partitionNames == null) {
             return constructTableResultSet(tableStatistic);
-        } else {
+        }
+        if (columnNames == null) {
             return constructPartitionResultSet(tableStatistic);
+        } else {
+            return constructColumnPartitionResultSet(tableStatistic);
         }
     }
 
@@ -177,7 +206,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(formattedDateTime);
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
-        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
+        row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
@@ -205,6 +234,43 @@ public class ShowTableStatsStmt extends ShowStmt {
             row.add(String.valueOf(updateRows.longValue()));
             row.add(String.valueOf(partition.getBaseIndex().getRowCount()));
             result.add(row);
+        }
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructColumnPartitionResultSet(TableStatsMeta tableStatistic) {
+        List<List<String>> result = Lists.newArrayList();
+        if (!(table instanceof OlapTable)) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        OlapTable olapTable = (OlapTable) table;
+        Collection<String> partitions = partitionNames.isStar()
+                ? table.getPartitionNames()
+                : partitionNames.getPartitionNames();
+        if (partitions.size() > 100) {
+            throw new RuntimeException("Too many partitions, show at most 100 partitions each time.");
+        }
+        Set<Pair<String, String>> columnIndexPairs = olapTable.getColumnIndexPairs(new HashSet<>(columnNames));
+        for (Pair<String, String> pair : columnIndexPairs) {
+            ColStatsMeta columnStatsMeta = tableStatistic.findColumnStatsMeta(pair.first, pair.second);
+            if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
+                for (Map.Entry<Long, Long> entry : columnStatsMeta.partitionUpdateRows.entrySet()) {
+                    Partition partition = olapTable.getPartition(entry.getKey());
+                    if (partition != null && !partitions.contains(partition.getName())) {
+                        continue;
+                    }
+                    List<String> row = Lists.newArrayList();
+                    row.add(pair.first);
+                    row.add(pair.second);
+                    if (partition == null) {
+                        row.add("Partition " + entry.getKey() + " Not Exist");
+                    } else {
+                        row.add(partition.getName());
+                    }
+                    row.add(String.valueOf(entry.getValue()));
+                    result.add(row);
+                }
+            }
         }
         return new ShowResultSet(getMetaData(), result);
     }

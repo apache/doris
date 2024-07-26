@@ -22,6 +22,7 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_element_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
@@ -542,6 +543,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
     INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
     INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
+    INT_GAUGE_METRIC_REGISTER(_entity, cache_element_count);
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
@@ -640,15 +642,18 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_usage = 0;
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
+    size_t total_element_count = 0;
     for (int i = 0; i < _num_shards; i++) {
         total_capacity += _shards[i]->get_capacity();
         total_usage += _shards[i]->get_usage();
         total_lookup_count += _shards[i]->get_lookup_count();
         total_hit_count += _shards[i]->get_hit_count();
+        total_element_count += _shards[i]->get_element_count();
     }
 
     cache_capacity->set_value(total_capacity);
     cache_usage->set_value(total_usage);
+    cache_element_count->set_value(total_element_count);
     cache_lookup_count->set_value(total_lookup_count);
     cache_hit_count->set_value(total_hit_count);
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));

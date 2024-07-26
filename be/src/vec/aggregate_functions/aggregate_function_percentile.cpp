@@ -24,6 +24,26 @@
 namespace doris::vectorized {
 
 template <bool is_nullable>
+AggregateFunctionPtr create_aggregate_function_percentile_approx_older(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    WhichDataType which(argument_type);
+    if (which.idx != TypeIndex::Float64) {
+        return nullptr;
+    }
+    if (argument_types.size() == 2) {
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxTwoParams_OLDER<is_nullable>>((argument_types),
+                                                                               result_is_nullable);
+    }
+    if (argument_types.size() == 3) {
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxThreeParams_OLDER<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
+    }
+    return nullptr;
+}
+
 AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::string& name,
                                                                  const DataTypes& argument_types,
                                                                  const bool result_is_nullable) {
@@ -32,19 +52,52 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
     if (which.idx != TypeIndex::Float64) {
         return nullptr;
     }
-    if (argument_types.size() == 1) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxMerge<is_nullable>>(
-                remove_nullable(argument_types), result_is_nullable);
-    }
     if (argument_types.size() == 2) {
-        return creator_without_type::create<
-                AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
-                remove_nullable(argument_types), result_is_nullable);
+        return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
+                argument_types, result_is_nullable);
+    }
+    if (argument_types.size() == 3) {
+        return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
+                argument_types, result_is_nullable);
+    }
+    return nullptr;
+}
+
+template <bool is_nullable>
+AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted_older(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    WhichDataType which(argument_type);
+    if (which.idx != TypeIndex::Float64) {
+        return nullptr;
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<
-                AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
+                AggregateFunctionPercentileApproxWeightedThreeParams_OLDER<is_nullable>>(
                 remove_nullable(argument_types), result_is_nullable);
+    }
+    if (argument_types.size() == 4) {
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxWeightedFourParams_OLDER<is_nullable>>(
+                remove_nullable(argument_types), result_is_nullable);
+    }
+    return nullptr;
+}
+
+AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    WhichDataType which(argument_type);
+    if (which.idx != TypeIndex::Float64) {
+        return nullptr;
+    }
+    if (argument_types.size() == 3) {
+        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
+                argument_types, result_is_nullable);
+    }
+    if (argument_types.size() == 4) {
+        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
@@ -57,10 +110,26 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
             creator_with_integer_type::creator<AggregateFunctionPercentileArray>);
 }
 
-void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("percentile_approx",
-                              create_aggregate_function_percentile_approx<false>, false);
-    factory.register_function("percentile_approx",
-                              create_aggregate_function_percentile_approx<true>, true);
+void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {
+    factory.register_alternative_function(
+            "percentile_approx", create_aggregate_function_percentile_approx_older<false>, false);
+    factory.register_alternative_function(
+            "percentile_approx", create_aggregate_function_percentile_approx_older<true>, true);
+    factory.register_alternative_function(
+            "percentile_approx_weighted",
+            create_aggregate_function_percentile_approx_weighted_older<false>, false);
+    factory.register_alternative_function(
+            "percentile_approx_weighted",
+            create_aggregate_function_percentile_approx_weighted_older<true>, true);
 }
+
+void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("percentile_approx",
+                                   create_aggregate_function_percentile_approx);
+    factory.register_function_both("percentile_approx_weighted",
+                                   create_aggregate_function_percentile_approx_weighted);
+
+    register_percentile_approx_old_function(factory);
+}
+
 } // namespace doris::vectorized

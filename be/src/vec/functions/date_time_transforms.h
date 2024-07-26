@@ -190,8 +190,9 @@ struct DateFormatImpl {
         if (format.size > 128) {
             return std::pair {offset, true};
         }
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+        if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
             return std::pair {offset, true};
         }
 
@@ -227,8 +228,9 @@ struct FromUnixTimeImpl {
         }
         dt.from_unixtime(val, time_zone);
 
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+        if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
             return std::pair {offset, true};
         }
 

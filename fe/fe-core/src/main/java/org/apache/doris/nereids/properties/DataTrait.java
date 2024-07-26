@@ -125,6 +125,10 @@ public class DataTrait {
         return equalSet.calEqualSetList();
     }
 
+    public Set<Slot> calEqualSet(Slot s) {
+        return equalSet.calEqualSet(s);
+    }
+
     public ImmutableSet<FdItem> getFdItems() {
         return fdItems;
     }
@@ -313,12 +317,24 @@ public class DataTrait {
         public void pruneSlots(Set<Slot> outputSlots) {
             uniformSet.removeNotContain(outputSlots);
             uniqueSet.removeNotContain(outputSlots);
+            equalSetBuilder.removeNotContain(outputSlots);
+            fdDgBuilder.removeNotContain(outputSlots);
         }
 
-        public void replace(Map<Slot, Slot> replaceMap) {
+        public void replaceUniformBy(Map<Slot, Slot> replaceMap) {
             uniformSet.replace(replaceMap);
+        }
+
+        public void replaceUniqueBy(Map<Slot, Slot> replaceMap) {
             uniqueSet.replace(replaceMap);
+        }
+
+        public void replaceEqualSetBy(Map<Slot, Slot> replaceMap) {
             equalSetBuilder.replace(replaceMap);
+        }
+
+        public void replaceFuncDepsBy(Map<Slot, Slot> replaceMap) {
+            fdDgBuilder.replace(replaceMap);
         }
     }
 

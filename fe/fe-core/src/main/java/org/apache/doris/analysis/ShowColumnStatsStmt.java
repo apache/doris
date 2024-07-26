@@ -36,6 +36,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
 
@@ -44,6 +46,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -205,9 +208,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(r.get(9)); // updated_time
             String updateRows = "N/A";
             TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+            ColStatsMeta columnStatsMeta = null;
             if (tableStats != null && tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(indexName, r.get(0));
+                columnStatsMeta = tableStats.findColumnStatsMeta(indexName, r.get(0));
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
                     Partition partition = olapTable.getPartition(r.get(1));
                     if (partition != null) {
@@ -219,7 +223,36 @@ public class ShowColumnStatsStmt extends ShowStmt {
                 }
             }
             row.add(updateRows); // update_rows
-            row.add("Manual"); // trigger. Manual or System
+            row.add(columnStatsMeta == null ? "N/A" : columnStatsMeta.jobType.name()); // trigger. Manual or System
+            result.add(row);
+        }
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructPartitionCachedColumnStats(
+            Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> resultMap, TableIf tableIf) {
+        List<List<String>> result = Lists.newArrayList();
+        for (Map.Entry<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> entry : resultMap.entrySet()) {
+            PartitionColumnStatisticCacheKey key = entry.getKey();
+            PartitionColumnStatistic value = entry.getValue();
+            if (value == null || value.isUnKnown) {
+                continue;
+            }
+            List<String> row = Lists.newArrayList();
+            row.add(key.colName); // column_name
+            row.add(key.partId); // partition_name
+            long indexId = key.idxId;
+            String indexName = indexId == -1 ? tableIf.getName() : ((OlapTable) tableIf).getIndexNameById(indexId);
+            row.add(indexName); // index_name.
+            row.add(String.valueOf(value.count)); // count
+            row.add(String.valueOf(value.ndv.estimateCardinality())); // ndv
+            row.add(String.valueOf(value.numNulls)); // num_null
+            row.add(String.valueOf(value.minExpr == null ? "N/A" : value.minExpr.toSql())); // min
+            row.add(String.valueOf(value.maxExpr == null ? "N/A" : value.maxExpr.toSql())); // max
+            row.add(String.valueOf(value.dataSize)); // data_size
+            row.add(value.updatedTime); // updated_time
+            row.add("N/A"); // update_rows
+            row.add("N/A"); // trigger
             result.add(row);
         }
         return new ShowResultSet(getMetaData(), result);

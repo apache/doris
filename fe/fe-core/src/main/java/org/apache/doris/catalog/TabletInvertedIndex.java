@@ -102,6 +102,7 @@ public class TabletInvertedIndex {
     // partition id -> partition info.
     // notice partition info update every Config.partition_info_update_interval_secs seconds,
     // so it may be stale.
+    // Notice only none-cloud use it for be reporting tablets. This map is empty in cloud mode.
     private volatile ImmutableMap<Long, PartitionCollectInfo> partitionCollectInfoMap = ImmutableMap.of();
 
     private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
@@ -335,6 +336,9 @@ public class TabletInvertedIndex {
                 // make transaction VISIBLE when last publish failed.
                 Map<Long, List<PublishVersionTask>> publishVersionTask = transactionState.getPublishVersionTasks();
                 List<PublishVersionTask> tasks = publishVersionTask.get(backendId);
+                if (tasks == null) {
+                    continue;
+                }
                 for (PublishVersionTask task : tasks) {
                     if (task != null && task.isFinished()) {
                         List<Long> errorTablets = task.getErrorTablets();
@@ -357,7 +361,7 @@ public class TabletInvertedIndex {
     private TPartitionVersionInfo generatePartitionVersionInfoWhenReport(TransactionState transactionState,
             long transactionId, TabletMeta tabletMeta, long partitionId) {
         TableCommitInfo tableCommitInfo;
-        if (transactionState.getSubTransactionStates() == null) {
+        if (transactionState.getSubTxnIds() == null) {
             tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
         } else {
             tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(transactionId);

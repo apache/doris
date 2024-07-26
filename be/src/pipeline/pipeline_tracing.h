@@ -47,12 +47,24 @@ struct ScheduleRecord {
     }
 };
 
+struct QueryID {
+    TUniqueId query_id;
+    bool operator<(const QueryID& query_id_) const {
+        return query_id.hi < query_id_.query_id.hi ||
+               (query_id.hi == query_id_.query_id.hi && query_id.lo < query_id_.query_id.lo);
+    }
+    bool operator==(const QueryID& query_id_) const { return query_id == query_id_.query_id; }
+};
+
 // all tracing datas of ONE specific query
 using OneQueryTraces = moodycamel::ConcurrentQueue<ScheduleRecord>;
+using OneQueryTracesSPtr = std::shared_ptr<moodycamel::ConcurrentQueue<ScheduleRecord>>;
+using QueryTracesMap = std::map<QueryID, OneQueryTracesSPtr>;
 
 // belongs to exec_env, for all query, if enabled
 class PipelineTracerContext {
 public:
+    PipelineTracerContext() : _data(std::make_shared<QueryTracesMap>()) {}
     enum class RecordType {
         None,     // disable
         PerQuery, // record per query. one query one file.
@@ -69,11 +81,11 @@ private:
     // dump data to disk. one query or all.
     void _dump_query(TUniqueId query_id);
     void _dump_timeslice();
+    void _update(std::function<void(QueryTracesMap&)>&& handler);
 
     std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
 
-    std::mutex _data_lock; // lock for map, not map items.
-    phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;
+    std::shared_ptr<QueryTracesMap> _data;
     std::mutex _tg_lock; //TODO: use an lockfree DS
     phmap::flat_hash_map<TUniqueId, uint64_t>
             _id_to_workload_group; // save query's workload group number

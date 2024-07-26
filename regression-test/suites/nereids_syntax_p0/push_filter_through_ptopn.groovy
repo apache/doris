@@ -18,6 +18,7 @@
 suite("push_filter_through_ptopn") {
     sql """set enable_nereids_planner=true"""
     sql """set enable_partition_topn=true"""
+    sql "set enable_parallel_result_sink=false;"
     sql """
         DROP TABLE IF EXISTS push_filter_through_ptopn_tbl
     """

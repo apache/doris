@@ -65,7 +65,7 @@ class TQueryOptions;
 namespace vectorized {
 class VExpr;
 class VExprContext;
-struct SharedRuntimeFilterContext;
+struct RuntimeFilterContextSPtr;
 } // namespace vectorized
 
 namespace pipeline {
@@ -128,6 +128,7 @@ struct RuntimeFilterParams {
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int64_t runtime_bloom_filter_min_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -207,7 +208,6 @@ public:
               registration_time_(MonotonicMillis()),
               _wait_infinitely(_state->runtime_filter_wait_infinitely),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
-              _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _profile(
                       new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
@@ -221,7 +221,7 @@ public:
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    SharedRuntimeFilterContext& get_shared_context_ref();
+    RuntimeFilterContextSPtr& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
@@ -230,7 +230,7 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
 
-    Status send_filter_size(uint64_t local_filter_size);
+    Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -247,12 +247,10 @@ public:
     bool has_local_target() const { return _has_local_target; }
 
     bool is_ready() const {
-        return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
-               (_enable_pipeline_exec &&
-                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY;
     }
     RuntimeFilterState current_state() const {
-        return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
+        return _rf_state_atomic.load(std::memory_order_acquire);
     }
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
@@ -390,18 +388,11 @@ protected:
     void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _get_explain_state_string() const {
-        if (_enable_pipeline_exec) {
-            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
-                           ? "READY"
-                   : _rf_state_atomic.load(std::memory_order_acquire) ==
-                                   RuntimeFilterState::TIME_OUT
-                           ? "TIME_OUT"
-                           : "NOT_READY";
-        } else {
-            return _rf_state == RuntimeFilterState::READY      ? "READY"
-                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
-                                                               : "NOT_READY";
-        }
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                       ? "READY"
+               : _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::TIME_OUT
+                       ? "TIME_OUT"
+                       : "NOT_READY";
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
@@ -435,8 +426,6 @@ protected:
     /// runtime filter wait time will be ignored if wait_infinitely is true
     const bool _wait_infinitely;
     const int32_t _rf_wait_time_ms;
-
-    const bool _enable_pipeline_exec;
 
     std::atomic<bool> _profile_init = false;
     // runtime filter type

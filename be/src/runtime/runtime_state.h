@@ -35,11 +35,14 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -191,6 +194,11 @@ public:
                _query_options.mysql_row_binary_format;
     }
 
+    bool enable_short_circuit_query_access_column_store() const {
+        return _query_options.__isset.enable_short_circuit_query_access_column_store &&
+               _query_options.enable_short_circuit_query_access_column_store;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
@@ -255,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    const std::string get_error_log_file_path() const { return _error_log_file_path; }
+    std::string get_error_log_file_path();
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -350,16 +358,9 @@ public:
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
-        if (!_query_options.__isset.be_exec_version) {
-            return 0;
-        }
+        DCHECK(_query_options.__isset.be_exec_version &&
+               BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
-    }
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -371,10 +372,6 @@ public:
 
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
-    }
-
-    bool enable_exchange_node_parallel_merge() const {
-        return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
@@ -436,6 +433,8 @@ public:
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
+    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
@@ -492,6 +491,11 @@ public:
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
 
+    bool is_read_csv_empty_line_as_null() const {
+        return _query_options.__isset.read_csv_empty_line_as_null &&
+               _query_options.read_csv_empty_line_as_null;
+    }
+
     int parallel_scan_max_scanners_count() const {
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count
@@ -502,17 +506,6 @@ public:
         return _query_options.__isset.parallel_scan_min_rows_per_scanner
                        ? _query_options.parallel_scan_min_rows_per_scanner
                        : 0;
-    }
-
-    int repeat_max_num() const {
-#ifndef BE_TEST
-        if (!_query_options.__isset.repeat_max_num) {
-            return 10000;
-        }
-        return _query_options.repeat_max_num;
-#else
-        return 10;
-#endif
     }
 
     int64_t external_sort_bytes_threshold() const {
@@ -595,6 +588,11 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return _query_options.min_revocable_mem;
@@ -607,6 +605,10 @@ public:
     int max_operator_id() const { return _max_operator_id; }
 
     void set_task_id(int id) { _task_id = id; }
+
+    void set_task(pipeline::PipelineTask* task) { _task = task; }
+
+    pipeline::PipelineTask* get_task() const { return _task; }
 
     int task_id() const { return _task_id; }
 
@@ -645,13 +647,6 @@ private:
 
     // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
-
-    // Data stream receivers created by a plan fragment are gathered here to make sure
-    // they are destroyed before _obj_pool (class members are destroyed in reverse order).
-    // Receivers depend on the descriptor table and we need to guarantee that their control
-    // blocks are removed from the data stream manager before the objects in the
-    // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
@@ -715,14 +710,17 @@ private:
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
+    std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
+    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
+
+    std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 
@@ -741,6 +739,11 @@ private:
     RuntimeState(const RuntimeState&);
 
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
+
+    // save error log to s3
+    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
+    std::string _s3_error_log_file_path;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

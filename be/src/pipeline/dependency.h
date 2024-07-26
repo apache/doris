@@ -29,19 +29,19 @@
 #include "common/logging.h"
 #include "concurrentqueue.h"
 #include "gutil/integral_types.h"
+#include "pipeline/common/agg_utils.h"
+#include "pipeline/common/join_utils.h"
 #include "pipeline/exec/data_queue.h"
-#include "pipeline/exec/multi_cast_data_streamer.h"
-#include "vec/common/hash_table/hash_map_context_creator.h"
+#include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/types.h"
-#include "vec/exec/join/process_hash_table_probe.h"
-#include "vec/exec/join/vhash_join_node.h"
-#include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vanalytic_eval_node.h"
-#include "vec/exec/vpartition_sort_node.h"
-#include "vec/exec/vset_operation_node.h"
 #include "vec/spill/spill_stream.h"
+
+namespace doris::vectorized {
+class AggFnEvaluator;
+class VSlotRef;
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -298,7 +298,7 @@ struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
     AggSharedState() {
-        agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
+        agg_data = std::make_unique<AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
     ~AggSharedState() override {
@@ -311,20 +311,18 @@ public:
 
     Status reset_hash_table();
 
+    bool do_limit_filter(vectorized::Block* block, size_t num_rows,
+                         const std::vector<int>* key_locs = nullptr);
+    void build_limit_heap(size_t hash_table_size);
+
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
-    static int get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
-        auto ctxs = evaluator->input_exprs_ctxs();
-        CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
-                << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
-                << ctxs[0]->root()->debug_string();
-        return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
-    }
+    static int get_slot_column_id(const vectorized::AggFnEvaluator* evaluator);
 
-    vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
-    std::unique_ptr<vectorized::AggregateDataContainer> aggregate_data_container;
-    vectorized::ArenaUPtr agg_arena_pool;
+    AggregatedDataVariantsUPtr agg_data = nullptr;
+    std::unique_ptr<AggregateDataContainer> aggregate_data_container;
+    ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -339,15 +337,75 @@ public:
     std::vector<size_t> make_nullable_keys;
 
     struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
+        int64_t used_in_arena {};
+        int64_t used_in_state {};
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     bool enable_spill = false;
+    bool reach_limit = false;
+
+    int64_t limit = -1;
+    bool do_sort_limit = false;
+    vectorized::MutableColumns limit_columns;
+    int limit_columns_min = -1;
+    vectorized::PaddedPODArray<uint8_t> need_computes;
+    std::vector<uint8_t> cmp_res;
+    std::vector<int> order_directions;
+    std::vector<int> null_directions;
+
+    struct HeapLimitCursor {
+        HeapLimitCursor(int row_id, vectorized::MutableColumns& limit_columns,
+                        std::vector<int>& order_directions, std::vector<int>& null_directions)
+                : _row_id(row_id),
+                  _limit_columns(limit_columns),
+                  _order_directions(order_directions),
+                  _null_directions(null_directions) {}
+
+        HeapLimitCursor(const HeapLimitCursor& other) = default;
+
+        HeapLimitCursor(HeapLimitCursor&& other) noexcept
+                : _row_id(other._row_id),
+                  _limit_columns(other._limit_columns),
+                  _order_directions(other._order_directions),
+                  _null_directions(other._null_directions) {}
+
+        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
+            _row_id = other._row_id;
+            return *this;
+        }
+
+        bool operator<(const HeapLimitCursor& rhs) const {
+            for (int i = 0; i < _limit_columns.size(); ++i) {
+                const auto& _limit_column = _limit_columns[i];
+                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
+                                                     _null_directions[i]) *
+                           _order_directions[i];
+                if (res < 0) {
+                    return true;
+                } else if (res > 0) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        int _row_id;
+        vectorized::MutableColumns& _limit_columns;
+        std::vector<int>& _order_directions;
+        std::vector<int>& _null_directions;
+    };
+
+    std::priority_queue<HeapLimitCursor> limit_heap;
 
 private:
+    vectorized::MutableColumns _get_keys_hash_table();
+
     void _close_with_serialized_key() {
         std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
                                              // Do nothing
@@ -381,12 +439,7 @@ private:
             agg_data_created_without_key = false;
         }
     }
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
-        for (int i = 0; i < aggregate_evaluators.size(); ++i) {
-            aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
-        }
-        return Status::OK();
-    }
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
 struct AggSpillPartition;
@@ -501,11 +554,27 @@ public:
     const int _child_count;
 };
 
+class MultiCastDataStreamer;
+
 struct MultiCastSharedState : public BasicSharedState {
 public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
-            : multi_cast_data_streamer(row_desc, pool, cast_sender_count, true) {}
-    pipeline::MultiCastDataStreamer multi_cast_data_streamer;
+    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+    std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+};
+
+struct BlockRowPos {
+    int64_t block_num {}; //the pos at which block
+    int64_t row_num {};   //the pos at which row
+    int64_t pos {};       //pos = all blocks size + row_num
+    std::string debug_string() const {
+        std::string res = "\t block_num: ";
+        res += std::to_string(block_num);
+        res += "\t row_num: ";
+        res += std::to_string(row_num);
+        res += "\t pos: ";
+        res += std::to_string(pos);
+        return res;
+    }
 };
 
 struct AnalyticSharedState : public BasicSharedState {
@@ -515,13 +584,13 @@ public:
     AnalyticSharedState() = default;
 
     int64_t current_row_position = 0;
-    vectorized::BlockRowPos partition_by_end;
+    BlockRowPos partition_by_end;
     vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
     int64_t input_total_rows = 0;
-    vectorized::BlockRowPos all_block_end;
+    BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
-    vectorized::BlockRowPos found_partition_end;
+    BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
     vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
     std::vector<int64_t> input_block_first_row_positions;
@@ -540,7 +609,7 @@ struct JoinSharedState : public BasicSharedState {
     bool short_circuit_for_probe = false;
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
     bool empty_right_table_need_probe_dispose = false;
-    vectorized::JoinOpVariants join_op_variants;
+    JoinOpVariants join_op_variants;
 };
 
 struct HashJoinSharedState : public JoinSharedState {
@@ -552,8 +621,7 @@ struct HashJoinSharedState : public JoinSharedState {
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances
-    std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
-            std::make_shared<vectorized::HashTableVariants>();
+    std::shared_ptr<HashTableVariants> hash_table_variants = std::make_shared<HashTableVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
@@ -602,6 +670,24 @@ public:
     ~AsyncWriterDependency() override = default;
 };
 
+using SetHashTableVariants =
+        std::variant<std::monostate,
+                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
+                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
+                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
+                     vectorized::SetPrimaryTypeHashTableContext<UInt64>,
+                     vectorized::SetPrimaryTypeHashTableContext<UInt128>,
+                     vectorized::SetPrimaryTypeHashTableContext<UInt256>,
+                     vectorized::SetFixedKeyHashTableContext<UInt64, true>,
+                     vectorized::SetFixedKeyHashTableContext<UInt64, false>,
+                     vectorized::SetFixedKeyHashTableContext<UInt128, true>,
+                     vectorized::SetFixedKeyHashTableContext<UInt128, false>,
+                     vectorized::SetFixedKeyHashTableContext<UInt256, true>,
+                     vectorized::SetFixedKeyHashTableContext<UInt256, false>,
+                     vectorized::SetFixedKeyHashTableContext<UInt136, true>,
+                     vectorized::SetFixedKeyHashTableContext<UInt136, false>>;
+
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
@@ -609,15 +695,14 @@ public:
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
-    //first:column_id, could point to origin column or cast column
-    //second:idx mapped to column types
+    //first: idx mapped to column types
+    //second: column_id, could point to origin column or cast column
     std::unordered_map<int, int> build_col_idx;
 
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
-            nullptr; // the real data HERE.
+    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.
@@ -642,16 +727,16 @@ public:
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>();
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>();
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>();
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -659,12 +744,12 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
+                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>();
                 break;
             default:
                 hash_table_variants->emplace<SetSerializedHashTableContext>();
@@ -702,6 +787,8 @@ enum class ExchangeType : uint8_t {
     ADAPTIVE_PASSTHROUGH = 5,
     // Send all data to the first channel.
     PASS_TO_ONE = 6,
+    // merge all data to one channel.
+    LOCAL_MERGE_SORT = 7,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -720,6 +807,8 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "ADAPTIVE_PASSTHROUGH";
     case ExchangeType::PASS_TO_ONE:
         return "PASS_TO_ONE";
+    case ExchangeType::LOCAL_MERGE_SORT:
+        return "LOCAL_MERGE_SORT";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
@@ -729,38 +818,39 @@ struct DataDistribution {
     DataDistribution(ExchangeType type) : distribution_type(type) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
-    DataDistribution(const DataDistribution& other)
-            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
-    DataDistribution& operator=(const DataDistribution& other) {
-        distribution_type = other.distribution_type;
-        partition_exprs = other.partition_exprs;
-        return *this;
-    }
+    DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
 };
 
-class Exchanger;
+class ExchangerBase;
 
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
-    std::unique_ptr<Exchanger> exchanger {};
+    std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
-    std::atomic<size_t> mem_usage = 0;
+    std::atomic<int64_t> mem_usage = 0;
+    // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     void create_source_dependencies(int operator_id, int node_id) {
-        for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
-                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
-            source_deps[i]->set_shared_state(this);
+        for (auto& source_dep : source_deps) {
+            source_dep = std::make_shared<Dependency>(operator_id, node_id,
+                                                      "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_dep->set_shared_state(this);
         }
     };
     void sub_running_sink_operators();
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
+            DCHECK(dep);
+            dep->set_always_ready();
+        }
+        for (auto& dep : sink_deps) {
             DCHECK(dep);
             dep->set_always_ready();
         }

@@ -21,8 +21,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -37,10 +35,6 @@ public class MTMVPartitionInfo {
         EXPR,
         SELF_MANAGE
     }
-
-    public static final ImmutableSet<String> MTMV_PARTITION_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
-            String.CASE_INSENSITIVE_ORDER).add("date_trunc")
-            .build();
 
     @SerializedName("pt")
     private MTMVPartitionType partitionType;

@@ -44,6 +44,9 @@ suite ("dup_gb_mv_abs") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table dup_gb_mv_abs with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from dup_gb_mv_abs order by k1;"
 
@@ -58,4 +61,15 @@ suite ("dup_gb_mv_abs") {
         contains "(k12sa)"
     }
     order_qt_select_mv_sub "select sum(abs(k2)) from dup_gb_mv_abs group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
+        contains "(k12sa)"
+    }
+
+    explain {
+        sql("select sum(abs(k2)) from dup_gb_mv_abs group by k1;")
+        contains "(k12sa)"
+    }
 }
