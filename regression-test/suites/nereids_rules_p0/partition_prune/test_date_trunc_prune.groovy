@@ -252,7 +252,7 @@ suite("test_date_trunc_prune") {
         PARTITION p100 values less than ('2022-01-04 10:00:00'),
         PARTITION pMAX values less than (maxvalue)
         )
-        DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 1 properties("replication_num"="1")
     """
     sql "insert into null_range_date values('2022-01-03 10:00:00'),('2019-01-01 10:00:00'),('2022-01-02 10:00:00'),('2024-01-01 10:00:00'),(null);"
     explain {
