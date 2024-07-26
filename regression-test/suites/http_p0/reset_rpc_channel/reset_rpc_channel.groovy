@@ -17,5 +17,11 @@
 // under the License.
 
 suite('reset_rpc_channel') {
-    curl("POST",context.config.beHttpAddress+"/api/reset_rpc_channel/all")
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    for (int i=0;i<backendId_to_backendIP.size();i++){
+        def beHttpAddress =backendId_to_backendIP.entrySet()[i].getValue()+":"+backendId_to_backendHttpPort.entrySet()[i].getValue()
+        curl("POST",beHttpAddress+"/api/reset_rpc_channel/all")
+    }
 }
