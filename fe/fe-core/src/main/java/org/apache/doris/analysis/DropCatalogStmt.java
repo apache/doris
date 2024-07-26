@@ -72,4 +72,9 @@ public class DropCatalogStmt extends DdlStmt {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

@@ -103,4 +103,9 @@ public class CreateViewStmt extends BaseViewStmt {
     public void setFinalColumns(List<Column> columns) {
         finalCols.addAll(columns);
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

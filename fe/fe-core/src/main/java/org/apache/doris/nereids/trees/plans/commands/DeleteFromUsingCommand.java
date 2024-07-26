@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -81,5 +82,10 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
         if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("delete command on with using clause only supports unique key model");
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

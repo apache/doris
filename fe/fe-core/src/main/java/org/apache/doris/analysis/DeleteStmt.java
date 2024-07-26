@@ -463,4 +463,9 @@ public class DeleteStmt extends DdlStmt {
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
+    }
 }

@@ -122,4 +122,9 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
 
         return str;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

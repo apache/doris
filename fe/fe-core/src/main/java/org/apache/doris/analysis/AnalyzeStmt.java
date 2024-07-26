@@ -101,4 +101,9 @@ public class AnalyzeStmt extends StatementBase {
     public boolean usingSqlForPartitionColumn() {
         return analyzeProperties.usingSqlForPartitionColumn();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ANALYZE;
+    }
 }
