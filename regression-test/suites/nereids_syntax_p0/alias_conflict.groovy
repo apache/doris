@@ -22,6 +22,8 @@ suite("alias_conflict") {
     sql """ DROP TABLE IF EXISTS `test_alias_conflict3` """
     sql """ DROP DATABASE IF EXISTS `alias_conflict1` """
     sql """ DROP DATABASE IF EXISTS `alias_conflict2` """
+    sql """ DROP CATALOG IF EXISTS `jdbc_alias_conflict` """
+
 
     sql """ CREATE DATABASE IF NOT EXISTS `alias_conflict1` """
     sql """ CREATE DATABASE IF NOT EXISTS `alias_conflict2` """
