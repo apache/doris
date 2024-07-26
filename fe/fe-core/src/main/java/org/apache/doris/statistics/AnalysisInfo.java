@@ -190,6 +190,9 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("emptyJob")
     public final boolean emptyJob;
+
+    @SerializedName("rowCount")
+    public final long rowCount;
     /**
      *
      * Used to store the newest partition version of tbl when creating this job.
@@ -206,7 +209,8 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject,
+            long rowCount) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -244,6 +248,7 @@ public class AnalysisInfo implements Writable {
         this.tblUpdateTime = tblUpdateTime;
         this.emptyJob = emptyJob;
         this.userInject = userInject;
+        this.rowCount = rowCount;
     }
 
     @Override
