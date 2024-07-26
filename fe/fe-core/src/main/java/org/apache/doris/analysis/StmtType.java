@@ -17,23 +17,45 @@
 
 package org.apache.doris.analysis;
 
-/**
- * DROP ANALYZE JOB [JOB_ID]
- */
-public class DropAnalyzeJobStmt extends DdlStmt {
-
-    private final long jobId;
-
-    public DropAnalyzeJobStmt(long jobId) {
-        this.jobId = jobId;
-    }
-
-    public long getJobId() {
-        return jobId;
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.DROP;
-    }
+public enum StmtType {
+    ADMIN,
+    ALTER,
+    ANALYZE,
+    BACKUP,
+    CALL,
+    CANCEL,
+    CLEAN,
+    CREATE,
+    DDL,
+    DELETE,
+    DROP,
+    EXECUTE,
+    EXPLAIN,
+    EXPORT,
+    GRANT,
+    IMPORT,
+    INSERT,
+    INSTALL,
+    KILL,
+    LOAD,
+    OTHER,
+    PAUSE,
+    PREPARE,
+    RECOVER,
+    REFRESH,
+    RESTORE,
+    RESUME,
+    REVOKE,
+    SELECT,
+    SET,
+    SHOW,
+    STOP,
+    SWITCH,
+    SYNC,
+    TRANSACTION,
+    TRUNCATE,
+    UNINSTALL,
+    UNSET,
+    UPDATE,
+    USE
 }

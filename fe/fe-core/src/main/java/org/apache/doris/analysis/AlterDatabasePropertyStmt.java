@@ -76,4 +76,9 @@ public class AlterDatabasePropertyStmt extends DdlStmt {
         return "ALTER DATABASE " + dbName + " SET PROPERTIES ("
                 + new PrintableMap<String, String>(properties, "=", true, false, ",") + ")";
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

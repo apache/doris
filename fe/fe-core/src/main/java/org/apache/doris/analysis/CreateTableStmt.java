@@ -875,4 +875,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }
