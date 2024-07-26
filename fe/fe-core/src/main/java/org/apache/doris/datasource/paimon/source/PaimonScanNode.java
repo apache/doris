@@ -327,7 +327,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         } else {
             sb.append("\n");
             for (Predicate predicate : predicates) {
-                sb.append(prefix).append(prefix).append(prefix).append(predicate).append("\n");
+                sb.append(prefix)).append(prefix).append(predicate).append("\n");
             }
         }
 
