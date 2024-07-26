@@ -136,11 +136,17 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
-            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
-            if (preparedStmtContext != null) {
-                stmtStr = executeStmt.toSql();
+            //For the `insert into` statements during group commit load via JDBC.
+            //Printing audit logs can severely impact performance.
+            //Therefore, we have introduced a session variable to control whether to print audit logs.
+            //It is recommended to turn off audit logs only during group commit load via JDBC.
+            if (ctx.getSessionVariable().isEnableAuditLog()) {
+                PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+                if (preparedStmtContext != null) {
+                    stmtStr = executeStmt.toSql();
+                }
             }
-        } catch (Throwable e)  {
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
