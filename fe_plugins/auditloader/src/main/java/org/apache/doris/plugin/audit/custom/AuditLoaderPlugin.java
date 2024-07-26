@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.audit;
+package org.apache.doris.plugin.audit.custom;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
@@ -27,6 +26,7 @@ import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
 
 import com.google.common.collect.Queues;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -163,6 +163,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(longToTimeString(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
+        logBuffer.append(event.ctl).append("\t");
         logBuffer.append(event.db).append("\t");
         logBuffer.append(event.state).append("\t");
         logBuffer.append(event.errorCode).append("\t");
@@ -172,18 +173,22 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.scanRows).append("\t");
         logBuffer.append(event.returnRows).append("\t");
         logBuffer.append(event.stmtId).append("\t");
+        logBuffer.append(event.stmtType).append("\t");
         logBuffer.append(event.isQuery ? 1 : 0).append("\t");
         logBuffer.append(event.feIp).append("\t");
         logBuffer.append(event.cpuTimeMs).append("\t");
         logBuffer.append(event.sqlHash).append("\t");
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
+        logBuffer.append(event.workloadGroup).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
         String stmt = truncateByBytes(event.stmt).replace("\n", " ")
-                                                    .replace("\t", " ")
-                                                    .replace("\r", " ");
-        LOG.debug("receive audit event with stmt: {}", stmt);
+            .replace("\t", " ")
+            .replace("\r", " ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive audit event with stmt: {}", stmt);
+        }
         logBuffer.append(stmt).append("\n");
     }
 

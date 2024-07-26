@@ -106,4 +106,9 @@ public class UnsetVariableStmt extends StatementBase {
 
         return RedirectStatus.NO_FORWARD;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UNSET;
+    }
 }
