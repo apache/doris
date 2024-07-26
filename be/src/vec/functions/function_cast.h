@@ -719,14 +719,25 @@ struct ConvertImplGenericFromJsonb {
                 }
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
-                    auto blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
                     assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
                                                                     blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
-                std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
-                ReadBuffer read_buffer((char*)(json_str.data()), json_str.size());
+                std::string input_str;
+                if (context->jsonb_string_as_string() && value->isString()) {
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    input_str = std::string(blob->getBlob(), blob->getBlobLen());
+                } else {
+                    input_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
+                }
+                if (input_str.empty()) {
+                    col_to->insert_default();
+                    (*vec_null_map_to)[i] = 1;
+                    continue;
+                }
+                ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
                 Status st = data_type_to->from_string(read_buffer, col_to);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
