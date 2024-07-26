@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -145,11 +146,14 @@ public class ExportMgr {
         // 1. get TResultFileSinkOptions
         TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
-        // 2. get StorageType
+        // 2. set Broker Address
         StorageType storageType = outFileClause.getBrokerDesc() == null
                 ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
         if (storageType == StorageType.BROKER) {
-            throw new AnalysisException("Outfile with broker does not support delete existing files.");
+            // set the broker address for OUTFILE sink
+            String brokerName = outFileClause.getBrokerDesc().getName();
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyBroker(brokerName);
+            sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
         }
 
         // 3. prepare PExportDeleteExistFilesRequest
