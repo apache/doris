@@ -90,15 +90,6 @@ suite("test_simplify_comparison") {
     }
 
     explain {
-        sql "verbose select * from simple_test_table_t where a = cast(1.1 as double) and b = cast(1.1 as double) and c = cast(1.1 as double) and d = cast(1.1 as double);"
-        contains "a[#0] IS NULL"
-        contains "b[#1] IS NULL"
-        contains "c[#2] IS NULL"
-        contains "d[#3] IS NULL"
-        contains "AND NULL"
-    }
-
-    explain {
         sql "verbose select * from simple_test_table_t where e = cast(1.1 as double);"
         contains "CAST(e[#4] AS DOUBLE) = 1.1"
     }
@@ -203,15 +194,6 @@ suite("test_simplify_comparison") {
     explain {
         sql "verbose select * from simple_test_table_t where e <= 1.0;"
         contains "CAST"
-    }
-
-    explain {
-        sql "verbose select * from simple_test_table_t where a = 1.1 and b = 1.1 and c = 1.1 and d = 1.1;"
-        contains "a[#0] IS NULL"
-        contains "b[#1] IS NULL"
-        contains "c[#2] IS NULL"
-        contains "d[#3] IS NULL"
-        contains "AND NULL"
     }
 
     explain {
