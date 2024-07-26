@@ -158,9 +158,9 @@ suite("alias_conflict") {
     sql """
         CREATE CATALOG jdbc_alias_conflict properties(
        'type'='jdbc',
-       'user'='root',
-       'password'='',
-       'jdbc_url' = 'jdbc:mysql://127.0.0.1:9030/alias_conflict1',
+       'user'='${context.config.jdbcUser}',
+       'password'='${context.config.jdbcPassword}',
+       'jdbc_url' = '${context.config.jdbcUrl}',
        'driver_url' = 'https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.jar',
        'driver_class' = 'com.mysql.cj.jdbc.Driver'
         );
