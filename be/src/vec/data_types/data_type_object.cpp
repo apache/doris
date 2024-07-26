@@ -61,12 +61,13 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
     size_t size = 0;
 
     size += sizeof(uint32_t);
+    size_t num_of_columns = 0;
     for (const auto& entry : subcolumns) {
         auto type = entry->data.get_least_common_type();
         if (is_nothing(type)) {
             continue;
         }
-
+        ++num_of_columns;
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
         type->to_pb_column_meta(&column_meta_pb);
@@ -77,6 +78,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 
         size += type->get_uncompressed_serialized_bytes(entry->data.get_finalized_column(),
                                                         be_exec_version);
+    }
+    if (num_of_columns == 0) {
+        // Make sure the num_of_rows in ColumnObject not lost
+        size += sizeof(uint32_t);
     }
 
     return size;
@@ -121,6 +126,11 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     }
     // serialize num of subcolumns
     *reinterpret_cast<uint32_t*>(size_pos) = num_of_columns;
+    if (num_of_columns == 0) {
+        // Make sure the num_of_rows in ColumnObject not lost
+        *reinterpret_cast<uint32_t*>(buf) = column_object.rows();
+        buf += sizeof(uint32_t);
+    }
 
     return buf;
 }
@@ -154,6 +164,13 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
             key = PathInData {column_meta_pb.name()};
         }
         column_object->add_sub_column(key, std::move(sub_column), type);
+    }
+    size_t num_rows = 0;
+    if (num_subcolumns == 0) {
+        // Make sure the num_of_rows in ColumnObject not lost
+        num_rows = *reinterpret_cast<const uint32_t*>(buf);
+        column_object->set_num_rows(num_rows);
+        buf += sizeof(uint32_t);
     }
 
     column_object->finalize();
