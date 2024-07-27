@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_plugins_download", "external,hive,external_docker,external_docker_hive") {
-    String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
+    String enabled = context.config.otherConfigs.get("enableTrinoConnectorTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def host_ips = new ArrayList()
         String[][] backends = sql """ show backends """
