@@ -181,6 +181,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             List<AnalysisInfo> analysisInfos, TableIf table) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(db.getCatalog().getId())
@@ -200,6 +201,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0
                     && analysisMethod.equals(AnalysisMethod.SAMPLE))
+                .setRowCount(rowCount)
                 .build();
         analysisInfos.add(jobInfo);
     }

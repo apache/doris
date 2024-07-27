@@ -34,12 +34,12 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -48,7 +48,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -265,63 +264,58 @@ public class AnalysisManagerTest {
     public void testReAnalyze() {
         new MockUp<OlapTable>() {
 
-            final Column c = new Column("col1", PrimitiveType.INT);
-            @Mock
-            public List<Column> getBaseSchema() {
-                return Lists.newArrayList(c);
-            }
-
-            @Mock
-            public List<Column> getColumns() { return Lists.newArrayList(c); }
-
-            @Mock
-            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                List<Pair<String, String>> jobList = Lists.newArrayList();
-                jobList.add(Pair.of("1", "1"));
-                jobList.add(Pair.of("2", "2"));
-                jobList.add(Pair.of("3", "3"));
-                return jobList;
-            }
-        };
-        OlapTable olapTable = new OlapTable();
-        List<Pair<String, String>> jobList = Lists.newArrayList();
-        jobList.add(Pair.of("1", "1"));
-        jobList.add(Pair.of("2", "2"));
-        TableStatsMeta stats0 = new TableStatsMeta(
-            0, new AnalysisInfoBuilder().setJobColumns(jobList)
-            .setColName("col1").build(), olapTable);
-        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
-
-        new MockUp<OlapTable>() {
             int count = 0;
-            int[] rowCount = new int[]{100, 100, 200, 200, 1, 1};
+            int[] rowCount = new int[]{100, 200, 1, 0, 0, 100};
 
+            final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
             public long getRowCount() {
                 return rowCount[count++];
             }
+
             @Mock
-            public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-                List<Pair<String, String>> jobList = Lists.newArrayList();
-                return jobList;
+            public List<Column> getBaseSchema() {
+                return org.apache.hadoop.util.Lists.newArrayList(c);
             }
+
+            @Mock
+            public List<Column> getColumns() {
+                return Lists.newArrayList(c);
+            }
+
         };
+        OlapTable olapTable = new OlapTable();
         TableStatsMeta stats1 = new TableStatsMeta(
                 50, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
-                .setColName("col1").build(), olapTable);
-        stats1.updatedRows.addAndGet(50);
+                .setColName("col1").setRowCount(100).build(), olapTable);
+        stats1.updatedRows.addAndGet(70);
 
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
         TableStatsMeta stats2 = new TableStatsMeta(
-                190, new AnalysisInfoBuilder()
-                .setJobColumns(new ArrayList<>()).setColName("col1").build(), olapTable);
+                190, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
+                .setColName("col1").setRowCount(200).build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 
         TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
-                .setJobColumns(new ArrayList<>()).setEmptyJob(true).setColName("col1").build(), olapTable);
+                .setEmptyJob(true).setColName("col1").setJobColumns(new ArrayList<>())
+                .setRowCount(0).build(), olapTable);
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
 
+        TableStatsMeta stats4 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setEmptyJob(true).setColName("col1").setJobColumns(new ArrayList<>())
+                .setRowCount(1).build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats4));
+
+        TableStatsMeta stats5 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setEmptyJob(true).setColName("col1").setJobColumns(new ArrayList<>())
+                .setRowCount(0).build(), olapTable);
+        Assertions.assertFalse(olapTable.needReAnalyzeTable(stats5));
+
+        TableStatsMeta stats6 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setEmptyJob(true).setColName("col1").setJobColumns(new ArrayList<>())
+                .setRowCount(30).build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats6));
     }
 
     @Test
