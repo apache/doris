@@ -64,6 +64,8 @@ public:
         _block_reading(sender_idx);
     }
 
+    void close_sender(int sender_idx);
+
 private:
     void _set_ready_for_read(int sender_idx);
     void _block_reading(int sender_idx);
@@ -79,7 +81,8 @@ private:
     std::condition_variable _cv;
     std::mutex _mutex;
     bool _eos = false;
-    int _cast_sender_count = 0;
+    const int _cast_sender_count;
+    int _close_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
     RuntimeProfile::Counter* _process_rows = nullptr;

@@ -86,6 +86,24 @@ void MultiCastDataStreamer::_wait_copy_block(vectorized::Block* block, int& un_f
     _multi_cast_blocks.pop_front();
 }
 
+void MultiCastDataStreamer::close_sender(int sender_idx) {
+    std::unique_lock l(_mutex);
+    auto& pos_to_pull = _sender_pos_to_read[sender_idx];
+    while (pos_to_pull != _multi_cast_blocks.end()) {
+        if (pos_to_pull->_used_count == 1) {
+            DCHECK(pos_to_pull == _multi_cast_blocks.begin());
+            _cumulative_mem_size -= pos_to_pull->_mem_size;
+            pos_to_pull++;
+            _multi_cast_blocks.pop_front();
+        } else {
+            pos_to_pull->_used_count--;
+            pos_to_pull->_un_finish_copy--;
+            pos_to_pull++;
+        }
+    }
+    _close_sender_count++;
+}
+
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
     auto rows = block->rows();
     COUNTER_UPDATE(_process_rows, rows);
@@ -96,7 +114,11 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
 
     {
         std::lock_guard l(_mutex);
-        _multi_cast_blocks.emplace_back(block, _cast_sender_count, _cast_sender_count - 1,
+        const auto remained_cast_sender = _cast_sender_count - _close_sender_count;
+        if (remained_cast_sender == 0) {
+            return Status::EndOfFile("all multi-cast source close ");
+        }
+        _multi_cast_blocks.emplace_back(block, remained_cast_sender, remained_cast_sender - 1,
                                         block_mem_size);
         // last elem
         auto end = std::prev(_multi_cast_blocks.end());

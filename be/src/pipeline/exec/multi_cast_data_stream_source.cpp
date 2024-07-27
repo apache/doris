@@ -67,6 +67,8 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
 
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(exec_time_counter());
+    auto& p = _parent->cast<Parent>();
+    _shared_state->multi_cast_data_streamer->close_sender(p._consumer_id);
     int64_t rf_time = 0;
     for (auto& dep : _filter_dependencies) {
         rf_time += dep->watcher_elapse_time();
