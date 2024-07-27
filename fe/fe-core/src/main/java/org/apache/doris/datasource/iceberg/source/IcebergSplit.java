@@ -38,11 +38,17 @@ public class IcebergSplit extends FileSplit {
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
+        this.selfSplitWeight = length;
     }
 
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
     private Map<String, String> config;
+
+    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFileFilters = deleteFileFilters;
+        this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
 }
 
 
