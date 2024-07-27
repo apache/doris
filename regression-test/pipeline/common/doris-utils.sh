@@ -101,6 +101,23 @@ function install_java() {
     fi
 }
 
+install_maven() {
+    if ! mvn -v >/dev/null; then
+        sudo apt update && sudo apt install maven -y >/dev/null
+        PATH="/usr/share/maven/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        wget -c -t3 -q "${MAVEN_DOWNLOAD_URL:-https://dlcdn.apache.org/maven/maven-3/3.9.8/binaries/apache-maven-3.9.8-bin.tar.gz}"
+        tar -xf apache-maven-3.9.8-bin.tar.gz -C /usr/share/
+        PATH="/usr/share/apache-maven-3.9.8/bin:${PATH}"
+        export PATH
+    fi
+    if ! mvn -v >/dev/null; then
+        echo "ERROR: install maven failed" && return 1
+    fi
+}
+
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if install_java && [[ -z "${JAVA_HOME}" ]]; then
@@ -738,6 +755,7 @@ prepare_java_udf() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
     install_java
+    install_maven
     OLD_JAVA_HOME=${JAVA_HOME}
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
