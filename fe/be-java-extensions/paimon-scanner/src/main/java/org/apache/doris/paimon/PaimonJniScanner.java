@@ -116,7 +116,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         readBuilder.withProjection(getProjected());
         readBuilder.withFilter(getPredicates());
-        reader = readBuilder.newRead().createReader(getSplit());
+        reader = readBuilder.newRead().executeFilter().createReader(getSplit());
     }
 
     private int[] getProjected() {

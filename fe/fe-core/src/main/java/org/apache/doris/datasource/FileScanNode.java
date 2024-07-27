@@ -142,7 +142,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                 });
                 // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
-                if (size <= 4) {
+                if (size <= 100000) {
                     for (TFileRangeDesc file : fileRangeDescs) {
                         output.append(prefix).append("    ").append(file.getPath())
                             .append(" start: ").append(file.getStartOffset())

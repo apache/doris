@@ -186,6 +186,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits() throws UserException {
         boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
+        int ignoreSplitType = ConnectContext.get().getSessionVariable().getIgnoreSplitType();
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
@@ -207,6 +208,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
                 Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
                 if (optRawFiles.isPresent()) {
+                    if (ignoreSplitType == 2) {
+                        continue;
+                    }
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
@@ -233,6 +237,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     if (deletionFile != null) {
                                         splitStat.setHasDeletionVector(true);
                                         ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                                        ((PaimonSplit) dorisSplit).setRowCnt(file.rowCount());
                                     }
                                     splits.add(dorisSplit);
                                 }
@@ -247,16 +252,19 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     source.getCatalog().getProperties());
                             Path finalDataFilePath = locationPath.toStorageLocation();
                             try {
-                                splits.addAll(
-                                        splitFile(
-                                                finalDataFilePath,
-                                                0,
-                                                null,
-                                                file.length(),
-                                                -1,
-                                                true,
-                                                null,
-                                                PaimonSplit.PaimonSplitCreator.DEFAULT));
+                                List<Split> splits2 = splitFile(
+                                    finalDataFilePath,
+                                    0,
+                                    null,
+                                    file.length(),
+                                    -1,
+                                    true,
+                                    null,
+                                    PaimonSplit.PaimonSplitCreator.DEFAULT);
+                                for (Split split2 : splits2) {
+                                    ((PaimonSplit) split2).setRowCnt(file.rowCount());
+                                }
+                                splits.addAll(splits2);
                                 ++rawFileSplitNum;
                             } catch (IOException e) {
                                 throw new UserException("Paimon error to split file: " + e.getMessage(), e);
@@ -264,12 +272,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                         }
                     }
                 } else {
+                    if (ignoreSplitType != 1) {
+                        splits.add(new PaimonSplit(split));
+                        ++paimonSplitNum;
+                    }
+                }
+            } else {
+                if (ignoreSplitType != 1) {
                     splits.add(new PaimonSplit(split));
                     ++paimonSplitNum;
                 }
-            } else {
-                splits.add(new PaimonSplit(split));
-                ++paimonSplitNum;
             }
             splitStats.add(splitStat);
         }
@@ -318,6 +330,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
+        //TODO wuwenchi 这里直接返回jni，会导致后面多设置一个 params.setProperties(locationProperties);
         return TFileFormatType.FORMAT_JNI;
     }
 

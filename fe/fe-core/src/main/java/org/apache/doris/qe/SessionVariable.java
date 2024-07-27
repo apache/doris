@@ -859,6 +859,23 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
+
+    public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
+    @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
+        description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    // 0: 都不忽略
+    // 1: 忽略jni
+    // 2: 忽略native
+    public int ignoreSplitType = 0;
+
+    public static final String SPLIT_WEIGHT_WAY = "split_weight_way";
+    @VariableMgr.VarAttr(name = SPLIT_WEIGHT_WAY,
+        description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    // 0: 固定值
+    // 1: 使用rowCount
+    // 2: 使用fileSize
+    public int splitWeightWay = 0;
+
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
     public int profileLevel = 1;
 
@@ -3919,6 +3936,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isForceJniScanner() {
         return forceJniScanner;
+    }
+
+    public int getIgnoreSplitType() {
+        return ignoreSplitType;
+    }
+
+    public int getSplitWeightWay() {
+        return splitWeightWay;
     }
 
     public void setForceJniScanner(boolean force) {
