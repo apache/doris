@@ -22,22 +22,35 @@ import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
 import org.apache.hadoop.fs.Path;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
 
+    private static final Path DUMMY_PATH = new Path("hdfs://dummyPath");
+
     public PaimonSplit(Split split) {
-        super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
+        super(DUMMY_PATH, 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
+
+        if (split instanceof DataSplit) {
+            List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
+            this.path = new Path("hdfs://" + dataFileMetas.get(0).fileName());
+            this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
+        } else {
+            this.selfSplitWeight = split.rowCount();
+        }
     }
 
     public PaimonSplit(Path file, long start, long length, long fileLength, String[] hosts,
@@ -45,6 +58,15 @@ public class PaimonSplit extends FileSplit {
         super(file, start, length, fileLength, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
         this.optDeletionFile = Optional.empty();
+        this.selfSplitWeight = length;
+    }
+
+    @Override
+    public String getConsistentHashString() {
+        if (this.path == DUMMY_PATH) {
+            return UUID.randomUUID().toString();
+        }
+        return getPathString();
     }
 
     public Split getSplit() {
@@ -68,6 +90,7 @@ public class PaimonSplit extends FileSplit {
     }
 
     public void setDeletionFile(DeletionFile deletionFile) {
+        this.selfSplitWeight += deletionFile.length();
         this.optDeletionFile = Optional.of(deletionFile);
     }
 

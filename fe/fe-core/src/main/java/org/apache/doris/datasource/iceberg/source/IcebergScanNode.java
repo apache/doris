@@ -267,7 +267,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         selectedPartitionNum = partitionPathSet.size();
-
+        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 
@@ -300,10 +300,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                         .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
                         .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
-                        positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
+                        positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L),
+                        delete.fileSizeInBytes()));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
                 filters.add(IcebergDeleteFileFilter.createEqualityDelete(
-                        delete.path().toString(), delete.equalityFieldIds()));
+                        delete.path().toString(), delete.equalityFieldIds(), delete.fileSizeInBytes()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
