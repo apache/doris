@@ -22,6 +22,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -321,12 +322,12 @@ Status ParquetReader::init_reader(
     // missing_column_names are the columns required by user sql but not in the parquet file,
     // e.g. table added a column after this parquet file was written.
     _column_names = &all_column_names;
-
+    auto schema_desc = _file_metadata->schema();
     if (_hive_use_column_names) {
-        auto schema_desc = _file_metadata->schema();
         std::set<std::string> required_columns(all_column_names.begin(), all_column_names.end());
         // Currently only used in iceberg, the columns are dropped but added back
-        std::set<std::string> dropped_columns(missing_column_names.begin(), missing_column_names.end());
+        std::set<std::string> dropped_columns(missing_column_names.begin(),
+                                              missing_column_names.end());
         // Make the order of read columns the same as physical order in parquet file
         for (int i = 0; i < schema_desc.size(); ++i) {
             auto name = schema_desc.get_column(i)->name;
@@ -341,20 +342,23 @@ Status ParquetReader::init_reader(
                 _read_columns.emplace_back(name);
             }
         }
-        for (const std::string &name: required_columns) {
+        for (const std::string& name : required_columns) {
             _missing_cols.emplace_back(name);
         }
-    }
-    else {
+    } else {
         std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
-        const auto& column_idx = _scan_params.column_idxs;
-        for(int i =0 ;i < column_idx.size();i++) {
-            auto id = column_idx[i];
-            if (id >= _file_metadata->schema().size()){
-                _missing_cols.emplace_back( all_column_names[i]);
+        const auto& table_column_idxs = _scan_params.column_idxs;
+        std::map<int, int> table_col_id_to_idx;
+        for (int i = 0; i < table_column_idxs.size(); i++) {
+            table_col_id_to_idx.insert({table_column_idxs[i], i});
+        }
+
+        for (auto [id, idx] : table_col_id_to_idx) {
+            if (id >= schema_desc.size()) {
+                _missing_cols.emplace_back(all_column_names[idx]);
             } else {
-                auto& table_col = all_column_names[i];
-                auto file_col = _file_metadata->schema().get_column(i)->name;
+                auto& table_col = all_column_names[idx];
+                auto file_col = schema_desc.get_column(id)->name;
                 _read_columns.emplace_back(file_col);
 
                 if (table_col != file_col) {
@@ -368,8 +372,8 @@ Status ParquetReader::init_reader(
                 }
             }
         }
-        for(auto it:new_colname_to_value_range ) {
-            _colname_to_value_range->emplace( it.first,std::move(it.second));
+        for (auto it : new_colname_to_value_range) {
+            _colname_to_value_range->emplace(it.first, std::move(it.second));
         }
     }
     // build column predicates for column lazy read
@@ -555,10 +559,10 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    if (!_hive_use_column_names){
-        for(auto i = 0; i <  block->get_names().size();i++){
+    if (!_hive_use_column_names) {
+        for (auto i = 0; i < block->get_names().size(); i++) {
             auto& col = block->get_by_position(i);
-            if (_table_col_to_file_col.contains(col.name)){
+            if (_table_col_to_file_col.contains(col.name)) {
                 col.name = _table_col_to_file_col[col.name];
             }
         }

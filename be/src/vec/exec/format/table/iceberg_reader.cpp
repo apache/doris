@@ -624,7 +624,8 @@ Status IcebergOrcReader::init_reader(
     RETURN_IF_ERROR(init_row_filters(_range));
     return orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
                                    conjuncts, false, tuple_descriptor, row_descriptor,
-                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,true);
+                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
+                                   true);
 }
 
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
