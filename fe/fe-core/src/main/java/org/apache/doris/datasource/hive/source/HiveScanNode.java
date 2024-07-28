@@ -34,7 +34,6 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -52,10 +51,8 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -139,19 +136,6 @@ public class HiveScanNode extends FileQueryScanNode {
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
-    }
-
-    @Override
-    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
-        if (split instanceof HiveSplit) {
-            setScanParams(rangeDesc, (HiveSplit) split);
-        }
-    }
-
-    public void setScanParams(TFileRangeDesc rangeDesc, HiveSplit hiveSplit) {
-        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-        tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
-        rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {

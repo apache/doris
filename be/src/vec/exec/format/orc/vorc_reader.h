@@ -186,7 +186,7 @@ public:
                                          std::string attribute);
     void set_col_name_to_file_col_name(
             std::unordered_map<std::string, std::string> col_name_to_file_col_name) {
-        _provide_column_name_mapping = true;
+        _is_iceberg_provide_column_name_mapping = true;
         _col_name_to_file_col_name = col_name_to_file_col_name;
     }
 
@@ -581,7 +581,7 @@ private:
     //    i.e. set_col_name_to_file_col_name() ?
     //    If provide_column_name_mapping is true, it means that the mapping you provided will be used.
     //    Iceberg reader should provide such mapping.
-    bool _provide_column_name_mapping = false;
+    bool _is_iceberg_provide_column_name_mapping = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
