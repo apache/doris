@@ -4,38 +4,62 @@ doris1
 doris2
 
 -- !select_2 --
+2
+
+-- !select_3 --
 doris1
 doris2
 doris3
 doris4
+
+-- !select_4 --
+4
 
 -- !select_1 --
 doris1
 doris2
 
 -- !select_2 --
+2
+
+-- !select_3 --
 doris1
 doris2
 doris3
 doris4
+
+-- !select_4 --
+4
 
 -- !select_1 --
 doris1
 doris2
 
 -- !select_2 --
+2
+
+-- !select_3 --
 doris1
 doris2
 doris3
 doris4
+
+-- !select_4 --
+4
 
 -- !select_1 --
 doris1
 doris2
 
 -- !select_2 --
+2
+
+-- !select_3 --
 doris1
 doris2
 doris3
 doris4
+
+-- !select_4 --
+4
 

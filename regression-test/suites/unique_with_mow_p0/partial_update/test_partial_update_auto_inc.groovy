@@ -50,13 +50,15 @@ suite("test_partial_update_auto_inc") {
                 sql "sync"
 
                 qt_select_1 """ select name from test_primary_key_partial_update_auto_inc order by name; """
+                qt_select_2 """ select count(distinct id) from test_primary_key_partial_update_auto_inc; """
 
                 sql """ set enable_unique_key_partial_update=true; """
                 sql """ insert into test_primary_key_partial_update_auto_inc values(100,"doris3"); """
                 sql """ set enable_unique_key_partial_update=false; """
                 sql """ insert into test_primary_key_partial_update_auto_inc values(101, "doris4"); """
                 sql "sync"
-                qt_select_2 """ select name from test_primary_key_partial_update_auto_inc order by name; """
+                qt_select_3 """ select name from test_primary_key_partial_update_auto_inc order by name; """
+                qt_select_4 """ select count(distinct id) from test_primary_key_partial_update_auto_inc; """
 
                 sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc """
             }
