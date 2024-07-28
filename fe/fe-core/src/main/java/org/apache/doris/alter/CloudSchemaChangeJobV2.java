@@ -131,10 +131,15 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                     Long originIndexId = indexIdMap.get(shadowIndexId);
                     Map<Long, Long> shadowTabletIdToOriginTabletId = data.getValue();
                     for (Map.Entry<Long, Long> entry : shadowTabletIdToOriginTabletId.entrySet()) {
+                        Long shadowTabletId = entry.getKey();
                         Long originTabletId = entry.getValue();
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .removeSchemaChangeJob(dbId, tableId, originIndexId, partitionId, originTabletId);
+                            .removeSchemaChangeJob(dbId, tableId, originIndexId, shadowIndexId,
+                                    partitionId, originTabletId, shadowTabletId);
                     }
+                    LOG.info("Cancel SchemaChange. Remove SchemaChangeJob in ms." + 
+                            "dbId:{}, tableId:{}, originIndexId:{}, partitionId:{}. tabletSize:{}",
+                            dbId, tableId, originIndexId, partitionId, shadowTabletIdToOriginTabletId.size());
                 }
                 break;
             } catch (Exception e) {

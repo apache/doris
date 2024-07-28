@@ -110,6 +110,8 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
+    RETURN_IF_ERROR(sync_if_not_running());
+
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
         if (_max_version >= query_version) {
@@ -127,6 +129,57 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
     }
 
     auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        clear_cache();
+    }
+    return st;
+}
+
+// Sync tablet meta and all rowset meta if not running.
+// This could happen when BE didn't finish schema change job and another BE committed this schema change job.
+// It should be a quite rare situation.
+Status CloudTablet::sync_if_not_running() {
+    if (tablet_state() == TABLET_RUNNING) {
+        return Status::OK();
+    }
+
+    // Serially execute sync to reduce unnecessary network overhead
+    std::lock_guard lock(_sync_meta_lock);
+
+    {
+        std::shared_lock rlock(_meta_lock);
+        if (tablet_state() == TABLET_RUNNING) {
+            return Status::OK();
+        }
+    }
+
+    TabletMetaSharedPtr tablet_meta;
+    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
+    if (!st.ok()) {
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            clear_cache();
+        }
+        return st;
+    }
+
+    if (tablet_meta->tablet_state() != TABLET_RUNNING) [[unlikely]] {
+        // MoW may go to here when load while schema change
+        return Status::OK();
+    }
+
+    TimestampedVersionTracker empty_tracker;
+    {
+        std::lock_guard wlock(_meta_lock);
+        RETURN_IF_ERROR(set_tablet_state(TABLET_RUNNING));
+        _rs_version_map.clear();
+        _stale_rs_version_map.clear();
+        std::swap(_timestamped_version_tracker, empty_tracker);
+        _tablet_meta->clear_rowsets();
+        _tablet_meta->clear_stale_rowset();
+        _max_version = -1;
+    }
+
+    st = _engine.meta_mgr().sync_tablet_rowsets(this);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }

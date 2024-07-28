@@ -845,13 +845,15 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void removeSchemaChangeJob(long dbId, long tableId, long indexId, long partitionId, long tabletId)
+    public void removeSchemaChangeJob(long dbId, long tableId, long indexId, long newIndexId,
+            long partitionId, long tabletId, long newTabletId)
             throws DdlException {
         Cloud.FinishTabletJobRequest.Builder finishTabletJobRequestBuilder = Cloud.FinishTabletJobRequest.newBuilder();
         finishTabletJobRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         finishTabletJobRequestBuilder.setAction(Cloud.FinishTabletJobRequest.Action.ABORT);
         Cloud.TabletJobInfoPB.Builder tabletJobInfoPBBuilder = Cloud.TabletJobInfoPB.newBuilder();
 
+        // set origin tablet
         Cloud.TabletIndexPB.Builder tabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
         tabletIndexPBBuilder.setDbId(dbId);
         tabletIndexPBBuilder.setTableId(tableId);
@@ -860,6 +862,23 @@ public class CloudInternalCatalog extends InternalCatalog {
         tabletIndexPBBuilder.setTabletId(tabletId);
         final Cloud.TabletIndexPB tabletIndex = tabletIndexPBBuilder.build();
         tabletJobInfoPBBuilder.setIdx(tabletIndex);
+
+        // set new tablet
+        Cloud.TabletSchemaChangeJobPB.Builder schemaChangeJobPBBuilder =
+                Cloud.TabletSchemaChangeJobPB.newBuilder();
+        Cloud.TabletIndexPB.Builder newtabletIndexPBBuilder = Cloud.TabletIndexPB.newBuilder();
+        newtabletIndexPBBuilder.setDbId(dbId);
+        newtabletIndexPBBuilder.setTableId(tableId);
+        newtabletIndexPBBuilder.setIndexId(newIndexId);
+        newtabletIndexPBBuilder.setPartitionId(partitionId);
+        newtabletIndexPBBuilder.setTabletId(newTabletId);
+        final Cloud.TabletIndexPB newtabletIndex = newtabletIndexPBBuilder.build();
+        schemaChangeJobPBBuilder.setNewTabletIdx(newtabletIndex);
+        final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb = 
+            schemaChangeJobPBBuilder.build();
+
+        tabletJobInfoPBBuilder.setSchemaChange(tabletSchemaChangeJobPb);
+
         final Cloud.TabletJobInfoPB tabletJobInfoPB = tabletJobInfoPBBuilder.build();
         finishTabletJobRequestBuilder.setJob(tabletJobInfoPB);
 
@@ -874,7 +893,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     break;
                 }
             } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
+                LOG.warn("tryTimes:{}, finishTabletJob RpcException", tryTimes, e);
                 if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
@@ -883,7 +902,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropIndex response: {} ", response);
+            LOG.warn("finishTabletJob response: {} ", response);
         }
     }
 

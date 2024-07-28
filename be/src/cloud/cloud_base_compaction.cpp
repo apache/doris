@@ -100,16 +100,20 @@ Status CloudBaseCompaction::prepare_compact() {
             // tablet not found
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
-            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "
-                  "failed in schema change. "
+                  "failed in schema change. The input version end must "
+                  "less than or equal to alter_version."
+                  "current alter version in BE is not correct."
                   "input_version_start="
                << compaction_job->input_versions(0)
                << " input_version_end=" << compaction_job->input_versions(1)
+               << " current alter_version=" << cloud_tablet->alter_version()
                << " schema_change_alter_version=" << resp.alter_version();
             std::string msg = ss.str();
             LOG(WARNING) << msg;
+            cloud_tablet->set_alter_version(resp.alter_version());
             return Status::InternalError(msg);
         }
         return st;
@@ -329,16 +333,20 @@ Status CloudBaseCompaction::modify_rowsets() {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
-            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "
-                  "failed in schema change. "
+                  "failed in schema change. The input version end must "
+                  "less than or equal to alter_version."
+                  "current alter version in BE is not correct."
                   "input_version_start="
                << compaction_job->input_versions(0)
                << " input_version_end=" << compaction_job->input_versions(1)
+               << " current alter_version=" << cloud_tablet->alter_version()
                << " schema_change_alter_version=" << resp.alter_version();
             std::string msg = ss.str();
             LOG(WARNING) << msg;
+            cloud_tablet->set_alter_version(resp.alter_version());
             return Status::InternalError(msg);
         }
         return st;

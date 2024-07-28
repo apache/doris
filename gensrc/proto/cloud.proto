@@ -536,7 +536,7 @@ message TabletCompactionJobPB {
     optional int64 lease = 23; // prepare
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
-    optional bool judge_input_versions_range = 26;
+    optional bool check_input_versions_range = 26;
 }
 
 message TabletSchemaChangeJobPB {

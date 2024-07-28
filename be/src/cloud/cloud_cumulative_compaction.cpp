@@ -48,7 +48,7 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
-    if (_tablet->tablet_state() != TABLET_RUNNING &&
+    if (_tablet->tablet_state() != TABLET_RUNNING && config::enable_new_tablet_do_compaction &&
         dynamic_cast<CloudTablet*>(_tablet.get())->alter_version() == -1) {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
@@ -114,8 +114,8 @@ PREPARE_TRY_AGAIN:
 
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
-    // Set input version range to let meta-service judge version range conflict
-    compaction_job->set_judge_input_versions_range(config::enable_parallel_cumu_compaction);
+    // Set input version range to let meta-service check version range conflict
+    compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
     cloud::StartTabletJobResponse resp;
     st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     if (!st.ok()) {
