@@ -24,93 +24,123 @@ suite("push_down_multi_filter_through_window") {
     CREATE TABLE push_down_multi_predicate_through_window_t (c1 INT, c2 INT, c3 VARCHAR(50)) properties("replication_num"="1");
     INSERT INTO push_down_multi_predicate_through_window_t (c1, c2, c3) VALUES(1, 10, 'A'),(2, 20, 'B'),(3, 30, 'C'),(4, 40, 'D');
     """
-    qt_multi_predicate_push_down_window_1 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1;
-    """
-    
-    qt_multi_predicate_push_down_window_2 """
-    explain
-    select * from (select rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rk <= 1;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_3 """
-    explain
-    select * from (select rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rk > 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_4 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn > 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rk > 1;")
+        notContains "VPartitionTopN"
+    }
 
-    qt_multi_predicate_push_down_window_5 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 1;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn > 1;")
+        notContains "VPartitionTopN"
+    }
 
-    qt_multi_predicate_push_down_window_6 """
-    explain
-    select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_7 """
-    explain
-    select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 10"
+    }
 
-    qt_multi_predicate_push_down_window_8 """
-    explain
-    select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_9 """
-    explain
-    select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn > 1 and rk <= 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_10 """
-    explain
-    select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk > 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn > 1 and rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_11 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t limit 10;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk > 1;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_12 """
-    explain
-    select * from (select rank() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t limit 10;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t limit 10;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 10"
+    }
 
-    qt_multi_predicate_push_down_window_13 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, row_number() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t limit 10;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 10"
+    }
 
-    qt_multi_predicate_push_down_window_14 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, row_number() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, row_number() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_15 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk1, rank() over(partition by c2 order by c3) as rk2 from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk1 <= 10 and rk2 <= 100;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, row_number() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_16 """
-    explain
-    select * from (select row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2, rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn1 <= 10 and rn2 <= 1 and rk <= 100;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk1, rank() over(partition by c2 order by c3) as rk2 from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk1 <= 10 and rk2 <= 100;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_17 """
-    explain
-    select * from (select rank() over(partition by c1, c2 order by c3) as rk, row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2 from push_down_multi_predicate_through_window_t) t where rn1 <= 1 and rn2 <= 10 and rk <= 100;
-    """
+    explain {
+        sql ("select * from (select row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2, rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn1 <= 10 and rn2 <= 1 and rk <= 100;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
 
-    qt_multi_predicate_push_down_window_18 """
-    explain
-    select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 or rk <= 1;
-    """
+    explain {
+        sql ("select * from (select rank() over(partition by c1, c2 order by c3) as rk, row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2 from push_down_multi_predicate_through_window_t) t where rn1 <= 1 and rn2 <= 10 and rk <= 100;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 1"
+    }
+
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 or rk <= 1;")
+        notContains "VPartitionTopN"
+    }
 }
