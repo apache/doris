@@ -321,7 +321,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
                 prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
 
-        sb.append(prefix).append("spredicateFromPaimon:");
+        sb.append(prefix).append("predicatesFromPaimon:");
         if (predicates.isEmpty()) {
             sb.append(" NONE\n");
         } else {
