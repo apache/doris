@@ -23,3 +23,6 @@ meta-change:
   - fe/fe-core/src/main/java/org/apache/doris/persist/EditLog.java
   - gensrc/thrift/*
   - gensrc/proto/*
+
+doing:
+  - *
