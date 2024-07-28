@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
