@@ -156,12 +156,15 @@ public class Profile {
         if (timeAndID.length != 2) {
             return null;
         }
-        TUniqueId thriftId = DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
-        if (thriftId == null) {
+
+        try {
+            DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
+        } catch (NumberFormatException e) {
             if (Long.valueOf(timeAndID[1]) == null) {
                 return null;
             }
         }
+
         return timeAndID;
     }
 
