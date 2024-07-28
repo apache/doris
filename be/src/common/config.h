@@ -179,20 +179,19 @@ DECLARE_mString(process_full_gc_size);
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
 
-// gc will release cache, cancel task, and task will wait for gc to release memory,
-// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
-DECLARE_mBool(disable_memory_gc);
+// memory reclamation will release cache, cancel task, and task will wait for gc to release memory,
+// default reclamation strategy is conservative,
+// if you want to exclude the interference of memory reclamation, let it be false
+DECLARE_mBool(enable_memory_reclamation);
 
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// Allocator check failed log stacktrace if not catch exception
-DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
-
-// malloc or new large memory larger than large_memory_check_bytes, default 2G,
-// will print a warning containing the stacktrace, but not prevent memory alloc.
-// If is -1, disable large memory check.
-DECLARE_mInt64(large_memory_check_bytes);
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
+// if alloc failed using Doris Allocator, will print stacktrace in error log.
+// if is -1, disable print stacktrace when alloc large memory.
+DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 DECLARE_mBool(enable_memory_orphan_check);

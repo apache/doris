@@ -249,7 +249,7 @@ void Daemon::memory_gc_thread() {
     int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (config::disable_memory_gc) {
+        if (!config::enable_memory_reclamation) {
             continue;
         }
         auto sys_mem_available = doris::GlobalMemoryArbitrator::sys_mem_available();
@@ -387,9 +387,27 @@ void Daemon::je_purge_dirty_pages_thread() const {
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
+        if (!config::enable_memory_reclamation) {
+            continue;
+        }
         doris::MemInfo::je_purge_all_arena_dirty_pages();
         doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
     } while (true);
+}
+
+void Daemon::cache_prune_stale_thread() {
+    int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+        if (interval <= 0) {
+            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
+                         << "], force set to 3600 ";
+            interval = 3600;
+        }
+        if (!config::enable_memory_reclamation) {
+            continue;
+        }
+        CacheManager::instance()->for_each_cache_prune_stale();
+    }
 }
 
 void Daemon::wg_weighted_memory_ratio_refresh_thread() {
@@ -435,6 +453,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "je_purge_dirty_pages_thread",
             [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+    st = Thread::create(
+            "Daemon", "cache_prune_stale_thread", [this]() { this->cache_prune_stale_thread(); },
+            &_threads.emplace_back());
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());

@@ -93,9 +93,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
-        if (!doris::enable_thread_catch_bad_alloc &&
-            (size > 1024L * 1024 * 1024 ||
-             doris::config::enable_stacktrace_in_allocator_check_failed)) {
+        if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+            size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
@@ -106,8 +105,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             }
             return;
         }
-        if (!doris::config::disable_memory_gc &&
-            doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
+
+        // no significant impact on performance is expected.
+        doris::MemInfo::notify_je_purge_dirty_pages();
+
+        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
@@ -115,19 +117,21 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                     print_id(doris::thread_context()->task_id()),
                     doris::thread_context()->get_thread_id(),
                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
-            while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
-                    doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
-                    break;
-                }
-                if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
-                    if (doris::enable_thread_catch_bad_alloc) {
-                        throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+            if (doris::config::enable_memory_reclamation) {
+                while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
+                        doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
+                        break;
                     }
-                    return;
+                    if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
+                        if (doris::enable_thread_catch_bad_alloc) {
+                            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+                        }
+                        return;
+                    }
+                    wait_milliseconds += 100;
                 }
-                wait_milliseconds += 100;
             }
             if (wait_milliseconds >= doris::config::thread_wait_gc_max_milliseconds) {
                 // Make sure to completely wait thread_wait_gc_max_milliseconds only once.
