@@ -1408,11 +1408,72 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
     return 0;
 }
 
-void BlockFileCache::check_disk_resource_limit(const std::string& path) {
+std::string BlockFileCache::reset_capacity(size_t new_capacity) {
+    using namespace std::chrono;
+    int64_t space_released = 0;
+    size_t old_capacity = 0;
+    std::stringstream ss;
+    ss << "finish reset_capacity, path=" << _cache_base_path;
+    auto start_time = steady_clock::time_point();
+    {
+        std::lock_guard cache_lock(_mutex);
+        if (new_capacity < _capacity && new_capacity < _cur_cache_size) {
+            int64_t need_remove_size = _cur_cache_size - new_capacity;
+            auto remove_blocks = [&](LRUQueue& queue) -> int64_t {
+                int64_t queue_released = 0;
+                for (const auto& [entry_key, entry_offset, entry_size] : queue) {
+                    if (need_remove_size <= 0) return queue_released;
+                    auto* cell = get_cell(entry_key, entry_offset, cache_lock);
+                    if (!cell->releasable()) continue;
+                    cell->is_deleted = true;
+                    need_remove_size -= entry_size;
+                    space_released += entry_size;
+                    queue_released += entry_size;
+                }
+                return queue_released;
+            };
+            int64_t queue_released = remove_blocks(_disposable_queue);
+            ss << " disposable_queue released " << queue_released;
+            queue_released = remove_blocks(_normal_queue);
+            ss << " normal_queue released " << queue_released;
+            queue_released = remove_blocks(_index_queue);
+            ss << " index_queue released " << queue_released;
+            if (need_remove_size >= 0) {
+                queue_released = 0;
+                for (auto& [_, key] : _time_to_key) {
+                    for (auto& [_, cell] : _files[key]) {
+                        if (need_remove_size <= 0) break;
+                        cell.is_deleted = true;
+                        need_remove_size -= cell.file_block->range().size();
+                        space_released += cell.file_block->range().size();
+                        queue_released += cell.file_block->range().size();
+                    }
+                }
+                ss << " ttl_queue released " << queue_released;
+            }
+            _disk_resource_limit_mode = true;
+            _async_clear_file_cache = true;
+            ss << " total_space_released=" << space_released;
+        }
+        old_capacity = _capacity;
+        _capacity = new_capacity;
+    }
+    auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
+    LOG(INFO) << "Finish tag deleted block. path=" << _cache_base_path
+              << " use_time=" << static_cast<int64_t>(use_time.count());
+    ss << " old_capacity=" << old_capacity << " new_capacity=" << new_capacity;
+    LOG(INFO) << ss.str();
+    return ss.str();
+}
+
+void BlockFileCache::check_disk_resource_limit() {
+    if (_capacity > _cur_cache_size) {
+        _disk_resource_limit_mode = false;
+    }
     std::pair<int, int> percent;
-    int ret = disk_used_percentage(path, &percent);
+    int ret = disk_used_percentage(_cache_base_path, &percent);
     if (ret != 0) {
-        LOG_ERROR("").tag("file cache path", path).tag("error", strerror(errno));
+        LOG_ERROR("").tag("file cache path", _cache_base_path).tag("error", strerror(errno));
         return;
     }
     auto [capacity_percentage, inode_percentage] = percent;
@@ -1452,7 +1513,7 @@ void BlockFileCache::run_background_operation() {
     int64_t interval_time_seconds = 20;
     while (!_close) {
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
-        check_disk_resource_limit(_cache_base_path);
+        check_disk_resource_limit();
         {
             std::unique_lock close_lock(_close_mtx);
             _close_cv.wait_for(close_lock, std::chrono::seconds(interval_time_seconds));

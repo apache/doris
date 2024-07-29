@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 
 /**
  * when do some operation, do something about cache
@@ -76,13 +77,17 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param ctx
      * @return
      */
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx) {
+    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
+            boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (isMVPartitionValid(mtmv, ctx)) {
+                if (predicate.test(ctx, mtmv)) {
+                    continue;
+                }
+                if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
                 }
             } catch (AnalysisException e) {
@@ -94,9 +99,10 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @VisibleForTesting
-    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+        long currentTimeMillis = System.currentTimeMillis();
         return !CollectionUtils
-                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()));
+                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMillis, forceConsistent));
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {

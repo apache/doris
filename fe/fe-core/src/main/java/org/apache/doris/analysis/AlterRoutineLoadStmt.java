@@ -264,4 +264,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
+
 }

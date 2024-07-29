@@ -124,8 +124,9 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
         EXPECT_TRUE(st.OK());
     }
 
-    int executing_task_num = _storage_engine->_get_executing_compaction_num(
-            _storage_engine->_tablet_submitted_cumu_compaction[_data_dir.get()]);
+    int executing_task_num =
+            _storage_engine->_compaction_submit_registry.count_executing_cumu_and_base(
+                    _data_dir.get());
     EXPECT_EQ(executing_task_num, 2);
 }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -84,7 +85,7 @@ public class ExplainCommand extends Command implements NoForward {
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            planner.addHook(InitMaterializationContextHook.INSTANCE);
+            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
@@ -111,5 +112,10 @@ public class ExplainCommand extends Command implements NoForward {
 
     public boolean showPlanProcess() {
         return showPlanProcess;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPLAIN;
     }
 }

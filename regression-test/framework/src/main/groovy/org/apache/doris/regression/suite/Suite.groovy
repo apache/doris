@@ -877,7 +877,7 @@ class Suite implements GroovyInterceptable {
                 if (exitcode != 0) {
                     staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
                     if (mustSuc == true) {
-                       Assert.assertEquals(0, exitCode)
+                       Assert.assertEquals(0, exitcode)
                     }
                 }
             } catch (IOException e) {
@@ -1474,6 +1474,29 @@ class Suite implements GroovyInterceptable {
             contains("${mv_name}(${mv_name})")
         }
     }
+
+    def check_mv_rewrite_success_without_check_chosen = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            check {result ->
+                def splitResult = result.split("MaterializedViewRewriteFail")
+                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+            }
+        }
+    }
+
 
     def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
 

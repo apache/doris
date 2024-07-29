@@ -127,4 +127,9 @@ public class CreateDataSyncJobStmt extends DdlStmt {
     public DataSyncJobType getDataSyncJobType() {
         return dataSyncJobType;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

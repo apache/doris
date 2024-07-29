@@ -25,8 +25,10 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+#ifdef USE_AZURE
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
+#endif
 #include <execution>
 #include <memory>
 #include <utility>
@@ -39,7 +41,9 @@
 #include "common/util.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
+#ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
+#endif
 #include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
@@ -212,6 +216,7 @@ int S3Accessor::init() {
     });
     switch (conf_.provider) {
     case S3Conf::AZURE: {
+#ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
         options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
         options.Retry.MaxRetries = config::max_s3_client_retry;
@@ -231,6 +236,10 @@ int S3Accessor::init() {
         uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
+#else
+        LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
+        return 0;
+#endif
     }
     default: {
         uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;

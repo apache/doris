@@ -499,6 +499,10 @@ Status NewOlapScanner::_init_return_columns() {
 }
 
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    if (config::is_cloud_mode()) {
+        // we don't have cold storage in cloud mode, all storage is treated as local
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    }
     int local_reader = 0;
     for (const auto& reader : _tablet_reader_params.rs_splits) {
         local_reader += reader.rs_reader->rowset()->is_local();
