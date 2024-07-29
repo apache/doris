@@ -1309,6 +1309,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (hasEmptyTargetColumns) {
             return;
         }
+        boolean hasMissingColExceptAutoInc = false;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
@@ -1321,9 +1322,17 @@ public class NativeInsertStmt extends InsertStmt {
                     break;
                 }
             }
-            if (col.isKey() && !exists) {
-                throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+            if (!exists && !col.isAutoInc()) {
+                if (col.isKey()) {
+                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                }
+                if (col.isVisible()) {
+                    hasMissingColExceptAutoInc = true;
+                }
             }
+        }
+        if (!hasMissingColExceptAutoInc) {
+            return;
         }
 
         isPartialUpdate = true;
