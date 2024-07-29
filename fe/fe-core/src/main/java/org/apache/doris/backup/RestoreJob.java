@@ -86,6 +86,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -1139,8 +1140,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     // reset remote partition.
     // reset all id in remote partition, but DO NOT modify any exist catalog objects.
-    private Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
-                                               ReplicaAllocation replicaAlloc) {
+    @VisibleForTesting
+    protected Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
+                                                 ReplicaAllocation replicaAlloc) {
         Preconditions.checkState(localTbl.getPartition(partName) == null);
         Partition remotePart = remoteTbl.getPartition(partName);
         Preconditions.checkNotNull(remotePart);
@@ -1170,6 +1172,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
+        remotePart.setNextVersion(visibleVersion + 1);
         LOG.info("reset partition {} for restore, visible version: {}, old partition id: {}",
                 newPartId, visibleVersion, oldPartId);
 

@@ -50,7 +50,6 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
-    private List<String> materializationQualifier;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -72,11 +71,11 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> getMaterializationQualifier() {
-        if (this.materializationQualifier == null) {
-            this.materializationQualifier = this.mtmv.getFullQualifiers();
+    List<String> generateMaterializationIdentifier() {
+        if (super.identifier == null) {
+            super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
         }
-        return this.materializationQualifier;
+        return super.identifier;
     }
 
     @Override
@@ -92,7 +91,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             }
         }
         failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + getMaterializationQualifier() + "]",
+        return Utils.toSqlString("MaterializationContext[" + generateMaterializationIdentifier() + "]",
                 "rewriteSuccess", this.success,
                 "failReason", failReasonBuilder.toString());
     }
@@ -104,7 +103,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
         } catch (AnalysisException e) {
             LOG.warn(String.format("get mv plan statistics fail, materialization qualifier is %s",
-                    getMaterializationQualifier()), e);
+                    generateMaterializationIdentifier()), e);
             return Optional.empty();
         }
         RelationId relationId = null;
@@ -124,7 +123,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return false;
         }
         return ((PhysicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
-                this.getMaterializationQualifier()
+                this.generateMaterializationIdentifier()
         );
     }
 

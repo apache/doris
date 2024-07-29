@@ -56,6 +56,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
@@ -3674,4 +3675,130 @@ private:
         }
     }
 };
+
+class FunctionNgramSearch : public IFunction {
+public:
+    static constexpr auto name = "ngram_search";
+    static FunctionPtr create() { return std::make_shared<FunctionNgramSearch>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    // ngram_search(text,pattern,gram_num)
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnFloat64::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        // There is no need to check if the 2-th,3-th parameters are const here because fe has already checked them.
+        auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
+        auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        if (col_const[0]) {
+            _execute_impl<true>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        } else {
+            _execute_impl<false>(text_col, pattern, gram_num, *col_res, input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    using NgramMap = phmap::flat_hash_map<uint32_t, uint8_t>;
+    // In the map, the key is the CRC32 hash result of a substring in the string,
+    // and the value indicates whether this hash is found in the text or pattern.
+    constexpr static auto not_found = 0b00;
+    constexpr static auto found_in_pattern = 0b01;
+    constexpr static auto found_in_text = 0b10;
+    constexpr static auto found_in_pattern_and_text = 0b11;
+
+    uint32_t sub_str_hash(const char* data, int32_t length) const {
+        constexpr static uint32_t seed = 0;
+        return HashUtil::crc_hash(data, length, seed);
+    }
+
+    template <bool column_const>
+    void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
+                       ColumnFloat64& res, size_t size) const {
+        auto& res_data = res.get_data();
+        res_data.resize_fill(size, 0);
+        // If the length of the pattern is less than gram_num, return 0.
+        if (pattern.size < gram_num) {
+            return;
+        }
+
+        // Build a map by pattern string, which will be used repeatedly in the following loop.
+        NgramMap pattern_map;
+        int pattern_count = get_pattern_set(pattern_map, pattern, gram_num);
+        // Each time a loop is executed, the map will be modified, so it needs to be restored afterward.
+        std::vector<uint32_t> restore_map;
+
+        for (int i = 0; i < size; i++) {
+            auto text = text_col->get_data_at(index_check_const<column_const>(i));
+            if (text.size < gram_num) {
+                // If the length of the text is less than gram_num, return 0.
+                continue;
+            }
+            restore_map.reserve(text.size);
+            auto [text_count, intersection_count] =
+                    get_text_set(text, gram_num, pattern_map, restore_map);
+
+            // 2 * |Intersection| / (|text substr set| + |pattern substr set|)
+            res_data[i] = 2.0 * intersection_count / (text_count + pattern_count);
+        }
+    }
+
+    size_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
+        size_t pattern_count = 0;
+        for (int i = 0; i + gram_num <= pattern.size; i++) {
+            uint32_t cur_hash = sub_str_hash(pattern.data + i, gram_num);
+            if (!pattern_map.contains(cur_hash)) {
+                pattern_map[cur_hash] = found_in_pattern;
+                pattern_count++;
+            }
+        }
+        return pattern_count;
+    }
+
+    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                      std::vector<uint32_t>& restore_map) const {
+        restore_map.clear();
+        //intersection_count indicates a substring both in pattern and text.
+        size_t text_count = 0, intersection_count = 0;
+        for (int i = 0; i + gram_num <= text.size; i++) {
+            uint32_t cur_hash = sub_str_hash(text.data + i, gram_num);
+            auto& val = pattern_map[cur_hash];
+            if (val == not_found) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_text);
+                // only found in text
+                text_count++;
+                restore_map.push_back(cur_hash);
+            } else if (val == found_in_pattern) {
+                val ^= found_in_text;
+                DCHECK(val == found_in_pattern_and_text);
+                // found in text and pattern
+                text_count++;
+                intersection_count++;
+                restore_map.push_back(cur_hash);
+            }
+        }
+        // Restore the pattern_map.
+        for (auto& restore_hash : restore_map) {
+            pattern_map[restore_hash] ^= found_in_text;
+        }
+
+        return {text_count, intersection_count};
+    }
+};
+
 } // namespace doris::vectorized

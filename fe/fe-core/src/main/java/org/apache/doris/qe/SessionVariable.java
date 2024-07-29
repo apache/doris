@@ -558,10 +558,16 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
+            = "enable_dml_materialized_view_rewrite";
+
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
+            = "enable_dml_materialized_view_rewrite_when_base_table_unawareness";
+
     public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
             = "allow_modify_materialized_view_data";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
             = "materialized_view_rewrite_enable_contain_external_table";
 
     public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
@@ -722,9 +728,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
-    // if true, need report to coordinator when plan fragment execute successfully.
+    // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
+    // will be stored to disk.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
-    public int autoProfileThresholdMs = -1;
+    public int autoProfileThresholdMs = 500;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
@@ -834,7 +841,7 @@ public class SessionVariable implements Serializable, Writable {
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
-    public int exchangeInstanceParallel = -1;
+    public int exchangeInstanceParallel = 100;
 
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     public int sqlSafeUpdates = 0;
@@ -1064,7 +1071,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 2048;
+    private int runtimeBloomFilterMinSize = 1048576;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -1816,15 +1823,26 @@ public class SessionVariable implements Serializable, Writable {
                     "Is it allowed to modify the data of the materialized view"})
     public boolean allowModifyMaterializedViewData = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
-            description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "Whether to use a materialized view that contains the foreign table "
-                            + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainExternalTable = false;
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"查询时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableMaterializedViewRewriteWhenBaseTableUnawareness = false;
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = {"DML 时, 是否开启基于结构信息的物化视图透明改写",
+                    "Whether to enable materialized view rewriting based on struct info"})
+    public boolean enableDmlMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"DML 时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableDmlMaterializedViewRewriteWhenBaseTableUnawareness = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
             description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
@@ -2096,10 +2114,14 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
+            this.topnOptLimitThreshold = 0;
+            this.enableSyncRuntimeFilterSize = true;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
+            this.topnOptLimitThreshold = 1024;
+            this.enableSyncRuntimeFilterSize = false;
         }
 
         /*
@@ -2149,6 +2171,7 @@ public class SessionVariable implements Serializable, Writable {
             switch (Config.pull_request_id % 3) {
                 case 0:
                     this.fragmentTransmissionCompressionCodec = "snappy";
+                    this.runtimeFilterWaitTimeMs = 10;
                     break;
                 case 1:
                     this.fragmentTransmissionCompressionCodec = "lz4";
@@ -2163,10 +2186,12 @@ public class SessionVariable implements Serializable, Writable {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
                     this.parallelScanMinRowsPerScanner = 64;
+                    this.runtimeFilterMaxInNum = 10;
                     break;
                 case 1:
                     this.parallelScanMaxScannersCount = 16;
                     this.parallelScanMinRowsPerScanner = 128;
+                    this.runtimeFilterMaxInNum = 0;
                     break;
                 case 2:
                     this.parallelScanMaxScannersCount = 8;
@@ -3233,20 +3258,21 @@ public class SessionVariable implements Serializable, Writable {
     public Set<String> getDisableNereidsRuleNames() {
         String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
         String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
-        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
-                .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+        return Arrays.stream(disableNereidsRules.split(","))
+                .map(rule -> rule.trim().toUpperCase(Locale.ROOT))
+                .filter(rule -> !rule.isEmpty()
+                        && !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
                         && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
     public BitSet getDisableNereidsRules() {
         BitSet bitSet = new BitSet();
-        for (String ruleName : disableNereidsRules.split(",[\\s]*")) {
+        for (String ruleName : disableNereidsRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
             if (ruleName.isEmpty()) {
                 continue;
             }
-            ruleName = ruleName.toUpperCase(Locale.ROOT);
             RuleType ruleType = RuleType.valueOf(ruleName);
             if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
                 continue;
@@ -3543,6 +3569,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+        tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -4113,12 +4140,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
+    public boolean isEnableDmlMaterializedViewRewrite() {
+        return enableDmlMaterializedViewRewrite;
+    }
+
+    public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
+    }
+
+
     public boolean isAllowModifyMaterializedViewData() {
         return allowModifyMaterializedViewData;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
-        return materializedViewRewriteEnableContainExternalTable;
+    public boolean isEnableMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableMaterializedViewRewriteWhenBaseTableUnawareness;
     }
 
     public int getMaterializedViewRewriteSuccessCandidateNum() {

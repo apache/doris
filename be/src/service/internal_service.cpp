@@ -288,6 +288,9 @@ void PInternalService::exec_plan_fragment(google::protobuf::RpcController* contr
                                           const PExecPlanFragmentRequest* request,
                                           PExecPlanFragmentResult* response,
                                           google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -301,6 +304,9 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
+    timeval tv1 {};
+    gettimeofday(&tv1, nullptr);
+    response->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
@@ -318,12 +324,18 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
     st.to_protobuf(response->mutable_status());
+    timeval tv2 {};
+    gettimeofday(&tv2, nullptr);
+    response->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
 }
 
 void PInternalService::exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
                                                   const PExecPlanFragmentRequest* request,
                                                   PExecPlanFragmentResult* response,
                                                   google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -337,10 +349,19 @@ void PInternalService::exec_plan_fragment_start(google::protobuf::RpcController*
                                                 const PExecPlanFragmentStartRequest* request,
                                                 PExecPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    result->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
+        timeval tv1 {};
+        gettimeofday(&tv1, nullptr);
+        result->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
+        timeval tv2 {};
+        gettimeofday(&tv2, nullptr);
+        result->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
     });
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
@@ -2030,6 +2051,10 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                             response->set_loaded_rows(state->num_rows_load_success());
                             response->set_filtered_rows(state->num_rows_load_filtered());
                             status->to_protobuf(response->mutable_status());
+                            if (!state->get_error_log_file_path().empty()) {
+                                response->set_error_url(
+                                        to_load_error_http_path(state->get_error_log_file_path()));
+                            }
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {

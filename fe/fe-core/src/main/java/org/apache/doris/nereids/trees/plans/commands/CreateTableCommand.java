@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -210,5 +211,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     // for test
     public CreateTableInfo getCreateTableInfo() {
         return createTableInfo;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }
