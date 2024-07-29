@@ -36,10 +36,13 @@ import java.util.List;
 public class JvmService {
     private static final Logger LOG = LogManager.getLogger(JvmService.class);
 
+    private JvmStats jvmStats;
+
     private final JvmInfo jvmInfo;
 
     public JvmService() {
         this.jvmInfo = JvmInfo.jvmInfo();
+        this.jvmStats = JvmStats.jvmStats();
     }
 
     public JvmInfo info() {
