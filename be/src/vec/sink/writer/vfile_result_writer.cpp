@@ -29,6 +29,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
+#include "io/compress/compression_factory.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -115,12 +116,34 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                     .sync_file_data = false,
             }));
     switch (_file_opts->file_format) {
+    // TODO: split the file type and compression type
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
                                                 _vec_output_expr_ctxs, _output_object_data,
                                                 _header_type, _header, _file_opts->column_separator,
                                                 _file_opts->line_delimiter, _file_opts->with_bom));
         break;
+    case TFileFormatType::FORMAT_CSV_GZ:
+        RETURN_IF_ERROR(io::CompressionFactory::create_compression_file_wrtier(
+                io::CompressionFactory::CompressType::GZIP, std::move(_file_writer_impl),
+                &_file_writer_impl));
+        vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
+                                               _vec_output_expr_ctxs, _output_object_data,
+                                               _header_type, _header, _file_opts->column_separator,
+                                               _file_opts->line_delimiter, _file_opts->with_bom));
+        break;
+    case TFileFormatType::FORMAT_CSV_BZ2:
+        RETURN_IF_ERROR(io::CompressionFactory::create_compression_file_wrtier(
+                io::CompressionFactory::CompressType::BZIP2, std::move(_file_writer_impl),
+                &_file_writer_impl));
+        vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
+                                               _vec_output_expr_ctxs, _output_object_data,
+                                               _header_type, _header, _file_opts->column_separator,
+                                               _file_opts->line_delimiter, _file_opts->with_bom));
+        break;
+    // case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    // TODO: add more type
+
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,

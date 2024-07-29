@@ -48,7 +48,7 @@ public:
 
         // Compression level for best compression.
         BEST_COMPRESSION = 9,
-        
+
         // Default compression level.
         DEFAULT_COMPRESSION = -1,
 
@@ -94,6 +94,13 @@ public:
               _strategy(strategy),
               _window_bits(header),
               _direct_bufffer_size(direct_buffer_size) {}
+
+    ZlibCompressor()
+            : _level(CompressionLevel::DEFAULT_COMPRESSION),
+              _strategy(CompressionStrategy::DEFAULT_STRATEGY),
+              _window_bits(CompressionHeader::DEFAULT_HEADER),
+              _direct_bufffer_size(64 * 1024) {}
+
     // TODO: clean the resource
     ~ZlibCompressor() override = default;
     Status init() override;

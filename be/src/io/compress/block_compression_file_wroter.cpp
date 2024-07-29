@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-
 #include "io/compress/block_compression_file_writer.h"
 
 namespace doris::io {
