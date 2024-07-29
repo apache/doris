@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -278,12 +279,13 @@ public class StatisticsRepository {
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
         long indexId = alterColumnStatsStmt.getIndexId();
+        if (rowCount == null) {
+            throw new RuntimeException("Row count is null.");
+        }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
-        if (rowCount != null) {
-            builder.setCount(Double.parseDouble(rowCount));
-        }
+        builder.setCount(Double.parseDouble(rowCount));
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
@@ -338,9 +340,14 @@ public class StatisticsRepository {
                     .setTblUpdateTime(System.currentTimeMillis())
                     .setColName("")
                     .setJobColumns(Lists.newArrayList())
+                    .setRowCount((long) Double.parseDouble(rowCount))
                     .setUserInject(true)
                     .setJobType(AnalysisInfo.JobType.MANUAL)
                     .build();
+            if (objects.table instanceof OlapTable) {
+                indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
+                mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
+            }
             Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
             // update partition granularity statistics
