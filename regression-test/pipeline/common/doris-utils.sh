@@ -248,37 +248,37 @@ function install_fdb() {
     fi
 }
 
-deploy_doris_sql_convertor() {
+deploy_doris_sql_converter() {
     # https://doris.apache.org/zh-CN/docs/dev/lakehouse/sql-dialect/
     if ${DEBUG:-false}; then
         download_url="https://selectdb-doris.oss-cn-beijing.aliyuncs.com/doris-sql-convertor/doris-sql-convertor-1.0.6-bin-x86.tar.gz"
     else
-        download_url="${doris_sql_convertor_download_url}"
+        download_url="${doris_sql_converter_download_url}"
     fi
-    if [[ -z "${doris_sql_convertor_download_url}" ]]; then
-        echo "INFO: doris_sql_convertor_download_url not set, skip download doris-sql-convertor." && return 0
+    if [[ -z "${doris_sql_converter_download_url}" ]]; then
+        echo "INFO: doris_sql_converter_download_url not set, skip download doris-sql-converter." && return 0
     fi
     if wget -c -t3 -q "${download_url}"; then
         download_file_name="$(basename "${download_url}")"
-        extract_dir_name="doris_sql_convertor"
+        extract_dir_name="doris_sql_converter"
         mkdir -p "${extract_dir_name}"
         tar -xf "${download_file_name}" --strip-components 1 -C "${extract_dir_name}"
         if [[ ! -f "${extract_dir_name}"/conf/config.conf ]]; then
             echo "ERROR: miss file ${extract_dir_name}/conf/config.conf" && return 1
         fi
-        doris_sql_convertor_port="${doris_sql_convertor_port:-5001}"
+        doris_sql_converter_port="${doris_sql_converter_port:-5001}"
         sed -i "/port=.*/d" "${extract_dir_name}"/conf/config.conf
-        echo "port=${doris_sql_convertor_port}" >>"${extract_dir_name}"/conf/config.conf
-        echo "INFO: changed doris-sql-convertor port to ${doris_sql_convertor_port}"
+        echo "port=${doris_sql_converter_port}" >>"${extract_dir_name}"/conf/config.conf
+        echo "INFO: changed doris-sql-converter port to ${doris_sql_converter_port}"
         if bash "${extract_dir_name}"/bin/stop.sh && fuser -k 5002/tcp; then echo; fi
         if bash "${extract_dir_name}"/bin/start.sh &&
-            sleep 2s && lsof -i:"${doris_sql_convertor_port}"; then
-            echo "INFO: doris-sql-convertor start success."
+            sleep 2s && lsof -i:"${doris_sql_converter_port}"; then
+            echo "INFO: doris-sql-converter start success."
         else
-            echo "ERROR: doris-sql-convertor start failed." && return 1
+            echo "ERROR: doris-sql-converter start failed." && return 1
         fi
     else
-        echo "ERROR: download doris-sql-convertor(${download_url}) failed." && return 1
+        echo "ERROR: download doris-sql-converter ${download_url} failed." && return 1
     fi
 }
 
@@ -466,7 +466,7 @@ set_session_variable() {
     if [[ -z "${v}" ]]; then return 1; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e"set global ${k}=${v};"; then
+    if ${cl} -e"set global ${k}='${v}';"; then
         if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
             echo "INFO:      set global ${k}=${v};"
         else
