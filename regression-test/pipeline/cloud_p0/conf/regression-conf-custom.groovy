@@ -76,4 +76,4 @@ enableKafkaTest=true
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 
-s3Provider = "COS"
+s3Source = "aliyun"

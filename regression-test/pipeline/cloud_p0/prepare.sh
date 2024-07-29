@@ -47,7 +47,7 @@ if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger 
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_checkout}" ]]; then echo "ERROR: env commit_id_from_checkout not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
-if [[ -z "${cos_ak}" || -z "${cos_sk}" ]]; then echo "ERROR: env cos_ak or cos_sk not set" && exit 1; fi
+if [[ -z "${s3SourceAk}" || -z "${s3SourceSk}" ]]; then echo "ERROR: env s3SourceAk or s3SourceSk not set" && exit 1; fi
 if [[ -z "${oss_ak}" || -z "${oss_sk}" ]]; then echo "ERROR: env oss_ak or oss_sk not set." && exit 1; fi
 
 echo "#### 1. check if need run"
