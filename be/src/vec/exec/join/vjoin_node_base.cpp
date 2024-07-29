@@ -193,6 +193,13 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
                 auto& origin_column = origin_block->get_by_position(result_column_id).column;
+                if (!origin_column) {
+                    LOG(WARNING)
+                            << "BUG!!! VExprContext::execute successfully, but return null column. "
+                            << origin_block->get_by_position(result_column_id).dump_structure();
+                    return Status::InternalError(
+                            "VExprContext::execute inside VJoinNodeBase return null column");
+                }
 
                 /// `convert_to_full_column_if_const` will create a pointer to the origin column if
                 /// the origin column is not ColumnConst/ColumnArray, this make the column be not
