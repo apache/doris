@@ -611,20 +611,12 @@ void ExecEnv::_register_metrics() {
 
     REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
                          [this]() { return _send_batch_thread_pool->get_queue_size(); });
-
-    REGISTER_HOOK_METRIC(non_block_close_thread_pool_thread_num,
-                         [this]() { return _non_block_close_thread_pool->num_threads(); });
-
-    REGISTER_HOOK_METRIC(non_block_close_thread_pool_queue_size,
-                         [this]() { return _non_block_close_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(non_block_close_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(non_block_close_thread_pool_queue_size);
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
