@@ -22,7 +22,9 @@ import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
+import org.apache.doris.analysis.AdminDecommissionDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
+import org.apache.doris.analysis.AdminRecommissionDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
@@ -353,6 +355,10 @@ public class DdlExecutor {
             env.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
             env.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminDecommissionDiskStmt) {
+            env.getCurrentSystemInfo().decommissionDisks((AdminDecommissionDiskStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminRecommissionDiskStmt) {
+            env.getCurrentSystemInfo().recommissionDisks((AdminRecommissionDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {

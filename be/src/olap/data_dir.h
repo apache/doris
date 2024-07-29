@@ -45,6 +45,12 @@ class StorageEngine;
 
 const char* const kTestFilePath = ".testfile";
 
+enum DiskState {
+    ONLINE,
+    OFFLINE,       // health check detected failures, Tablets on this will be dropped
+    DECOMMISSIONED // user disabled, migrate to other disk
+};
+
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
@@ -59,7 +65,12 @@ public:
     const std::string& path() const { return _path; }
     size_t path_hash() const { return _path_hash; }
 
-    bool is_used() const { return _is_used; }
+    bool is_used() const {
+        return _state == DiskState::ONLINE || _state == DiskState::DECOMMISSIONED;
+    }
+
+    DiskState get_state() const { return _state; }
+    void set_state(DiskState state) { _state = state; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 
@@ -70,7 +81,7 @@ public:
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
         info.trash_used_capacity = _trash_used_bytes;
-        info.is_used = _is_used;
+        info.is_used = is_used();
         info.storage_medium = _storage_medium;
         return info;
     }
@@ -178,6 +189,7 @@ private:
     size_t _trash_used_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
+    DiskState _state;
 
     int32_t _cluster_id;
     bool _cluster_id_incomplete = false;
@@ -199,6 +211,7 @@ private:
     IntGauge* disks_remote_used_capacity = nullptr;
     IntGauge* disks_trash_used_capacity = nullptr;
     IntGauge* disks_state = nullptr;
+    IntGauge* disks_state_value = nullptr;
     IntGauge* disks_compaction_score = nullptr;
     IntGauge* disks_compaction_num = nullptr;
 };

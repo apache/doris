@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -625,13 +627,15 @@ public class Backend implements Writable {
                 diskInfo.setStorageMedium(tDisk.getStorageMedium());
             }
 
-            if (isUsed) {
-                if (diskInfo.setState(DiskState.ONLINE)) {
-                    isChanged = true;
-                }
-            } else {
-                if (diskInfo.setState(DiskState.OFFLINE)) {
-                    isChanged = true;
+            if (diskInfo.getState() != DiskState.DECOMMISSION) {
+                if (isUsed) {
+                    if (diskInfo.setState(DiskState.ONLINE)) {
+                        isChanged = true;
+                    }
+                } else {
+                    if (diskInfo.setState(DiskState.OFFLINE)) {
+                        isChanged = true;
+                    }
                 }
             }
             if (LOG.isDebugEnabled()) {
@@ -845,6 +849,55 @@ public class Backend implements Writable {
 
     private int getDiskNum() {
         return disksRef.size();
+    }
+
+    public List<String> getDecommissionedDisks() {
+        return disksRef.values().stream()
+            .filter(v -> v.getState() == DiskState.DECOMMISSION)
+            .map(DiskInfo::getRootPath)
+            .collect(Collectors.toList());
+    }
+
+    public List<String> getOnlineDisks() {
+        return disksRef.values().stream()
+            .filter(v -> v.getState() == DiskState.ONLINE)
+            .map(DiskInfo::getRootPath)
+            .collect(Collectors.toList());
+    }
+
+    public boolean isDecommissionedDisks(long pathHash) {
+        return disksRef.values().stream()
+                .anyMatch(v -> v.getPathHash() == pathHash && v.getState() == DiskState.DECOMMISSION);
+    }
+
+    public void decommissionDisk(String rootPath) throws DdlException {
+        DiskInfo diskInfo = disksRef.get(rootPath);
+        if (diskInfo == null) {
+            throw new DdlException("Disk: " + rootPath + " does not exist");
+        }
+
+        if (diskInfo.getState() == DiskState.DECOMMISSION) {
+            throw new DdlException("Disk: " + rootPath + " is already in "
+                    + diskInfo.getState().name() + ". It cannot be decommissioned");
+        }
+
+        diskInfo.setState(DiskState.DECOMMISSION);
+        LOG.info("disk {} is to decommission", rootPath);
+    }
+
+    public void recommissionDisk(String rootPath) throws DdlException {
+        DiskInfo diskInfo = disksRef.get(rootPath);
+        if (diskInfo == null) {
+            throw new DdlException("Disk: " + rootPath + " does not exist");
+        }
+
+        if (diskInfo.getState() != DiskState.DECOMMISSION && diskInfo.getState() != DiskState.OFFLINE) {
+            throw new DdlException("Disk: " + rootPath + " is already in "
+                + diskInfo.getState().name() + ". It cannot be recommissioned");
+        }
+
+        diskInfo.setState(DiskState.ONLINE);
+        LOG.info("disk {} is to online", rootPath);
     }
 
     /**

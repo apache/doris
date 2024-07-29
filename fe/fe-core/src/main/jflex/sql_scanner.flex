@@ -400,6 +400,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("real", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("rebalance", new Integer(SqlParserSymbols.KW_REBALANCE));
         keywordMap.put("recent", new Integer(SqlParserSymbols.KW_RECENT));
+        keywordMap.put("recommission", new Integer(SqlParserSymbols.KW_RECOMMISSION));
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
         keywordMap.put("recycle", new Integer(SqlParserSymbols.KW_RECYCLE));
         keywordMap.put("refresh", new Integer(SqlParserSymbols.KW_REFRESH));

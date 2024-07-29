@@ -111,6 +111,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_local_used_capacity, MetricUnit::BYTES)
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state_value, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
@@ -123,6 +124,7 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
           _trash_used_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
+          _state(DiskState::OFFLINE),
           _cluster_id(-1),
           _to_be_deleted(false) {
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
@@ -133,6 +135,7 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state_value);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
 }
@@ -159,6 +162,7 @@ Status DataDir::init(bool init_meta) {
     }
 
     _is_used = true;
+    _state = DiskState::ONLINE;
     return Status::OK();
 }
 
@@ -230,16 +234,22 @@ Status DataDir::set_cluster_id(int32_t cluster_id) {
 
 void DataDir::health_check() {
     // check disk
-    if (_is_used) {
+    if (_state != DiskState::DECOMMISSIONED) {
         Status res = _read_and_write_test_file();
         if (!res && res.is<IO_ERROR>()) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
             _engine.add_broken_path(_path);
-            _is_used = !res.is<IO_ERROR>();
+            _is_used = false;
+            _state = DiskState::OFFLINE;
+        } else if (res.ok() && !_is_used) {
+            _engine.remove_broken_path(_path);
+            _is_used = true;
+            _state = DiskState::ONLINE;
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
+    disks_state_value->set_value(_state);
 }
 
 Status DataDir::_read_and_write_test_file() {

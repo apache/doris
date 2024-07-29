@@ -39,6 +39,7 @@ struct TMasterInfo {
     7: optional i64 heartbeat_flags
     8: optional i64 backend_id
     9: optional list<TFrontendInfo> frontend_infos
+    10: optional list<string> decommissioned_disks
 }
 
 struct TBackendInfo {

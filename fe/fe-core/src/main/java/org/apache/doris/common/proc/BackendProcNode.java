@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -26,6 +27,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,7 @@ public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
             .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash").add("StorageMedium")
+            .add("TabletCount")
             .build();
 
     private Backend backend;
@@ -48,6 +51,9 @@ public class BackendProcNode implements ProcNodeInterface {
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
+
+        Multimap<Long, Long> tabletCount = Env.getCurrentInvertedIndex()
+                .getTabletIdsWithPathHashByBackendId(backend.getId());
 
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {
             List<String> info = Lists.newArrayList();
@@ -73,7 +79,7 @@ public class BackendProcNode implements ProcNodeInterface {
 
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(otherUnitPair.first) + " " + otherUnitPair.second);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availUnitPair.first) + " " + availUnitPair.second);
-            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " "  + totalUnitPair.second);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " " + totalUnitPair.second);
 
             // total used percent
             double used = 0.0;
@@ -87,6 +93,9 @@ public class BackendProcNode implements ProcNodeInterface {
             info.add(disk.getState().name());
             info.add(String.valueOf(disk.getPathHash()));
             info.add(disk.getStorageMedium().name());
+
+            int tabletSize = tabletCount.get(entry.getValue().getPathHash()).size();
+            info.add(String.valueOf(tabletSize));
 
             result.addRow(info);
         }

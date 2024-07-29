@@ -239,6 +239,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 master_info.network_address.hostname, master_info.network_address.port);
     }
 
+    if (master_info.__isset.decommissioned_disks && _engine.is_local()) {
+        _engine.to_local().decommission_disks(master_info.decommissioned_disks);
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _engine.notify_listeners();

@@ -42,6 +42,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
@@ -719,6 +720,24 @@ public class TabletInvertedIndex {
             readUnlock(stamp);
         }
         return tabletIds;
+    }
+
+    public Multimap<Long, Long> getTabletIdsWithPathHashByBackendId(long backendId) {
+        Multimap<Long, Long> diskTabletIds = null;
+        long stamp = readLock();
+        try {
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            if (replicaMetaWithBackend != null) {
+                diskTabletIds = replicaMetaWithBackend.entrySet().stream().collect(
+                    ArrayListMultimap::create,
+                    (map, elmt) -> map.put(elmt.getValue().getPathHash(), elmt.getKey()),
+                    ArrayListMultimap::putAll
+                );
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return diskTabletIds;
     }
 
     public List<Pair<Long, Long>> getTabletSizeByBackendIdAndStorageMedium(long backendId,
