@@ -74,6 +74,11 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
+            if (rule.isExploration()
+                    && context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
+                    .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize) {
+                break;
+            }
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
                 if (newPlan == plan) {

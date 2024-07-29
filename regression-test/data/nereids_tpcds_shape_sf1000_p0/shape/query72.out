@@ -8,14 +8,12 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=() build RFs:RF10 w_warehouse_sk->[inv_warehouse_sk]
+----------------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF8 d_date_sk->[inv_date_sk];RF9 cs_item_sk->[inv_item_sk]
-----------------------PhysicalOlapScan[inventory] apply RFs: RF8 RF9 RF10
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=() build RFs:RF8 w_warehouse_sk->[inv_warehouse_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=() build RFs:RF6 cs_item_sk->[cr_item_sk];RF7 cs_order_number->[cr_order_number]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF6 RF7
+------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF6 d_date_sk->[inv_date_sk];RF7 cs_item_sk->[inv_item_sk]
+--------------------------PhysicalOlapScan[inventory] apply RFs: RF6 RF7 RF8
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
 ------------------------------PhysicalProject
@@ -49,6 +47,8 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[warehouse]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[warehouse]
+--------------------PhysicalOlapScan[catalog_returns]
 
