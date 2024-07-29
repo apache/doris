@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -41,10 +42,6 @@ public class ArrayReverseSplit extends ScalarFunction implements PropagateNullab
                     ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
                     ArrayType.of(BooleanType.INSTANCE)));
 
-    private ArrayReverseSplit(List<Expression> expressions) {
-        super("array_reverse_split", expressions);
-    }
-
     /**
      * constructor with arguments.
      */
@@ -57,7 +54,7 @@ public class ArrayReverseSplit extends ScalarFunction implements PropagateNullab
      * array_split(lambda, a1, ...) = array_split(a1, array_map(lambda, a1, ...))
      */
     public ArrayReverseSplit(Expression arg) {
-        super("array_reverse_split", arg.child(1).child(0), new ArrayMap(arg));
+        super("array_reverse_split", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
         if (!(arg instanceof Lambda)) {
             throw new AnalysisException(
                     String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
@@ -66,7 +63,12 @@ public class ArrayReverseSplit extends ScalarFunction implements PropagateNullab
 
     @Override
     public ArrayReverseSplit withChildren(List<Expression> children) {
-        return new ArrayReverseSplit(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        if (children.size() == 1) {
+            return new ArrayReverseSplit(children.get(0));
+        } else {
+            return new ArrayReverseSplit(children.get(0), children.get(1));
+        }
     }
 
     @Override

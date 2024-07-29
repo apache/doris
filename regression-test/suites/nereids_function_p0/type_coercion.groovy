@@ -14,31 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-package org.apache.doris.nereids.trees.expressions.functions.scalar;
-
-import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-
-import java.util.List;
-
-/**
- * ScalarFunction 'array_last'.
- */
-public class ArrayLast extends ElementAt
-        implements HighOrderFunction {
-
-    /**
-     * constructor with arguments.
-     * array_last(lambda, a1, ...) = element_at(array_filter(lambda, a1, ...), -1)
-     */
-    public ArrayLast(Expression arg) {
-        super(new ArrayFilter(arg), new BigIntLiteral(-1));
-    }
-
-    @Override
-    public List<FunctionSignature> getImplSignature() {
-        return SIGNATURES;
-    }
+suite("function_type_coercion") {
+    qt_greatest """select greatest(1, 2222, '333')"""
+    qt_least """select least(5,2000000,'3.0023')"""
+    qt_if """select if (1, 2222, 33)"""
+    qt_array_product """select array_product(array(1, 2, '3000'))"""
+    qt_array_avg """select array_avg(array(1, 2, '3000'))"""
+    qt_array_pushfront """select array_pushfront(array(1,2,3,555555), '4444')"""
+    qt_array_pushback """select array_pushback(array(1,2,3,555555), '4444')"""
+    qt_array_difference """select array_difference(array(1,2,'200'))"""
+    qt_array_enumerate_uniq """select array_enumerate_uniq([1,1,1],['1','1','1.0'])"""
+    qt_array_cum_sum """select array_cum_sum(array('1', '2', '3000'))"""
+    qt_pmod """select pmod(2, '1.0')"""
 }
