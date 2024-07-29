@@ -248,6 +248,39 @@ function install_fdb() {
     fi
 }
 
+deploy_doris_sql_convertor() {
+    # https://doris.apache.org/zh-CN/docs/dev/lakehouse/sql-dialect/
+    if [[ -n "$1" ]]; then
+        download_url="$1"
+    elif [[ -n "${doris_sql_convertor_download_url}" ]]; then
+        download_url="${doris_sql_convertor_download_url}"
+    else
+        download_url="https://selectdb-doris.oss-cn-beijing.aliyuncs.com/doris-sql-convertor/doris-sql-convertor-1.0.6-bin-x86.tar.gz"
+    fi
+    if wget -c -t3 -q "${download_url}"; then
+        download_file_name="$(basename "${download_url}")"
+        extract_dir_name="doris_sql_convertor"
+        mkdir -p "${extract_dir_name}"
+        tar -xf "${download_file_name}" --strip-components 1 -C "${extract_dir_name}"
+        if [[ ! -f "${extract_dir_name}"/conf/config.conf ]]; then
+            echo "ERROR: miss file ${extract_dir_name}/conf/config.conf" && return 1
+        fi
+        doris_sql_convertor_port="${doris_sql_convertor_port:-5001}"
+        sed -i "/port=.*/d" "${extract_dir_name}"/conf/config.conf
+        echo "port=${doris_sql_convertor_port}" >>"${extract_dir_name}"/conf/config.conf
+        echo "INFO: changed doris-sql-convertor port to ${doris_sql_convertor_port}"
+        if bash "${extract_dir_name}"/bin/stop.sh && fuser -k 5002/tcp; then echo; fi
+        if bash "${extract_dir_name}"/bin/start.sh &&
+            sleep 2s && lsof -i:"${doris_sql_convertor_port}"; then
+            echo "INFO: doris-sql-convertor start success."
+        else
+            echo "ERROR: doris-sql-convertor start failed." && return 1
+        fi
+    else
+        echo "ERROR: download doris-sql-convertor(${download_url}) failed." && return 1
+    fi
+}
+
 function restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
