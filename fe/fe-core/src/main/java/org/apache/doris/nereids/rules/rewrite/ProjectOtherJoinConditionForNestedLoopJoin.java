@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -114,7 +115,9 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
             if (input.isEmpty() || expression instanceof Slot) {
                 return expression;
             }
-            if (ctx.leftSlots.containsAll(input)) {
+            if (expression instanceof WhenClause) {
+                return super.visit(expression, ctx);
+            } else if (ctx.leftSlots.containsAll(input)) {
                 Alias alias = ctx.aliasMap.computeIfAbsent(expression, o -> new Alias(o));
                 ctx.leftAlias.add(alias);
                 return alias.toSlot();
