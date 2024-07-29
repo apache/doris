@@ -47,8 +47,7 @@ suite('test_ingestion_load', 'p0') {
             endpoint context.config.feHttpAddress
             uri "/api/ingestion_load/${context.dbName}/_create"
             op "post"
-            user context.config.feHttpUser
-            password context.config.feHttpPassword
+            basicAuthorization context.config.feHttpUser, context.config.feHttpPassword
             body reqBody
             check { code, resBody ->
                 assert code == 200
@@ -95,8 +94,7 @@ suite('test_ingestion_load', 'p0') {
             endpoint context.config.feHttpAddress
             uri "/api/ingestion_load/${context.dbName}/_update"
             op "post"
-            user context.config.feHttpUser
-            password context.config.feHttpPassword
+            basicAuthorization context.config.feHttpUser, context.config.feHttpPassword
             body updateStatusReqBody
             check { code, resBody ->
                 {
