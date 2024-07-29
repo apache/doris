@@ -250,12 +250,13 @@ function install_fdb() {
 
 deploy_doris_sql_convertor() {
     # https://doris.apache.org/zh-CN/docs/dev/lakehouse/sql-dialect/
-    if [[ -n "$1" ]]; then
-        download_url="$1"
-    elif [[ -n "${doris_sql_convertor_download_url}" ]]; then
-        download_url="${doris_sql_convertor_download_url}"
-    else
+    if ${DEBUG:-false}; then
         download_url="https://selectdb-doris.oss-cn-beijing.aliyuncs.com/doris-sql-convertor/doris-sql-convertor-1.0.6-bin-x86.tar.gz"
+    else
+        download_url="${doris_sql_convertor_download_url}"
+    fi
+    if [[ -z "${doris_sql_convertor_download_url}" ]]; then
+        echo "INFO: doris_sql_convertor_download_url not set, skip download doris-sql-convertor." && return 0
     fi
     if wget -c -t3 -q "${download_url}"; then
         download_file_name="$(basename "${download_url}")"
