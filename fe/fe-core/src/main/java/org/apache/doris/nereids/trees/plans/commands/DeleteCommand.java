@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -119,7 +119,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
-                partitions, isPartialUpdate, logicalQuery);
+                partitions, false, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
