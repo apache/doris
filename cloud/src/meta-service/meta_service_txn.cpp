@@ -2617,7 +2617,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
         while (it->has_next()) {
             total_iteration_cnt++;
             auto [k, v] = it->next();
-            LOG(INFO) << "check txn info txn_info_key=" << hex(k);
+            VLOG_DEBUG << "check txn info txn_info_key=" << hex(k);
             TxnInfoPB info_pb;
             if (!info_pb.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;

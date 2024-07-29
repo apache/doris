@@ -446,32 +446,35 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public static boolean checkFailedTxnsByCoordinator(TransactionState txn) {
         TxnCoordinator coordinator = txn.getCoordinator();
+        boolean offline = true;
         if (coordinator.sourceType == TransactionState.TxnSourceType.FE) {
             List<Frontend> frontends = Env.getCurrentEnv().getFrontends(null);
             for (Frontend fe : frontends) {
-                if (fe.getHost().equals(coordinator.ip) && fe.getLastStartupTime() > coordinator.startTime) {
-                    return true;
+                if (fe.getHost().equals(coordinator.ip)) {
+                    offline = false;
+                    if (fe.getLastStartupTime() > coordinator.startTime) {
+                        return true;
+                    }
                 }
             }
         } else if (coordinator.sourceType == TransactionState.TxnSourceType.BE) {
             Backend be = Env.getCurrentSystemInfo().getBackend(coordinator.id);
-            if (be.getHost().equals(coordinator.ip) && (be.getLastStartTime() > coordinator.startTime
-                    || (!be.isAlive() && System.currentTimeMillis() - be.getLastUpdateMs()
-                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L))) {
-                return true;
+            if (be != null) {
+                offline = false;
+                if (be.getHost().equals(coordinator.ip) && (be.getLastStartTime() > coordinator.startTime
+                        || (!be.isAlive() && System.currentTimeMillis() - be.getLastUpdateMs()
+                                    >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L))) {
+                    return true;
+                }
             }
         }
-        return false;
+        return offline;
     }
 
     public static List<TransactionState> checkFailedTxns(List<TransactionState> conflictTxns) {
         List<TransactionState> failedTxns = new ArrayList<>();
         for (TransactionState txn : conflictTxns) {
-            boolean failed = false;
-            if (!failed) {
-                failed = checkFailedTxnsByCoordinator(txn);
-            }
-            if (failed) {
+            if (checkFailedTxnsByCoordinator(txn)) {
                 failedTxns.add(txn);
             }
         }
