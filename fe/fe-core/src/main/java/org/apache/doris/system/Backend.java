@@ -932,4 +932,8 @@ public class Backend implements Writable {
         this.lastPublishTaskAccumulatedNum = accumulatedNum;
     }
 
+    public String getWorkloadGroupTag() {
+        return this.tagMap.get(Tag.WORKLOAD_GROUP);
+    }
+
 }

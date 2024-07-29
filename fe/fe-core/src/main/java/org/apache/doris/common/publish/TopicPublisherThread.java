@@ -21,12 +21,14 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -120,7 +123,31 @@ public class TopicPublisherThread extends MasterDaemon {
             try {
                 address = new TNetworkAddress(be.getHost(), be.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
-                client.publishTopicInfo(request);
+
+                // check whether workload group tag math current be
+                String beTag = be.getWorkloadGroupTag();
+                TPublishTopicRequest copiedRequest = request.deepCopy();
+                if (copiedRequest.isSetTopicMap()) {
+                    Map<TTopicInfoType, List<TopicInfo>> topicMap = copiedRequest.getTopicMap();
+                    List<TopicInfo> topicInfoList = topicMap.get(TTopicInfoType.WORKLOAD_GROUP);
+                    if (topicInfoList != null) {
+                        Iterator<TopicInfo> topicIter = topicInfoList.iterator();
+                        while (topicIter.hasNext()) {
+                            TopicInfo topicInfo = topicIter.next();
+                            if (topicInfo.isSetWorkloadGroupInfo()) {
+                                TWorkloadGroupInfo tWgInfo = topicInfo.getWorkloadGroupInfo();
+                                if (tWgInfo.isSetTag() && !WorkloadGroup.isMatchBackendTag(
+                                        tWgInfo.getTag(), beTag)) {
+                                    // currently TopicInfo could not contain both policy and workload group,
+                                    // so we can remove TopicInfo directly.
+                                    topicIter.remove();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                client.publishTopicInfo(copiedRequest);
                 ok = true;
                 LOG.info("[topic_publish]publish topic info to be {} success, time cost={} ms, details:{}",
                         be.getHost(), (System.currentTimeMillis() - beginTime), logStr);
