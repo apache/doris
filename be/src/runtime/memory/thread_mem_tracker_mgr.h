@@ -294,7 +294,7 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
         return false;
     }
     auto wg_ptr = _wg_wptr.lock();
-    if (!wg_ptr) {
+    if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
             _limiter_tracker_raw->release(size); // rollback
             return false;
