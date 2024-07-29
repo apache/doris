@@ -197,6 +197,9 @@ public class MysqlChannel implements BytesChannel {
             while (dstBuf.hasRemaining()) {
                 dstBuf.put(remainingBuffer.get());
             }
+            if (dstBuf.limit() == 0) {
+                LOG.warn("===>1");
+            }
             return dstBuf.position() - oldLen;
         }
         try {
@@ -206,11 +209,20 @@ public class MysqlChannel implements BytesChannel {
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
                     decryptData(dstBuf, isHeader);
+                    if (dstBuf.limit() == 0) {
+                        LOG.warn("===>2");
+                    }
                     return readLen;
                 }
                 readLen += ret;
             }
+            if (dstBuf.limit() == 0) {
+                LOG.warn("===>4");
+            }
             decryptData(dstBuf, isHeader);
+            if (dstBuf.limit() == 0) {
+                LOG.warn("===>3");
+            }
         } catch (IOException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Read channel exception, ignore.", e);
@@ -247,20 +259,38 @@ public class MysqlChannel implements BytesChannel {
         if (!isSslMode || isHeader) {
             return;
         }
+        if (dstBuf.limit() == 0) {
+            LOG.warn("===>(1)");
+        }
         dstBuf.flip();
+        if (dstBuf.limit() == 0) {
+            LOG.warn("===>(2)");
+        }
         decryptAppData.clear();
         // unwrap will remove ssl header.
         while (true) {
             SSLEngineResult result = sslEngine.unwrap(dstBuf, decryptAppData);
+            if (decryptAppData.limit() == 0) {
+                LOG.warn("decryptAppData is empty={}", decryptAppData.hasRemaining());
+            }
             if (handleUnwrapResult(result) && !dstBuf.hasRemaining()) {
                 break;
             }
             // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
         }
         decryptAppData.flip();
+        if (dstBuf.limit() == 0) {
+            LOG.warn("===>(3)");
+        }
         dstBuf.clear();
         dstBuf.put(decryptAppData);
+        if (dstBuf.limit() == 0) {
+            LOG.warn("===>(4)");
+        }
         dstBuf.flip();
+        if (dstBuf.limit() == 0) {
+            LOG.warn("===>(5)");
+        }
     }
 
     // read one logical mysql protocol packet
@@ -323,6 +353,12 @@ public class MysqlChannel implements BytesChannel {
                 }
                 int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
                 // remove mysql packet header
+                if (result.limit() == 0) {
+                    LOG.warn("result buffer invalid: limit=0, position={}, mysqlPacketLen={}, packetLen={},"
+                                    + "readLen={}, isSslMode=true, isSslHandShake={}, sslHeaderbuf={}",
+                            result.position(), mysqlPacketLength, packetLen, readLen, isSslHandshaking,
+                            sslHeaderByteBuffer.array());
+                }
                 result.position(4);
                 result.compact();
                 // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
@@ -589,6 +625,7 @@ public class MysqlChannel implements BytesChannel {
             case OK:
                 return true;
             case CLOSED:
+                LOG.warn("==> ssl engine closed");
                 sslEngine.closeOutbound();
                 return true;
             case BUFFER_OVERFLOW:
