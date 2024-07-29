@@ -19,6 +19,11 @@
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.cc
 
 // IWYU pragma: no_include <crc32intrin.h>
+
+#if defined(__aarch64__)
+#include <sse2neon.h>
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
