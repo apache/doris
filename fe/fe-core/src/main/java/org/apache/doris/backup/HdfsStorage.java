@@ -86,35 +86,38 @@ public class HdfsStorage extends BlobStorage {
 
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
-        if (dfsFileSystem == null) {
-            String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
-            Configuration conf = new HdfsConfiguration();
-            boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
-                conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
+        synchronized (this) {
+            if (dfsFileSystem == null) {
+                String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
+                Configuration conf = new HdfsConfiguration();
+                boolean isSecurityEnabled = false;
+                for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
+                    conf.set(propEntry.getKey(), propEntry.getValue());
+                    if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
                         && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                    isSecurityEnabled = true;
+                        isSecurityEnabled = true;
+                    }
                 }
-            }
 
-            try {
-                if (isSecurityEnabled) {
-                    UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(
+                try {
+                    if (isSecurityEnabled) {
+                        UserGroupInformation.setConfiguration(conf);
+                        UserGroupInformation.loginUserFromKeytab(
                             hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
                             hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
+                    }
+                    if (username == null) {
+                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
+                    } else {
+                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf, username);
+                    }
+                } catch (Exception e) {
+                    LOG.error("errors while connect to " + remotePath, e);
+                    throw new UserException("errors while connect to " + remotePath, e);
                 }
-                if (username == null) {
-		    dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
-                } else {
-		    dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf, username);
-                }
-            } catch (Exception e) {
-                LOG.error("errors while connect to " + remotePath, e);
-                throw new UserException("errors while connect to " + remotePath, e);
             }
         }
+
         return dfsFileSystem;
     }
 
