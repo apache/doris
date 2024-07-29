@@ -153,7 +153,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        if (ctx.getSessionVariable().isEnableAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
     }
 
     private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
@@ -205,15 +207,19 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
             executor.execute();
-            stmtStr = executeStmt.toSql();
-        } catch (Throwable e)  {
+            if (ctx.getSessionVariable().isEnableAuditLog()) {
+                stmtStr = executeStmt.toSql();
+            }
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        if (ctx.getSessionVariable().isEnableAuditLog()) {
+            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        }
     }
 
     // process COM_EXECUTE, parse binary row data
