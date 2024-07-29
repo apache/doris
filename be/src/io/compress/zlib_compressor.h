@@ -1,11 +1,8 @@
 #pragma once
 
-#include <zlib.h>
-
-#include <memory>
-
 #include "io/compress/compressor.h"
 #include "util/byte_buffer.h"
+#include "zlib.h"
 namespace doris::io {
 
 class ZlibCompressor : public Compressor {
@@ -127,28 +124,36 @@ public:
     };
 
     ZlibCompressor(CompressionLevel level, CompressionStrategy strategy, CompressionHeader header,
-                   size_t direct_buffer_size);
-    ZlibCompressor();
-    ~ZlibCompressor() override;
-    Status set_input(const char* data, size_t offset, size_t length) override;
+                   size_t direct_buffer_size)
+            : _level(level),
+              _strategy(strategy),
+              _window_bits(header),
+              _direct_bufffer_size(direct_buffer_size) {}
+    ~ZlibCompressor() override { deflateEnd(&_stream); }
+    Status init() override;
+    Status set_input(const char* data, size_t length) override;
     bool need_input() override;
+    Status compress(char* buffer, size_t length, size_t& compressed_length) override;
     size_t get_bytes_read() override;
-    Status compress(char* buffer, size_t offset, size_t length, size_t& compressed_length) override;
+    size_t get_bytes_written() override;
+    void finish() override;
+    bool finished() override;
+    void reset() override;
 
 private:
+    void _set_input_from_saved_data();
+    Status _deflate_direct_buffer(size_t& no_compressed_bytes);
     z_stream _stream;
     const CompressionLevel _level;
     const CompressionStrategy _strategy;
     const CompressionHeader _window_bits;
     const size_t _direct_bufffer_size;
-    char* _user_buffer = nullptr;
-    size_t _user_buffer_offset = 0;
+    const char* _user_buffer = nullptr;
     size_t _user_buffer_length = 0;
     ByteBufferPtr _uncompressed_buffer = nullptr;
-    size_t _uncompressed_buffer_offset = 0;
-    size_t _uncompressed_buffer_length = 0;
-    bool _keep_unpressed_buffer = false;
+    bool _keep_uncompressed_buffer = false;
     ByteBufferPtr _compressed_buffer = nullptr;
+    bool _finish = false;
     bool _finished = false;
 };
 } // namespace doris::io
