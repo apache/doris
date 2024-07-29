@@ -428,7 +428,7 @@ public class NereidsPlanner extends Planner {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).second;
-            if (rootGroup.getEnforcers().contains(groupExpression)) {
+            if (rootGroup.getEnforcers().containsKey(groupExpression)) {
                 rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
                 rootGroup.addChosenEnforcerProperties(physicalProperties);
             } else {

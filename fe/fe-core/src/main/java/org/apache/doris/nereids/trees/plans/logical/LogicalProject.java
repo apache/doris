@@ -37,6 +37,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical project plan.
@@ -55,6 +58,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         implements Project, OutputPrunable {
 
     private final List<NamedExpression> projects;
+    private final Supplier<Set<NamedExpression>> projectsSet;
     private final List<NamedExpression> excepts;
     private final boolean isDistinct;
 
@@ -84,6 +88,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.projects = projects.isEmpty()
                 ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
                 : projects;
+        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
         this.excepts = Utils.fastToImmutableList(excepts);
         this.isDistinct = isDistinct;
     }
@@ -139,7 +144,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             return false;
         }
         LogicalProject<?> that = (LogicalProject<?>) o;
-        boolean equal = projects.equals(that.projects)
+        boolean equal = projectsSet.get().equals(that.projectsSet.get())
                 && excepts.equals(that.excepts)
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparison
@@ -151,7 +156,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(projectsSet.get());
     }
 
     @Override
