@@ -17,10 +17,10 @@
 
 #include "io/compress/compression_factory.h"
 
-#include <memory>
-
+#include "io/compress/bzip2_compressor.h"
 #include "io/compress/stream_compression_file_writer.h"
 #include "io/compress/zlib_compressor.h"
+
 namespace doris::io {
 Status CompressionFactory::create_compressor(CompressType type,
                                              std::unique_ptr<Compressor>* compressor) {
@@ -29,9 +29,9 @@ Status CompressionFactory::create_compressor(CompressType type,
     case CompressType::GZIP:
         *compressor = std::make_unique<ZlibCompressor>();
         break;
-    // case CompressType::BZIP2:
-    //     *compressor = std::make_unique<BZip2Compressor>();
-    //     break;
+    case CompressType::BZIP2:
+        *compressor = std::make_unique<Bzip2Compressor>();
+        break;
     // case CompressType::LZ4:
     //     *compressor = std::make_unique<LZ4Compressor>();
     //     break;
