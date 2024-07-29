@@ -78,6 +78,7 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
     _wait_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapWaitTime");
+    _file_close_timer = ADD_TIMER(_profile, "FileCloseTime");
 }
 
 void RowsetBuilder::_init_profile(RuntimeProfile* profile) {
@@ -247,6 +248,7 @@ Status BaseRowsetBuilder::build_rowset() {
     SCOPED_TIMER(_build_rowset_timer);
     // use rowset meta manager to save meta
     RETURN_NOT_OK_STATUS_WITH_WARN(_rowset_writer->build(_rowset), "fail to build rowset");
+    COUNTER_UPDATE(_file_close_timer, _rowset_writer->file_close_time());
     return Status::OK();
 }
 

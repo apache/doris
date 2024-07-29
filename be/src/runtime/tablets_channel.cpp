@@ -119,6 +119,7 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletWrite", TUnit::BYTES);
     _max_tablet_flush_memory_usage_counter =
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
+    _file_close_timer = ADD_TIMER(_profile, "FileCloseTime");
 }
 
 void TabletsChannel::_init_profile(RuntimeProfile* profile) {

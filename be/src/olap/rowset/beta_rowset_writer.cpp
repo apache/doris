@@ -671,6 +671,7 @@ RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& sp
 
 Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
+    SCOPED_ATOMIC_TIMER(&_file_close_time_ns);
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
     return Status::OK();

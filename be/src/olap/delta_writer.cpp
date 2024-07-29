@@ -75,6 +75,7 @@ void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
+    _file_close_timer = ADD_TIMER(_profile, "FileCloseTime");
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -155,7 +156,11 @@ Status DeltaWriter::close() {
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
     RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
-    return _rowset_builder->build_rowset();
+    auto st = _rowset_builder->build_rowset();
+    RuntimeProfile* rowset_profile = _rowset_builder->profile();
+    auto file_close_timer = rowset_profile->get_counter("FileCloseTime");
+    COUNTER_UPDATE(_file_close_timer, file_close_timer->value());
+    return st;
 }
 
 Status DeltaWriter::build_rowset() {

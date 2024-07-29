@@ -119,6 +119,10 @@ public:
 
     bool is_finished() const { return _state == kFinished; }
 
+    int64_t file_close_time() const { return _file_close_time; }
+
+    RuntimeProfile* profile() { return _profile; }
+
 protected:
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
                              std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
@@ -200,10 +204,13 @@ protected:
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
     RuntimeProfile::Counter* _incremental_open_timer = nullptr;
+    RuntimeProfile::Counter* _file_close_timer = nullptr;
 
     // record rows received and filtered
     size_t _total_received_rows = 0;
     size_t _num_rows_filtered = 0;
+
+    int64_t _file_close_time = 0;
 };
 
 class DeltaWriter;
