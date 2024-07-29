@@ -1683,7 +1683,7 @@ public class SessionVariable implements Serializable, Writable {
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_LOG, needForward = true)
-    public boolean enableAuditLog = true;
+    public boolean enableExecStmtAuditLog = true;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -4138,8 +4138,8 @@ public class SessionVariable implements Serializable, Writable {
         return groupCommit;
     }
 
-    public boolean isEnableAuditLog() {
-        return enableAuditLog;
+    public boolean isEnableExecStmtAuditLog() {
+        return enableExecStmtAuditLog;
     }
 
     public boolean isEnableMaterializedViewRewrite() {
