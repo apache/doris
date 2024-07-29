@@ -476,7 +476,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_COMMIT = "group_commit";
 
-    public static final String ENABLE_AUDIT_LOG = "enable_audit_log";
+    public static final String ENABLE_EXEC_STMT_AUDIT_LOG = "enable_exec_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -1682,7 +1682,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
-    @VariableMgr.VarAttr(name = ENABLE_AUDIT_LOG, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_EXEC_STMT_AUDIT_LOG, needForward = true)
     public boolean enableExecStmtAuditLog = true;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
