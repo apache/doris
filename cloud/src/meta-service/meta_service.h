@@ -181,6 +181,11 @@ public:
                               AlterObjStoreInfoResponse* response,
                               ::google::protobuf::Closure* done) override;
 
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
                       UpdateAkSkResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -483,6 +488,13 @@ public:
                               AlterObjStoreInfoResponse* response,
                               ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::alter_obj_store_info, controller, request, response, done);
+    }
+
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::alter_storage_vault, controller, request, response, done);
     }
 
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
