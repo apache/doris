@@ -321,7 +321,7 @@ Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_na
     RETURN_IF_ERROR(_create_file_reader());
     auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_names->emplace_back(root_type.getFieldName(i));
+        col_names->emplace_back(get_field_name_lower_case(&root_type, i));
         col_attributes->emplace_back(
                 std::stol(root_type.getSubtype(i)->getAttributeValue(attribute)));
     }
@@ -334,19 +334,6 @@ Status OrcReader::_init_read_columns() {
     std::vector<std::string> orc_cols_lower_case;
     bool is_hive1_orc = false;
     _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc);
-
-    if (_is_iceberg_provide_column_name_mapping) {
-        for (auto col_name : *_column_names) {
-            auto it = _col_name_to_file_col_name.find(col_name);
-            if (it != _col_name_to_file_col_name.end()) {
-                _read_cols.emplace_back(it->second);
-                _read_cols_lower_case.emplace_back(col_name);
-            } else {
-                _missing_cols.emplace_back(col_name);
-            }
-        }
-        return Status::OK();
-    }
 
     // In old version slot_name_to_schema_pos may not be set in _scan_params
     // TODO, should be removed in 2.2 or later
@@ -761,6 +748,10 @@ Status OrcReader::set_fill_columns(
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
             auto expr_name = slot_ref->expr_name();
+            auto iter = _table_col_to_file_col.find(expr_name);
+            if (iter != _table_col_to_file_col.end()) {
+                expr_name = iter->second;
+            }
             predicate_columns.emplace(expr_name,
                                       std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
             if (slot_ref->column_id() == 0) {

@@ -184,10 +184,9 @@ public:
     Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
                                          std::vector<uint64_t>* col_attributes,
                                          std::string attribute);
-    void set_col_name_to_file_col_name(
-            std::unordered_map<std::string, std::string> col_name_to_file_col_name) {
-        _is_iceberg_provide_column_name_mapping = true;
-        _col_name_to_file_col_name = col_name_to_file_col_name;
+    void set_table_col_to_file_col(
+            std::unordered_map<std::string, std::string> table_col_to_file_col) {
+        _table_col_to_file_col = table_col_to_file_col;
     }
 
     void set_position_delete_rowids(vector<int64_t>* delete_rows) {
@@ -577,11 +576,6 @@ private:
     // 2. If true, use indexes instead of column names when reading orc tables.
     bool _is_hive1_orc_or_use_idx = false;
 
-    //    Have you provided a mapping from the table column name to the file column name,
-    //    i.e. set_col_name_to_file_col_name() ?
-    //    If provide_column_name_mapping is true, it means that the mapping you provided will be used.
-    //    Iceberg reader should provide such mapping.
-    bool _is_iceberg_provide_column_name_mapping = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
@@ -629,6 +623,10 @@ private:
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
+    //for iceberg table , when table column name != file column name
+    //TODO(CXY) : remove _table_col_to_file_col,because we hava _col_name_to_file_col_name，
+    // the two have the same effect.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
 };
