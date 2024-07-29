@@ -36,9 +36,9 @@ import java.util.List;
 public class JvmService {
     private static final Logger LOG = LogManager.getLogger(JvmService.class);
 
-    private JvmStats jvmStats;
-
     private final JvmInfo jvmInfo;
+
+    private JvmStats jvmStats;
 
     public JvmService() {
         this.jvmInfo = JvmInfo.jvmInfo();
