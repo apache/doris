@@ -50,7 +50,6 @@ suite("test_javaudtf_decimal") {
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
-        sql """DROP FUNCTION IF EXISTS udtf_decimal_outer(decimal(27,9));"""
         sql """ CREATE TABLES FUNCTION udtf_decimal(decimal(27,9)) RETURNS array<decimal(27,9)> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFDecimalTest",
@@ -62,7 +61,7 @@ suite("test_javaudtf_decimal") {
         qt_select2 """ SELECT user_id, cost_2, e1 FROM ${tableName} lateral view  udtf_decimal(cost_2) temp as e1 order by user_id; """
 
     } finally {
-        try_sql("DROP FUNCTION IF EXISTS udtf_decimal(decimal);")
+        try_sql("DROP FUNCTION IF EXISTS udtf_decimal(decimal(27,9));")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

@@ -87,6 +87,7 @@ public:
     static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
     static size_t get_max_jni_heap_memory_size();
     static Status clean_udf_class_load_cache(const std::string& function_signature);
+    static void clean_udf_jar_cache(long function_id);
 
 private:
     static void parse_max_heap_memory_size_from_jvm(JNIEnv* env);

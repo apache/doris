@@ -238,6 +238,26 @@ void UserFunctionCache::_destroy_cache_entry(std::shared_ptr<UserFunctionCacheEn
     _entry_map.erase(entry->function_id);
 }
 
+void UserFunctionCache::remove_cache_jar(int64_t fid) {
+    std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
+    {
+        std::lock_guard<std::mutex> l(_cache_lock);
+        auto it = _entry_map.find(fid);
+        if (it != _entry_map.end()) {
+            entry = it->second;
+        } else {
+            return;
+        }
+        entry->should_delete_library.store(true);
+        _entry_map.erase(entry->function_id);
+    }
+    auto st = io::global_local_filesystem()->delete_file(entry->lib_file);
+    if (!st.ok()) {
+        LOG(WARNING) << "remove_cache_jar fail is : " << st.to_string() << " "
+                     << entry->debug_string();
+    }
+}
+
 Status UserFunctionCache::_load_cache_entry(const std::string& url,
                                             std::shared_ptr<UserFunctionCacheEntry> entry) {
     if (entry->is_loaded.load()) {

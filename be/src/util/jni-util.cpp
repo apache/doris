@@ -23,6 +23,7 @@
 #include <jni_md.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
@@ -35,6 +36,7 @@
 
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
+#include "runtime/user_function_cache.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
 // #include "util/libjvm_loader.h"
@@ -462,6 +464,11 @@ Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature
                         env->NewStringUTF(function_signature.c_str()));
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
+}
+
+void JniUtil::clean_udf_jar_cache(int64_t function_id) {
+    auto* function_cache = UserFunctionCache::instance();
+    function_cache->remove_cache_jar(function_id);
 }
 
 Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,

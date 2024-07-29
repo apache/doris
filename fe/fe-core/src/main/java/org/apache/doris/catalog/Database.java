@@ -795,7 +795,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+    public synchronized long dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         Function udfFunction = null;
         try {
             // here we must first getFunction, as dropFunctionImpl will remove it
@@ -805,11 +805,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 throw new UserException(e);
             } else {
                 // ignore it, as drop it if exist, so can't sure it must exist
-                return;
+                return -1L;
             }
         }
 
-        dropFunctionImpl(function, ifExists);
+        long functionId = dropFunctionImpl(function, ifExists);
         if (udfFunction != null && udfFunction.isUDTFunction()) {
             // all of the table function in doris will have two function
             // one is the normal, and another is outer, the different of them is deal with
@@ -820,21 +820,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     function.isVariadic());
             dropFunctionImpl(functionOuter, ifExists);
         }
+        return functionId;
     }
 
-    public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
+    public synchronized long dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        long functionId = FunctionUtil.dropFunctionImpl(function, ifExists, name2Function);
+        if (functionId != -1) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
             LOG.info("finished to drop function {}", function.getName().getFunction());
         }
+        return functionId;
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             // Set ifExists to true to avoid throw exception if function is not found.
             // It should not happen but the reason is unknown, so add warn log for debug.
-            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+            if (-1 == FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
                 LOG.warn("failed to find function to drop: {} when replay, skip",
                         functionSearchDesc.getName().getFunction());
             }

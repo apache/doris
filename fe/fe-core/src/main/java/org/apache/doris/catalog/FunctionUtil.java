@@ -57,19 +57,20 @@ public class FunctionUtil {
      * @param function
      * @param ifExists
      * @param name2Function
-     * @return return true if we do drop the function, otherwise, return false.
+     * @return return functionId if we do drop the function, otherwise, return -1.
      * @throws UserException
      */
-    public static boolean dropFunctionImpl(FunctionSearchDesc function, boolean ifExists,
+    public static long dropFunctionImpl(FunctionSearchDesc function, boolean ifExists,
             ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
         String functionName = function.getName().getFunction();
+        long functionId = -1;
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
             if (ifExists) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("function name does not exist: " + functionName);
                 }
-                return false;
+                return -1L;
             }
             throw new UserException("function name does not exist: " + functionName);
         }
@@ -78,6 +79,7 @@ public class FunctionUtil {
         for (Function existFunc : existFuncs) {
             if (function.isIdentical(existFunc)) {
                 isFound = true;
+                functionId = existFunc.getId();
             } else {
                 builder.add(existFunc);
             }
@@ -87,7 +89,7 @@ public class FunctionUtil {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("function does not exist: " + function);
                 }
-                return false;
+                return -1L;
             }
             throw new UserException("function does not exist: " + function);
         }
@@ -97,7 +99,7 @@ public class FunctionUtil {
         } else {
             name2Function.put(functionName, newFunctions);
         }
-        return true;
+        return functionId;
     }
 
     /**
