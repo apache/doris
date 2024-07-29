@@ -206,11 +206,11 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/install/source-install/compilation-with-docker)
+See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-with-docker)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/cluster-deployment/standard-deployment) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/cluster-deployment/standard-deployment) 
 
 ## 🧩 Components
 
