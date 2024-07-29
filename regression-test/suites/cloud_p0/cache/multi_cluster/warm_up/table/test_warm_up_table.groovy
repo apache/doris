@@ -95,8 +95,8 @@ suite("test_warm_up_table") {
     def clearFileCache = { ip, port ->
         httpTest {
             endpoint ""
-            uri ip + ":" + port + """/api/clear_file_cache?sync=true"""
-            op "post"
+            uri ip + ":" + port + """/api/file_cache?op=clear&sync=true"""
+            op "get"
             body ""
         }
     }

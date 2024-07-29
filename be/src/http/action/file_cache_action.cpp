@@ -33,25 +33,59 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
-const static std::string OP = "op";
+constexpr static std::string_view HEADER_JSON = "application/json";
+constexpr static std::string_view OP = "op";
+constexpr static std::string_view SYNC = "sync";
+constexpr static std::string_view PATH = "path";
+constexpr static std::string_view CLEAR = "clear";
+constexpr static std::string_view RESET = "reset";
+constexpr static std::string_view CAPACITY = "capacity";
+constexpr static std::string_view RELEASE = "release";
+constexpr static std::string_view BASE_PATH = "base_path";
+constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    std::string operation = req->param(OP);
-    if (operation == "release") {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
+    std::string operation = req->param(OP.data());
+    Status st = Status::OK();
+    if (operation == RELEASE) {
         size_t released = 0;
-        if (req->param("base_path") != "") {
-            released = io::FileCacheFactory::instance()->try_release(req->param("base_path"));
+        const std::string& base_path = req->param(BASE_PATH.data());
+        if (!base_path.empty()) {
+            released = io::FileCacheFactory::instance()->try_release(base_path);
         } else {
             released = io::FileCacheFactory::instance()->try_release();
         }
         EasyJson json;
-        json["released_elements"] = released;
+        json[RELEASED_ELEMENTS.data()] = released;
         *json_metrics = json.ToString();
-        return Status::OK();
+    } else if (operation == CLEAR) {
+        const std::string& sync = req->param(SYNC.data());
+        auto ret = io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+    } else if (operation == RESET) {
+        Status st;
+        std::string capacity = req->param(CAPACITY.data());
+        int64_t new_capacity = 0;
+        bool parse = true;
+        try {
+            new_capacity = std::stoll(capacity);
+        } catch (...) {
+            parse = false;
+        }
+        if (!parse || new_capacity <= 0) {
+            st = Status::InvalidArgument(
+                    "The capacity {} failed to be parsed, the capacity needs to be in "
+                    "the interval (0, INT64_MAX]",
+                    capacity);
+        } else {
+            const std::string& path = req->param(PATH.data());
+            auto ret = io::FileCacheFactory::instance()->reset_capacity(path, new_capacity);
+            LOG(INFO) << ret;
+        }
+    } else {
+        st = Status::InternalError("invalid operation: {}", operation);
     }
-    return Status::InternalError("invalid operation: {}", operation);
+    return st;
 }
 
 void FileCacheAction::handle(HttpRequest* req) {
