@@ -50,7 +50,8 @@ public class JvmService {
     }
 
     public synchronized JvmStats stats() {
-        return JvmStats.jvmStats();
+        jvmStats = JvmStats.jvmStats();
+        return jvmStats;
     }
 
     @Override
