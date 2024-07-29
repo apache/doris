@@ -1250,9 +1250,13 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     // the delete bitmap for that rowset.
     std::vector<RowsetSharedPtr> rowsets_skip_alignment;
     if (is_partial_update) {
+        int64_t max_version_in_flush_phase =
+                txn_info->partial_update_info->max_version_in_flush_phase;
+        DCHECK(max_version_in_flush_phase != -1);
         std::vector<RowsetSharedPtr> remained_rowsets;
         for (const auto& rowset : specified_rowsets) {
-            if (rowset->produced_by_compaction()) {
+            if (rowset->end_version() < max_version_in_flush_phase &&
+                rowset->produced_by_compaction()) {
                 rowsets_skip_alignment.emplace_back(rowset);
             } else {
                 remained_rowsets.emplace_back(rowset);
