@@ -2394,7 +2394,7 @@ public class StmtExecutor {
                     if (response.hasErrorUrl()) {
                         errMsg += ", error url: " + response.getErrorUrl();
                     }
-                    throw new DdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                    ErrorReport.reportDdlException(errMsg.replaceAll("%", "%%"), ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();
                 txnStatus = TransactionStatus.PREPARE;
