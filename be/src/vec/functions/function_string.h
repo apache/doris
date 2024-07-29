@@ -259,7 +259,7 @@ private:
             }
 
             int fixed_pos = start_value;
-            if (fixed_pos < -(int)index.size()) {
+            if (abs(fixed_pos) > (int)index.size()) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
