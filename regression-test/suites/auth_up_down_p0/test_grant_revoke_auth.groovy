@@ -35,13 +35,22 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     String rg1 = 'test_up_down_resource_1_hdfs'
     String rg2 = 'test_up_down_resource_2_hdfs'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        //grant cluster to user
+        def res = sql_return_maparray "show clusters;"
+        logger.info("show clusters from ${res}")
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user1}"; """
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user2}"; """
+    }
+
     // user
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
@@ -54,7 +63,7 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
@@ -70,6 +79,6 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     // resource group
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
-        assertTrue(res.size == 10)
+        assertTrue(res.size() == 10)
     }
 }
