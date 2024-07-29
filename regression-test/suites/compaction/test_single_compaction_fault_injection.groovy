@@ -125,7 +125,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     }
 
     set_be_config.call("update_replica_infos_interval_seconds", "5")
-
+    set_be_config.call("disable_auto_compacton", "true")
     // find the master be for single compaction
     Boolean found = false
     String master_backend_id
@@ -144,7 +144,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "disable_auto_compaction" = "true" );
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false");
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
@@ -347,4 +347,5 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     select * from  ${tableName} order by id
     """
 
+    set_be_config.call("disable_auto_compacton", "false")
 }

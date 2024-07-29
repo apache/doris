@@ -32,6 +32,13 @@ suite("test_single_compaction_p2", "p2") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    def set_be_config = { key, value ->
+
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
     def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
         if (compact_type == "cumulative") {
             def (code_1, out_1, err_1) = be_run_cumulative_compaction(be_host, be_http_port, tablet_id)
@@ -143,11 +150,14 @@ suite("test_single_compaction_p2", "p2") {
         );
     """
 
+    set_be_config.call("update_replica_infos_interval_seconds", "5")
+    set_be_config.call("disable_auto_compacton", "true")
+
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // wait for update replica infos
     // be.conf: update_replica_infos_interval_seconds + 2s
-    Thread.sleep(62000)
+    Thread.sleep(22000)
     
     // find the master be for single replica compaction
     Boolean found = false
@@ -263,5 +273,7 @@ suite("test_single_compaction_p2", "p2") {
     qt_sql """
     select * from  ${tableName} order by id
     """
+
+    set_be_config.call("disable_auto_compacton", "false")
 
 }

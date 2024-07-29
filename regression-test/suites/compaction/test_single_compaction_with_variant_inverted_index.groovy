@@ -147,7 +147,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
             "replication_num" = "2",
             "enable_single_replica_compaction" = "true",
             "inverted_index_storage_format" = "V1",
-            "disable_auto_compaction" = "true"
+            "compaction_policy" = "time_series"
         );
     """
 
@@ -155,7 +155,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
 
     // wait for update replica infos
     // be.conf: update_replica_infos_interval_seconds + 2s
-    Thread.sleep(62000)
+    Thread.sleep(72000)
     
     // find the master be for single replica compaction
     Boolean found = false
