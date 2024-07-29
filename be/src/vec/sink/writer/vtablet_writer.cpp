@@ -817,6 +817,13 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
         if (st.ok()) {
             _state->load_channel_profile()->update(tprofile);
+            auto load_chanel_profile = _state->load_channel_profile();
+            if (load_chanel_profile != nullptr) {
+                auto file_close_time = load_chanel_profile->get_counter("FileCloseTime");
+                if (file_close_time != nullptr) {
+                    _add_batch_counter.close_file_time_ns = file_close_time->value();
+                }
+            }
         } else {
             LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg=" << st;
         }
@@ -1252,6 +1259,9 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _max_wait_exec_timer = ADD_TIMER(profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(profile, "NumberNodeChannels", TUnit::UNIT);
+    _max_file_close_timer = ADD_TIMER(profile, "MaxFileCloseTime");
+    _total_file_close_timer = ADD_TIMER(profile, "TotalFileCloseTime");
+    _load_mem_limit = state->get_load_mem_limit();
 
 #ifdef DEBUG
     // check: tablet ids should be unique
@@ -1534,6 +1544,8 @@ Status VTabletWriter::close(Status exec_status) {
         int64_t max_wait_exec_time_ns = 0;
         int64_t total_add_batch_num = 0;
         int64_t num_node_channels = 0;
+        int64_t max_file_close_time_ns = 0;
+        int64_t total_file_close_time_ns = 0;
         VNodeChannelStat channel_stat;
 
         for (const auto& index_channel : _channels) {
@@ -1542,12 +1554,13 @@ Status VTabletWriter::close(Status exec_status) {
             }
             int64_t add_batch_exec_time = 0;
             int64_t wait_exec_time = 0;
+            int64_t file_close_time_ns = 0;
             index_channel->for_each_node_channel(
                     [this, &index_channel, &status, &node_add_batch_counter_map,
                      &serialize_batch_ns, &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
                      &total_add_batch_exec_time_ns, &add_batch_exec_time, &total_wait_exec_time_ns,
-                     &wait_exec_time,
-                     &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
+                     &wait_exec_time, &total_add_batch_num, &file_close_time_ns,
+                     &total_file_close_time_ns](const std::shared_ptr<VNodeChannel>& ch) {
                         if (!status.ok() || (ch->is_closed() && !ch->is_cancelled())) {
                             return;
                         }
@@ -1562,7 +1575,8 @@ Status VTabletWriter::close(Status exec_status) {
                                         &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
                                         &total_add_batch_exec_time_ns, &add_batch_exec_time,
                                         &total_wait_exec_time_ns, &wait_exec_time,
-                                        &total_add_batch_num);
+                                        &total_add_batch_num, &file_close_time_ns,
+                                        &total_file_close_time_ns);
                     });
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
@@ -1584,6 +1598,9 @@ Status VTabletWriter::close(Status exec_status) {
             }
             if (wait_exec_time > max_wait_exec_time_ns) {
                 max_wait_exec_time_ns = wait_exec_time;
+            }
+            if (file_close_time_ns > max_file_close_time_ns) {
+                max_file_close_time_ns = file_close_time_ns;
             }
         } // end for index channels
 
@@ -1615,6 +1632,8 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
             COUNTER_SET(_add_batch_number, total_add_batch_num);
             COUNTER_SET(_num_node_channels, num_node_channels);
+            COUNTER_SET(_max_file_close_timer, max_file_close_time_ns);
+            COUNTER_SET(_total_file_close_timer, total_file_close_time_ns);
 
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +

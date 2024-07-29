@@ -90,12 +90,15 @@ struct AddBatchCounter {
     int64_t add_batch_num = 0;
     // time passed between marked close and finish close
     int64_t close_wait_time_ms = 0;
+    // time of the close file time for interaction between be and hdfs
+    int64_t close_file_time_ns = 0;
 
     AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
         add_batch_execution_time_us += rhs.add_batch_execution_time_us;
         add_batch_wait_execution_time_us += rhs.add_batch_wait_execution_time_us;
         add_batch_num += rhs.add_batch_num;
         close_wait_time_ms += rhs.close_wait_time_ms;
+        close_file_time_ns = rhs.close_file_time_ns;
         return *this;
     }
     friend AddBatchCounter operator+(const AddBatchCounter& lhs, const AddBatchCounter& rhs) {
@@ -287,7 +290,8 @@ public:
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
                      int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
-                     int64_t* total_add_batch_num) const {
+                     int64_t* total_add_batch_num, int64_t* file_close_time_ns,
+                     int64_t* total_file_close_time_ns) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
@@ -299,6 +303,8 @@ public:
         *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
         *total_wait_exec_time_ns += *wait_exec_time_ns;
         *total_add_batch_num += _add_batch_counter.add_batch_num;
+        *file_close_time_ns = _add_batch_counter.close_file_time_ns;
+        *total_file_close_time_ns += _add_batch_counter.close_file_time_ns;
     }
 
     int64_t node_id() const { return _node_id; }
@@ -660,6 +666,8 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
+    RuntimeProfile::Counter* _max_file_close_timer = nullptr;
+    RuntimeProfile::Counter* _total_file_close_timer = nullptr;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;

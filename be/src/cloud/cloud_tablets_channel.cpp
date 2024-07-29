@@ -191,6 +191,9 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
 
         auto st = writer->build_rowset();
+        RuntimeProfile* writer_profile = writer->profile();
+        auto file_close_timer = writer_profile->get_counter("FileCloseTime");
+        COUNTER_UPDATE(_file_close_timer, file_close_timer->value());
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
                          << ", err=" << st;
