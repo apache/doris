@@ -19,24 +19,16 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.types.DataType;
 
-/** IntegralLiteral */
-public abstract class IntegerLikeLiteral extends NumericLiteral {
+/**
+ * float/double/decimal
+ */
+public abstract class FractionalLiteral extends NumericLiteral {
     /**
-     * Constructor for Literal.
+     * Constructor for FractionalLiteral.
      *
      * @param dataType logical data type in Nereids
      */
-    public IntegerLikeLiteral(DataType dataType) {
+    public FractionalLiteral(DataType dataType) {
         super(dataType);
     }
-
-    public int getIntValue() {
-        return getNumber().intValue();
-    }
-
-    public long getLongValue() {
-        return getNumber().longValue();
-    }
-
-    public abstract Number getNumber();
 }
