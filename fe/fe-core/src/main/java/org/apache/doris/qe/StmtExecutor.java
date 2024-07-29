@@ -307,6 +307,7 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.QUERY_TYPE, queryType);
         infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
         infos.put(ProfileManager.USER, context.getQualifiedUser());
+        infos.put(ProfileManager.DEFAULT_CATALOG, context.getCurrentCatalog().getName());
         infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
         infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");

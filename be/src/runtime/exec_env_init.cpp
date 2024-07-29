@@ -365,6 +365,7 @@ void ExecEnv::_destroy() {
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
+    SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_load_stream_mgr);
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
@@ -385,7 +386,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_result_queue_mgr);
     SAFE_DELETE(_stream_mgr);
     SAFE_DELETE(_stream_load_executor);
-    SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);

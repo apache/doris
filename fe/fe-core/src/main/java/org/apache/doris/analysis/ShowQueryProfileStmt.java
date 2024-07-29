@@ -37,6 +37,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("User", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("DefaultCatalog", ScalarType.createVarchar(128)))
                     .addColumn(new Column("DefaultDb", ScalarType.createVarchar(128)))
                     .addColumn(new Column("SQL", ScalarType.createVarchar(65535)))
                     .addColumn(new Column("QueryType", ScalarType.createVarchar(128)))

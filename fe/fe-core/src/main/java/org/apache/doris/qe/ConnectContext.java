@@ -42,6 +42,7 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
@@ -50,6 +51,7 @@ import org.xnio.StreamConnection;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -120,6 +122,9 @@ public class ConnectContext {
     protected String defaultCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
     protected boolean isSend;
 
+    // record last used database of every catalog
+    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
+
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
 
     protected String remoteIP;
@@ -152,10 +157,10 @@ public class ConnectContext {
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
-    private long userQueryTimeout;
-
-    public void setUserQueryTimeout(long queryTimeout) {
-        this.userQueryTimeout = queryTimeout;
+    public void setUserQueryTimeout(int queryTimeout) {
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
     }
 
     private StatementContext statementContext;
@@ -195,6 +200,18 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public void addLastDBOfCatalog(String catalog, String db) {
+        lastDBOfCatalog.put(catalog, db);
+    }
+
+    public String getLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
+    }
+
+    public String removeLastDBOfCatalog(String catalog) {
+        return lastDBOfCatalog.get(catalog);
     }
 
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
@@ -571,23 +588,11 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            if (userQueryTimeout > 0) {
-                // user set query_timeout property
-                if (delta > userQueryTimeout * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
+            if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
+                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
-                    killFlag = true;
-                }
-            } else {
-                // default use session query_timeout
-                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
-
-                    // Only kill
-                    killFlag = true;
-                }
+                killFlag = true;
             }
         }
         if (killFlag) {
