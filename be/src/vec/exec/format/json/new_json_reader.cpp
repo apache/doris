@@ -1656,7 +1656,19 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
+        if (i < _parsed_jsonpaths.size() && JsonFunctions::is_root_path(_parsed_jsonpaths[i])) {
+            // Indicate that the jsonpath is "$.", read the full root json object, insert the original doc directly
+            ColumnNullable* nullable_column = nullptr;
+            IColumn* target_column_ptr = nullptr;
+            if (slot_desc->is_nullable()) {
+                nullable_column = assert_cast<ColumnNullable*>(column_ptr);
+                target_column_ptr = &nullable_column->get_nested_column();
+            }
+            auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
+            column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),
+                                       _original_doc_size);
+            has_valid_value = true;
+        } else if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {
