@@ -21,11 +21,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
-#include <ostream>
-#include <unordered_map>
-#include <utility>
-
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -82,22 +77,22 @@ using namespace ErrorCode;
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
+inline std::string segment_mem_tracker_name(uint32_t segment_id) {
+    return "SegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                             DataDir* data_dir, uint32_t max_row_per_segment,
-                             const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context,
+                             DataDir* data_dir, const SegmentWriterOptions& opts,
                              io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
-          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -958,11 +953,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
     if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _max_row_per_segment)) {
+                      _num_rows_written >= _opts.max_rows_per_segment)) {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
+    int64_t count_rows = (int64_t)_opts.max_rows_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
 }
