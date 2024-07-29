@@ -134,6 +134,28 @@ suite("test_analyze_mv") {
 
     sql """analyze table mvTestDup with sync;"""
 
+    // Test show index row count
+    def result_row = sql """show index stats mvTestDup mvTestDup"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mvTestDup", result_row[0][1])
+    assertEquals("6", result_row[0][2])
+    result_row = sql """show index stats mvTestDup mv1"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mv1", result_row[0][1])
+    assertEquals("6", result_row[0][2])
+    result_row = sql """show index stats mvTestDup mv2"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mv2", result_row[0][1])
+    assertEquals("6", result_row[0][2])
+    result_row = sql """show index stats mvTestDup mv3"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mv3", result_row[0][1])
+    assertEquals("4", result_row[0][2])
+
     // Compare show whole table column stats result with show single column.
     def result_all = sql """show column stats mvTestDup"""
     assertEquals(12, result_all.size())
@@ -410,6 +432,23 @@ suite("test_analyze_mv") {
     assertEquals("7", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+
+    // Test alter table index row count.
+    sql """alter table mvTestDup modify column `value2` set stats ('row_count'='1.5E8', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
+    result_row = sql """show index stats mvTestDup mvTestDup;"""
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mvTestDup", result_row[0][1])
+    assertEquals("150000000", result_row[0][2])
+    sql """alter table mvTestDup index mv1 modify column `mv_key1` set stats ('row_count'='3443', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
+    result_row = sql """show index stats mvTestDup mv1;"""
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mv1", result_row[0][1])
+    assertEquals("3443", result_row[0][2])
+    sql """alter table mvTestDup index mv3 modify column `mva_MAX__``value2``` set stats ('row_count'='234234', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
+    result_row = sql """show index stats mvTestDup mv3;"""
+    assertEquals("mvTestDup", result_row[0][0])
+    assertEquals("mv3", result_row[0][1])
+    assertEquals("234234", result_row[0][2])
 
     sql """drop stats mvTestDup"""
     result_sample = sql """show column stats mvTestDup"""
