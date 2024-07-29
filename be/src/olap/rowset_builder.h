@@ -84,6 +84,8 @@ public:
 
     Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
 
+    RuntimeProfile* profile() { return _profile; }
+
 protected:
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
@@ -114,6 +116,7 @@ protected:
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;
     RuntimeProfile::Counter* _submit_delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _wait_delete_bitmap_timer = nullptr;
+    RuntimeProfile::Counter* _file_close_timer = nullptr;
 };
 
 // `StorageEngine` mixin for `BaseRowsetBuilder`

@@ -80,6 +80,7 @@ void LoadChannel::_init_profile() {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
     _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
     _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");
+    _file_close_timer = ADD_TIMER(_profile, "FileCloseTime");
     _self_profile =
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),
@@ -203,6 +204,9 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+    RuntimeProfile* channel_profile = channel->profile();
+    auto file_close_timer = channel_profile->get_counter("FileCloseTime");
+    COUNTER_SET(_file_close_timer, file_close_timer->value());
 
     // for init node, we close waiting(hang on) all close request and let them return together.
     if (request.has_hang_wait() && request.hang_wait()) {

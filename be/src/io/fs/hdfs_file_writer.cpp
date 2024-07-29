@@ -42,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/bvar_helper.h"
+#include "util/doris_metrics.h"
 #include "util/jni-util.h"
 
 namespace doris::io {
@@ -251,6 +252,8 @@ Status HdfsFileWriter::close(bool non_block) {
 }
 
 Status HdfsFileWriter::_close_impl() {
+    HistogramStat hdfs_close_hist;
+    int64_t hdfs_close_start = MonotonicNanos();
     if (_batch_buffer.size() != 0) {
         if (_st = _flush_buffer(); !_st.ok()) {
             return _st;
@@ -289,9 +292,13 @@ Status HdfsFileWriter::_close_impl() {
         inflight_hdfs_file_writer << -1;
         _flush_and_reset_approximate_jni_buffer_size();
     }
+    int64_t hdfs_close_cost = MonotonicNanos() - hdfs_close_start;
+    hdfs_close_hist.add(hdfs_close_cost / 1000);
+    DorisMetrics::instance()->hdfs_close_latency_us->set_histogram(hdfs_close_hist);
     _hdfs_file = nullptr;
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
                                            Status::InternalError("failed to close hdfs file"));
+
     if (ret != 0) {
         _st = Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",
