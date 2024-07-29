@@ -40,7 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/azure_obj_storage_client.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"

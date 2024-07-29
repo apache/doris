@@ -98,7 +98,8 @@ public:
     Status add_rowset(RowsetSharedPtr rowset) override;
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;

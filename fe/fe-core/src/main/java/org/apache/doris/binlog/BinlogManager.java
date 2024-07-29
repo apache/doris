@@ -32,6 +32,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -97,7 +98,7 @@ public class BinlogManager {
         }
     }
 
-    private void addBinlog(TBinlog binlog) {
+    private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
             return;
         }
@@ -116,11 +117,11 @@ public class BinlogManager {
             lock.writeLock().unlock();
         }
 
-        dbBinlog.addBinlog(binlog);
+        dbBinlog.addBinlog(binlog, raw);
     }
 
     private void addBinlog(long dbId, List<Long> tableIds, long commitSeq, long timestamp, TBinlogType type,
-                           String data, boolean removeEnableCache) {
+                           String data, boolean removeEnableCache, Object raw) {
         if (!Config.enable_feature_binlog) {
             return;
         }
@@ -152,7 +153,7 @@ public class BinlogManager {
         }
 
         if (anyEnable) {
-            addBinlog(binlog);
+            addBinlog(binlog, raw);
         }
 
         afterAddBinlog(binlog);
@@ -166,7 +167,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.UPSERT;
         String data = upsertRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, upsertRecord);
     }
 
     public void addAddPartitionRecord(AddPartitionRecord addPartitionRecord) {
@@ -178,7 +179,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.ADD_PARTITION;
         String data = addPartitionRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, addPartitionRecord);
     }
 
     public void addCreateTableRecord(CreateTableRecord createTableRecord) {
@@ -190,7 +191,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.CREATE_TABLE;
         String data = createTableRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, createTableRecord);
     }
 
     public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
@@ -201,7 +202,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.DROP_PARTITION;
         String data = dropPartitionInfo.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, dropPartitionInfo);
     }
 
     public void addDropTableRecord(DropTableRecord record) {
@@ -213,7 +214,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.DROP_TABLE;
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
     public void addAlterJobV2(AlterJobV2 alterJob, long commitSeq) {
@@ -225,7 +226,7 @@ public class BinlogManager {
         AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
         String data = alterJobRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJob);
     }
 
     public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
@@ -236,7 +237,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_COLUMNS;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     public void addAlterDatabaseProperty(AlterDatabasePropertyInfo info, long commitSeq) {
@@ -247,7 +248,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.ALTER_DATABASE_PROPERTY;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true, info);
     }
 
     public void addModifyTableProperty(ModifyTablePropertyOperationLog info, long commitSeq) {
@@ -258,7 +259,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.MODIFY_TABLE_PROPERTY;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true, info);
     }
 
     // add Barrier log
@@ -279,7 +280,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.BARRIER;
         String data = barrierLog.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, barrierLog);
     }
 
     // add Modify partitions
@@ -291,7 +292,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.MODIFY_PARTITIONS;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // add Replace partition
@@ -303,7 +304,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.REPLACE_PARTITIONS;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // add Truncate Table
@@ -316,7 +317,17 @@ public class BinlogManager {
         TruncateTableRecord record = new TruncateTableRecord(info);
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addTableRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_TABLE;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // get binlog by dbId, return first binlog.version > version
@@ -350,6 +361,20 @@ public class BinlogManager {
             }
 
             return dbBinlog.getBinlogLag(tableId, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get the dropped partitions of the db.
+    public List<Long> getDroppedPartitions(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedPartitions();
         } finally {
             lock.readLock().unlock();
         }

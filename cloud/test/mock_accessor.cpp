@@ -26,7 +26,7 @@
 
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
@@ -115,10 +115,7 @@ int MockAccessor::delete_all(int64_t expiration_time) {
 }
 
 int MockAccessor::delete_files(const std::vector<std::string>& paths) {
-    {
-        [[maybe_unused]] int ret = -1;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_files", &ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_files", (int)0);
 
     for (auto&& path : paths) {
         delete_file(path);

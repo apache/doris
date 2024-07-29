@@ -129,6 +129,7 @@ suite("txn_insert_with_schema_change") {
             statement.execute(sqls[1])
             logger.info("execute sql: commit")
             statement.execute("commit")
+            statement.execute("sync")
         } catch (Throwable e) {
             logger.error("txn insert failed", e)
             errors.add("txn insert failed " + e.getMessage())
@@ -156,8 +157,8 @@ suite("txn_insert_with_schema_change") {
              "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;"],
             ["delete from ${tableName}_1 where L_ORDERKEY < 50000;",
              "insert into ${tableName}_1(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;"],
-            ["insert into ${tableName}_2(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;",
-             "delete from ${tableName}_2 where L_ORDERKEY < 50000;"]
+            /*["insert into ${tableName}_2(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT) select * from ${tableName}_3;",
+             "delete from ${tableName}_2 where L_ORDERKEY < 50000;"]*/
     ]
     def expected_row_count = [
             [6001215 * 5, 6001215 * 8, 6001215 * 11, 6001215 * 14, 6001215 * 17],

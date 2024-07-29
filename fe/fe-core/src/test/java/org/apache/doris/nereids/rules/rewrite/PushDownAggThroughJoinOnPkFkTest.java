@@ -155,4 +155,14 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
                 .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
     }
+
+    @Test
+    void testMissSlot() {
+        String sql = "select count(pri.name) from pri inner join foreign_not_null on pri.name = foreign_not_null.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin())))
+                .printlnTree();
+    }
 }

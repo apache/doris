@@ -35,6 +35,7 @@
 #include "olap/predicate_creator.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/debug_points.h"
 
 using apache::thrift::ThriftDebugString;
 using std::vector;
@@ -90,6 +91,10 @@ std::string trans_op(const std::string& opt) {
 Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                                                 const std::vector<TCondition>& conditions,
                                                 DeletePredicatePB* del_pred) {
+    DBUG_EXECUTE_IF("DeleteHandler::generate_delete_predicate.inject_failure", {
+        return Status::Error<false>(dp->param<int>("error_code"),
+                                    dp->param<std::string>("error_msg"));
+    })
     if (conditions.empty()) {
         return Status::Error<DELETE_INVALID_PARAMETERS>(
                 "invalid parameters for store_cond. condition_size={}", conditions.size());

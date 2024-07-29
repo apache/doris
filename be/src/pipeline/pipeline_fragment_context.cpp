@@ -105,6 +105,8 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
+#include "vec/common/sort/heap_sorter.h"
+#include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -455,6 +457,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                                                            task_runtime_state.get(), this,
                                                            pipeline_id_to_profile[pip_idx].get(),
                                                            get_local_exchange_state(pipeline), i);
+                task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
@@ -959,7 +962,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !config::is_cloud_mode()) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
                                                      output_exprs));
@@ -1331,7 +1334,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        if (_runtime_state->enable_sort_spill()) {
+        const auto should_spill = _runtime_state->enable_sort_spill() &&
+                                  tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
+        if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else {
             op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1346,7 +1351,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        if (_runtime_state->enable_sort_spill()) {
+        if (should_spill) {
             sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                   _require_bucket_distribution));
         } else {
@@ -1432,6 +1437,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::DATA_GEN_SCAN_NODE: {
         op.reset(new DataGenSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {

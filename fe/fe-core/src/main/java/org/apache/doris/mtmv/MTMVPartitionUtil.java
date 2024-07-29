@@ -394,7 +394,8 @@ public class MTMVPartitionUtil {
 
         AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc,
                 mtmv.getDefaultDistributionInfo().toDistributionDesc(), partitionProperties, false);
-        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause);
+        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause,
+                false, 0, true);
     }
 
     /**

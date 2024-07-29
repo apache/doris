@@ -76,13 +76,10 @@ public class QueueToken implements Comparable<QueueToken> {
         try {
             future.get(waitTimeout, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            queue.removeToken(this);
             throw new UserException("query queue timeout, timeout: " + waitTimeout + " ms ");
         } catch (CancellationException e) {
-            queue.removeToken(this);
             throw new UserException("query is cancelled");
         } catch (Throwable t) {
-            queue.removeToken(this);
             String errMsg = String.format("error happens when query {} queue", queryId);
             LOG.error(errMsg, t);
             throw new RuntimeException(errMsg, t);

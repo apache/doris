@@ -337,7 +337,7 @@ suite("negative_partition_mv_rewrite") {
         """
     explain {
         sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
+        contains "${mv_name}(${mv_name})"
     }
 
     // query partial rewriting

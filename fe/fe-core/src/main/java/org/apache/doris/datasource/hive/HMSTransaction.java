@@ -73,7 +73,9 @@ import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -172,8 +174,14 @@ public class HMSTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        if (hmsCommitter != null) {
+        if (hmsCommitter == null) {
+            return;
+        }
+        try {
+            hmsCommitter.abort();
             hmsCommitter.rollback();
+        } finally {
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -315,6 +323,7 @@ public class HMSTransaction implements Transaction {
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -1110,7 +1119,7 @@ public class HMSTransaction implements Transaction {
 
         // update statistics for unPartitioned table or existed partition
         private final List<UpdateStatisticsTask> updateStatisticsTasks = new ArrayList<>();
-        Executor updateStatisticsExecutor = Executors.newFixedThreadPool(16);
+        ExecutorService updateStatisticsExecutor = Executors.newFixedThreadPool(16);
 
         // add new partition
         private final AddPartitionsTask addPartitionsTask = new AddPartitionsTask();
@@ -1527,6 +1536,27 @@ public class HMSTransaction implements Transaction {
             abortMultiUploads();
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
+            }
+        }
+
+        public void shutdownExecutorService() {
+            // Disable new tasks from being submitted
+            updateStatisticsExecutor.shutdown();
+            try {
+                // Wait a while for existing tasks to terminate
+                if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    // Cancel currently executing tasks
+                    updateStatisticsExecutor.shutdownNow();
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                        LOG.warn("Pool did not terminate");
+                    }
+                }
+            } catch (InterruptedException e) {
+                // (Re-)Cancel if current thread also interrupted
+                updateStatisticsExecutor.shutdownNow();
+                // Preserve interrupt status
+                Thread.currentThread().interrupt();
             }
         }
     }

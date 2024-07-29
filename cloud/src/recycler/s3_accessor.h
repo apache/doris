@@ -50,7 +50,8 @@ struct S3Conf {
 
     Provider provider;
 
-    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info);
+    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
+                                                     bool skip_aksk = false);
 };
 
 class S3Accessor : public StorageVaultAccessor {

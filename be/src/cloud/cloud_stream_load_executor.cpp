@@ -134,7 +134,7 @@ void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
                           : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
                                                 : TxnOpParamType::ILLEGAL;
 
-    if (topt == TxnOpParamType::WITH_TXN_ID) {
+    if (topt == TxnOpParamType::WITH_TXN_ID && ctx->load_type != TLoadType::ROUTINE_LOAD) {
         VLOG_DEBUG << "abort stream load txn directly: " << op_info;
         WARN_IF_ERROR(_exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx),
                       "failed to rollback txn " + op_info);

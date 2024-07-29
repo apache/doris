@@ -43,19 +43,19 @@ Status SortSinkLocalState::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
-    case SortAlgorithm::HEAP_SORT: {
+    case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc());
         break;
     }
-    case SortAlgorithm::TOPN_SORT: {
+    case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc(), state, _profile);
         break;
     }
-    case SortAlgorithm::FULL_SORT: {
+    case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc(), state, _profile);
@@ -73,14 +73,13 @@ Status SortSinkLocalState::open(RuntimeState* state) {
 }
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool require_bucket_distribution)
+                                     const DescriptorTbl& descs,
+                                     const bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
-          _reuse_mem(true),
           _limit(tnode.limit),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
           _is_colocate(tnode.sort_node.__isset.is_colocate && tnode.sort_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
@@ -88,7 +87,10 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
                                     ? tnode.sort_node.is_analytic_sort
                                     : false),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}) {}
+                                                               : std::vector<TExpr> {}),
+          _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
+                                                       : TSortAlgorithm::FULL_SORT),
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -105,24 +107,6 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    const auto& row_desc = _child_x->row_desc();
-
-    // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
-    // To do heap sorting, each income block will be filtered by heap-top row. There will be some
-    // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
-    // exclude cases which incoming blocks has string column which is sensitive to operations like
-    // `filter` and `memcpy`
-    if (_limit > 0 && _limit + _offset < vectorized::HeapSorter::HEAP_SORT_THRESHOLD &&
-        (_use_two_phase_read || state->get_query_ctx()->has_runtime_predicate(_node_id) ||
-         !row_desc.has_varlen_slots())) {
-        _algorithm = SortAlgorithm::HEAP_SORT;
-        _reuse_mem = false;
-    } else if (_limit > 0 && row_desc.has_varlen_slots() &&
-               _limit + _offset < vectorized::TopNSorter::TOPN_SORT_THRESHOLD) {
-        _algorithm = SortAlgorithm::TOPN_SORT;
-    } else {
-        _algorithm = SortAlgorithm::FULL_SORT;
-    }
     return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
 }
 

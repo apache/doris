@@ -83,20 +83,20 @@ public class Tablet extends MetaObject {
 
     @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "replicas")
+    @SerializedName(value = "rs", alternate = {"replicas"})
     protected List<Replica> replicas;
-    @SerializedName(value = "checkedVersion")
+    @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
     @Deprecated
-    @SerializedName(value = "checkedVersionHash")
+    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
     private long checkedVersionHash;
-    @SerializedName(value = "isConsistent")
+    @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
 
     // cooldown conf
-    @SerializedName(value = "cooldownReplicaId")
+    @SerializedName(value = "cri", alternate = {"cooldownReplicaId"})
     private long cooldownReplicaId = -1;
-    @SerializedName(value = "cooldownTerm")
+    @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
     private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 

@@ -62,7 +62,7 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         DataTrait.Builder fdBuilder = new DataTrait.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
@@ -87,6 +87,13 @@ public interface LogicalPlan extends Plan {
             fdBuilder.addDepsByEqualSet(validEqualSet);
             fdBuilder.addUniformByEqualSet(validEqualSet);
             fdBuilder.addUniqueByEqualSet(validEqualSet);
+        }
+        Set<Slot> output = this.getOutputSet();
+        for (Plan child : children()) {
+            if (!output.containsAll(child.getOutputSet())) {
+                fdBuilder.pruneSlots(output);
+                break;
+            }
         }
         return fdBuilder.build();
     }

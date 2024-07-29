@@ -132,62 +132,42 @@ public class LogicalExcept extends LogicalSetOperation {
         return builder.build();
     }
 
+    Map<Slot, Slot> constructReplaceMapForChild(int index) {
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> output = getOutput();
+        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
+                ? child(index).getOutput()
+                : regularChildrenOutputs.get(index);
+        for (int i = 0; i < output.size(); i++) {
+            replaceMap.put(originalOutputs.get(i), output.get(i));
+        }
+        return replaceMap;
+    }
+
     @Override
     public void computeUnique(Builder builder) {
         builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         if (qualifier == Qualifier.DISTINCT) {
             builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = getOutput();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(0).getOutput()
-                : regularChildrenOutputs.get(0);
-        for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
-        }
-        builder.replace(replaceMap);
+        builder.replaceUniqueBy(constructReplaceMapForChild(0));
     }
 
     @Override
     public void computeEqualSet(DataTrait.Builder builder) {
         builder.addEqualSet(child(0).getLogicalProperties().getTrait());
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = getOutput();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(0).getOutput()
-                : regularChildrenOutputs.get(0);
-        for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
-        }
-        builder.replace(replaceMap);
+        builder.replaceEqualSetBy(constructReplaceMapForChild(0));
     }
 
     @Override
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child(0).getLogicalProperties().getTrait());
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = getOutput();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(0).getOutput()
-                : regularChildrenOutputs.get(0);
-        for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
-        }
-        builder.replace(replaceMap);
+        builder.replaceFuncDepsBy(constructReplaceMapForChild(0));
     }
 
     @Override
     public void computeUniform(Builder builder) {
         builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> output = getOutput();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(0).getOutput()
-                : regularChildrenOutputs.get(0);
-        for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
-        }
-        builder.replace(replaceMap);
+        builder.replaceUniformBy(constructReplaceMapForChild(0));
     }
 }

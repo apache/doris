@@ -164,7 +164,6 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
-
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -222,7 +221,8 @@ private:
                                                 bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
-                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
+                               std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
+                               uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
@@ -389,6 +389,9 @@ private:
 
     bool _can_opt_topn_reads() const;
 
+    void _initialize_predicate_results();
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -498,6 +501,9 @@ private:
     std::unique_ptr<HierarchicalDataReader> _path_reader;
 
     std::vector<uint8_t> _ret_flags;
+
+    std::unordered_map<int, std::unordered_map<std::string, bool>>
+            _column_predicate_inverted_index_status;
 };
 
 } // namespace segment_v2

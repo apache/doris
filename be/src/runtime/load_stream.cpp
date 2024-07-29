@@ -136,15 +136,23 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     // Each sender sends data in one segment sequential, so we also do not
     // need a lock here.
     bool eos = header.segment_eos();
+    FileType file_type = header.file_type();
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto flush_func = [this, new_segid, eos, buf, header]() {
+    auto flush_func = [this, new_segid, eos, buf, header, file_type]() {
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
-        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (eos && st.ok()) {
-            st = _load_stream_writer->close_segment(new_segid);
+            if (file_type == FileType::SEGMENT_FILE || file_type == FileType::INVERTED_INDEX_FILE) {
+                st = _load_stream_writer->close_writer(new_segid, file_type);
+            } else {
+                st = Status::InternalError(
+                        "appent data failed, file type error, file type = {}, "
+                        "segment_id={}",
+                        file_type, new_segid);
+            }
         }
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);
@@ -244,6 +252,11 @@ Status TabletStream::close() {
     if (!_failed_st->ok()) {
         return *_failed_st;
     }
+    if (_next_segid.load() != _num_segments) {
+        return Status::Corruption(
+                "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
+                _num_segments, _next_segid.load(), print_id(_load_id));
+    }
 
     Status st = Status::OK();
     auto close_func = [this, &mu, &cv, &st]() {
@@ -307,11 +320,17 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
     for (const auto& tablet : tablets_to_commit) {
+        if (_id != tablet.index_id()) {
+            continue;
+        }
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
-        if (it == _tablet_streams_map.end() && _id == tablet.index_id()) {
+        if (it == _tablet_streams_map.end()) {
             RETURN_IF_ERROR(
                     _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id()));
+            tablet_stream->add_num_segments(tablet.num_segments());
+        } else {
+            it->second->add_num_segments(tablet.num_segments());
         }
     }
 

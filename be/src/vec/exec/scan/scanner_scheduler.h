@@ -193,6 +193,8 @@ public:
         }
     }
 
+    std::vector<int> thread_debug_info() { return _scan_thread_pool->debug_info(); }
+
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;

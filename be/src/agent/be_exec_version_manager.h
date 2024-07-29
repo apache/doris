@@ -79,13 +79,15 @@ private:
  *    a. change the impl of percentile (need fix)
  *    b. clear old version of version 3->4
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
+ *    d. change some agg function nullable property: PR #37215
  */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
 constexpr inline int BITMAP_SERDE = 3;
-constexpr inline int USE_NEW_SERDE = 4; // release on DORIS version 2.1
-constexpr inline int OLD_WAL_SERDE = 3; // use to solve compatibility issues, see pr #32299
+constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
+constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
+constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
 
 } // namespace doris

@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/local_file_system.h"

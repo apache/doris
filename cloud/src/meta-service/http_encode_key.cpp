@@ -29,8 +29,8 @@
 #include <utility>
 #include <vector>
 
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"

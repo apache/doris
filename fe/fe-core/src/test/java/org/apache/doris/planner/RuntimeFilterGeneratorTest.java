@@ -38,6 +38,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.collect.ImmutableList;
@@ -60,6 +61,13 @@ public class RuntimeFilterGeneratorTest {
 
     @Before
     public void setUp() throws UserException {
+        new Expectations() {
+            {
+                ConnectContext.get().getSessionVariable();
+                minTimes = 0;
+                result = VariableMgr.newSessionVariable();
+            }
+        };
         Env env = Deencapsulation.newInstance(Env.class);
         analyzer = new Analyzer(env, connectContext);
         TableRef tableRef = new TableRef();

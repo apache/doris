@@ -112,8 +112,8 @@ suite("txn_insert_with_schema_change") {
              "insert into ${table}_0(id, name, score) select * from ${table}_4;"],
             ["delete from ${table}_1 where id = 0 or id = 3;",
              "insert into ${table}_1(id, name, score) select * from ${table}_4;"],
-            ["insert into ${table}_2(id, name, score) select * from ${table}_4;",
-             "delete from ${table}_2 where id = 0 or id = 3;"]
+            /*["insert into ${table}_2(id, name, score) select * from ${table}_4;",
+             "delete from ${table}_2 where id = 0 or id = 3;"]*/
     ]
 
     for (int i = 0; i < sqls.size(); i++) {

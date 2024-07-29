@@ -127,6 +127,7 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
             set 'read_json_by_line', 'true' 
             set 'format', 'json' 
             set 'max_filter_ratio', '0.1'
+            set 'memtable_on_sink_node', 'true'
             file file_name // import json file
             time 10000 // limit inflight 10s
 

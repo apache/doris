@@ -40,6 +40,10 @@ suite ("agg_have_dup_base") {
     createMV( "create materialized view k12s3m as select k1,sum(k2),max(k2) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select -4,-4,-4,'d';"
+
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
@@ -66,4 +70,22 @@ suite ("agg_have_dup_base") {
         contains "(k12s3m)"
     }
     qt_select_mv "select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp order by tmp;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,sum(k2),max(k2) from d_table group by k1;")
+        contains "(k12s3m)"
+    }
+    explain {
+        sql("select k1,sum(k2) from d_table group by k1;")
+        contains "(k12s3m)"
+    }
+    explain {
+        sql("select k1,max(k2) from d_table group by k1;")
+        contains "(k12s3m)"
+    }
+    explain {
+        sql("select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp;")
+        contains "(k12s3m)"
+    }
 }

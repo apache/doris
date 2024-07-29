@@ -43,9 +43,9 @@ public class AdminCancelRebalanceDiskStmtTest {
 
     @Before()
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L, 10004L);
         beIds.forEach(id -> Env.getCurrentSystemInfo().addBackend(RebalancerTestUtil.createBackend(id, 2048, 0)));

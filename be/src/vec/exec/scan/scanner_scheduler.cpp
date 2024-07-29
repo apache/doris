@@ -317,8 +317,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             },
             status);
 
-    if (status.is<doris::ErrorCode::MEM_ALLOC_FAILED>() ||
-        status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+    if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
         eos = true;
     }

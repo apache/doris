@@ -74,6 +74,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -120,6 +121,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     private List<TrinoColumnMetadata> columnMetadataList = Lists.newArrayList();
     private DynamicFilter dynamicFilter = DynamicFilter.EMPTY;
     private List<Type> trinoTypeList;
+    private long[] appendDataTimeNs;
 
 
     private final TrinoConnectorColumnValue columnValue = new TrinoConnectorColumnValue();
@@ -130,6 +132,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
         catalogNameString = params.get("catalog_name");
         super.batchSize = batchSize;
         super.fields = params.get("required_fields").split(",");
+        appendDataTimeNs = new long[fields.length];
 
         connectorSplitString = params.get("trino_connector_split");
         connectorTableHandleString = params.get("trino_connector_table_handle");
@@ -199,6 +202,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                     break;
                 }
                 for (int i = 0; i < page.getChannelCount(); ++i) {
+                    long startTime = System.nanoTime();
                     Block block = page.getBlock(i);
                     columnValue.setBlock(block);
                     columnValue.setColumnType(types[i]);
@@ -208,6 +212,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                         columnValue.setPosition(j);
                         appendData(i, columnValue);
                     }
+                    appendDataTimeNs[i] += System.nanoTime() - startTime;
                 }
                 rows += page.getPositionCount();
                 if (rows >= batchSize) {
@@ -225,6 +230,15 @@ public class TrinoConnectorJniScanner extends JniScanner {
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         // do nothing
         return null;
+    }
+
+    @Override
+    public Map<String, String> getStatistics() {
+        Map<String, String> mp = new HashMap<>();
+        for (int i = 0; i < appendDataTimeNs.length; ++i) {
+            mp.put("timer:AppendDataTime[" + i + "]",  String.valueOf(appendDataTimeNs[i]));
+        }
+        return mp;
     }
 
     private ConnectorPageSourceProvider getConnectorPageSourceProvider() {
@@ -323,6 +337,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     private void parseRequiredTypes() {
         ColumnType[] columnTypes = new ColumnType[fields.length];
+        appendDataTimeNs = new long[fields.length];
         trinoTypeList = Lists.newArrayList();
         for (int i = 0; i < fields.length; i++) {
             int index = trinoConnectorAllFieldNames.indexOf(fields[i]);

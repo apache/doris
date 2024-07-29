@@ -463,7 +463,7 @@ suite("dimension_join_agg_negative") {
     for (int i = 0; i < sql_list.size(); i++) {
         logger.info("sql_list current index: " + (i + 1))
 
-        def mv_name = "mv_" + (i + 1)
+        def mv_name = "mv_negative_" + (i + 1)
 
         create_all_mv(mv_name, sql_list[i])
         def job_name = getJobName(db, mv_name)

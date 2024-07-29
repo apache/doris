@@ -1006,7 +1006,6 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1058,7 +1057,8 @@ build_arrow() {
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
-        -Djemalloc_SOURCE=BUNDLED \
+        -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
+        -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
         -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
@@ -1067,12 +1067,10 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
 }
 
@@ -1673,6 +1671,8 @@ build_hadoop_libs() {
     echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
     ./build.sh
 
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"

@@ -206,6 +206,11 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
                                        io::FileWriter* file_writer,
                                        std::unique_ptr<ColumnWriter>* writer) {
     DCHECK(column->get_subtype_count() == 2);
+    if (column->get_subtype_count() < 2) {
+        return Status::InternalError(
+                "If you upgraded from version 1.2.*, please DROP the MAP columns and then "
+                "ADD the MAP columns back.");
+    }
     // create key & value writer
     std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
     for (int i = 0; i < 2; ++i) {

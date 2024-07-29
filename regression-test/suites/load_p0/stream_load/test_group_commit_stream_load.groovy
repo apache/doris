@@ -194,7 +194,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, 6, 3, 2, 1)
+                checkStreamLoadResult(exception, result, 6, 2, 3, 1)
             }
         }
 

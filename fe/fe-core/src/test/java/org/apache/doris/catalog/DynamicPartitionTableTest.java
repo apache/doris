@@ -744,7 +744,11 @@ public class DynamicPartitionTableTest {
         String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
-        Assert.assertEquals(7, tbl4.getPartitionNames().size());
+        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+        String dropPartitionErr = Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .getRuntimeInfo(tbl4.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG);
+        Assert.assertTrue(dropPartitionErr.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+                + "can use alter table sql to increase it."));
     }
 
     @Test

@@ -58,6 +58,7 @@ public class S3Properties extends BaseProperties {
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+    public static final String S3_PROVIDER = "S3";
 
     // required by storage policy
     public static final String ROOT_PATH = "s3.root.path";

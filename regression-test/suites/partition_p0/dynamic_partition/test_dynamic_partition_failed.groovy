@@ -18,8 +18,8 @@
 suite('test_dynamic_partition_failed', 'nonConcurrent') {
     def old_max_dynamic_partition_num = getFeConfig('max_dynamic_partition_num')
     try {
-        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_1'
-        sql '''CREATE TABLE test_dynamic_partition_failed_1
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok1 FORCE'
+        sql '''CREATE TABLE test_dynamic_partition_failed_ok1
               ( `k1` datetime NULL )
               PARTITION BY RANGE (k1)()
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -36,8 +36,13 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 "dynamic_partition.create_history_partition" = "true"
               )'''
 
-        def partitions = sql_return_maparray "SHOW PARTITIONS FROM test_dynamic_partition_failed_1"
+        def partitions = sql_return_maparray "SHOW PARTITIONS FROM test_dynamic_partition_failed_ok1"
         assertEquals(9, partitions.size());
+        def dynamicInfo = sql_return_maparray("SHOW DYNAMIC PARTITION TABLES").find { it.TableName == 'test_dynamic_partition_failed_ok1' }
+        logger.info("table dynamic info: " + dynamicInfo)
+        assertNotNull(dynamicInfo)
+        assertTrue(dynamicInfo.LastDropPartitionMsg.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+                + "can use alter table sql to increase it."))
 
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
@@ -96,7 +101,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
         }
     } finally {
         setFeConfig('max_dynamic_partition_num', old_max_dynamic_partition_num)
-        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_1'
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok1 FORCE'
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_2'
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_3'
     }

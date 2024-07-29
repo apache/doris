@@ -21,6 +21,7 @@
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
+#include <bvar/reducer.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
@@ -40,6 +41,26 @@
 #include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
+
+namespace {
+
+bvar::Adder<uint64_t> too_many_request_http_retry_times("too_many_request_http_retry_times");
+
+class CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
+public:
+    CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
+
+    bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
+                     long attemptedRetries) const override {
+        if (attemptedRetries < m_maxRetries &&
+            error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+            too_many_request_http_retry_times << 1;
+            return true;
+        }
+        return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
+    }
+};
+} // namespace
 
 namespace doris::cloud {
 
@@ -153,7 +174,8 @@ private:
     size_t prefix_length_;
 };
 
-std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_info) {
+std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_info,
+                                                  bool skip_aksk) {
     S3Conf s3_conf;
 
     switch (obj_info.provider()) {
@@ -175,20 +197,22 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
         return std::nullopt;
     }
 
-    if (obj_info.has_encryption_info()) {
-        AkSkPair plain_ak_sk_pair;
-        int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
-                                       &plain_ak_sk_pair);
-        if (ret != 0) {
-            LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
-            return std::nullopt;
+    if (!skip_aksk) {
+        if (obj_info.has_encryption_info()) {
+            AkSkPair plain_ak_sk_pair;
+            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
+                                           &plain_ak_sk_pair);
+            if (ret != 0) {
+                LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
+                return std::nullopt;
+            } else {
+                s3_conf.ak = std::move(plain_ak_sk_pair.first);
+                s3_conf.sk = std::move(plain_ak_sk_pair.second);
+            }
         } else {
-            s3_conf.ak = std::move(plain_ak_sk_pair.first);
-            s3_conf.sk = std::move(plain_ak_sk_pair.second);
+            s3_conf.ak = obj_info.ak();
+            s3_conf.sk = obj_info.sk();
         }
-    } else {
-        s3_conf.ak = obj_info.ak();
-        s3_conf.sk = obj_info.sk();
     }
 
     s3_conf.endpoint = obj_info.endpoint();
@@ -228,11 +252,17 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 int S3Accessor::init() {
     switch (conf_.provider) {
     case S3Conf::AZURE: {
+        Azure::Storage::Blobs::BlobClientOptions options;
+        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        uri_ = fmt::format("https://{}.blob.core.windows.net/{}", conf_.ak, conf_.bucket);
-        auto container_client =
-                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri_, cred);
+        uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
+                           conf_.ak, conf_.bucket);
+        auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                uri_, cred, std::move(options));
+        // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
+        uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
     }
@@ -246,8 +276,11 @@ int S3Accessor::init() {
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
-        aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
-                /*maxRetries = 10, scaleFactor = 25*/);
+        if (config::s3_client_http_scheme == "http") {
+            aws_config.scheme = Aws::Http::Scheme::HTTP;
+        }
+        aws_config.retryStrategy = std::make_shared<CustomRetryStrategy>(
+                config::max_s3_client_retry /*scaleFactor = 25*/);
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 std::move(aws_cred), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

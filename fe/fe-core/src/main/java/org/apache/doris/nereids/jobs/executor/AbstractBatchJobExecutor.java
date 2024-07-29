@@ -29,6 +29,7 @@ import org.apache.doris.nereids.jobs.rewrite.TopicRewriteJob;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
 import com.google.common.collect.ImmutableList;
@@ -36,6 +37,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -46,6 +49,8 @@ import java.util.stream.Stream;
  * Each batch of rules will be uniformly executed.
  */
 public abstract class AbstractBatchJobExecutor {
+    private static final ThreadLocal<Set<Class<Plan>>> NOT_TRAVERSE_CHILDREN = new ThreadLocal();
+    private static final Predicate<Plan> TRAVERSE_ALL_PLANS = plan -> true;
 
     protected CascadesContext cascadesContext;
 
@@ -65,6 +70,17 @@ public abstract class AbstractBatchJobExecutor {
                 ).collect(ImmutableList.toImmutableList());
     }
 
+    /** notTraverseChildrenOf */
+    public static <T> T notTraverseChildrenOf(
+            Set<Class<? extends Plan>> notTraverseClasses, Supplier<T> action) {
+        try {
+            NOT_TRAVERSE_CHILDREN.set((Set) notTraverseClasses);
+            return action.get();
+        } finally {
+            NOT_TRAVERSE_CHILDREN.remove();
+        }
+    }
+
     public static TopicRewriteJob topic(String topicName, RewriteJob... jobs) {
         return new TopicRewriteJob(topicName, Arrays.asList(jobs));
     }
@@ -82,7 +98,7 @@ public abstract class AbstractBatchJobExecutor {
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList());
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, true);
+        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
     }
 
     public static RewriteJob topDown(RuleFactory... ruleFactories) {
@@ -98,7 +114,7 @@ public abstract class AbstractBatchJobExecutor {
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList());
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, once);
+        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
     }
 
     public static RewriteJob custom(RuleType ruleType, Supplier<CustomRewriter> planRewriter) {
@@ -126,4 +142,24 @@ public abstract class AbstractBatchJobExecutor {
     }
 
     public abstract List<RewriteJob> getJobs();
+
+    private static Predicate<Plan> getTraversePredicate() {
+        Set<Class<Plan>> notTraverseChildren = NOT_TRAVERSE_CHILDREN.get();
+        return notTraverseChildren == null
+                ? TRAVERSE_ALL_PLANS
+                : new NotTraverseChildren(notTraverseChildren);
+    }
+
+    private static class NotTraverseChildren implements Predicate<Plan> {
+        private final Set<Class<Plan>> notTraverseChildren;
+
+        public NotTraverseChildren(Set<Class<Plan>> notTraverseChildren) {
+            this.notTraverseChildren = Objects.requireNonNull(notTraverseChildren, "notTraversePlans can not be null");
+        }
+
+        @Override
+        public boolean test(Plan plan) {
+            return !notTraverseChildren.contains(plan.getClass());
+        }
+    }
 }

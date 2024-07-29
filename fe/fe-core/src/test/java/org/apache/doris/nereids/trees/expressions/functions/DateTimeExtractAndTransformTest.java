@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,32 +27,44 @@ import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
     @Test
-    void testWeekMode2Function() {
-        LocalDateTime localDateTime = LocalDateTime.of(0, 1, 1, 0, 0, 0, 0);
-        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(localDateTime, 2));
-        LocalDateTime localDateTime2 = localDateTime.plusDays(1);
-        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(localDateTime2, 2));
-        LocalDateTime localDateTime3 = LocalDateTime.of(0, 1, 9, 0, 0, 0, 0);
-        Assertions.assertEquals(new TinyIntLiteral((byte) 2), DateTimeExtractAndTransform.week(localDateTime3, 2));
+    void testSpecialDateWeeks() {
+        // test week/yearweek for 0000-01-01/02
+        LocalDateTime time1 = LocalDateTime.of(0, 1, 1, 0, 0, 0, 0);
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time1, 0));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 0), DateTimeExtractAndTransform.week(time1, 1));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time1, 2));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.week(time1, 3));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time1, 4));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 0), DateTimeExtractAndTransform.week(time1, 5));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time1, 6));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.week(time1, 7));
 
-        LocalDateTime localDateTime4 = LocalDateTime.of(0, 12, 30, 0, 0, 0, 0);
-        Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.week(localDateTime4, 2));
-        LocalDateTime localDateTime5 = localDateTime4.plusDays(1);
-        Assertions.assertEquals(new TinyIntLiteral((byte) 53), DateTimeExtractAndTransform.week(localDateTime5, 2));
-    }
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time1, 0));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 0), DateTimeExtractAndTransform.yearWeek(time1, 1));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time1, 2));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.yearWeek(time1, 3));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time1, 4));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 0), DateTimeExtractAndTransform.yearWeek(time1, 5));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time1, 6));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.yearWeek(time1, 7));
 
-    @Test
-    void testYearWeekMode2Function() {
-        LocalDateTime localDateTime = LocalDateTime.of(0, 1, 1, 0, 0, 0, 0);
-        Assertions.assertEquals(new IntegerLiteral(1), DateTimeExtractAndTransform.yearWeek(localDateTime, 2));
-        LocalDateTime localDateTime2 = localDateTime.plusDays(1);
-        Assertions.assertEquals(new IntegerLiteral(1), DateTimeExtractAndTransform.yearWeek(localDateTime2, 2));
-        LocalDateTime localDateTime3 = LocalDateTime.of(0, 1, 9, 0, 0, 0, 0);
-        Assertions.assertEquals(new IntegerLiteral(2), DateTimeExtractAndTransform.yearWeek(localDateTime3, 2));
+        LocalDateTime time2 = LocalDateTime.of(0, 1, 2, 0, 0, 0, 0);
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 0));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 1));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 2));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 3));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 4));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 5));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 6));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.week(time2, 7));
 
-        LocalDateTime localDateTime4 = LocalDateTime.of(0, 12, 30, 0, 0, 0, 0);
-        Assertions.assertEquals(new IntegerLiteral(52), DateTimeExtractAndTransform.yearWeek(localDateTime4, 2));
-        LocalDateTime localDateTime5 = localDateTime4.plusDays(1);
-        Assertions.assertEquals(new IntegerLiteral(53), DateTimeExtractAndTransform.yearWeek(localDateTime5, 2));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 0));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 1));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 2));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 3));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 4));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 5));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 6));
+        Assertions.assertEquals(new TinyIntLiteral((byte) 1), DateTimeExtractAndTransform.yearWeek(time2, 7));
     }
 }

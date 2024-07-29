@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_commit_and_wal_back_pressure", "p2") {
+suite("test_group_commit_and_wal_back_pressure") {
 
     def tableName = "test_group_commit_and_wal_back_pressure"
     sql """ DROP TABLE IF EXISTS ${tableName}1 """
@@ -122,6 +122,9 @@ suite("test_group_commit_and_wal_back_pressure", "p2") {
     for (Thread th in t3) {
         th.join()
     }
+
+    // wait for group commit
+    Thread.sleep(10000)
 
     sql "sync"
 

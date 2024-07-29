@@ -89,6 +89,10 @@ public:
 
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
+    void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
+        _segments_for_tablet.insert(segments_for_tablet.cbegin(), segments_for_tablet.cend());
+    }
+
     // Return true if the last instance is just released.
     bool release();
 
@@ -108,7 +112,8 @@ private:
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 
     std::mutex _tablets_to_commit_mutex;
-    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_to_commit;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_to_commit;
+    std::unordered_map<int64_t, int32_t> _segments_for_tablet;
 };
 
 class LoadStreamMapPool {

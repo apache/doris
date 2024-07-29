@@ -136,30 +136,9 @@ mysql
 -- !date7 --
 3	\N	2019-11-12T20:33:57.999	\N	\N	\N	\N	\N
 
--- !filter4_old_plan --
-1	alice	20	99.5
-3	jerry	23	88.0
-4	andy	21	93.0
-
--- !filter5_old_plan --
-1	alice	20	99.5
-2	bob	21	90.5
-3	jerry	23	88.0
-4	andy	21	93.0
-
--- !filter6_old_plan --
-1	alice	20	99.5
-4	andy	21	93.0
-
--- !filter7_old_plan --
-3	jerry	23	88.0
-
--- !filter8_old_plan --
-4	andy	21	93.0
-
--- !filter9_old_plan --
-3	jerry	23	88.0
-4	andy	21	93.0
+-- !raw --
+1	0xFFFF	0xAAAA
+2	beijing	shanghai
 
 -- !test_insert1 --
 doris1	18

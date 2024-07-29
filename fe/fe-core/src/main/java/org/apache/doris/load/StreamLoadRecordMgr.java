@@ -260,9 +260,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("receive stream load record info from backend: {}."
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"

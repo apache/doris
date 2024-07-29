@@ -50,16 +50,16 @@ public class DebugUtilTest {
     @Test
     public void testGetPrettyStringMs() {
         // 6hour1min
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(21660222), "6h1m");
+        Assert.assertEquals("6hour1min", DebugUtil.getPrettyStringMs(21660222));
 
         // 1min222ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(60222), "1m");
+        Assert.assertEquals("1min", DebugUtil.getPrettyStringMs(60222));
 
         // 2s222ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(2222), "2s222ms");
+        Assert.assertEquals("2sec222ms", DebugUtil.getPrettyStringMs(2222));
 
         // 22ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(22), "22ms");
+        Assert.assertEquals("22ms", DebugUtil.getPrettyStringMs(22));
     }
 
     @Test
