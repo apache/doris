@@ -348,4 +348,9 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
     }
 }
 
+// root path "$."
+bool JsonFunctions::is_root_path(const std::vector<JsonPath>& json_path) {
+    return json_path.size() == 2 && json_path[0].key == "$" && json_path[1].key.empty();
+}
+
 } // namespace doris
