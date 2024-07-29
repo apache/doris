@@ -89,6 +89,10 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
+    DBUG_EXECUTE_IF("TabletStream.init.uninited_writer", {
+        _status = Status::Uninitialized("fault injection");
+        return _status;
+    });
     _status = _load_stream_writer->init();
     if (!_status.ok()) {
         LOG(INFO) << "failed to init rowset builder due to " << *this;
