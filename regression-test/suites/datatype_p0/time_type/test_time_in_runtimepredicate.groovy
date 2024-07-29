@@ -26,5 +26,5 @@ suite("test_time_in_runtimepredicate") {
 
 
     qt_sql1 "select  timediff(a, b) as t, count(c) from test_time_in_runtimepredicate group by t order by t;"
-    qt_sql2 "select  timediff(a, b) as t, count(c) from test_time_in_runtimepredicate group by t limit 3"
+    qt_sql2 "select  timediff(a, b) as t, count(c) from test_time_in_runtimepredicate group by t order by t limit 3;"
 }
