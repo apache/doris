@@ -43,6 +43,7 @@
 #include "runtime/type_limit.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -68,6 +69,8 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_TIMEV2) {
+        return TimeValue::to_string(value, scale);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
