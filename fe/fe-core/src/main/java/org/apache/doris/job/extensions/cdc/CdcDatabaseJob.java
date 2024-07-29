@@ -41,15 +41,20 @@ import org.apache.doris.job.extensions.cdc.state.SnapshotSplit;
 import org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants;
 import org.apache.doris.job.extensions.cdc.utils.RestService;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PStartCdcScannerResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,9 +80,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
+import java.util.concurrent.Future;
 
 public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Object>> {
     public static final String BINLOG_SPLIT_ID = "binlog-split";
@@ -346,7 +352,8 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         super.initialize();
         if (!remainingTables.isEmpty()) {
             Backend backend = createCdcProcess();
-            startSplitAsync(backend);
+            System.out.println(backend);
+            //startSplitAsync(backend);
         }
     }
 
@@ -366,42 +373,27 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
 
     private Backend createCdcProcess() throws JobException {
         Backend backend = selectBackend();
-        // TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        // String params = generateParams();
-        // int cdcPort = startCdcJob(address, params);
-        // cdcPort = 10000;
-
-        int cdcPort = 10000;
-        LOG.info("Cdc server started on backend: " + backend.getHost() + ":" + cdcPort);
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        startCdcScanner(address, "");
+        LOG.info("Cdc server started on backend: " + backend.getHost());
         return backend;
     }
 
-    // private int startCdcJob(TNetworkAddress address, String params) throws JobException {
-    //     InternalService.PCdcJobStartRequest request =
-    //             InternalService.PCdcJobStartRequest.newBuilder().setParams(params).build();
-    //     InternalService.PCdcJobStartResult result = null;
-    //     try {
-    //         Future<InternalService.PCdcJobStartResult> future =
-    //                 BackendServiceProxy.getInstance().startCdcJobAsync(address, request);
-    //         result = future.get();
-    //         TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-    //         if (code != TStatusCode.OK) {
-    //             throw new JobException("Failed to start cdc server on backend: " + result.getStatus().getErrorMsgs(0));
-    //         }
-    //         return result.getPort();
-    //     } catch (RpcException | ExecutionException | InterruptedException ex) {
-    //         throw new JobException(ex);
-    //     }
-    // }
-
-    private String generateParams() {
-        Long jobId = getJobId();
-        List<Frontend> frontends = Env.getCurrentEnv().getFrontends(null);
-        int httpPort = Env.getCurrentEnv().getMasterHttpPort();
-        List<String> fenodes = frontends.stream().filter(Frontend::isAlive).map(v -> v.getHost() + ":" + httpPort)
-                .collect(Collectors.toList());
-        ParamsBuilder paramsBuilder = new ParamsBuilder(jobId.toString(), String.join(",", fenodes), config);
-        return paramsBuilder.buildParams();
+    private void startCdcScanner(TNetworkAddress address, String params) throws JobException {
+        InternalService.PStartCdcScannerRequest request =
+                InternalService.PStartCdcScannerRequest.newBuilder().setParams(params).build();
+        InternalService.PStartCdcScannerResult result = null;
+        try {
+            Future<PStartCdcScannerResult> future =
+                    BackendServiceProxy.getInstance().startCdcScanner(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new JobException("Failed to start cdc server on backend: " + result.getStatus().getErrorMsgs(0));
+            }
+        } catch (RpcException | ExecutionException | InterruptedException ex) {
+            throw new JobException(ex);
+        }
     }
 
     @Override

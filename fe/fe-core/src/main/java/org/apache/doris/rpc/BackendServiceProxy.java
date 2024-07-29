@@ -365,11 +365,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCdcJobStartResult> startCdcJobAsync(
-        TNetworkAddress address, InternalService.PCdcJobStartRequest request) throws RpcException {
+    public Future<InternalService.PStartCdcScannerResult> startCdcScanner(
+        TNetworkAddress address, InternalService.PStartCdcScannerRequest request) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
-            return client.startCdcJobAsync(request);
+            return client.startCdcScanner(request);
         } catch (Throwable e) {
             LOG.warn("start cdc job catch a exception, address={}:{}",
                 address.getHostname(), address.getPort(), e);

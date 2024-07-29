@@ -21,7 +21,7 @@ import java.util.Arrays;
 
 public enum DataSourceType {
 
-    MYSQL("mysql", "com.mysql.cj.jdbc.Driver", "mysql-connector-java-8.0.25.jar");
+    MYSQL("mysql", "com.mysql.cj.jdbc.Driver", "mysql-connector-java-8.0.26.jar");
 
     private String type;
     private String driverClass;
