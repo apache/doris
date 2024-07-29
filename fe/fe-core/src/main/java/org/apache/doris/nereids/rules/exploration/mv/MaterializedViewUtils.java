@@ -592,7 +592,12 @@ public class MaterializedViewUtils {
 
             OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
                 if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
-                    continue;
+                    if (!context.getPartitionExpression().isPresent()) {
+                        context.setPartitionExpression(
+                                ExpressionUtils.shuttleExpressionWithLineage(partitionColumn, plan, new BitSet())
+                        );
+                    }
+                    return true;
                 }
                 // check the expression which use partition column
                 Expression expressionToCheck =
