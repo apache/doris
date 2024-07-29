@@ -100,7 +100,7 @@ suite("push_down_count_through_join") {
         explain shape plan select count(t1.score), count(*), max(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id group by t1.name;
     """
 
-    qt_groupby_pushdown_multi_table_join """
+    qt_groupby_pushdown_multi_table_join_1 """
         explain shape plan select count(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -201,7 +201,7 @@ suite("push_down_count_through_join") {
         explain shape plan select count(*) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name having count(*) > 100;
     """
 
-    qt_groupby_pushdown_multi_table_join """
+    qt_groupby_pushdown_multi_table_join_2 """
         explain shape plan select count(*) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -289,7 +289,7 @@ suite("push_down_count_through_join") {
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(t1.score), count(*), max(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id group by t1.name;
     """
 
-    qt_with_hint_groupby_pushdown_multi_table_join """
+    qt_with_hint_groupby_pushdown_multi_table_join_1 """
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -390,7 +390,7 @@ suite("push_down_count_through_join") {
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(*) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name having count(*) > 100;
     """
 
-    qt_with_hint_groupby_pushdown_multi_table_join """
+    qt_with_hint_groupby_pushdown_multi_table_join_2 """
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(*) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 

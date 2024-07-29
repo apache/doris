@@ -108,13 +108,12 @@ PhysicalResultSink
 
 -- !groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[max_t]
-----------PhysicalOlapScan[max_t]
+--hashAgg[LOCAL]
+----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
+------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink
@@ -393,13 +392,12 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[max_t]
-----------PhysicalOlapScan[max_t]
+--hashAgg[LOCAL]
+----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
+------PhysicalOlapScan[max_t]
 
 Hint log:
 Used:
