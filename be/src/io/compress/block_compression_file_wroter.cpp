@@ -43,7 +43,7 @@ Status BlockCompressionFileWriter::appendv(const Slice* data, size_t data_cnt) {
             // Adding this segment would exceed the maximum size.
             // Flush data if we have it.
             RETURN_IF_ERROR(finish());
-            _compressor->reset();
+            RETURN_IF_ERROR(_compressor->reset());
         }
 
         if (len > _max_input_size) {
@@ -59,7 +59,7 @@ Status BlockCompressionFileWriter::appendv(const Slice* data, size_t data_cnt) {
                 while (!_compressor->finished()) {
                     RETURN_IF_ERROR(_compress());
                 }
-                _compressor->reset();
+                RETURN_IF_ERROR(_compressor->reset());
                 buf += buf_len;
                 len -= buf_len;
             } while (len > 0);

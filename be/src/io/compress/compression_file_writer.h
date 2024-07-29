@@ -63,7 +63,6 @@ public:
         }
     }
     virtual Status finish() = 0;
-    void reset() { _compressor->reset(); }
 
 protected:
     bool _closed = false;
