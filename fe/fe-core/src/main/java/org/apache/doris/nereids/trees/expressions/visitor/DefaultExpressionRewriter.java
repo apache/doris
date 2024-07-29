@@ -36,6 +36,7 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
 
     @Override
     public Expression visitWhenClause(WhenClause whenClause, C context) {
+        // should not rewrite when clause to other expression because CaseWhen require WhenClause as children
         return rewriteChildren(this, whenClause, context);
     }
 
