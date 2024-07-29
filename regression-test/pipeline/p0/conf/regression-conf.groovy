@@ -137,10 +137,7 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-s3Provider = "COS"
+s3Source="aliyun"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
