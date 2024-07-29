@@ -321,6 +321,15 @@ public class MetaServiceClient {
         return blockingStub.alterObjStoreInfo(request);
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.alterStorageVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.alterStorageVault(request);
+    }
+
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
             Cloud.GetDeleteBitmapUpdateLockRequest request) {
         if (!request.hasCloudUniqueId()) {
