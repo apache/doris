@@ -552,12 +552,15 @@ int main(int argc, char** argv) {
     };
 
     if (doris::config::is_cloud_mode()) {
+        LOG(INFO) << "Run BE in the cloud mode, cloud_unique_id: " << doris::config::cloud_unique_id
+                  << ", meta_service_endpoint: " << doris::config::meta_service_endpoint;
         service = std::make_shared<doris::CloudBackendService>(
                 exec_env->storage_engine().to_cloud(), exec_env);
         EXIT_IF_ERROR(doris::CloudBackendService::create_service(
                 exec_env->storage_engine().to_cloud(), exec_env, doris::config::be_port, &be_server,
                 std::dynamic_pointer_cast<doris::CloudBackendService>(service)));
     } else {
+        LOG(INFO) << "Run BE in the native mode";
         service = std::make_shared<doris::BackendService>(exec_env->storage_engine().to_local(),
                                                           exec_env);
         EXIT_IF_ERROR(doris::BackendService::create_service(
