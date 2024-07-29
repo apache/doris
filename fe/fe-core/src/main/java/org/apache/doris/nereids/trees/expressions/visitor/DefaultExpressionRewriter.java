@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -35,8 +35,8 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     @Override
-    public Expression visitCaseWhen(CaseWhen caseWhen, C context) {
-        return rewriteChildren(this, caseWhen, context);
+    public Expression visitWhenClause(WhenClause whenClause, C context) {
+        return rewriteChildren(this, whenClause, context);
     }
 
     /** rewriteChildren */
