@@ -476,7 +476,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_COMMIT = "group_commit";
 
-    public static final String ENABLE_EXEC_STMT_AUDIT_LOG = "enable_exec_stmt_audit_log";
+    public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -1682,8 +1682,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
-    @VariableMgr.VarAttr(name = ENABLE_EXEC_STMT_AUDIT_LOG, needForward = true)
-    public boolean enableExecStmtAuditLog = true;
+    @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
+    public boolean enablePreparedStmtAuditLog = true;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -4138,8 +4138,8 @@ public class SessionVariable implements Serializable, Writable {
         return groupCommit;
     }
 
-    public boolean isEnableExecStmtAuditLog() {
-        return enableExecStmtAuditLog;
+    public boolean isEnablePreparedStmtAuditLog() {
+        return enablePreparedStmtAuditLog;
     }
 
     public boolean isEnableMaterializedViewRewrite() {

@@ -140,7 +140,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             //Printing audit logs can severely impact performance.
             //Therefore, we have introduced a session variable to control whether to print audit logs.
             //It is recommended to turn off audit logs only during group commit load via JDBC.
-            if (ctx.getSessionVariable().isEnableExecStmtAuditLog()) {
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
                 if (preparedStmtContext != null) {
                     stmtStr = executeStmt.toSql();
@@ -153,7 +153,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        if (ctx.getSessionVariable().isEnableExecStmtAuditLog()) {
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         }
     }
@@ -207,7 +207,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
             executor.execute();
-            if (ctx.getSessionVariable().isEnableExecStmtAuditLog()) {
+            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
             }
         } catch (Throwable e) {
@@ -217,7 +217,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        if (ctx.getSessionVariable().isEnableExecStmtAuditLog()) {
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         }
     }
