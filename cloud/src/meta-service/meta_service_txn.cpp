@@ -2662,6 +2662,25 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     }
 }
 
+std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {
+    std::string conflict_txn_info_key;
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    txn_running_key.remove_prefix(1);
+    int ret = decode_key(&txn_running_key, &out);
+    if (ret != 0) [[unlikely]] {
+        // decode version key error means this is something wrong,
+        // we can not continue this txn
+        LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(txn_running_key);
+    } else {
+        DCHECK(out.size() == 5) << " key=" << hex(txn_running_key) << " " << out.size();
+        const std::string& decode_instance_id = std::get<1>(std::get<0>(out[1]));
+        int64_t db_id = std::get<0>(std::get<0>(out[3]));
+        int64_t txn_id = std::get<0>(std::get<0>(out[4]));
+        conflict_txn_info_key = txn_info_key({decode_instance_id, db_id, txn_id});
+    }
+    return conflict_txn_info_key;
+}
+
 void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* controller,
                                          const CheckTxnConflictRequest* request,
                                          CheckTxnConflictResponse* response,
@@ -2745,34 +2764,22 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                 std::sort(running_table_ids.begin(), running_table_ids.end());
                 std::vector<int64_t> result(
                         std::min(running_table_ids.size(), src_table_ids.size()));
-                std::vector<int64_t>::iterator iter = std::set_intersection(
-                        src_table_ids.begin(), src_table_ids.end(), running_table_ids.begin(),
-                        running_table_ids.end(), result.begin());
+                auto iter = std::set_intersection(src_table_ids.begin(), src_table_ids.end(),
+                                                  running_table_ids.begin(),
+                                                  running_table_ids.end(), result.begin());
                 result.resize(iter - result.begin());
-                if (result.size() > 0) {
+                if (!result.empty()) {
                     finished = false;
-                    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-                    std::string_view key_view = k;
-                    key_view.remove_prefix(1);
-                    int ret = decode_key(&key_view, &out);
-                    if (ret != 0) [[unlikely]] {
-                        // decode version key error means this is something wrong,
-                        // we can not continue this txn
-                        LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(k);
-                    } else {
-                        DCHECK(out.size() == 5) << " key=" << hex(k) << " " << out.size();
-                        const std::string& decode_instance_id = std::get<1>(std::get<0>(out[1]));
-                        int64_t db_id = std::get<0>(std::get<0>(out[3]));
-                        int64_t txn_id = std::get<0>(std::get<0>(out[4]));
-                        std::string conflict_txn_info_key =
-                                txn_info_key({decode_instance_id, db_id, txn_id});
+                    std::string conflict_txn_info_key = get_txn_info_key_from_txn_running_key(k);
+                    if (!conflict_txn_info_key.empty()) {
                         std::string conflict_txn_info_val;
                         err = txn->get(conflict_txn_info_key, &conflict_txn_info_val);
                         if (err != TxnErrorCode::TXN_OK) {
                             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
                                            ? MetaServiceCode::TXN_ID_NOT_FOUND
                                            : cast_as<ErrCategory::READ>(err);
-                            ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id;
+                            ss << "failed to get txn_info, conflict_txn_info_key="
+                               << hex(conflict_txn_info_key);
                             msg = ss.str();
                             LOG(WARNING) << msg;
                             return;
@@ -2780,8 +2787,8 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                         TxnInfoPB& conflict_txn_info = *response->add_conflict_txns();
                         if (!conflict_txn_info.ParseFromString(conflict_txn_info_val)) {
                             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                            ss << "failed to parse txn_info, db_id=" << db_id
-                               << " txn_id=" << txn_id;
+                            ss << "failed to parse txn_info, conflict_txn_info_key="
+                               << hex(conflict_txn_info_key);
                             msg = ss.str();
                             LOG(WARNING) << msg;
                             return;
