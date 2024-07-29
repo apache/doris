@@ -102,6 +102,9 @@ suite("test_recover_with_format_v2", "inverted_index_format_v2"){
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
 
+    // select to sync tablet meta in cloud mode
+    sql """ SELECT * FROM ${tableName}; """
+
     check_index_file()
 
     // drop table and recover
