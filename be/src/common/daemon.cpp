@@ -396,7 +396,7 @@ void Daemon::wg_weighted_memory_ratio_refresh_thread() {
     // Refresh weighted memory ratio of workload groups
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::wg_weighted_memory_ratio_refresh_interval_ms))) {
-        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_ratio();
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
     }
 }
 

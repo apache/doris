@@ -77,6 +77,12 @@ public:
         return _memory_limit;
     };
 
+    int64_t weighted_memory_limit() const { return _weighted_memory_limit; };
+
+    void set_weighted_memory_limit(int64_t weighted_memory_limit) {
+        _weighted_memory_limit = weighted_memory_limit;
+    }
+
     // make memory snapshots and refresh total memory used at the same time.
     int64_t make_memory_tracker_snapshots(
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
@@ -93,13 +99,10 @@ public:
 
     void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        // `weighted_mem_used` is a rough memory usage in this group,
-        // because we can only get a precise memory usage by MemTracker which is not include page cache.
-        auto weighted_mem_used =
-                int64_t((_total_mem_used + _wg_refresh_interval_memory_growth.load() + size) *
-                        _weighted_mem_ratio);
-        if ((weighted_mem_used > ((double)_memory_limit *
-                                  _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        if ((realtime_total_mem_used >
+             ((double)_weighted_memory_limit *
+              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
             return false;
         } else {
             _wg_refresh_interval_memory_growth.fetch_add(size);
@@ -111,17 +114,13 @@ public:
     }
 
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
-        // `weighted_mem_used` is a rough memory usage in this group,
-        // because we can only get a precise memory usage by MemTracker which is not include page cache.
-        auto weighted_mem_used =
-                int64_t((_total_mem_used + _wg_refresh_interval_memory_growth.load()) *
-                        _weighted_mem_ratio);
-        *is_low_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
-        *is_high_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        *is_low_wartermark = (realtime_total_mem_used >
+                              ((double)_weighted_memory_limit *
+                               _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+        *is_high_wartermark = (realtime_total_mem_used >
+                               ((double)_weighted_memory_limit *
+                                _spill_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
@@ -200,10 +199,11 @@ private:
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
+    // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
+    // more detailed description in `refresh_wg_weighted_memory_limit`.
+    std::atomic<int64_t> _weighted_memory_limit {0}; //
     // last value of make_memory_tracker_snapshots, refresh every time make_memory_tracker_snapshots is called.
     std::atomic_int64_t _total_mem_used = 0; // bytes
-    // last value of refresh_wg_weighted_memory_ratio.
-    std::atomic<double> _weighted_mem_ratio = 0.0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
