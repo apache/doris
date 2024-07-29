@@ -255,6 +255,12 @@ public:
         return num_segments() > 1 && is_singleton_delta() && segments_overlap() != NONOVERLAPPING;
     }
 
+    bool produced_by_compaction() const {
+        return has_version() &&
+               (start_version() < end_version() ||
+                (start_version() == end_version() && segments_overlap() == NONOVERLAPPING));
+    }
+
     // get the compaction score of this rowset.
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
