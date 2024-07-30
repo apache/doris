@@ -39,12 +39,28 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+static bvar::Adder<int64_t> memory_jemalloc_cache_bytes("memory_jemalloc_cache_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_dirty_pages_bytes("memory_jemalloc_dirty_pages_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_metadata_bytes("memory_jemalloc_metadata_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_virtual_bytes("memory_jemalloc_virtual_bytes");
+static bvar::Adder<int64_t> memory_cgroup_usage_bytes("memory_cgroup_usage_bytes");
+static bvar::Adder<int64_t> memory_sys_available_bytes("memory_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_sys_available_bytes(
+        "memory_arbitrator_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_process_usage_bytes(
+        "memory_arbitrator_process_usage_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_reserve_memory_bytes(
+        "memory_arbitrator_reserve_memory_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_refresh_interval_growth_bytes(
+        "memory_arbitrator_refresh_interval_growth_bytes");
 
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
@@ -114,6 +130,33 @@ void MemInfo::refresh_allocator_mem() {
                                          get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
                                  std::memory_order_relaxed);
 #endif
+}
+
+void MemInfo::refresh_memory_bvar() {
+    memory_jemalloc_cache_bytes << MemInfo::allocator_cache_mem() -
+                                           memory_jemalloc_cache_bytes.get_value();
+    memory_jemalloc_dirty_pages_bytes
+            << MemInfo::je_dirty_pages_mem() - memory_jemalloc_dirty_pages_bytes.get_value();
+    memory_jemalloc_metadata_bytes
+            << MemInfo::allocator_metadata_mem() - memory_jemalloc_metadata_bytes.get_value();
+    memory_jemalloc_virtual_bytes << MemInfo::allocator_virtual_mem() -
+                                             memory_jemalloc_virtual_bytes.get_value();
+
+    memory_cgroup_usage_bytes << _s_cgroup_mem_usage - memory_cgroup_usage_bytes.get_value();
+    memory_sys_available_bytes << _s_sys_mem_available - memory_sys_available_bytes.get_value();
+
+    memory_arbitrator_sys_available_bytes
+            << GlobalMemoryArbitrator::sys_mem_available() -
+                       memory_arbitrator_sys_available_bytes.get_value();
+    memory_arbitrator_process_usage_bytes
+            << GlobalMemoryArbitrator::process_memory_usage() -
+                       memory_arbitrator_process_usage_bytes.get_value();
+    memory_arbitrator_reserve_memory_bytes
+            << GlobalMemoryArbitrator::process_reserved_memory() -
+                       memory_arbitrator_reserve_memory_bytes.get_value();
+    memory_arbitrator_refresh_interval_growth_bytes
+            << GlobalMemoryArbitrator::refresh_interval_memory_growth -
+                       memory_arbitrator_refresh_interval_growth_bytes.get_value();
 }
 
 #ifndef __APPLE__

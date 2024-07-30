@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -66,7 +67,6 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
         if (is_nothing(type)) {
             continue;
         }
-
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
         type->to_pb_column_meta(&column_meta_pb);
@@ -77,6 +77,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 
         size += type->get_uncompressed_serialized_bytes(entry->data.get_finalized_column(),
                                                         be_exec_version);
+    }
+    // serialize num of rows, only take effect when subcolumns empty
+    if (be_exec_version >= VARIANT_SERDE) {
+        size += sizeof(uint32_t);
     }
 
     return size;
@@ -121,6 +125,11 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     }
     // serialize num of subcolumns
     *reinterpret_cast<uint32_t*>(size_pos) = num_of_columns;
+    // serialize num of rows, only take effect when subcolumns empty
+    if (be_exec_version >= VARIANT_SERDE) {
+        *reinterpret_cast<uint32_t*>(buf) = column_object.rows();
+        buf += sizeof(uint32_t);
+    }
 
     return buf;
 }
@@ -154,6 +163,13 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
             key = PathInData {column_meta_pb.name()};
         }
         column_object->add_sub_column(key, std::move(sub_column), type);
+    }
+    size_t num_rows = 0;
+    // serialize num of rows, only take effect when subcolumns empty
+    if (be_exec_version >= VARIANT_SERDE) {
+        num_rows = *reinterpret_cast<const uint32_t*>(buf);
+        column_object->set_num_rows(num_rows);
+        buf += sizeof(uint32_t);
     }
 
     column_object->finalize();

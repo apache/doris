@@ -55,6 +55,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -534,6 +536,12 @@ public class OutFileClause {
             if (!Strings.isNullOrEmpty(dfsNameServices) && !filePath.contains(dfsNameServices)) {
                 filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
             }
+        }
+        // delete repeated '/'
+        try {
+            filePath = new URI(filePath).normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new AnalysisException("Can not normalize the URI, error: " + e.getMessage());
         }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
