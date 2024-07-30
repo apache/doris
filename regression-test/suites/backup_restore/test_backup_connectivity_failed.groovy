@@ -36,5 +36,5 @@ suite("test_backup_restore", "connectivity_failed") {
                 "s3.secret_key" = "${sk}"
             )
             """
-    }, "failed to connect to the repo")
+    }, "Failed to create repository")
 }
