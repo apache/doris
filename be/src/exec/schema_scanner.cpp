@@ -121,6 +121,7 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 _dependency->block();
                 _finish_dependency->block();
                 if (!_opened) {
+                    _data_block = vectorized::Block::create_unique();
                     _init_block(_data_block.get());
                     _scanner_status.update(start(state));
                     _opened = true;
