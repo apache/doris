@@ -35,6 +35,7 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
@@ -55,8 +56,13 @@ public class RangerHiveAccessController extends RangerAccessController {
     private RangerHiveAuditHandler auditHandler;
 
     public RangerHiveAccessController(Map<String, String> properties) {
+        this(properties, null);
+    }
+
+    public RangerHiveAccessController(Map<String, String> properties,
+            RangerAuthContextListener rangerAuthContextListener) {
         String serviceName = properties.get("ranger.service.name");
-        hivePlugin = new RangerHivePlugin(serviceName);
+        hivePlugin = new RangerHivePlugin(serviceName, rangerAuthContextListener);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         // start a timed log flusher
         logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
