@@ -371,4 +371,15 @@ public class MetaServiceClient {
         }
         return blockingStub.getObjStoreInfo(request);
     }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortTxnWithCoordinatorRequest.Builder builder =
+                    Cloud.AbortTxnWithCoordinatorRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortTxnWithCoordinator(request);
+    }
 }

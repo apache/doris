@@ -424,11 +424,13 @@ public abstract class RoutineLoadJob
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
         }
-        if (stmt.getEnclose() != null) {
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, stmt.getEnclose());
+        if (String.valueOf(stmt.getEnclose()) != null) {
+            this.enclose = stmt.getEnclose();
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(stmt.getEnclose()));
         }
-        if (stmt.getEscape() != null) {
-            jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
+        if (String.valueOf(stmt.getEscape()) != null) {
+            this.escape = stmt.getEscape();
+            jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(stmt.getEscape()));
         }
         if (stmt.getWorkloadGroupId() > 0) {
             jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
