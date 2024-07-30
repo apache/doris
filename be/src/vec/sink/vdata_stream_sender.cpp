@@ -129,6 +129,7 @@ std::shared_ptr<pipeline::Dependency> PipChannel::get_local_channel_dependency()
 
 Status PipChannel::send_remote_block(PBlock* block, bool eos, Status exec_status) {
     COUNTER_UPDATE(Channel<pipeline::ExchangeSinkLocalState>::_parent->blocks_sent_counter(), 1);
+    SCOPED_TIMER(_parent->brpc_send_timer());
     std::unique_ptr<PBlock> pblock_ptr;
     pblock_ptr.reset(block);
 

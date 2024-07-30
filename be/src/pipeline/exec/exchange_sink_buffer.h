@@ -262,7 +262,7 @@ private:
     inline bool _is_receiver_eof(InstanceLoId id);
     inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
-    int64_t get_sum_rpc_time();
+    std::pair<int64_t, int64_t> get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
