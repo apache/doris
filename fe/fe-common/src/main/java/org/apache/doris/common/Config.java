@@ -1986,6 +1986,10 @@ public class Config extends ConfigBase {
             "Max cache number of hive table name list."})
     public static long max_hive_table_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
+            "Max cache number of hive table name list."})
+    public static long max_meta_object_cache_num = 1000;
+
     @ConfField(mutable = false, masterOnly = false, description = {
             "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
     })

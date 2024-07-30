@@ -52,7 +52,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         this.catalogId = catalogId;
         this.executor = executor;
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
                 Config.max_hive_table_cache_num,
                 false,
