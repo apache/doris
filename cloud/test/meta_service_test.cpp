@@ -2158,6 +2158,77 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
+    auto meta_service = get_meta_service();
+
+    const int64_t db_id = 666;
+    const int64_t table_id = 777;
+    const std::string label = "test_label";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 15623;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:15586";
+    int64_t txn_id = -1;
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+    TxnCoordinatorPB coordinator;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    coordinator.set_id(coordinator_id);
+    coordinator.set_ip(host);
+    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+    coordinator.set_start_time(cur_time);
+    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+    txn_id = begin_txn_res.txn_id();
+    ASSERT_GT(txn_id, -1);
+
+    brpc::Controller abort_txn_cntl;
+    AbortTxnWithCoordinatorRequest abort_txn_req;
+    AbortTxnWithCoordinatorResponse abort_txn_resp;
+
+    abort_txn_req.set_id(coordinator_id);
+    abort_txn_req.set_ip(host);
+    abort_txn_req.set_start_time(cur_time + 3600);
+
+    // first time to check txn conflict
+    meta_service->abort_txn_with_coordinator(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
+            &abort_txn_resp, nullptr);
+    ASSERT_EQ(abort_txn_resp.status().code(), MetaServiceCode::OK);
+
+    brpc::Controller abort_txn_conflict_cntl;
+    CheckTxnConflictRequest check_txn_conflict_req;
+    CheckTxnConflictResponse check_txn_conflict_res;
+
+    check_txn_conflict_req.set_cloud_unique_id(cloud_unique_id);
+    check_txn_conflict_req.set_db_id(db_id);
+    check_txn_conflict_req.set_end_txn_id(txn_id + 1);
+    check_txn_conflict_req.add_table_ids(table_id);
+
+    // first time to check txn conflict
+    meta_service->check_txn_conflict(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+            &check_txn_conflict_req, &check_txn_conflict_res, nullptr);
+
+    ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
+}
+
 TEST(MetaServiceTest, CheckTxnConflictTest) {
     auto meta_service = get_meta_service();
 
@@ -2201,6 +2272,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), false);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 1);
+    check_txn_conflict_res.clear_conflict_txns();
 
     // mock rowset and tablet
     int64_t tablet_id_base = 123456;
@@ -2229,6 +2302,7 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
 
     {
         std::string running_key = txn_running_key({mock_instance, db_id, txn_id});

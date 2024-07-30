@@ -772,6 +772,17 @@ message GetCurrentMaxTxnResponse {
     optional int64 current_max_txn_id = 2;
 }
 
+message AbortTxnWithCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+}
+
+message AbortTxnWithCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckTxnConflictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -783,6 +794,7 @@ message CheckTxnConflictRequest {
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
+    repeated TxnInfoPB conflict_txns = 3; 
 }
 
 message CleanTxnLabelRequest {
@@ -1458,6 +1470,7 @@ service MetaService {
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
+    rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);

@@ -2302,6 +2302,29 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, List<Long> tableIdList) {
+        readLock();
+        List<TransactionState> unFishedTxns = new ArrayList<>();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                        tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
+                    continue;
+                }
+                if (entry.getKey() <= endTransactionId) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                                entry.getKey(), dbId, endTransactionId);
+                    }
+                    unFishedTxns.add(entry.getValue());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return unFishedTxns;
+    }
+
     public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {
         readLock();
         try {
