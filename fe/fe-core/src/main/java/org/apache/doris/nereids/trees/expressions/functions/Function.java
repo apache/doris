@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,17 +56,5 @@ public abstract class Function extends Expression {
 
     public final String getName() {
         return name;
-    }
-
-    public Expression withConstantArgs(Literal literal) {
-        return this;
-    }
-
-    public int getMonotonicFunctionChildIndex() {
-        return -1;
-    }
-
-    public Monotonicity getMonotonicity() {
-        return new Monotonicity(false, true);
     }
 }

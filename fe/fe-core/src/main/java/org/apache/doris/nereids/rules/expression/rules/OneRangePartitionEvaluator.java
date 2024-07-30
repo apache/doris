@@ -42,7 +42,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -53,6 +53,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -201,8 +202,8 @@ public class OneRangePartitionEvaluator
     public EvaluateRangeResult visitSlot(Slot slot, EvaluateRangeInput context) {
         // try to replace partition slot to literal
         PartitionSlotInput slotResult = context.slotToInput.get(slot);
-        assert slotResult != null;
-        assert slotResult.columnRanges.containsKey(slot);
+        Preconditions.checkState(slotResult != null);
+        Preconditions.checkState(slotResult.columnRanges.containsKey(slot));
         return new EvaluateRangeResult(slotResult.result, ImmutableMap.of(slot, slotResult.columnRanges.get(slot)),
                 ImmutableList.of());
     }
@@ -857,9 +858,10 @@ public class OneRangePartitionEvaluator
     }
 
     private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
-        Function func = (Function) result.result;
+        Monotonic func = (Monotonic) result.result;
         if (rangeMap.containsKey(func)) {
-            return new EvaluateRangeResult(func, ImmutableMap.of(func, rangeMap.get(func)), result.childrenResult);
+            return new EvaluateRangeResult((Expression) func, ImmutableMap.of((Expression) func,
+                    rangeMap.get(func)), result.childrenResult);
         }
         int childIndex = func.getMonotonicFunctionChildIndex();
         Expression funcChild = func.child(childIndex);
@@ -867,7 +869,8 @@ public class OneRangePartitionEvaluator
             return result;
         }
         ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
-        if (childRange.isEmptyRange() || childRange.isCompletelyInfinite()) {
+        if (childRange.isEmptyRange() || childRange.asRanges().size() != 1
+                || (!childRange.span().hasLowerBound() && !childRange.span().hasUpperBound())) {
             return result;
         }
         Range<ColumnBound> span = childRange.span();
@@ -877,7 +880,7 @@ public class OneRangePartitionEvaluator
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext) : null;
-        if (!func.getMonotonicity().isPositive) {
+        if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
             upperValue = temp;
@@ -886,8 +889,8 @@ public class OneRangePartitionEvaluator
         ColumnRange newRange = ColumnRange.all();
         if (lowerValue instanceof Literal && upperValue instanceof Literal && lowerValue.equals(upperValue)) {
             newRange = ColumnRange.singleton((Literal) lowerValue);
-            rangeMap.put(func, newRange);
-            newRanges.put(func, newRange);
+            rangeMap.put((Expression) func, newRange);
+            newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult(lowerValue, newRanges, result.childrenResult);
         } else {
             if (lowerValue instanceof Literal) {
@@ -896,9 +899,9 @@ public class OneRangePartitionEvaluator
             if (upperValue instanceof Literal) {
                 newRange = newRange.withUpperBound((Literal) upperValue);
             }
-            rangeMap.put(func, newRange);
-            newRanges.put(func, newRange);
-            return new EvaluateRangeResult(func, newRanges, result.childrenResult);
+            rangeMap.put((Expression) func, newRange);
+            newRanges.put((Expression) func, newRange);
+            return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
     }
 }
