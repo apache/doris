@@ -181,8 +181,8 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 commonChild, joinSlotToProject, constantAlias, missSlotMap, originChildSlotToUnion);
 
         // 2. construct join union
-        LogicalJoin<?, ?> originalJoin = commonChild.iterator().next().first;
-        Plan newChild = commonChild.iterator().next().second;
+        LogicalJoin<?, ?> originalJoin = commonChild.get(0).first;
+        Plan newChild = commonChild.get(0).second;
         Plan newJoin = constructNewJoin(originalJoin, newUnion, newChild);
 
         // 3. map the output to origin output
@@ -379,7 +379,8 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 }
             } else {
                 for (int slotIdx = 0; slotIdx < union.getRegularChildOutput(i).size(); slotIdx++) {
-                    originChildSlotToUnion.put(child.getOutput().get(slotIdx), union.getOutput().get(slotIdx));
+                    originChildSlotToUnion.put(union.getRegularChildOutput(i).get(slotIdx),
+                            union.getOutput().get(slotIdx));
                 }
             }
 
@@ -403,8 +404,9 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                     }
                 }
             } else {
-                for (Slot slot : child.getOutput()) {
-                    joinSlotToProject.put(slot, slot);
+                for (int slotIdx = 0; slotIdx < union.getRegularChildOutput(i).size(); slotIdx++) {
+                    joinSlotToProject.put(union.getRegularChildOutput(i).get(slotIdx),
+                            union.getRegularChildOutput(i).get(slotIdx));
                 }
             }
         }
