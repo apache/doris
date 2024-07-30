@@ -244,6 +244,14 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         if (targetType instanceof IntegralType) {
             // do trailing zeros to avoid number parse error when cast to integral type
             BigDecimal bigDecimal = new BigDecimal(desc);
+            // Remove trailing zeros and check if there are no decimal places
+            BigDecimal stripped = bigDecimal.stripTrailingZeros();
+            // Here is to align with the BE code. The BE fails to parse "3.0" because it
+            // contains non-numeric characters.
+            if (stripped.scale() == 0 && desc.contains(".")) {
+                throw new AnalysisException(
+                        String.format("%s can't cast to %s", desc, targetType));
+            }
             if (bigDecimal.stripTrailingZeros().scale() <= 0) {
                 desc = bigDecimal.stripTrailingZeros().toPlainString();
             }

@@ -98,3 +98,9 @@
 -- !test --
 a
 
+-- !cast_string_to_int --
+\N	\N	\N	0
+
+-- !cast_string_to_int --
+\N	\N	\N	0
+
