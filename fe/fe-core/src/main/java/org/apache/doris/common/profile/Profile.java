@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -156,12 +155,15 @@ public class Profile {
         if (timeAndID.length != 2) {
             return null;
         }
-        TUniqueId thriftId = DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
-        if (thriftId == null) {
+
+        try {
+            DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
+        } catch (NumberFormatException e) {
             if (Long.valueOf(timeAndID[1]) == null) {
                 return null;
             }
         }
+
         return timeAndID;
     }
 
