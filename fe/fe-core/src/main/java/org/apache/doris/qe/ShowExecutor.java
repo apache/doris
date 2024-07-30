@@ -2824,7 +2824,7 @@ public class ShowExecutor {
 
     private void handleAdminShowTabletStorageFormat() throws AnalysisException {
         List<List<String>> resultRowSet = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
             if (be.isQueryAvailable() && be.isLoadAvailable()) {
                 AgentClient client = new AgentClient(be.getHost(), be.getBePort());
                 TCheckStorageFormatResult result = client.checkStorageFormat();
