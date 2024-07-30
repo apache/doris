@@ -324,7 +324,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 : new DateTimeLiteral(1991, 5, 3, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "date '1991-05-01' + interval 10 / 2 + 1 day";
+        interval = "date '1991-05-01' + interval 5 + 1 day";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = Config.enable_date_conversion
                 ? new DateV2Literal(1991, 5, 7)
