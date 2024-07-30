@@ -63,7 +63,7 @@ public class HdfsStorage extends BlobStorage {
     private final int readBufferSize = 128 << 10; // 128k
     private final int writeBufferSize = 128 << 10; // 128k
 
-    private FileSystem dfsFileSystem = null;
+    private volatile FileSystem dfsFileSystem = null;
 
     /**
      * init HdfsStorage with properties.
@@ -86,6 +86,9 @@ public class HdfsStorage extends BlobStorage {
 
     @Override
     public FileSystem getFileSystem(String remotePath) throws UserException {
+        if (dfsFileSystem != null) {
+            return dfsFileSystem;
+        }
         synchronized (this) {
             if (dfsFileSystem == null) {
                 String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
@@ -98,7 +101,7 @@ public class HdfsStorage extends BlobStorage {
                         isSecurityEnabled = true;
                     }
                 }
-
+                conf.set("fs.hdfs.impl.disable.cache", "true");
                 try {
                     if (isSecurityEnabled) {
                         UserGroupInformation.setConfiguration(conf);
@@ -117,7 +120,6 @@ public class HdfsStorage extends BlobStorage {
                 }
             }
         }
-
         return dfsFileSystem;
     }
 
