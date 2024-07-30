@@ -636,6 +636,7 @@ public class HiveMetaStoreCache {
         HivePartitionValues copy = partitionValues.copy();
         Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
         Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
+        Map<Long, String> partitionIdToNameMapBefore = copy.getPartitionIdToNameMap();
         Map<Long, List<UniqueId>> idToUniqueIdsMap = copy.getIdToUniqueIdsMap();
         Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
         long idx = copy.getNextPartitionId();
@@ -649,6 +650,7 @@ public class HiveMetaStoreCache {
             idToPartitionItemBefore.put(partitionId, listPartitionItem);
             idToPartitionItem.put(partitionId, listPartitionItem);
             partitionNameToIdMapBefore.put(partitionName, partitionId);
+            partitionIdToNameMapBefore.put(partitionId, partitionName);
         }
         Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
