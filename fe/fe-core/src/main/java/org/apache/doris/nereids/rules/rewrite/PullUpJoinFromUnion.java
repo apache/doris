@@ -90,7 +90,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                             break;
                         }
                     }
-                    if (commonChild == null || commonChild.isEmpty()) {
+                    if (commonChild == null) {
                         return null;
                     }
 
