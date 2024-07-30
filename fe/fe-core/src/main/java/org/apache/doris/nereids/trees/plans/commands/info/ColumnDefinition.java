@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -187,10 +188,10 @@ public class ColumnDefinition {
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else {
-            if (dataType.isStringLikeType()) {
-                if (dataType instanceof CharType && ((CharType) dataType).getLen() == -1) {
+            if (dataType.isStringLikeType() && !((CharacterType) dataType).isLengthSet()) {
+                if (dataType instanceof CharType) {
                     return new CharType(1);
-                } else if (dataType instanceof VarcharType && ((VarcharType) dataType).getLen() == -1) {
+                } else if (dataType instanceof VarcharType) {
                     return new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
                 }
             }
