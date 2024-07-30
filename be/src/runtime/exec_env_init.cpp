@@ -100,6 +100,8 @@
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
+#include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
@@ -573,6 +575,10 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
+    // init orc memory pool
+    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
+    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
+
     return Status::OK();
 }
 
@@ -750,6 +756,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    SAFE_DELETE(_arrow_memory_pool);
+    SAFE_DELETE(_orc_memory_pool);
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);

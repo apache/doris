@@ -147,7 +147,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """

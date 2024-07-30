@@ -308,14 +308,30 @@ public class S3Properties extends BaseProperties {
 
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-        builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
-        builder.setRegion(properties.get(S3Properties.REGION));
-        builder.setAk(properties.get(S3Properties.ACCESS_KEY));
-        builder.setSk(properties.get(S3Properties.SECRET_KEY));
-        builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
-        builder.setBucket(properties.get(S3Properties.BUCKET));
-        builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
-        builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.REGION)) {
+            builder.setRegion(properties.get(S3Properties.REGION));
+        }
+        if (properties.containsKey(S3Properties.ACCESS_KEY)) {
+            builder.setAk(properties.get(S3Properties.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.SECRET_KEY)) {
+            builder.setSk(properties.get(S3Properties.SECRET_KEY));
+        }
+        if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.BUCKET)) {
+            builder.setBucket(properties.get(S3Properties.BUCKET));
+        }
+        if (properties.containsKey(S3Properties.EXTERNAL_ENDPOINT)) {
+            builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        }
         return builder;
     }
 }
