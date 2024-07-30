@@ -55,6 +55,10 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
     def check_rs_metas = { expected_rs_meta_size, check_func -> 
+        if (isCloudMode()) {
+            return
+        }
+
         def metaUrl = sql_return_maparray("show tablets from ${table1};").get(0).MetaUrl
         def (code, out, err) = curl("GET", metaUrl)
         Assert.assertEquals(code, 0)
@@ -84,11 +88,28 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         }
     })
 
+    def enable_block_in_publish = {
+        if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+        } else {
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        }
+    }
+
+    def disable_block_in_publish = {
+        if (isCloudMode()) {
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+        } else {
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        }
+    }
+
     try {
+        GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         // block the partial update in publish phase
-        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        enable_block_in_publish()
         def t1 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "sync;"
@@ -127,7 +148,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         })
 
         // let the partial update load publish
-        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        disable_block_in_publish()
         t1.join()
 
         order_qt_sql "select * from ${table1};"
@@ -147,6 +168,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 

@@ -55,6 +55,10 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
     def check_rs_metas = { expected_rs_meta_size, check_func -> 
+        if (isCloudMode()) {
+            return
+        }
+
         def metaUrl = sql_return_maparray("show tablets from ${table1};").get(0).MetaUrl
         def (code, out, err) = curl("GET", metaUrl)
         Assert.assertEquals(code, 0)
@@ -84,11 +88,28 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
         }
     })
 
+    def enable_block_in_publish = {
+        if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+        } else {
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        }
+    }
+
+    def disable_block_in_publish = {
+        if (isCloudMode()) {
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+        } else {
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        }
+    }
+
     try {
+        GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         // block the partial update before publish phase
-        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        enable_block_in_publish()
 
         // the first partial update load
         def t1 = Thread.start {
@@ -137,7 +158,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
             Assert.assertEquals(overlapPb, "NONOVERLAPPING")
         })
 
-        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+        disable_block_in_publish()
 
         t1.join()
         t2.join()
@@ -153,7 +174,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
                 Assert.assertEquals(numSegments, 1)
                 Assert.assertEquals(numRows, 3)
             } else if (startVersion == 6) {
-                // the first partial update load
+                // the second partial update load
                 // it should skip the alignment process of rowsets produced by full compaction and
                 // should generate new segment in publish phase for conflicting rows with the first partial update load
                 Assert.assertEquals(endVersion, 6)
@@ -166,8 +187,9 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
         logger.info(e.getMessage())
         throw e
     } finally {
+        GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 
-    // sql "DROP TABLE IF EXISTS ${table1};"
+    sql "DROP TABLE IF EXISTS ${table1};"
 }
