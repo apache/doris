@@ -249,7 +249,7 @@ void Daemon::memory_gc_thread() {
     int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (!config::enable_memory_reclamation) {
+        if (config::disable_memory_gc) {
             continue;
         }
         auto sys_mem_available = doris::GlobalMemoryArbitrator::sys_mem_available();
@@ -387,7 +387,7 @@ void Daemon::je_purge_dirty_pages_thread() const {
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
-        if (!config::enable_memory_reclamation) {
+        if (config::disable_memory_gc) {
             continue;
         }
         doris::MemInfo::je_purge_all_arena_dirty_pages();
@@ -403,7 +403,7 @@ void Daemon::cache_prune_stale_thread() {
                          << "], force set to 3600 ";
             interval = 3600;
         }
-        if (!config::enable_memory_reclamation) {
+        if (config::disable_memory_gc) {
             continue;
         }
         CacheManager::instance()->for_each_cache_prune_stale();

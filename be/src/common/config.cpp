@@ -133,7 +133,7 @@ DEFINE_mString(process_full_gc_size, "20%");
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
-DEFINE_mBool(enable_memory_reclamation, "true");
+DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mBool(enable_stacktrace, "true");
 

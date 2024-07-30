@@ -179,10 +179,9 @@ DECLARE_mString(process_full_gc_size);
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
 
-// memory reclamation will release cache, cancel task, and task will wait for gc to release memory,
-// default reclamation strategy is conservative,
-// if you want to exclude the interference of memory reclamation, let it be false
-DECLARE_mBool(enable_memory_reclamation);
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
+DECLARE_mBool(disable_memory_gc);
 
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
