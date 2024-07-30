@@ -94,6 +94,7 @@ Status SchemaScanner::get_next_block(RuntimeState* state, vectorized::Block* blo
         return Status::InternalError("No data left!");
     }
     RETURN_IF_ERROR(_scanner_status.status());
+    _data_block->clear_column_data();
     for (size_t i = 0; i < block->columns(); i++) {
         std::move(*block->get_by_position(i).column)
                 .mutate()
