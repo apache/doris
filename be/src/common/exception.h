@@ -162,26 +162,3 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
-
-#define HANDLE_ERROR_IF_CATCH_EXCEPTION_OR_RETURN_ERROR(stmt, handle_error)                      \
-    do {                                                                                         \
-        try {                                                                                    \
-            doris::enable_thread_catch_bad_alloc++;                                              \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
-            {                                                                                    \
-                Status _status_ = (stmt);                                                        \
-                if (UNLIKELY(!_status_.ok())) {                                                  \
-                    handle_error();                                                              \
-                    return _status_;                                                             \
-                }                                                                                \
-            }                                                                                    \
-        } catch (const doris::Exception& e) {                                                    \
-            handle_error();                                                                      \
-            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
-                return Status::MemoryLimitExceeded(fmt::format(                                  \
-                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
-                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
-            }                                                                                    \
-            return Status::Error<false>(e.code(), e.to_string());                                \
-        }                                                                                        \
-    } while (0);
