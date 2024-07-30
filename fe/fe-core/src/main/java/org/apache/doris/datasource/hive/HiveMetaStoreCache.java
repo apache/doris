@@ -1087,6 +1087,7 @@ public class HiveMetaStoreCache {
     public static class HivePartitionValues {
         private long nextPartitionId;
         private Map<String, Long> partitionNameToIdMap;
+        private Map<Long, String> partitionIdToNameMap;
         private Map<Long, List<UniqueId>> idToUniqueIdsMap;
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
@@ -1115,6 +1116,7 @@ public class HiveMetaStoreCache {
             this.singleColumnRangeMap = singleColumnRangeMap;
             this.nextPartitionId = nextPartitionId;
             this.partitionNameToIdMap = partitionNameToIdMap;
+            this.partitionIdToNameMap = transferToIdName(partitionNameToIdMap);
             this.idToUniqueIdsMap = idToUniqueIdsMap;
             this.singleUidToColumnRangeMap = singleUidToColumnRangeMap;
             this.partitionValuesMap = partitionValuesMap;
@@ -1124,6 +1126,7 @@ public class HiveMetaStoreCache {
             HivePartitionValues copy = new HivePartitionValues();
             copy.setNextPartitionId(nextPartitionId);
             copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : Maps.newHashMap(partitionNameToIdMap));
+            copy.setPartitionIdToNameMap(partitionIdToNameMap == null ? null : Maps.newHashMap(partitionIdToNameMap));
             copy.setIdToUniqueIdsMap(idToUniqueIdsMap == null ? null : Maps.newHashMap(idToUniqueIdsMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
@@ -1137,6 +1140,14 @@ public class HiveMetaStoreCache {
                 copy.setSingleColumnRangeMap(copySingleColumnRangeMap);
             }
             return copy;
+        }
+
+        private Map<Long, String> transferToIdName(Map<String, Long> partitionNameToIdMap) {
+            if (partitionNameToIdMap == null) {
+                return null;
+            }
+            return partitionNameToIdMap.entrySet().stream()
+                    .collect(Collectors.toMap(entry -> entry.getValue(), entry -> entry.getKey()));
         }
     }
 }

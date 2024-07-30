@@ -759,11 +759,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
-        Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();
-        for (Entry<String, Long> entry : partitionNameToIdMap.entrySet()) {
-            if (entry.getValue().equals(partitionId)) {
-                return entry.getKey();
-            }
+        Map<Long, String> partitionIdToNameMap = getHivePartitionValues().getPartitionIdToNameMap();
+        String name = partitionIdToNameMap.get(partitionId);
+        if (name != null) {
+            return name;
         }
         throw new AnalysisException("can not find partition,  partitionId: " + partitionId);
     }

@@ -477,6 +477,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 partitionValueCacheKey.getTypes());
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 4);
+        Assert.assertEquals(partitionValues.getPartitionIdToNameMap().size(), 4);
     }
 
     @Test
