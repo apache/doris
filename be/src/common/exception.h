@@ -132,7 +132,7 @@ inline const std::string& Exception::to_string() const {
         }                                                                                        \
     } while (0);
 
-#define HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(stmt, handle_exception)                              \
+#define HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(stmt, exception_handler)                              \
     do {                                                                                         \
         try {                                                                                    \
             doris::enable_thread_catch_bad_alloc++;                                              \
@@ -140,12 +140,12 @@ inline const std::string& Exception::to_string() const {
             {                                                                                    \
                 Status _status_ = (stmt);                                                        \
                 if (UNLIKELY(!_status_.ok())) {                                                  \
-                    handle_exception(doris::Exception());                                        \
+                    exception_handler(doris::Exception());                                        \
                     return _status_;                                                             \
                 }                                                                                \
             }                                                                                    \
         } catch (const doris::Exception& e) {                                                    \
-            handle_exception(e);                                                                 \
+            exception_handler(e);                                                                 \
             if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
                 return Status::MemoryLimitExceeded(fmt::format(                                  \
                         "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
