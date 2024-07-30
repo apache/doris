@@ -184,16 +184,23 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
     private void checkMatchIsUsedCorrectly(Plan plan) {
         for (Expression expression : plan.getExpressions()) {
-            if (expression instanceof Match) {
-                if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
-                    return;
-                } else {
-                    throw new AnalysisException(String.format(
-                            "Not support match in %s in plan: %s, only support in olapScan filter",
-                            plan.child(0), plan));
+            expression.foreach(expr -> {
+                if (expr instanceof Match) {
+                    boolean valid = plan instanceof LogicalFilter
+                            && (plan.child(0) instanceof LogicalOlapScan
+                                || plan.child(0) instanceof LogicalDeferMaterializeOlapScan);
+                    if (!valid) {
+                        if (plan instanceof LogicalFilter) {
+                            throw new AnalysisException(String.format(
+                                    "Not support match in %s in plan: %s, only support in olapScan filter",
+                                    plan.child(0), plan));
+                        } else {
+                            throw new AnalysisException(String.format(
+                                    "Not support match in plan: %s, only support in olapScan filter", plan));
+                        }
+                    }
                 }
-            }
+            });
         }
     }
 }
