@@ -189,9 +189,7 @@ public:
         if (columns[0]->is_null_at(row_num)) {
             return;
         }
-#ifndef NDEBUG
-        LOG_INFO("histogram has_input_param {}", has_input_param);
-#endif
+
         if (has_input_param) {
             this->data(place).set_parameters(
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
