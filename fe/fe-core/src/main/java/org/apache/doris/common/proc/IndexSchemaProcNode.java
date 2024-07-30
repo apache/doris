@@ -79,17 +79,17 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  extraStr);
 
             if (column.getOriginType().isDateV2()) {
-                rowList.set(1, "DATE");
+                rowList.set(1, "date");
             }
             if (column.getOriginType().isDatetimeV2()) {
-                StringBuilder typeStr = new StringBuilder("DATETIME");
+                StringBuilder typeStr = new StringBuilder("datetime");
                 if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
                     typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
                 }
                 rowList.set(1, typeStr.toString());
             }
             if (column.getOriginType().isDecimalV3()) {
-                StringBuilder typeStr = new StringBuilder("DECIMAL");
+                StringBuilder typeStr = new StringBuilder("decimal");
                 ScalarType sType = (ScalarType) column.getOriginType();
                 int scale = sType.getScalarScale();
                 int precision = sType.getScalarPrecision();

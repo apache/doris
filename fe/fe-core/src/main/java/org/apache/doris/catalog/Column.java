@@ -735,13 +735,13 @@ public class Column implements Writable, GsonPostProcessable {
             } else if (type.isDateV2()) {
                 sb.append("date");
             } else if (type.isDecimalV3()) {
-                sb.append("DECIMAL");
+                sb.append("decimal");
                 ScalarType sType = (ScalarType) type;
                 int scale = sType.getScalarScale();
                 int precision = sType.getScalarPrecision();
                 // not default
                 if (!sType.isDefaultDecimal()) {
-                    sb.append("(").append(precision).append(", ").append(scale)
+                    sb.append("(").append(precision).append(",").append(scale)
                             .append(")");
                 }
             } else {
