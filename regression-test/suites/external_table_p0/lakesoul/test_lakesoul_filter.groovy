@@ -15,24 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_table_lakesoul", "p2,external,lakesoul,external_remote,external_remote_lakesoul") {
-    String enabled = context.config.otherConfigs.get("enablelakesoulTest")
-      // query data test
-        def q1 = """ select count(*) from region; """
-        def q11 = """ select count(*) from nation; """
-        // data test
-         def q2 = """ select * from nation  order by n_name; """
-         def q3 = """ select * from nation order by n_name limit 2; """
-         def q9 = """ select * from lineitem limit 2; """ // mutil types
-        // test partition table filter
-         def q4 =  """ select * from supplier  where s_nationkey = 1 limit 2; """
-         def q5 = """ select * from supplier  where s_nationkey < 2 limit 2; """
-         def q6 = """ select * from nation  where n_name = 'CHINA' or n_name like 'C%'; """
-            
-	def q7 =  """ select * from nation,region where n_nationkey = r_regionkey; """
-        def q8 =  """ select count(*) from region group by r_regionkey; """
-
-
+suite("test_lakesoul_filter", "p0,external,doris,external_docker,external_docker_doris") {
+    String enabled = context.config.otherConfigs.get("enableLakesoulTest")
+    // open it when docker image is ready to run in regression test
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "lakesoul"
         String db_name = "default"
@@ -54,19 +39,20 @@ suite("test_external_table_lakesoul", "p2,external,lakesoul,external_remote,exte
             'minio.secret_key'='${minio_sk}'
             );"""
 
-            // analyze
-            sql """use `${catalog_name}`.`${db_name}`""" 
-        
-	   sql q1
-           sql q2
-           sql q3
-           sql q4
-           sql q5
-           sql q6
-           sql q7
-           sql q8
-           sql q9
-           sql q11
+        // analyze
+        sql """use `${catalog_name}`.`${db_name}`"""
 
+        sql """show tables;"""
+        // select
+        sql """select * from region;"""
+
+        sql """select * from nation;"""
+
+        sql """select * from nation where n_regionkey = 0 or n_nationkey > 14;"""
+
+        sql """select * from nation where n_regionkey = 0 and n_nationkey > 0;"""
+
+        sql """select * from nation where n_regionkey = 0;"""
     }
 }
+
