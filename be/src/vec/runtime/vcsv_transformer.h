@@ -21,13 +21,13 @@
 #include <arrow/result.h>
 #include <arrow/status.h>
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <parquet/file_writer.h>
 #include <parquet/properties.h>
 #include <parquet/types.h>
 #include <stdint.h>
 
-#include <memory>
-
+#include "util/block_compression.h"
 #include "vfile_format_transformer.h"
 
 namespace doris {
@@ -44,7 +44,8 @@ public:
                     const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
                     std::string_view header_type, std::string_view header,
                     std::string_view column_separator, std::string_view line_delimiter,
-                    bool with_bom);
+                    bool with_bom,
+                    TFileCompressType::type compress_type = TFileCompressType::PLAIN);
 
     ~VCSVTransformer() = default;
 
@@ -74,6 +75,8 @@ private:
     fmt::memory_buffer _outstream_buffer;
 
     bool _with_bom = false;
+    TFileCompressType::type _compress_type;
+    BlockCompressionCodec* _compress_codec = nullptr;
 };
 
 } // namespace doris::vectorized
