@@ -1112,10 +1112,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+    // for those elements equal in partiton ids, get their names.
+    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
-        for (Long id : partitionIds) {
-            names.add(idToPartition.get(id).getName());
+        for (int i = 0; i < partitionIds1.size(); i++) {
+            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
+                names.add(getPartition(partitionIds1.get(i)).getName());
+            }
         }
         return names;
     }
@@ -1300,12 +1303,33 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 .collect(Collectors.toSet())))) {
             return true;
         }
-        long rowCount = getRowCount();
-        if (rowCount > 0 && tblStats.rowCount == 0) {
+
+        // 1 Check row count.
+        long currentRowCount = getRowCount();
+        long lastAnalyzeRowCount = tblStats.rowCount;
+        // 1.1 Empty table -> non-empty table. Need analyze.
+        if (currentRowCount != 0 && lastAnalyzeRowCount == 0) {
             return true;
         }
+        // 1.2 Non-empty table -> empty table. Need analyze;
+        if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+            return true;
+        }
+        // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
+        if (currentRowCount == 0) {
+            return false;
+        }
+        // 1.4 If row count changed more than the threshold, need analyze.
+        // lastAnalyzeRowCount == 0 is always false here.
+        double changeRate =
+                ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
+        if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
+            return true;
+        }
+
+        // 2. Check update rows.
         long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
+        int tblHealth = StatisticsUtil.getTableHealth(currentRowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 

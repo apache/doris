@@ -58,7 +58,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
     @SerializedName(value = "taskLocks")
     private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
-    // <groupId, <oldPartId, newPartId>>
+    // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
 
@@ -91,7 +91,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      *
      * @return group id, like a transaction id.
      */
-    public long preRegisterTask() {
+    public long registerTaskGroup() {
         long groupId = Env.getCurrentEnv().getNextId();
         taskGroups.put(groupId, new ArrayList<Long>());
         taskLocks.put(groupId, new ReentrantLock());
@@ -107,44 +107,81 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         taskGroups.get(groupId).add(taskId);
     }
 
-    public List<Long> tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds) {
+    /**
+     * this func should in lock scope of getLock(groupId)
+     *
+     * @param newIds if have replaced, replace with new. otherwise itself.
+     */
+    public boolean tryReplacePartitionIds(long groupId, List<Long> oldPartitionIds, List<Long> newIds) {
         Map<Long, Long> relations = partitionPairs.get(groupId);
-        List<Long> newIds = new ArrayList<Long>();
-        for (Long id : oldPartitionIds) {
+        boolean needReplace = false;
+        for (int i = 0; i < oldPartitionIds.size(); i++) {
+            long id = oldPartitionIds.get(i);
             if (relations.containsKey(id)) {
                 // if we replaced it. then return new one.
                 newIds.add(relations.get(id));
             } else {
-                // otherwise itself. we will deal it soon.
                 newIds.add(id);
+                needReplace = true;
             }
         }
-        return newIds;
+        return needReplace;
     }
 
+    // this func should in lock scope of getLock(groupId)
     public void recordPartitionPairs(long groupId, List<Long> oldIds, List<Long> newIds) {
         Map<Long, Long> relations = partitionPairs.get(groupId);
         Preconditions.checkArgument(oldIds.size() == newIds.size());
         for (int i = 0; i < oldIds.size(); i++) {
             relations.put(oldIds.get(i), newIds.get(i));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("recorded partition pairs: [" + oldIds.get(i) + ", " + newIds.get(i) + "]");
+            }
         }
     }
 
+    // lock is a symbol of TaskGroup exist. if not, means already failed.
     public ReentrantLock getLock(long groupId) {
         return taskLocks.get(groupId);
     }
 
+    // When goes into failure, some BE may still not know and send new request.
+    // it will cause ConcurrentModification or NullPointer.
     public void taskGroupFail(long groupId) {
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] failed");
-        for (Long taskId : taskGroups.get(groupId)) {
-            taskFail(taskId);
+        ReentrantLock lock = getLock(groupId);
+        lock.lock();
+        try {
+            // will rollback temp partitions in `taskFail`
+            for (Long taskId : taskGroups.get(groupId)) {
+                taskFail(taskId);
+            }
+            cleanTaskGroup(groupId);
+        } finally {
+            lock.unlock();
         }
-        cleanTaskGroup(groupId);
     }
 
-    public void taskGroupSuccess(long groupId) {
+    // here we will make all raplacement of this group visiable. if someone fails, nothing happen.
+    public void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException {
+        try {
+            Map<Long, Long> relations = partitionPairs.get(groupId);
+            ArrayList<String> oldNames = new ArrayList<>();
+            ArrayList<String> newNames = new ArrayList<>();
+            for (Entry<Long, Long> partitionPair : relations.entrySet()) {
+                oldNames.add(targetTable.getPartition(partitionPair.getKey()).getName());
+                newNames.add(targetTable.getPartition(partitionPair.getValue()).getName());
+            }
+            InsertOverwriteUtil.replacePartition(targetTable, oldNames, newNames);
+        } catch (Exception e) {
+            LOG.warn("insert overwrite task making replacement failed because " + e.getMessage()
+                    + "all new partition will not be visible and will be recycled by partition GC.");
+            throw e;
+        }
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] succeed");
         for (Long taskId : taskGroups.get(groupId)) {
+            Env.getCurrentEnv().getEditLog()
+                    .logInsertOverwrite(new InsertOverwriteLog(taskId, tasks.get(taskId), InsertOverwriteOpType.ADD));
             taskSuccess(taskId);
         }
         cleanTaskGroup(groupId);
@@ -164,6 +201,9 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     public void taskFail(long taskId) {
         LOG.info("insert overwrite task [" + taskId + "] failed");
         boolean rollback = rollback(taskId);
+        if (!rollback) {
+            LOG.warn("roll back task [" + taskId + "] failed");
+        }
         if (rollback) {
             removeTask(taskId);
         } else {
@@ -192,6 +232,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
     }
 
+    // cancel it. should try to remove them after.
     private void cancelTask(long taskId) {
         if (tasks.containsKey(taskId)) {
             LOG.info("cancel insert overwrite task: {}", tasks.get(taskId));
@@ -201,6 +242,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         }
     }
 
+    // task and partitions has been removed. it's safe to remove task.
     private void removeTask(long taskId) {
         if (tasks.containsKey(taskId)) {
             LOG.info("remove insert overwrite task: {}", tasks.get(taskId));
@@ -222,7 +264,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         try {
             olapTable = task.getTable();
         } catch (DdlException e) {
-            LOG.warn("can not get table, task: {}", task);
+            LOG.warn("can not get table, task: {}, reason: {}", task, e.getMessage());
             return true;
         }
         return InsertOverwriteUtil.dropPartitions(olapTable, task.getTempPartitionNames());

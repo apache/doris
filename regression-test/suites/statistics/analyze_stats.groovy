@@ -2845,6 +2845,34 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("521779.0", alter_result[0][5])
     assertEquals("7.142863009760572", alter_result[0][6])
 
+    // Test analyze after new empty partition created.
+    sql """CREATE TABLE `part` (
+          `id` INT NULL,
+          `colint` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`id`)
+        (PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")))
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3 
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """analyze table part with sync;"""
+    sql """Insert into part values (1, 1), (10001, 10001);"""
+    sql """analyze table part with sync;"""
+    sleep(1000)
+    sql """alter table part add partition p3 VALUES [("20000"), ("30000"));"""
+    sql """analyze table part with sync;"""
+    sql """analyze table part with sync;"""
+    def new_part_result = sql """show column stats part(id)"""
+    assertEquals("2.0", new_part_result[0][2])
+    new_part_result = sql """show column stats part(colint)"""
+    assertEquals("2.0", new_part_result[0][2])
+
 
     sql """DROP DATABASE IF EXISTS trigger"""
 }

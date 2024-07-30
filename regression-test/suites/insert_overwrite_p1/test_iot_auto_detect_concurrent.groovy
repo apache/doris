@@ -83,11 +83,13 @@ suite("test_iot_auto_detect_concurrent") {
     thread5.join()
     // suppose result: success zero or one
     if (success_status) { // success zero
+        log.info("test 1: success zero")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
         result = sql " select count(distinct k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
     } else { // success one
+        log.info("test 1: success one")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 100)
         result = sql " select count(distinct k0) from test_concurrent_write; "
