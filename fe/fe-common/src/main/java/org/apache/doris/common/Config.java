@@ -2341,6 +2341,12 @@ public class Config extends ConfigBase {
                     + "dynamic partitions. This config is recommended to be used only in the test environment"})
     public static String force_olap_table_replication_allocation = "";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "用于强制检查用户在建表或创建分区时对指定标签是否有权限，如果该参数为false，则允许用户在任意tag下建表或创建分区",
+        "Used to forcibly check the user has permission for a specified tag when creating a table or partition. "
+            + "If this parameter is false, it allows the user to create a table or partition under any tags"})
+    public static boolean check_resource_tag_when_creating_table = false;
+
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
