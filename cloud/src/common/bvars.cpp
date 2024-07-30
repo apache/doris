@@ -30,6 +30,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id("ms", "get_current_m
 BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn("ms", "begin_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn("ms", "abort_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict("ms", "check_txn_conflict");
+BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator("ms", "abort_txn_with_coordinator");
 BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label("ms", "clean_txn_label");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
