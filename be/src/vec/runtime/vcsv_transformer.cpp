@@ -32,6 +32,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
+#include "util/faststring.h"
 #include "util/mysql_global.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -60,12 +61,14 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
-                                 std::string_view line_delimiter, bool with_bom)
+                                 std::string_view line_delimiter, bool with_bom,
+                                 TFileCompressType::type compress_type)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_separator(column_separator),
           _line_delimiter(line_delimiter),
           _file_writer(file_writer),
-          _with_bom(with_bom) {
+          _with_bom(with_bom),
+          _compress_type(compress_type) {
     if (header.size() > 0) {
         _csv_header = header;
         if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
@@ -77,11 +80,18 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VCSVTransformer::open() {
+    RETURN_IF_ERROR(get_block_compression_codec(_compress_type, &_compress_codec));
     if (_with_bom) {
+        if (_compress_codec) {
+            return Status::InternalError("compressed csv with bom is not supported yet");
+        }
         RETURN_IF_ERROR(
                 _file_writer->append(Slice(reinterpret_cast<const char*>(bom), sizeof(bom))));
     }
     if (!_csv_header.empty()) {
+        if (_compress_codec) {
+            return Status::InternalError("compressed csv with header is not supported yet");
+        }
         return _file_writer->append(Slice(_csv_header.data(), _csv_header.size()));
     }
     return Status::OK();
@@ -124,8 +134,16 @@ Status VCSVTransformer::_flush_plain_text_outstream(ColumnString& ser_col) {
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(
-            _file_writer->append(Slice(ser_col.get_chars().data(), ser_col.get_chars().size())));
+    Slice append_data(ser_col.get_chars().data(), ser_col.get_chars().size());
+
+    if (_compress_codec) {
+        faststring compressed_data;
+        RETURN_IF_ERROR(_compress_codec->compress(append_data, &compressed_data));
+        RETURN_IF_ERROR(
+                _file_writer->append(Slice(compressed_data.data(), compressed_data.size())));
+    } else {
+        RETURN_IF_ERROR(_file_writer->append(append_data));
+    }
 
     // clear the stream
     ser_col.clear();

@@ -1275,6 +1275,42 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
     return Status::OK();
 }
 
+Status get_block_compression_codec(TFileCompressType::type type, BlockCompressionCodec** codec) {
+    switch (type) {
+    case TFileCompressType::PLAIN:
+        *codec = nullptr;
+        break;
+    case TFileCompressType::GZ:
+        *codec = GzipBlockCompression::instance();
+        break;
+    case TFileCompressType::LZO:
+        *codec = LzoBlockCompression::instance();
+        break;
+    // case TFileCompressType::BZ2:
+    case TFileCompressType::LZ4FRAME:
+        *codec = Lz4BlockCompression::instance();
+        break;
+    // case TFileCompressType::DEFLATE:
+    // case TFileCompressType::LZOP:
+    case TFileCompressType::LZ4BLOCK:
+        *codec = Lz4BlockCompression::instance();
+        break;
+    case TFileCompressType::SNAPPYBLOCK:
+        *codec = SnappyBlockCompression::instance();
+        break;
+    case TFileCompressType::ZLIB:
+        *codec = ZlibBlockCompression::instance();
+        break;
+    case TFileCompressType::ZSTD:
+        *codec = ZstdBlockCompression::instance();
+        break;
+    default:
+        return Status::InternalError("unknown compression type({})", type);
+    }
+
+    return Status::OK();
+}
+
 Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
                                    BlockCompressionCodec** codec) {
     switch (parquet_codec) {

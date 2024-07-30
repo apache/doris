@@ -19,8 +19,6 @@
 
 #include <aws/s3/model/CompletedPart.h>
 
-#include <utility>
-
 #include "io/file_factory.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
@@ -41,7 +39,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
                                            int file_name_index,
                                            TFileFormatType::type file_format_type,
                                            TFileCompressType::type hive_compress_type,
-                                           const THiveSerDeProperties &hive_serde_properties,
+                                           const THiveSerDeProperties& hive_serde_properties,
                                            const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
