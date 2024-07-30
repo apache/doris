@@ -80,8 +80,9 @@ private:
  *    b. clear old version of version 3->4
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
  *    d. change some agg function nullable property: PR #37215
+ *    e. change variant serde to fix PR #38413
  */
-constexpr inline int BeExecVersionManager::max_be_exec_version = 5;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 6;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
 
 /// functional
@@ -89,5 +90,6 @@ constexpr inline int BITMAP_SERDE = 3;
 constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
 constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
 constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
+constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
 
 } // namespace doris
