@@ -255,7 +255,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // This kind of function is often used to change the attributes of columns.
         // Folding will make it impossible to construct columns such as nullable(1).
-        if (expr instanceof Nullable || expr instanceof NonNullable ) {
+        if (expr instanceof Nullable || expr instanceof NonNullable) {
             return true;
         }
 
