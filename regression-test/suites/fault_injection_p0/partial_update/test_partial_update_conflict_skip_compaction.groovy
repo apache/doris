@@ -37,9 +37,9 @@ import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_partial_update_skip_compaction", "nonConcurrent") {
+suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
 
-    def table1 = "test_partial_update_skip_compaction"
+    def table1 = "test_partial_update_conflict_skip_compaction"
     sql "DROP TABLE IF EXISTS ${table1} FORCE;"
     sql """ CREATE TABLE IF NOT EXISTS ${table1} (
             `k1` int NOT NULL,
@@ -78,7 +78,6 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         Assert.assertEquals(code, 0)
         def jsonMeta = parseJson(out.trim())
 
-        logger.info("check size: ${jsonMeta.rs_metas.size()} v.s ${expected_rs_meta_size}")
         Assert.assertEquals(jsonMeta.rs_metas.size(), expected_rs_meta_size)
         for (def meta : jsonMeta.rs_metas) {
             int startVersion = meta.start_version
@@ -109,10 +108,21 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         // block the partial update before publish phase
         GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [tablet_id: "${tabletId}"])
         GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+
+        // the first partial update load
         def t1 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
+        }
+
+        Thread.sleep(200)
+
+        // the second partial update load that has conflict with the first one
+        def t2 = Thread.start {
+            sql "set enable_unique_key_partial_update=true;"
+            sql "sync;"
+            sql "insert into ${table1}(k1,c3,c4) values(1,666,666),(3,555,555);"
         }
 
         // trigger full compaction on tablet
@@ -144,19 +154,28 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
             Assert.assertEquals(overlapPb, "NONOVERLAPPING")
         })
 
-        // let the partial update load publish
+        GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait")
         GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+
         t1.join()
+        t2.join()
 
         order_qt_sql "select * from ${table1};"
 
-        check_rs_metas(2, {int startVersion, int endVersion, int numSegments, int numRows, String overlapPb ->
+        check_rs_metas(3, {int startVersion, int endVersion, int numSegments, int numRows, String overlapPb ->
             if (startVersion == 5) {
-                // [5-5]
+                // the first partial update load
+                // it should skip the alignment process of rowsets produced by full compaction and
+                // should not generate new segment in publish phase
                 Assert.assertEquals(endVersion, 5)
-                // checks that partial update skips the alignment process of rowsets produced by compaction and
-                // doesn't generate new segment in publish phase
                 Assert.assertEquals(numSegments, 1)
+                Assert.assertEquals(numRows, 2)
+            } else if (startVersion == 6) {
+                // the first partial update load
+                // it should skip the alignment process of rowsets produced by full compaction and
+                // should generate new segment in publish phase for conflicting rows with the first partial update load
+                Assert.assertEquals(endVersion, 6)
+                Assert.assertEquals(numSegments, 2)
             }
         })
         
@@ -167,5 +186,5 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 
-    sql "DROP TABLE IF EXISTS ${table1};"
+    // sql "DROP TABLE IF EXISTS ${table1};"
 }
