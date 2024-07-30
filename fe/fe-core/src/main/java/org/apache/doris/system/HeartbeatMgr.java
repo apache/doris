@@ -23,6 +23,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
@@ -108,7 +109,14 @@ public class HeartbeatMgr extends MasterDaemon {
         List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
         // send backend heartbeat
-        for (Backend backend : nodeMgr.getIdToBackend().values()) {
+        List<Backend> bes;
+        try {
+            bes = nodeMgr.getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("can not get backends", e);
+            return;
+        }
+        for (Backend backend : bes) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
         }

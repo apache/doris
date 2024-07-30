@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -80,7 +81,13 @@ public class StatisticAction extends RestBaseController {
 
     private long getDiskOccupancy(SystemInfoService infoService) {
         long diskOccupancy = 0;
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends;
+        try {
+            backends = infoService.getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("failed to get backends by current cluster", e);
+            return 0;
+        }
         for (Backend be : backends) {
             diskOccupancy += be.getDataUsedCapacityB();
         }
@@ -89,7 +96,13 @@ public class StatisticAction extends RestBaseController {
 
     private long getRemainDisk(SystemInfoService infoService) {
         long remainDisk = 0;
-        List<Backend> backends = infoService.getAllBackends();
+        List<Backend> backends;
+        try {
+            backends = infoService.getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("failed to get backends by current cluster", e);
+            return 0;
+        }
         for (Backend be : backends) {
             remainDisk += be.getAvailableCapacityB();
         }
