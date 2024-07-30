@@ -45,9 +45,10 @@ public:
     virtual TFileScanRangeParams* get_params() = 0;
 
 protected:
-    void _merge_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+    template <typename T>
+    void _merge_ranges(std::vector<T>& merged_ranges, const std::vector<T>& scan_ranges) {
         if (scan_ranges.size() <= _max_scanners) {
-            _scan_ranges = scan_ranges;
+            merged_ranges = scan_ranges;
             return;
         }
 
@@ -55,15 +56,15 @@ protected:
         // scan_ranges is sorted by path(as well as partition path) in FE, so merge scan ranges in order.
         // In the insert statement, reading data in partition order can reduce the memory usage of BE
         // and prevent the generation of smaller tables.
-        _scan_ranges.resize(_max_scanners);
+        merged_ranges.resize(_max_scanners);
         int num_ranges = scan_ranges.size() / _max_scanners;
         int num_add_one = scan_ranges.size() - num_ranges * _max_scanners;
         int scan_index = 0;
         int range_index = 0;
         for (int i = 0; i < num_add_one; ++i) {
-            _scan_ranges[scan_index] = scan_ranges[range_index++];
+            merged_ranges[scan_index] = scan_ranges[range_index++];
             auto& ranges =
-                    _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                    merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges; j++) {
                 auto& merged_ranges =
                         scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
@@ -71,16 +72,16 @@ protected:
             }
         }
         for (int i = num_add_one; i < _max_scanners; ++i) {
-            _scan_ranges[scan_index] = scan_ranges[range_index++];
+            merged_ranges[scan_index] = scan_ranges[range_index++];
             auto& ranges =
-                    _scan_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                    merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges - 1; j++) {
                 auto& merged_ranges =
                         scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
                 ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
             }
         }
-        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
+        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << merged_ranges.size();
     }
 
 protected:
@@ -101,10 +102,9 @@ private:
     int _range_index = 0;
 
 public:
-    LocalSplitSourceConnector(const std::vector<TScanRangeParams>& scan_ranges, int max_scanners)
-            : _max_scanners(max_scanners) {
-        _merge_ranges(scan_ranges);
-        ,
+    LocalSplitSourceConnector(const std::vector<TScanRangeParams>& scan_ranges, int max_scanners) {
+        _max_scanners = max_scanners;
+        _merge_ranges<TScanRangeParams>(_scan_ranges, scan_ranges);
     }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
@@ -147,8 +147,9 @@ public:
             : _state(state),
               _get_split_timer(get_split_timer),
               _split_source_id(split_source_id),
-              _num_splits(num_splits),
-              _max_scanners(max_scanners) {}
+              _num_splits(num_splits) {
+        _max_scanners = max_scanners;
+    }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
