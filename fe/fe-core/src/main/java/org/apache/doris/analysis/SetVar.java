@@ -180,8 +180,8 @@ public class SetVar {
         }
 
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)
-                ||getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)
-                ||getVariable().equalsIgnoreCase(SessionVariable.FILE_SPLIT_SIZE)) {
+                || getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)
+                || getVariable().equalsIgnoreCase(SessionVariable.FILE_SPLIT_SIZE)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;
         }
