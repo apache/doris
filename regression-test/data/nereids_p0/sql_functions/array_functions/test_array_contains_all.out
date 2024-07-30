@@ -100,3 +100,83 @@ false
 \N
 \N
 
+-- !select28 --
+false
+false
+false
+\N
+false
+true
+
+-- !select29 --
+false	[null]
+false	["a", "b", "c"]
+false	["aa", "bb", "cc", "dd"]
+\N	\N
+false	["asdasd"]
+true	[]
+
+-- !select30 --
+false
+true
+false
+\N
+false
+true
+
+-- !select31 --
+false
+true
+false
+\N
+false
+true
+
+-- !select32 --
+false
+true
+false
+\N
+false
+true
+
+-- !select33 --
+false
+false
+false
+\N
+true
+true
+
+-- !select34 --
+false
+false
+false
+true
+true
+false
+
+-- !select35 --
+false
+true
+false
+true
+false
+false
+
+-- !select36 --
+false	[null]
+true	[1.220, 1.330, 1.440]
+false	[0.220, 0.330, 0.440]
+true	[]
+false	[1233434.234]
+true	[9999.099, 32434.123]
+
+-- !select37 --
+\N
+\N
+\N
+\N
+\N
+\N
+

@@ -87,4 +87,39 @@ suite("test_array_contains_all") {
     qt_select26 "select array_contains_all(array_col1,array_col1) from test_array_contains_all_2 order by id;"
     qt_select27 "select array_contains_all(array_col2,array_col1) from test_array_contains_all_2 order by id;"
     qt_select27 "select array_contains_all(array_col2,null) from test_array_contains_all_2 order by id;"
+
+    sql """DROP TABLE IF EXISTS test_array_string_decimal"""
+    sql """
+            CREATE TABLE IF NOT EXISTS test_array_string_decimal (
+              `k1` int(11) NULL COMMENT "",
+              `str` ARRAY<string> NULL COMMENT "",
+              `decimal_col` ARRAY<decimal(10,3)> NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            );
+    """
+    sql """
+      insert into test_array_string_decimal values
+          (1,[null],[null]),
+          (2,['a','b','c'],[1.22,1.33,1.44]),
+          (3,['aa','bb','cc','dd'],[0.22,0.33,0.44]),
+          (4,null,[]),
+          (5,['asdasd'],[1233434.234]),
+          (6,[],[9999.099,32434.123]);
+    """
+    qt_select28 "select array_contains_all([],str) from test_array_string_decimal order by k1;"
+    qt_select29 "select array_contains_all(['a'],str), str from test_array_string_decimal order by k1;"
+    qt_select30 "select array_contains_all(['a','b','c'],str) from test_array_string_decimal order by k1;"
+    qt_select31 "select array_contains_all(['a','b','c','d'],str) from test_array_string_decimal order by k1;"
+    qt_select32 "select array_contains_all(['q,','a','b','c','d'],str) from test_array_string_decimal order by k1;"
+    qt_select33 "select array_contains_all(['q,','a','asdasd','c','d'],str) from test_array_string_decimal order by k1;"
+    qt_select34 "select array_contains_all([1233434.234],decimal_col) from test_array_string_decimal order by k1;"
+    qt_select35 "select array_contains_all([1.22,1.33,1.44,12.3,123.2],decimal_col) from test_array_string_decimal order by k1;"
+    qt_select36 "select array_contains_all([1.22,1.33,1.44,9999.099,32434.123,12.3,123.2],decimal_col),decimal_col from test_array_string_decimal order by k1;"
+    qt_select37 "select array_contains_all(null,decimal_col) from test_array_string_decimal order by k1;"
+
 }
