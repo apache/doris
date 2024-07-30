@@ -17,6 +17,7 @@
 
 #include "s3_file_write_bufferpool.h"
 
+#include <boost/core/noncopyable.hpp>
 #include <chrono>
 #include <cstring>
 
@@ -29,13 +30,48 @@
 
 namespace doris {
 namespace io {
+
+bvar::Adder<uint64_t> s3_file_buffer_allocated("s3_file_buffer_allocated");
+
+template <typename Allocator = Allocator<false, false, false>>
+struct Memory : boost::noncopyable, Allocator {
+    Memory() = default;
+    explicit Memory(size_t size) : _size(size) {
+        alloc(size);
+        s3_file_buffer_allocated << 1;
+    }
+    ~Memory() {
+        dealloc();
+        s3_file_buffer_allocated << -1;
+    }
+    void alloc(size_t size) { _data = static_cast<char*>(Allocator::alloc(size, 0)); }
+    void dealloc() {
+        if (_data == nullptr) {
+            return;
+        }
+        Allocator::free(_data, _size);
+        _data = nullptr;
+    }
+    size_t _size;
+    char* _data;
+};
+
+struct S3FileBuffer::PartData {
+    Memory<> _memory;
+    PartData() : _memory(config::s3_write_buffer_size) {}
+    ~PartData() = default;
+};
+
+S3FileBuffer::S3FileBuffer(ThreadPool* pool)
+        : _inner_data(std::make_unique<S3FileBuffer::PartData>()), _thread_pool(pool) {}
+
+S3FileBuffer::~S3FileBuffer() = default;
+
 void S3FileBuffer::on_finished() {
-    if (_buf.empty()) {
+    if (nullptr == _inner_data) {
         return;
     }
     reset();
-    S3FileBufferPool::GetInstance()->reclaim(_buf);
-    _buf.clear();
 }
 
 // when there is memory preserved, directly write data to buf
@@ -45,74 +81,31 @@ Status S3FileBuffer::append_data(const Slice& data) {
     Defer defer {[&] { _size += data.get_size(); }};
     while (true) {
         // if buf is not empty, it means there is memory preserved for this buf
-        if (!_buf.empty()) {
-            memcpy(_buf.data + _size, data.get_data(), data.get_size());
+        if (_inner_data != nullptr) {
+            memcpy(_inner_data->_memory._data + _size, data.get_data(), data.get_size());
             break;
         } else {
-            // wait allocate buffer pool
-            auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
-            if (tmp->get_size() == 0) {
-                return Status::InternalError("Failed to allocate s3 writer buffer for {} seconds",
-                                             config::s3_writer_buffer_allocation_timeout_second);
-            }
-            rob_buffer(tmp);
+            return Status::InternalError("Failed to allocate s3 writer buffer");
         }
     }
     return Status::OK();
 }
 
 void S3FileBuffer::submit() {
-    if (LIKELY(!_buf.empty())) {
-        _stream_ptr = std::make_shared<StringViewStream>(_buf.data, _size);
+    if (LIKELY(nullptr != _inner_data)) {
+        _stream_ptr = std::make_shared<StringViewStream>(_inner_data->_memory._data, _size);
     }
 
     _thread_pool->submit_func([buf = this->shared_from_this()]() { buf->_on_upload(); });
 }
 
-void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
-                            doris::ThreadPool* thread_pool) {
-    // the nums could be one configuration
-    size_t buf_num = s3_write_buffer_whole_size / s3_write_buffer_size;
-    DCHECK((s3_write_buffer_size >= 5 * 1024 * 1024) &&
-           (s3_write_buffer_whole_size > s3_write_buffer_size));
-    LOG_INFO("S3 file buffer pool with {} buffers", buf_num);
-    _whole_mem_buffer = std::make_unique<char[]>(s3_write_buffer_whole_size);
-    for (size_t i = 0; i < buf_num; i++) {
-        Slice s {_whole_mem_buffer.get() + i * s3_write_buffer_size,
-                 static_cast<size_t>(s3_write_buffer_size)};
-        _free_raw_buffers.emplace_back(s);
-    }
+void S3FileBufferPool::init(doris::ThreadPool* thread_pool) {
     _thread_pool = thread_pool;
 }
 
-std::shared_ptr<S3FileBuffer> S3FileBufferPool::allocate(bool reserve) {
-    std::shared_ptr<S3FileBuffer> buf = std::make_shared<S3FileBuffer>(_thread_pool);
-    int64_t timeout = config::s3_writer_buffer_allocation_timeout_second;
-    // if need reserve then we must ensure return buf with memory preserved
-    if (reserve) {
-        {
-            std::unique_lock<std::mutex> lck {_lock};
-            _cv.wait_for(lck, std::chrono::seconds(timeout),
-                         [this]() { return !_free_raw_buffers.empty(); });
-            if (!_free_raw_buffers.empty()) {
-                buf->reserve_buffer(_free_raw_buffers.front());
-                _free_raw_buffers.pop_front();
-            }
-        }
-        return buf;
-    }
-    // try to get one memory reserved buffer
-    {
-        std::unique_lock<std::mutex> lck {_lock};
-        if (!_free_raw_buffers.empty()) {
-            buf->reserve_buffer(_free_raw_buffers.front());
-            _free_raw_buffers.pop_front();
-        }
-    }
-    // if there is no free buffer and no need to reserve memory, we could return one empty buffer
-    // if the buf has no memory reserved, it would try to write the data to file cache first
-    // or it would try to rob buffer from other S3FileBuffer
-    return buf;
+Status S3FileBufferPool::allocate(std::shared_ptr<S3FileBuffer>* buf) {
+    RETURN_IF_CATCH_EXCEPTION(*buf = std::make_shared<S3FileBuffer>(_thread_pool));
+    return Status::OK();
 }
 } // namespace io
 } // namespace doris
