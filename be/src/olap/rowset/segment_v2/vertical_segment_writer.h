@@ -143,6 +143,9 @@ private:
     // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
+    std::string _full_encode_keys(
+            const std::vector<const KeyCoder*>& key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);
@@ -156,6 +159,13 @@ private:
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos,
                                  const vectorized::Block* block);
+    Status _generate_primary_key_index(
+            const std::vector<const KeyCoder*>& primary_key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+                                     size_t num_rows, const std::vector<size_t>& short_key_pos);
+    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
 
 private:
     uint32_t _segment_id;
@@ -180,7 +190,10 @@ private:
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
+    // for mow table with cluster keys, this is primary keys
+    std::vector<const KeyCoder*> _primary_key_coders;
     const KeyCoder* _seq_coder = nullptr;
+    const KeyCoder* _rowid_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
 

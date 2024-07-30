@@ -66,8 +66,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         RETURN_IF_ERROR(_parse_variant_columns(flush_block));
     }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
-    if (config::enable_vertical_segment_writer &&
-        _context.tablet_schema->cluster_key_idxes().empty()) {
+    if (config::enable_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
