@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -205,20 +207,22 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         }
     }
 
-    // some expressions should not do constant folding
+    // Some expressions should not do constant folding
     private static boolean shouldSkipFold(Expression expr) {
-        // skip literal expr
+        // Skip literal expr
         if (expr.isLiteral()) {
             return true;
         }
 
-        // eg: avg_state(1) return is agg function serialize data
-        // and some type can't find a literal to represent.
-        // time type: need add a time literal in nereids
-        // IPv6 type: need get a library to output the compressed address format
+        // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
                 || expr.getDataType().isIPv6Type()) {
+            return true;
+        }
+
+        // Frontend can not represent geo types
+        if (expr instanceof BoundFunction && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
             return true;
         }
 
@@ -243,14 +247,15 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // frontend can not represent geo types
-        if (expr instanceof BoundFunction && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
-            return true;
-        }
-
         // Do not constant fold cast(null as dataType) because we cannot preserve the
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof Cast && ((Cast) expr).child().isNullLiteral()) {
+            return true;
+        }
+
+        // This kind of function is often used to change the attributes of columns.
+        // Folding will make it impossible to construct columns such as nullable(1).
+        if (expr instanceof Nullable || expr instanceof NonNullable ) {
             return true;
         }
 
