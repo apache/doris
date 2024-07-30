@@ -89,6 +89,11 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override;
+
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
                          ::google::protobuf::Closure* done) override;
@@ -354,6 +359,14 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_txn_with_coordinator, controller, request, response,
+                  done);
     }
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
