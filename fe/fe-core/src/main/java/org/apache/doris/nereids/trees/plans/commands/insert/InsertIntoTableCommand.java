@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -86,6 +87,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
         this.cte = cte;
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     public Optional<String> getLabelName() {
@@ -253,5 +258,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             return true;
         }
         return false;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

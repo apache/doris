@@ -36,6 +36,13 @@
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
+namespace orc {
+class MemoryPool;
+}
+namespace arrow {
+class MemoryPool;
+}
+
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
@@ -305,6 +312,9 @@ public:
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
 
+    orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
+    arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
+
 private:
     ExecEnv();
 
@@ -435,6 +445,9 @@ private:
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
     doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    orc::MemoryPool* _orc_memory_pool = nullptr;
+    arrow::MemoryPool* _arrow_memory_pool = nullptr;
 };
 
 template <>

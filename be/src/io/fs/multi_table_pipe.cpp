@@ -326,6 +326,19 @@ void MultiTablePipe::_handle_consumer_finished() {
     _ctx->number_filtered_rows = _number_filtered_rows;
     _ctx->number_unselected_rows = _number_unselected_rows;
     _ctx->commit_infos = _tablet_commit_infos;
+
+    // remove ctx to avoid memory leak.
+    for (const auto& pair : _planned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+    for (const auto& pair : _unplanned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+
     LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
               << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
               << " number_filtered_rows=" << _ctx->number_filtered_rows

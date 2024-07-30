@@ -36,7 +36,6 @@
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
-#include "http/action/clear_file_cache_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
@@ -57,6 +56,7 @@
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/show_hotspot_action.h"
+#include "http/action/show_nested_index_file_action.h"
 #include "http/action/shrink_mem_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
@@ -208,9 +208,6 @@ Status HttpService::start() {
             _pool.add(new MetaAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
 
-    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
-
     ConfigAction* update_config_action =
             _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
@@ -303,9 +300,8 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/file_cache", file_cache_action);
 
     TabletsDistributionAction* tablets_distribution_action =
             _pool.add(new TabletsDistributionAction(_env, engine, TPrivilegeHier::GLOBAL,
@@ -377,6 +373,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -400,15 +401,19 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
 }
 // NOLINTEND(readability-function-size)
 
