@@ -379,7 +379,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 }
             } else {
                 for (int slotIdx = 0; slotIdx < union.getRegularChildOutput(i).size(); slotIdx++) {
-                    originChildSlotToUnion.put(child.getOutput().get(slotIdx), union.getOutput().get(slotIdx));
+                    originChildSlotToUnion.put(union.getRegularChildOutput(i).get(slotIdx), union.getOutput().get(slotIdx));
                 }
             }
 
