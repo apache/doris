@@ -723,4 +723,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     public String toSql() {
         return null;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

@@ -303,6 +303,10 @@ public class Coordinator implements CoordInterface {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 
+    public long getNumReceivedRows() {
+        return numReceivedRows;
+    }
+
     public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
         return tWorkloadGroups;
     }
@@ -362,7 +366,12 @@ public class Coordinator implements CoordInterface {
         }
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
-        this.executionProfile = new ExecutionProfile(queryId, fragments);
+
+        List<Integer> fragmentIds = new ArrayList<>();
+        for (PlanFragment fragment : fragments) {
+            fragmentIds.add(fragment.getFragmentId().asInt());
+        }
+        this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
     }
 
     // Used for broker load task/export task/update coordinator
@@ -382,7 +391,12 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.executionProfile = new ExecutionProfile(queryId, fragments);
+
+        List<Integer> fragmentIds = new ArrayList<>();
+        for (PlanFragment fragment : fragments) {
+            fragmentIds.add(fragment.getFragmentId().asInt());
+        }
+        this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -1187,6 +1201,14 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+            if (resultBatch.isEos()) {
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
+            }
+        } else if (resultBatch.getBatch() != null) {
+            numReceivedRows += resultBatch.getBatch().getRowsSize();
+        }
+
         if (resultBatch.isEos()) {
             receivers.remove(receivers.size() - 1);
             if (receivers.isEmpty()) {
@@ -1204,12 +1226,6 @@ public class Coordinator implements CoordInterface {
                 }
                 cancelInternal(new Status(TStatusCode.LIMIT_REACH, "query reach limit"));
             }
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-                numReceivedRows = 0;
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
-        } else if (resultBatch.getBatch() != null) {
-            numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
         return resultBatch;

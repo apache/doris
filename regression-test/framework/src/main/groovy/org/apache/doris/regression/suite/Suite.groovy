@@ -877,7 +877,7 @@ class Suite implements GroovyInterceptable {
                 if (exitcode != 0) {
                     staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
                     if (mustSuc == true) {
-                       Assert.assertEquals(0, exitCode)
+                       Assert.assertEquals(0, exitcode)
                     }
                 }
             } catch (IOException e) {

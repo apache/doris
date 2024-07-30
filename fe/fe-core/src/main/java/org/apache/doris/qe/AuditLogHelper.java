@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -242,6 +243,9 @@ public class AuditLogHelper {
         } else {
             auditEventBuilder.setStmt(origStmt);
         }
+
+        auditEventBuilder.setStmtType(getStmtType(parsedStmt));
+
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {
                 auditEventBuilder.setState(ctx.executor.getProxyStatus());
@@ -253,5 +257,19 @@ public class AuditLogHelper {
             }
         }
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
+    }
+
+    private static String getStmtType(StatementBase stmt) {
+        if (stmt == null) {
+            return StmtType.OTHER.name();
+        }
+        if (stmt.isExplain()) {
+            return StmtType.EXPLAIN.name();
+        }
+        if (stmt instanceof LogicalPlanAdapter) {
+            return ((LogicalPlanAdapter) stmt).getLogicalPlan().stmtType().name();
+        } else {
+            return stmt.stmtType().name();
+        }
     }
 }

@@ -43,10 +43,13 @@
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer", "total_num");
-bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer", "bytes_written");
-bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer", "file_created");
-bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer", "file_being_written");
+bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
+bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
+bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer_file_created");
+bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer_file_being_written");
+bvar::Adder<uint64_t> s3_file_writer_async_close_queuing("s3_file_writer_async_close_queuing");
+bvar::Adder<uint64_t> s3_file_writer_async_close_processing(
+        "s3_file_writer_async_close_processing");
 
 S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
                            std::string key, const FileWriterOptions* opts)
@@ -141,8 +144,13 @@ Status S3FileWriter::close(bool non_block) {
         _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
-        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
-                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+        s3_file_writer_async_close_queuing << 1;
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
+            s3_file_writer_async_close_queuing << -1;
+            s3_file_writer_async_close_processing << 1;
+            _async_close_pack->promise.set_value(_close_impl());
+            s3_file_writer_async_close_processing << -1;
+        });
     }
     _st = _close_impl();
     _state = State::CLOSED;

@@ -82,4 +82,9 @@ public class CancelBackupStmt extends CancelStmt {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
+    }
 }

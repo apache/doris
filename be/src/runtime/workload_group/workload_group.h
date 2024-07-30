@@ -40,6 +40,7 @@ class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
 class QueryContext;
+class IOThrottle;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
@@ -189,6 +190,10 @@ public:
 
     std::string thread_debug_info();
 
+    std::shared_ptr<IOThrottle> get_scan_io_throttle(const std::string& disk_dir);
+
+    void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -209,6 +214,8 @@ private:
     std::atomic<int> _min_remote_scan_thread_num;
     std::atomic<int> _spill_low_watermark;
     std::atomic<int> _spill_high_watermark;
+    std::atomic<int64_t> _scan_bytes_per_second {-1};
+    std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -222,6 +229,9 @@ private:
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
+
+    std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
+    std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
@@ -240,6 +250,8 @@ struct WorkloadGroupInfo {
     const int min_remote_scan_thread_num = 0;
     const int spill_low_watermark = 0;
     const int spill_high_watermark = 0;
+    const int read_bytes_per_second = -1;
+    const int remote_read_bytes_per_second = -1;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

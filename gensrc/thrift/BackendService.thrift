@@ -266,6 +266,8 @@ struct TWorkloadGroupInfo {
   11: optional i32 min_remote_scan_thread_num
   12: optional i32 spill_threshold_low_watermark
   13: optional i32 spill_threshold_high_watermark
+  14: optional i64 read_bytes_per_second
+  15: optional i64 remote_read_bytes_per_second
 }
 
 enum TWorkloadMetricType {
@@ -331,18 +333,6 @@ struct TGetRealtimeExecStatusRequest {
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
-}
-
-struct TGetBeResourceRequest {
-}
-
-struct TGlobalResourceUsage {
-    1: optional i64 mem_limit
-    2: optional i64 mem_usage
-}
-
-struct TGetBeResourceResult {
-    1: optional TGlobalResourceUsage global_resource_usage
 }
 
 service BackendService {
@@ -413,6 +403,4 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
-
-    TGetBeResourceResult get_be_resource(1: TGetBeResourceRequest request);
 }

@@ -69,4 +69,9 @@ public class DropRoleStmt extends DdlStmt {
     public String toSql() {
         return "DROP ROLE " + role;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

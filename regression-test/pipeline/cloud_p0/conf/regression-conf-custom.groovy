@@ -54,9 +54,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/cache," +
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
-    "unique_with_mow_p0/cluster_key," +
-    "unique_with_mow_p0/ssb_unique_sql_zstd_cluster," +
-    "unique_with_mow_p0/ssb_unique_load_zstd_c," +
+    "unique_with_mow_c_p0," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +
@@ -76,4 +74,4 @@ enableKafkaTest=true
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 
-s3Provider = "COS"
+s3Source = "aliyun"
