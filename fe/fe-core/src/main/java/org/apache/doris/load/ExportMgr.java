@@ -145,7 +145,7 @@ public class ExportMgr {
 
     public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
         if (jobs.size() > 1) {
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), ctlName, dbName,
                             PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
@@ -156,7 +156,7 @@ public class ExportMgr {
             if (tableName == null) {
                 return;
             }
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), ctlName, dbName,
                             tableName.getTbl(),
                             PrivPredicate.SELECT)) {
