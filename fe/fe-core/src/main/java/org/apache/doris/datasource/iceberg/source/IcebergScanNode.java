@@ -275,10 +275,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     public Long getSpecifiedSnapshot() throws UserException {
-        TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
-        if (tableSnapshot == null) {
-            tableSnapshot = this.tableSnapshot;
-        }
+        TableSnapshot tableSnapshot = getQueryTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -440,9 +437,5 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
-    }
-
-    public void setTableSnapshot(TableSnapshot tableSnapshot) {
-        this.tableSnapshot = tableSnapshot;
     }
 }
