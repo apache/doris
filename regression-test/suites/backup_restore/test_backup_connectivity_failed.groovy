@@ -21,8 +21,8 @@ suite("test_backup_restore", "connectivity_failed") {
     def prefix = "useless_prefix"
     def endpoint = getS3Endpoint()
     def region = getS3Region()
-    def ak = getS3Ak()
-    def sk = getS3Sk()
+    def ak = getS3AK()
+    def sk = getS3SK()
     expectExceptionLike({
         sql """
             CREATE REPOSITORY `${name}`
