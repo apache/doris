@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -277,14 +276,7 @@ public abstract class MaterializationContext {
         return originalPlan;
     }
 
-    public Plan getScanPlan() {
-        return scanPlan;
-    }
-
-    public Plan getScanPlan(List<Long> selectPartitions) {
-        if (scanPlan instanceof LogicalOlapScan) {
-            return ((LogicalOlapScan) scanPlan).withSelectedPartitionIds(selectPartitions);
-        }
+    public Plan getScanPlan(StructInfo queryStructInfo) {
         return scanPlan;
     }
 

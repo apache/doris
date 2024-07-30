@@ -110,7 +110,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null)
+                .collectFirst(LogicalOlapScan.class::isInstance);
         if (logicalOlapScan.isPresent()) {
             relationId = logicalOlapScan.get().getRelationId();
         }
@@ -130,7 +131,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
         );
     }
 
-    public Plan getScanPlan() {
+    @Override
+    public Plan getScanPlan(StructInfo queryInfo) {
         return scanPlan;
     }
 

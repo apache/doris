@@ -99,11 +99,27 @@ public class SyncMaterializationContext extends MaterializationContext {
     @Override
     Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext) {
         RelationId relationId = null;
-        Optional<LogicalOlapScan> scanObj = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        Optional<LogicalOlapScan> scanObj = this.getScanPlan(null)
+                .collectFirst(LogicalOlapScan.class::isInstance);
         if (scanObj.isPresent()) {
             relationId = scanObj.get().getRelationId();
         }
         return Optional.of(Pair.of(relationId, normalizeStatisticsColumnExpression(statistics)));
+    }
+
+    @Override
+    public Plan getScanPlan(StructInfo queryStructInfo) {
+        if (queryStructInfo == null) {
+            return scanPlan;
+        }
+        if (queryStructInfo.getRelations().size() == 1
+                && queryStructInfo.getRelations().get(0) instanceof LogicalOlapScan
+                && !((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds().isEmpty()
+                && scanPlan instanceof LogicalOlapScan) {
+            return ((LogicalOlapScan) scanPlan).withSelectedPartitionIds(
+                    ((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds());
+        }
+        return scanPlan;
     }
 
     /**

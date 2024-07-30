@@ -233,14 +233,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Plan rewrittenPlan;
-            Plan mvScan = materializationContext.getScanPlan();
-            if (materializationContext instanceof SyncMaterializationContext
-                    && queryStructInfo.getRelations().size() == 1
-                    && queryStructInfo.getRelations().get(0) instanceof LogicalOlapScan
-                    && !((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds().isEmpty()) {
-                mvScan = materializationContext.getScanPlan(
-                        ((LogicalOlapScan) queryStructInfo.getRelations().get(0)).getSelectedPartitionIds());
-            }
+            Plan mvScan = materializationContext.getScanPlan(queryStructInfo);
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
