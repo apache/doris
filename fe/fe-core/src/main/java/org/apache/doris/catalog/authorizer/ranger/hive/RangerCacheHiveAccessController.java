@@ -17,14 +17,31 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
+import org.apache.doris.catalog.authorizer.ranger.cache.CatalogCacheAccessController;
+import org.apache.doris.catalog.authorizer.ranger.cache.RangerCache;
+import org.apache.doris.catalog.authorizer.ranger.cache.RangerCacheInvalidateListener;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 
 import java.util.Map;
 
-public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
+public class RangerCacheHiveAccessController extends CatalogCacheAccessController {
+
+    private CatalogAccessController proxyController;
+    private RangerCache cache;
+
+    public RangerCacheHiveAccessController(Map<String, String> properties) {
+        this.cache = new RangerCache();
+        this.proxyController = new RangerHiveAccessController(properties, new RangerCacheInvalidateListener(cache));
+        this.cache.init(proxyController);
+    }
+
     @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
+    public CatalogAccessController getProxyController() {
+        return proxyController;
+    }
+
+    @Override
+    public RangerCache getCache() {
+        return cache;
     }
 }
