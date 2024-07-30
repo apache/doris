@@ -15,24 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.Date
-import java.text.SimpleDateFormat
-import org.apache.http.HttpResponse
-import org.apache.http.client.methods.HttpPut
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.entity.ContentType
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.config.RequestConfig
-import org.apache.http.client.RedirectStrategy
-import org.apache.http.protocol.HttpContext
-import org.apache.http.HttpRequest
-import org.apache.http.impl.client.LaxRedirectStrategy
-import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.methods.CloseableHttpResponse
-import org.apache.http.util.EntityUtils
-import org.apache.doris.regression.suite.ClusterOptions
 import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
@@ -106,8 +88,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         // block the partial update before publish phase
-        GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [tablet_id: "${tabletId}"])
-        GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
 
         // the first partial update load
         def t1 = Thread.start {
@@ -116,7 +97,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
 
-        Thread.sleep(200)
+        Thread.sleep(300)
 
         // the second partial update load that has conflict with the first one
         def t2 = Thread.start {
@@ -124,6 +105,8 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c3,c4) values(1,666,666),(3,555,555);"
         }
+
+        Thread.sleep(300)
 
         // trigger full compaction on tablet
         logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
@@ -134,7 +117,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
         Assert.assertEquals("success", compactJson.status.toLowerCase())
 
         // wait for full compaction to complete
-        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
             {
                 (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
@@ -154,8 +137,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
             Assert.assertEquals(overlapPb, "NONOVERLAPPING")
         })
 
-        GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait")
-        GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
 
         t1.join()
         t2.join()
@@ -169,13 +151,14 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
                 // should not generate new segment in publish phase
                 Assert.assertEquals(endVersion, 5)
                 Assert.assertEquals(numSegments, 1)
-                Assert.assertEquals(numRows, 2)
+                Assert.assertEquals(numRows, 3)
             } else if (startVersion == 6) {
                 // the first partial update load
                 // it should skip the alignment process of rowsets produced by full compaction and
                 // should generate new segment in publish phase for conflicting rows with the first partial update load
                 Assert.assertEquals(endVersion, 6)
                 Assert.assertEquals(numSegments, 2)
+                Assert.assertEquals(numRows, 4) // 4 = 2 + 2
             }
         })
         

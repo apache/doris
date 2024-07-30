@@ -1192,16 +1192,6 @@ void BaseTablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete
 
 Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                         int64_t txn_id, int64_t txn_expiration) {
-    DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.enable_spin_wait", {
-        auto block_tablet_id = dp->param<int64_t>("tablet_id");
-        LOG_INFO(
-                "BaseTablet::update_delete_bitmap.enable_spin_wait, self->table_id()={}, "
-                "block_tablet_id={}",
-                self->tablet_id(), block_tablet_id);
-        if (self->tablet_id() == block_tablet_id) {
-            DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.block", DBUG_BLOCK);
-        }
-    });
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -1262,10 +1252,12 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     if (is_partial_update) {
         int64_t max_version_in_flush_phase =
                 txn_info->partial_update_info->max_version_in_flush_phase;
+        LOG_INFO("BaseTablet::update_delete_bitmap, max_version_in_flush_phase={}",
+                 max_version_in_flush_phase);
         DCHECK(max_version_in_flush_phase != -1);
         std::vector<RowsetSharedPtr> remained_rowsets;
         for (const auto& rowset : specified_rowsets) {
-            if (rowset->end_version() < max_version_in_flush_phase &&
+            if (rowset->end_version() <= max_version_in_flush_phase &&
                 rowset->produced_by_compaction()) {
                 rowsets_skip_alignment.emplace_back(rowset);
             } else {

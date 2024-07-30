@@ -15,24 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.Date
-import java.text.SimpleDateFormat
-import org.apache.http.HttpResponse
-import org.apache.http.client.methods.HttpPut
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.entity.ContentType
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.config.RequestConfig
-import org.apache.http.client.RedirectStrategy
-import org.apache.http.protocol.HttpContext
-import org.apache.http.HttpRequest
-import org.apache.http.impl.client.LaxRedirectStrategy
-import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.methods.CloseableHttpResponse
-import org.apache.http.util.EntityUtils
-import org.apache.doris.regression.suite.ClusterOptions
 import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
@@ -78,7 +60,6 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         Assert.assertEquals(code, 0)
         def jsonMeta = parseJson(out.trim())
 
-        logger.info("check size: ${jsonMeta.rs_metas.size()} v.s ${expected_rs_meta_size}")
         Assert.assertEquals(jsonMeta.rs_metas.size(), expected_rs_meta_size)
         for (def meta : jsonMeta.rs_metas) {
             int startVersion = meta.start_version
@@ -106,14 +87,15 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     try {
         GetDebugPoint().clearDebugPointsForAllBEs()
 
-        // block the partial update before publish phase
-        GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [tablet_id: "${tabletId}"])
-        GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+        // block the partial update in publish phase
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
         def t1 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
+
+        Thread.sleep(500)
 
         // trigger full compaction on tablet
         logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
@@ -124,7 +106,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         Assert.assertEquals("success", compactJson.status.toLowerCase())
 
         // wait for full compaction to complete
-        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
             {
                 (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
@@ -145,7 +127,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         })
 
         // let the partial update load publish
-        GetDebugPoint().disableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
         t1.join()
 
         order_qt_sql "select * from ${table1};"
@@ -157,6 +139,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
                 // checks that partial update skips the alignment process of rowsets produced by compaction and
                 // doesn't generate new segment in publish phase
                 Assert.assertEquals(numSegments, 1)
+                Assert.assertEquals(numRows, 3)
             }
         })
         

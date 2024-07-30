@@ -111,6 +111,7 @@ Status EnginePublishVersionTask::execute() {
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.block", DBUG_BLOCK);
     std::unique_ptr<ThreadPoolToken> token = _engine.tablet_publish_txn_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
