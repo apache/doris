@@ -917,4 +917,29 @@ public class ProfileManager extends MasterDaemon {
         ProfileElement profileElement = queueIdDeque.poll();
         return profileElement.profile.getSummaryProfile().getProfileId();
     }
+
+    // discard profile from memory, no need to worry about on storage profile,
+    // garbage will be removed by daemon thread.
+    public void discardProfile(String profileId, boolean force) {
+        writeLock.lock();
+        try {
+            ProfileElement profileElement = queryIdToProfileMap.get(profileId);
+            if (profileElement != null) {
+                if (!force && profileElement.profile.getQueryFinishTimestamp() == Long.MAX_VALUE) {
+                    return;
+                }
+
+                for (ExecutionProfile execProfile : profileElement.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(execProfile.getQueryId());
+                }
+                queryIdToProfileMap.remove(profileId);
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Discard profile {}", profileId);
+                }
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
 }

@@ -122,6 +122,7 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -1209,6 +1210,9 @@ public class StmtExecutor {
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
+            if (isFinished && profile.canbeDiscard()) {
+                ProfileManager.getInstance().discardProfile(profile.getSummaryProfile().getProfileId(), true);
+            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }

@@ -729,9 +729,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableProfile = false;
 
     // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
-    // will be stored to disk.
+    // will be stored to disk. For queries that costs less than autoProfileThresholdMs, FE will
+    // discard its profile(and you will not see its profile), even if enableProfile is true.
+    // and backend will NOT report its profile to FE to reduce CPU and memory costs on FE.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
-    public int autoProfileThresholdMs = 500;
+    public int autoProfileThresholdMs = 50;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
@@ -3655,6 +3657,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
 
         tResult.setKeepCarriageReturn(keepCarriageReturn);
+        tResult.setAutoProfileThresholdMs(autoProfileThresholdMs);
         return tResult;
     }
 

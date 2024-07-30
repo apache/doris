@@ -324,6 +324,8 @@ struct TQueryOptions {
   121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
+
+  123: optional i64 auto_profile_threshold_ms = 200;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

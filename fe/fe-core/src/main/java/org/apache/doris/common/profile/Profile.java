@@ -300,7 +300,7 @@ public class Profile {
             this.setId(summaryProfile.getProfileId());
 
             if (isFinished) {
-                this.markQueryFinished(System.currentTimeMillis());
+                this.markQueryFinished();
             }
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
@@ -519,7 +519,7 @@ public class Profile {
     }
 
     // Profile IO threads races with Coordinator threads.
-    public void markQueryFinished(long queryFinishTime) {
+    public void markQueryFinished() {
         try {
             if (this.profileHasBeenStored()) {
                 LOG.error("Logical error, profile {} has already been stored to storage", this.id);
@@ -624,5 +624,20 @@ public class Profile {
 
     public long getProfileSize() {
         return this.profileSize;
+    }
+
+    // Profile can be discarded if it is finished and the total execution time is less than autoProfileDurationMs
+    public boolean canbeDiscard() {
+        if (!this.isQueryFinished) {
+            return false;
+        }
+
+        long totalExecutionMs = this.queryFinishTimestamp - this.summaryProfile.getQueryBeginTime();
+
+        if (totalExecutionMs <= autoProfileDurationMs * this.executionProfiles.size()) {
+            return true;
+        }
+
+        return false;
     }
 }
