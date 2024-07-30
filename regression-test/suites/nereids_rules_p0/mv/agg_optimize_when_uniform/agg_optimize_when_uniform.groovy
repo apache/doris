@@ -436,7 +436,7 @@ suite("agg_optimize_when_uniform") {
             count(*)
              from lineitem t1
              left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
-            where o_orderdate = '2023-12-09' and o_shippriority = 'a' and o_totalprice = 11.5
+            where o_orderdate = '2023-12-09' and o_shippriority = 1 and o_totalprice = 11.5
             group by
             l_partkey,
             o_comment;

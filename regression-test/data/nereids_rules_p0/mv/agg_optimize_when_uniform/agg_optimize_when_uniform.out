@@ -102,6 +102,7 @@ PhysicalResultSink
 yy	4	11.50	11.50	11.50	1
 
 -- !query7_1_before --
+yy	4	11.50	11.50	11.50	1
 
 -- !shape7_1_after --
 PhysicalResultSink
@@ -110,10 +111,11 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.l_orderkey = orders.o_orderkey) and (t1.l_shipdate = orders.o_orderdate)) otherCondition=()
 --------filter((t1.l_shipdate = '2023-12-09'))
 ----------PhysicalOlapScan[lineitem]
---------filter((cast(o_shippriority as DOUBLE) = cast('a' as DOUBLE)) and (orders.o_orderdate = '2023-12-09') and (orders.o_totalprice = 11.50))
+--------filter((orders.o_orderdate = '2023-12-09') and (orders.o_shippriority = 1) and (orders.o_totalprice = 11.50))
 ----------PhysicalOlapScan[orders]
 
 -- !query7_1_after --
+yy	4	11.50	11.50	11.50	1
 
 -- !query8_0_before --
 yy	4	11.50	11.50	11.50	1
