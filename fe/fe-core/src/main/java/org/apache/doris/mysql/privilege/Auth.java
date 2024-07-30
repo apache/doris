@@ -1408,21 +1408,10 @@ public class Auth implements Writable {
         userAuthInfos.add(userAuthInfo);
     }
 
-    public static boolean isAdminPriv(GlobalPrivTable userGlobalPrivTable) {
-        PrivBitSet globalPrivs = new PrivBitSet();
-        for (PrivEntry pe : userGlobalPrivTable.getEntries()) {
-            globalPrivs.or(pe.privSet);
-        }
-        if (globalPrivs.satisfy(PrivPredicate.ADMIN)) {
-            return true;
-        }
-        return false;
-    }
-
     public void getUserRoleWorkloadGroupPrivs(List<List<String>> result, UserIdentity currentUserIdentity) {
         readLock();
         try {
-            boolean isCurrentUserAdmin = isAdminPriv(getUserGlobalPrivTable(currentUserIdentity));
+            boolean isCurrentUserAdmin = checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN);
             Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
             for (List<User> users : nameToUsers.values()) {
                 for (User user : users) {
@@ -1430,8 +1419,8 @@ public class Auth implements Writable {
                         if (!isCurrentUserAdmin && !currentUserIdentity.equals(user.getUserIdentity())) {
                             continue;
                         }
-                        GlobalPrivTable userGlobalPrivTable = getUserGlobalPrivTable(user.getUserIdentity());
-                        String isGrantable = isAdminPriv(userGlobalPrivTable) ? "YES" : "NO";
+                        String isGrantable = checkGlobalPriv(user.getUserIdentity(), PrivPredicate.ADMIN) ? "YES"
+                                : "NO";
 
                         // workload group
                         for (PrivEntry entry : getUserWorkloadGroupPrivTable(user.getUserIdentity()).entries) {
