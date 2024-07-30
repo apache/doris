@@ -992,9 +992,6 @@ public class HiveMetaStoreCache {
     public static class FileCacheValue {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
-        // File split cache for old splitter. This is a temp variable.
-        @Deprecated
-        private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -1012,13 +1009,6 @@ public class HiveMetaStoreCache {
                 status.blockSize = file.getBlockSize();
                 status.modificationTime = file.getModificationTime();
                 files.add(status);
-            }
-        }
-
-        @Deprecated
-        public void addSplit(FileSplit split) {
-            if (isFileVisible(split.getPath())) {
-                splits.add(split);
             }
         }
 
