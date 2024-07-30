@@ -1215,7 +1215,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
         while (true) {
             cur = (*_array_iter).get_object();
             // extract root
-            if (!_parsed_json_root.empty()) {
+            if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
@@ -1611,6 +1611,7 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
                 fmt::format_to(error_msg, "{}", st.to_string());
                 return return_quality_error(error_msg, std::string((char*)_json_str, *size));
             }
+            _parsed_from_json_root = true;
         } catch (simdjson::simdjson_error& e) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",

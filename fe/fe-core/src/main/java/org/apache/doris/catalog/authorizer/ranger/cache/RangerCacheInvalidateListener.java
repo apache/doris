@@ -15,19 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.doris;
+package org.apache.doris.catalog.authorizer.ranger.cache;
 
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 
-public class RangerDorisPlugin extends RangerBasePlugin {
-    public RangerDorisPlugin(String serviceName) {
-        this(serviceName, null);
+public class RangerCacheInvalidateListener implements RangerAuthContextListener {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
+
+    private RangerCache cache;
+
+    public RangerCacheInvalidateListener(RangerCache cache) {
+        this.cache = cache;
     }
 
-    public RangerDorisPlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
-        super(serviceName, null, null);
-        super.init();
-        super.registerAuthContextEventListener(rangerAuthContextListener);
+    @Override
+    public void contextChanged() {
+        LOG.info("ranger context changed");
+        cache.invalidateDataMaskCache();
+        cache.invalidateRowFilterCache();
     }
 }
