@@ -18,7 +18,7 @@
 suite("map_uniq_with_local_tvf", "p0") {
     def table_name = "map_uniq"
     List<List<Object>> backends = sql """ show backends """
-    def dataFilePath = context.config.dataPath + "/types/complex_types/"
+    def dataFilePath = context.config.dataPath + "nestedtype_from_master/types/complex_types/"
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
     // cluster mode need to make sure all be has this data

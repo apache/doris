@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_agg_table", "p0") {
-    sql 'use regression_test_datatype_p0_nested_types'
+    sql 'use regression_test_nestedtype_from_master_nested_types'
 
     // test action for scala to array with scala type
     //  current we support char family to insert nested type

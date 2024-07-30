@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_dup_table", "p0") {
-    sql 'use regression_test_datatype_p0_nested_types'
+    sql 'use regression_test_nestedtype_from_master_nested_types'
 
     sql """
         truncate table `tbl_array_nested_types_dup`;

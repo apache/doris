@@ -48,7 +48,7 @@ suite("test_array_string_insert", "load") {
         sql "set enable_insert_strict = true"
 
         // ARRAY<char> too long
-        def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+        def exception_str = "Insert has filtered data in strict mode"
         test {
             sql "INSERT INTO ${testTable} VALUES (1, ['12345','123456'], [], NULL)"
             exception exception_str
