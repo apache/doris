@@ -4318,7 +4318,6 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
     }
 }
 
-
 TEST_F(BlockFileCacheTest, change_cache_type1) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
