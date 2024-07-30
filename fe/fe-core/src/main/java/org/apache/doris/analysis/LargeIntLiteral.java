@@ -38,7 +38,7 @@ import java.nio.ByteOrder;
 import java.util.Objects;
 
 // large int for the num that native types can not
-public class LargeIntLiteral extends LiteralExpr {
+public class LargeIntLiteral extends NumericLiteralExpr {
     private static final Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
 
     // -2^127
