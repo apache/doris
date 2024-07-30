@@ -77,7 +77,7 @@ suite('test_new_partial_update_delete') {
             sql "DROP TABLE IF EXISTS ${tableName1};"
             sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
                     `k1` int NOT NULL,
-                    `c1` int,
+                    `c1` int NOT NULL,
                     `c2` int,
                     `c3` int,
                     `c4` int
@@ -85,6 +85,7 @@ suite('test_new_partial_update_delete') {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
+                    "enable_unique_key_merge_on_write" = "true",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -199,6 +200,7 @@ suite('test_new_partial_update_delete') {
                 PROPERTIES (
                     "disable_auto_compaction" = "true",
                     "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "true",
                     "store_row_column" = "${use_row_store}"); """
 
             def output3 = sql "show create table ${tableName2}"
