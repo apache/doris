@@ -1192,6 +1192,16 @@ void BaseTablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete
 
 Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                         int64_t txn_id, int64_t txn_expiration) {
+    DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.enable_spin_wait", {
+        auto block_tablet_id = dp->param<int64_t>("tablet_id");
+        LOG_INFO(
+                "BaseTablet::update_delete_bitmap.enable_spin_wait, self->table_id()={}, "
+                "block_tablet_id={}",
+                self->tablet_id(), block_tablet_id);
+        if (self->tablet_id() == block_tablet_id) {
+            DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.block", DBUG_BLOCK);
+        }
+    });
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
