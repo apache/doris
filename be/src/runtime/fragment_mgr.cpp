@@ -710,7 +710,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
 #ifndef NDEBUG
     std::string str = apache::thrift::ThriftDebugString(params);
-    if (str.find("partial_histogram") != std::string::npos) {
+    if (str.find("histogram") != std::string::npos) {
         LOG_INFO("Query {}, plan\n{}", print_id(params.query_id), str);
     }
 #endif
