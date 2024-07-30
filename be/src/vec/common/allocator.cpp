@@ -40,8 +40,12 @@
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
+std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
+std::mutex RecordSizeMemoryAllocator::_mutex;
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_check(
+        size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {
         return;
@@ -155,8 +159,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_tracker_check(
+        size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {
         return;
@@ -191,24 +196,27 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_check(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_check(
+        size_t size) const {
     sys_memory_check(size);
     memory_tracker_check(size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::consume_memory(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
+        size_t size) const {
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::release_memory(size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
+        size_t size) const {
     RELEASE_THREAD_MEM_TRACKER(size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_bad_alloc(
         const std::string& err) const {
     LOG(WARNING) << err
                  << fmt::format("{}, Stacktrace: {}",
@@ -219,9 +227,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
 }
 
 #ifndef NDEBUG
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(void* buf,
-                                                                               size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_address_sanitizers(
+        void* buf, size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {
         return;
@@ -230,8 +238,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::add_address_sanitizers(v
     doris::thread_context()->thread_mem_tracker()->add_address_sanitizers(buf, size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizers(
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_address_sanitizers(
         void* buf, size_t size) const {
 #ifdef BE_TEST
     if (!doris::ExecEnv::ready()) {
@@ -242,23 +250,43 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizer
 }
 #endif
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc(size_t size,
+                                                                                size_t alignment) {
     return alloc_impl(size, alignment);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void* Allocator<clear_memory_, mmap_populate, use_mmap>::realloc(void* buf, size_t old_size,
-                                                                 size_t new_size,
-                                                                 size_t alignment) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::realloc(
+        void* buf, size_t old_size, size_t new_size, size_t alignment) {
     return realloc_impl(buf, old_size, new_size, alignment);
 }
 
-template class Allocator<true, true, true>;
-template class Allocator<true, true, false>;
-template class Allocator<true, false, true>;
-template class Allocator<true, false, false>;
-template class Allocator<false, true, true>;
-template class Allocator<false, true, false>;
-template class Allocator<false, false, true>;
-template class Allocator<false, false, false>;
+template class Allocator<true, true, true, DefaultMemoryAllocator>;
+template class Allocator<true, true, false, DefaultMemoryAllocator>;
+template class Allocator<true, false, true, DefaultMemoryAllocator>;
+template class Allocator<true, false, false, DefaultMemoryAllocator>;
+template class Allocator<false, true, true, DefaultMemoryAllocator>;
+template class Allocator<false, true, false, DefaultMemoryAllocator>;
+template class Allocator<false, false, true, DefaultMemoryAllocator>;
+template class Allocator<false, false, false, DefaultMemoryAllocator>;
+
+/** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
+  * But currently allocators use templates in .cpp instead of all in .h, so they can only be placed here.
+  */
+template class Allocator<true, true, false, ORCMemoryAllocator>;
+template class Allocator<true, false, true, ORCMemoryAllocator>;
+template class Allocator<true, false, false, ORCMemoryAllocator>;
+template class Allocator<false, true, true, ORCMemoryAllocator>;
+template class Allocator<false, true, false, ORCMemoryAllocator>;
+template class Allocator<false, false, true, ORCMemoryAllocator>;
+template class Allocator<false, false, false, ORCMemoryAllocator>;
+
+template class Allocator<true, true, true, RecordSizeMemoryAllocator>;
+template class Allocator<true, true, false, RecordSizeMemoryAllocator>;
+template class Allocator<true, false, true, RecordSizeMemoryAllocator>;
+template class Allocator<true, false, false, RecordSizeMemoryAllocator>;
+template class Allocator<false, true, true, RecordSizeMemoryAllocator>;
+template class Allocator<false, true, false, RecordSizeMemoryAllocator>;
+template class Allocator<false, false, true, RecordSizeMemoryAllocator>;
+template class Allocator<false, false, false, RecordSizeMemoryAllocator>;
