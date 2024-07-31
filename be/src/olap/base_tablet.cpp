@@ -1252,8 +1252,6 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     if (is_partial_update) {
         int64_t max_version_in_flush_phase =
                 txn_info->partial_update_info->max_version_in_flush_phase;
-        LOG_INFO("BaseTablet::update_delete_bitmap, max_version_in_flush_phase={}",
-                 max_version_in_flush_phase);
         DCHECK(max_version_in_flush_phase != -1);
         std::vector<RowsetSharedPtr> remained_rowsets;
         for (const auto& rowset : specified_rowsets) {

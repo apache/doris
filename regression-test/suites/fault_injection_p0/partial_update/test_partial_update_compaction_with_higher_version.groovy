@@ -21,7 +21,6 @@ import org.awaitility.Awaitility
 
 suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
 
-    // DOING(baohan)
     def table1 = "test_partial_update_compaction_with_higher_version"
     sql "DROP TABLE IF EXISTS ${table1} FORCE;"
     sql """ CREATE TABLE IF NOT EXISTS ${table1} (
