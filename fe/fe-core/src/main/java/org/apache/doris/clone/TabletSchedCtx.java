@@ -1331,18 +1331,17 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             int replicaNum = replicaAlloc.getTotalReplicaNum();
             if (tabletHealth.aliveAndVersionCompleteNum < replicaNum && !tabletHealth.noPathForNewReplica) {
-                value -= 1 * baseTime;
-                if (tabletHealth.aliveAndVersionCompleteNum < (replicaNum / 2) + 1) {
-                    value -= 2 * baseTime;
+                if (tabletHealth.aliveAndVersionCompleteNum < (replicaNum / 2 + 1)) {
+                    value -= 3 * baseTime;
+                    if (tabletHealth.hasRecentLoadFailed) {
+                        value -= 3 * baseTime;
+                    }
                 }
                 if (tabletHealth.hasAliveAndVersionIncomplete) {
                     value -= 1 * baseTime;
-                }
-                if (isUniqKeyMergeOnWrite) {
-                    value -= 1 * baseTime;
-                }
-                if (tabletHealth.hasRecentLoadFailed) {
-                    value -= 3 * baseTime;
+                    if (isUniqKeyMergeOnWrite) {
+                        value -= 1 * baseTime;
+                    }
                 }
             }
         }
