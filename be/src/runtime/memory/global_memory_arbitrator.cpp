@@ -40,7 +40,7 @@ std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
 std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
 
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
-    if (sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark()) {
+    if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
         return false;
     }
     int64_t old_reserved_mem = _s_process_reserved_memory.load(std::memory_order_relaxed);
@@ -50,7 +50,7 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
         if (UNLIKELY(vm_rss_sub_allocator_cache() +
                              refresh_interval_memory_growth.load(std::memory_order_relaxed) +
                              new_reserved_mem >=
-                     MemInfo::mem_limit())) {
+                     MemInfo::soft_mem_limit())) {
             return false;
         }
     } while (!_s_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
