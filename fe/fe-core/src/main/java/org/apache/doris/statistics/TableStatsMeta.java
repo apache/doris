@@ -19,12 +19,12 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -166,20 +166,15 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
                 clearStaleIndexRowCount((OlapTable) tableIf);
             }
-            if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
+            if (analyzedJob.emptyJob && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
+                return;
+            }
+            if (analyzedJob.colToPartitions.keySet()
                     .containsAll(tableIf.getBaseSchema().stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet()))) {
                 updatedRows.set(0);
                 newPartitionLoaded.set(false);
-            }
-            if (tableIf instanceof OlapTable) {
-                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.colToPartitions.keySet()
-                        .containsAll(partitionInfo.getPartitionColumns().stream()
-                            .map(Column::getName).collect(Collectors.toSet()))) {
-                    newPartitionLoaded.set(false);
-                }
             }
         }
     }
@@ -188,6 +183,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         if (indexesRowCount == null) {
             indexesRowCount = new ConcurrentHashMap<>();
+        }
+        if (newPartitionLoaded == null) {
+            newPartitionLoaded = new AtomicBoolean(false);
         }
     }
 

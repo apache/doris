@@ -1205,6 +1205,10 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
+        // Check new partition first loaded.
+        if (tblStats.newPartitionLoaded != null && tblStats.newPartitionLoaded.get()) {
+            return true;
+        }
         // 1 Check row count.
         long currentRowCount = getRowCount();
         long lastAnalyzeRowCount = tblStats.rowCount;
