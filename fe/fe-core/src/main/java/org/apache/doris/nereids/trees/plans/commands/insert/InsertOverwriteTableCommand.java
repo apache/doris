@@ -145,6 +145,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         PhysicalTableSink<?> physicalTableSink = ((PhysicalTableSink<?>) plan.get());
         TableIf targetTable = physicalTableSink.getTargetTable();
         List<String> partitionNames;
+        boolean wholeTable = false;
         if (physicalTableSink instanceof PhysicalOlapTableSink) {
             InternalDatabaseUtil
                     .checkDatabase(((OlapTable) targetTable).getQualifiedDbName(), ConnectContext.get());
@@ -159,7 +160,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             }
             ConnectContext.get().setSkipAuth(true);
             partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
+            // If not specific partition to overwrite, means it's a command to overwrite the table.
+            // not we execute as overwrite every partitions.
             if (CollectionUtils.isEmpty(partitionNames)) {
+                wholeTable = true;
                 partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
             }
         } else {
@@ -174,14 +178,15 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
-                insertInto(ctx, executor, taskId);
+                insertIntoAutoDetect(ctx, executor, taskId);
                 Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(taskId, (OlapTable) targetTable);
             } else {
+                // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
                 taskId = Env.getCurrentEnv().getInsertOverwriteManager()
                         .registerTask(targetTable.getDatabase().getId(), targetTable.getId(), tempPartitionNames);
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
-                insertInto(ctx, executor, tempPartitionNames);
+                insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
                 Env.getCurrentEnv().getInsertOverwriteManager().taskSuccess(taskId);
             }
@@ -219,13 +224,15 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     }
 
     /**
-     * insert into select. for sepecified temp partitions
+     * insert into select. for sepecified temp partitions or all partitions(table).
      *
-     * @param ctx ctx
-     * @param executor executor
+     * @param ctx                ctx
+     * @param executor           executor
      * @param tempPartitionNames tempPartitionNames
+     * @param wholeTable         overwrite target is the whole table. not one by one by partitions(...)
      */
-    private void insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames)
+    private void insertIntoPartitions(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
+            boolean wholeTable)
             throws Exception {
         // copy sink tot replace by tempPartitions
         UnboundLogicalSink<?> copySink;
@@ -241,9 +248,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.isPartialUpdate(),
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
-            // 1. for overwrite situation, we disable auto create partition.
+            // 1. when overwrite table, allow auto partition or not is controlled by session variable.
             // 2. we save and pass overwrite auto detect by insertCtx
-            insertCtx = new OlapInsertCommandContext(false, true);
+            boolean allowAutoPartition = wholeTable && ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
+            insertCtx = new OlapInsertCommandContext(allowAutoPartition, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
@@ -282,12 +290,13 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
      * @param ctx ctx
      * @param executor executor
      */
-    private void insertInto(ConnectContext ctx, StmtExecutor executor, long groupId) throws Exception {
-        // 1. for overwrite situation, we disable auto create partition.
-        // 2. we save and pass overwrite auto-detected by insertCtx
+    private void insertIntoAutoDetect(ConnectContext ctx, StmtExecutor executor, long groupId) throws Exception {
         InsertCommandContext insertCtx;
         if (logicalQuery instanceof UnboundTableSink) {
-            insertCtx = new OlapInsertCommandContext(false,
+            // 1. when overwrite auto-detect, allow auto partition or not is controlled by session variable.
+            // 2. we save and pass overwrite auto detect by insertCtx
+            boolean allowAutoPartition = ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
+            insertCtx = new OlapInsertCommandContext(allowAutoPartition,
                     ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             insertCtx = new HiveInsertCommandContext();
