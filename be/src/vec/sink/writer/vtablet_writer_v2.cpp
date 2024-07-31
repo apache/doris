@@ -264,8 +264,15 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status VTabletWriterV2::_open_streams() {
+    bool fault_injection_skip_be = true;
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = _load_stream_map->get_or_create(dst_id);
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_one_backend", {
+            if (fault_injection_skip_be) {
+                fault_injection_skip_be = false;
+                continue;
+            }
+        });
         RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
     }
     return Status::OK();
