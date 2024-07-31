@@ -25,11 +25,12 @@ jobs:
   check-comment-if-need-to-trigger-teamcity:
 
     # This job only runs for pull request comments, and comment body contains 'run'
-    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, 'run') }}
+    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, 'run') || contains(github.event.comment.body, 'skip buildall')) }}
 
     runs-on: ubuntu-latest
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_USER_ID: ${{ github.event.comment.user.id }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -50,6 +51,14 @@ jobs:
             "${COMMENT_BODY}" == *'run arm'* ||
             "${COMMENT_BODY}" == *'run performance'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
+        elif [[ "${COMMENT_BODY}" == *'skip buildall'* ]]; then
+            if [[ "${COMMENT_USER_ID}" == '27881198' ||
+                  "${COMMENT_USER_ID}" == '37901441' ]]; then
+                echo "comment_skip=true" | tee -a "$GITHUB_OUTPUT"
+            else
+                echo "COMMENT_USER_ID ${COMMENT_USER_ID} is not allowed to skip buildall."
+                exit
+            fi
         else
             echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
             echo "find no keyword in comment body, skip this action."
@@ -358,3 +367,19 @@ jobs:
             "performance" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         fi
+
+    - name: "Skip buildall"
+      if: ${{ fromJSON(steps.parse.outputs.comment_skip) }}
+      run: |
+        source ./regression-test/pipeline/common/teamcity-utils.sh
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" feut
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" beut
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" compile
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" p0
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" p1
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" external
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" performance
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" arm
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloud_p0
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloud_p1
+        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloudut
