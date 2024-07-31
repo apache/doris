@@ -37,7 +37,6 @@ import java.util.List;
 /** MultiDistinctGroupConcat */
 public class MultiDistinctGroupConcat extends NullableAggregateFunction
         implements ExplicitlyCastableSignature, MultiDistinction {
-
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT,
@@ -57,13 +56,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
                     CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX));
 
-    /**
-     * constructor with 1 argument with other arguments.
-     */
-    public MultiDistinctGroupConcat(boolean alwaysNullable, Expression arg,
-            Expression... others) {
-        this(alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
-    }
+    private final boolean mustUseMultiDistinctAgg;
 
     /**
      * constructor with 1 argument with other arguments.
@@ -76,8 +69,18 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      * constructor with argument list.
      */
     public MultiDistinctGroupConcat(boolean alwaysNullable, List<Expression> args) {
+        this(false, alwaysNullable, args);
+    }
+
+    private MultiDistinctGroupConcat(boolean alwaysNullable, Expression arg,
+            Expression... others) {
+        this(alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
+    }
+
+    private MultiDistinctGroupConcat(boolean mustUseMultiDistinctAgg, boolean alwaysNullable, List<Expression> args) {
         super("multi_distinct_group_concat", false, alwaysNullable, args);
         checkArguments(children);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
@@ -88,7 +91,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public MultiDistinctGroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctGroupConcat(alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
     }
 
     /**
@@ -97,7 +100,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
         checkArguments(children);
-        return new MultiDistinctGroupConcat(alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
     }
 
     @Override
@@ -130,5 +133,15 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             throw new AnalysisException(
                     "multi_distinct_group_concat requires one or two parameters: " + children);
         }
+    }
+
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg || children.stream().anyMatch(OrderExpression.class::isInstance);
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
     }
 }

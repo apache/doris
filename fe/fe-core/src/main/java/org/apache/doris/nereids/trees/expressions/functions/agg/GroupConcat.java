@@ -139,6 +139,11 @@ public class GroupConcat extends NullableAggregateFunction
         return new MultiDistinctGroupConcat(alwaysNullable, children);
     }
 
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return distinct && children.stream().anyMatch(OrderExpression.class::isInstance);
+    }
+
     private int findOrderExprIndex(List<Expression> children) {
         Preconditions.checkArgument(children().size() >= 1, "children's size should >= 1");
         boolean foundOrderExpr = false;

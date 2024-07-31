@@ -19,10 +19,14 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors.ContainsAggregateCheckerContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * ProjectToGlobalAggregate.
@@ -43,17 +47,20 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
-           logicalProject().then(project -> {
-               boolean needGlobalAggregate = project.getProjects()
-                       .stream()
-                       .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+                logicalProject().then(project -> {
+                    ContainsAggregateCheckerContext context = new ContainsAggregateCheckerContext();
+                    List<NamedExpression> outputs = project.getProjects()
+                            .stream()
+                            .map(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, context))
+                            .map(NamedExpression.class::cast)
+                            .collect(ImmutableList.toImmutableList());
 
-               if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
-               } else {
-                   return project;
-               }
-           })
+                    if (context.needAggregate) {
+                        return new LogicalAggregate<>(ImmutableList.of(), outputs, project.child());
+                    } else {
+                        return project;
+                    }
+                })
         );
     }
 }
