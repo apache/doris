@@ -132,13 +132,11 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         throw new IllegalArgumentException("kerberos ticket not found in " + subject);
     }
 
-    public static boolean isOriginalTicketGrantingTicket(KerberosTicket ticket)
-    {
+    public static boolean isOriginalTicketGrantingTicket(KerberosTicket ticket) {
         return isTicketGrantingServerPrincipal(ticket.getServer());
     }
 
-    private static boolean isTicketGrantingServerPrincipal(KerberosPrincipal principal)
-    {
+    private static boolean isTicketGrantingServerPrincipal(KerberosPrincipal principal) {
         if (principal == null) {
             return false;
         }
