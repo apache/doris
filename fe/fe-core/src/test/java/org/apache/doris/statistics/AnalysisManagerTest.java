@@ -285,12 +285,18 @@ public class AnalysisManagerTest {
 
         };
         OlapTable olapTable = new OlapTable();
+        TableStatsMeta stats0 = new TableStatsMeta(
+                50, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
+                .setColName("col1").setRowCount(100).build(), olapTable);
+        stats0.newPartitionLoaded.set(true);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
+
         TableStatsMeta stats1 = new TableStatsMeta(
                 50, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
                 .setColName("col1").setRowCount(100).build(), olapTable);
         stats1.updatedRows.addAndGet(70);
-
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
+
         TableStatsMeta stats2 = new TableStatsMeta(
                 190, new AnalysisInfoBuilder().setJobColumns(new ArrayList<>())
                 .setColName("col1").setRowCount(200).build(), olapTable);
