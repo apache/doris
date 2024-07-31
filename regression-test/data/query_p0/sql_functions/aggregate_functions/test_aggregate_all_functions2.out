@@ -118,3 +118,57 @@
 -- !select_minmax4 --
 243
 
+-- !select_histogram_k0 --
+{"num_buckets":2,"buckets":[{"lower":"0","upper":"0","ndv":1,"count":7,"pre_sum":0},{"lower":"1","upper":"1","ndv":1,"count":8,"pre_sum":7}]}
+
+-- !select_histogram_k1 --
+{"num_buckets":1,"buckets":[{"lower":"1","upper":"15","ndv":15,"count":15,"pre_sum":0}]}
+
+-- !select_histogram_k2 --
+{"num_buckets":2,"buckets":[{"lower":"-32767","upper":"1985","ndv":9,"count":11,"pre_sum":0},{"lower":"1986","upper":"32767","ndv":5,"count":10,"pre_sum":11}]}
+
+-- !select_histogram_k3 --
+{"num_buckets":3,"buckets":[{"lower":"-2147483647","upper":"1001","ndv":3,"count":5,"pre_sum":0},{"lower":"1002","upper":"3021","ndv":2,"count":5,"pre_sum":5},{"lower":"5014","upper":"2147483647","ndv":3,"count":5,"pre_sum":10}]}
+
+-- !select_histogram_k4 --
+{"num_buckets":4,"buckets":[{"lower":"-9223372036854775807","upper":"123456","ndv":4,"count":5,"pre_sum":0},{"lower":"7210457","upper":"11011903","ndv":3,"count":5,"pre_sum":5},{"lower":"11011905","upper":"11011920","ndv":2,"count":3,"pre_sum":10},{"lower":"9223372036854775807","upper":"9223372036854775807","ndv":1,"count":2,"pre_sum":13}]}
+
+-- !select_histogram_k5 --
+{"num_buckets":5,"buckets":[{"lower":"-654.654","upper":"-0.123","ndv":3,"count":3,"pre_sum":0},{"lower":"0.000","upper":"0.666","ndv":2,"count":3,"pre_sum":3},{"lower":"3.141","upper":"123.123","ndv":3,"count":3,"pre_sum":6},{"lower":"243.325","upper":"1243.500","ndv":2,"count":3,"pre_sum":9},{"lower":"24453.325","upper":"604587.000","ndv":3,"count":3,"pre_sum":12}]}
+
+-- !select_histogram_k6 --
+{"num_buckets":2,"buckets":[{"lower":"false","upper":"false","ndv":1,"count":8,"pre_sum":0},{"lower":"true","upper":"true","ndv":1,"count":7,"pre_sum":8}]}
+
+-- !select_histogram_k7 --
+{"num_buckets":7,"buckets":[{"lower":"","upper":"du3lnvl","ndv":3,"count":3,"pre_sum":0},{"lower":"jiw3n4","upper":"lifsno","ndv":2,"count":2,"pre_sum":3},{"lower":"wangjuoo4","upper":"wangjuoo5","ndv":2,"count":3,"pre_sum":5},{"lower":"wangynnsf","upper":"wenlsfnl","ndv":2,"count":3,"pre_sum":8},{"lower":"yanavnd","upper":"yanavnd","ndv":1,"count":1,"pre_sum":11},{"lower":"yanvjldjlll","upper":"yanvjldjlll","ndv":1,"count":1,"pre_sum":12},{"lower":"yunlj8@nk","upper":"yunlj8@nk","ndv":1,"count":2,"pre_sum":13}]}
+
+-- !select_histogram_k8 --
+{"num_buckets":8,"buckets":[{"lower":"-123456.54","upper":"-987.001","ndv":2,"count":2,"pre_sum":0},{"lower":"-564.898","upper":"-564.898","ndv":1,"count":1,"pre_sum":2},{"lower":"0","upper":"0","ndv":1,"count":3,"pre_sum":3},{"lower":"0.1","upper":"0.1","ndv":1,"count":2,"pre_sum":6},{"lower":"2.06","upper":"3.141592653","ndv":2,"count":2,"pre_sum":8},{"lower":"3.141592654","upper":"20.268","ndv":2,"count":2,"pre_sum":10},{"lower":"123.456","upper":"78945","ndv":2,"count":2,"pre_sum":12},{"lower":"987456.123","upper":"987456.123","ndv":1,"count":1,"pre_sum":14}]}
+
+-- !select_histogram_k0_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k1_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k2 --
+{"num_buckets":2,"buckets":[{"lower":"10","upper":"12","ndv":3,"count":3,"pre_sum":0},{"lower":"13","upper":"15","ndv":3,"count":3,"pre_sum":3}]}
+
+-- !select_histogram_k3_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k4_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k5_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k6_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k7_all_null --
+{"num_buckets":0,"buckets":[]}
+
+-- !select_histogram_k8_all_null --
+{"num_buckets":0,"buckets":[]}
+

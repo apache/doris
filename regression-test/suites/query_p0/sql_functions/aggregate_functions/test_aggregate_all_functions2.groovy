@@ -113,4 +113,87 @@ suite("test_aggregate_all_functions2") {
     qt_select_minmax2 """ select max_by(datekey,hour) from metric_table; """
     qt_select_minmax3 """ select bitmap_to_string(max_by(device_id,hour)) from metric_table; """
     qt_select_minmax4 """ select bitmap_to_string(min_by(device_id,hour)) from metric_table; """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 11, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 12, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 13, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 14, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 15, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    qt_select_histogram_k0 """SELECT histogram(k0) FROM baseall"""
+    qt_select_histogram_k1 """SELECT histogram(k1, 1) FROM baseall"""
+    qt_select_histogram_k2 """SELECT histogram(k2, 2) FROM baseall"""
+    qt_select_histogram_k3 """SELECT histogram(k3, 3) FROM baseall"""
+    qt_select_histogram_k4 """SELECT histogram(k4, 4) FROM baseall"""
+    qt_select_histogram_k5 """SELECT histogram(k5, 5) FROM baseall"""
+    qt_select_histogram_k6 """SELECT histogram(k6, 6) FROM baseall"""
+    qt_select_histogram_k7 """SELECT histogram(k7, 7) FROM baseall"""
+    qt_select_histogram_k8 """SELECT histogram(k8, 8) FROM baseall"""
+
+    sql """
+    TRUNCATE TABLE baseall;
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 11, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 12, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 13, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 14, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+
+    sql """
+    INSERT INTO baseall values
+            (NULL, NULL, 15, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    """
+    qt_select_histogram_k0_all_null """SELECT histogram(k0) FROM baseall"""
+    qt_select_histogram_k1_all_null """SELECT histogram(k1, 1) FROM baseall"""
+    qt_select_histogram_k2 """SELECT histogram(k2, 2) FROM baseall"""
+    qt_select_histogram_k3_all_null """SELECT histogram(k3, 3) FROM baseall"""
+    qt_select_histogram_k4_all_null """SELECT histogram(k4, 4) FROM baseall"""
+    qt_select_histogram_k5_all_null """SELECT histogram(k5, 5) FROM baseall"""
+    qt_select_histogram_k6_all_null """SELECT histogram(k6, 6) FROM baseall"""
+    qt_select_histogram_k7_all_null """SELECT histogram(k7, 7) FROM baseall"""
+    qt_select_histogram_k8_all_null """SELECT histogram(k8, 8) FROM baseall"""
 }
