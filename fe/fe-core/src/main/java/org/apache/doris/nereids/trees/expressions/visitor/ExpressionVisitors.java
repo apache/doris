@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,11 +50,27 @@ public class ExpressionVisitors {
 
         @Override
         public Expression visitWindow(WindowExpression windowExpression, ContainsAggregateCheckerContext context) {
-            List<Expression> children = new ArrayList<>();
-            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
-                children.add(child.accept(this, context));
+            Expression function = windowExpression.getFunction();
+            List<Expression> functionChildren = new ArrayList<>();
+            for (Expression child : function.children()) {
+                functionChildren.add(child.accept(this, context));
             }
-            return windowExpression.withChildren(children);
+            Expression newFunction = function.withChildren(functionChildren);
+
+            List<Expression> partitionKeys = windowExpression.getPartitionKeys();
+            List<Expression> newPartitionKeys = new ArrayList<>();
+            for (Expression key : partitionKeys) {
+                newPartitionKeys.add(key.accept(this, context));
+            }
+
+            List<OrderExpression> orderKeys = windowExpression.getOrderKeys();
+            List<OrderExpression> newOrderKeys = new ArrayList<>();
+            for (OrderExpression orderKey : orderKeys) {
+                newOrderKeys.add((OrderExpression) orderKey
+                        .withChildren(Lists.newArrayList(orderKey.child().accept(this, context))));
+            }
+
+            return windowExpression.withFunctionPartitionKeysOrderKeys(newFunction, newPartitionKeys, newOrderKeys);
         }
 
         @Override
