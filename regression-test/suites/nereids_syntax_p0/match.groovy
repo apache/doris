@@ -173,6 +173,19 @@ suite("match") {
         SELECT * FROM test_nereids_match_select WHERE name match_phrase 'zhang' and selfComment match_phrase 'want go outside';
     """
 
+    explain {
+        sql """
+        select *
+        from test_nereids_match_select a
+        left join
+        test_nereids_match_select b
+        on a.age = b.age
+        where b.name match_any 'zhang'
+        """
+
+        contains("INNER JOIN")
+    }
+
     order_qt_match_join """
         select *
         from test_nereids_match_select a
