@@ -41,8 +41,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns =
         {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DEFAULT_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"CHANGED", TYPE_VARCHAR, sizeof(StringRef), false}
-};
+        {"CHANGED", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
         : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
