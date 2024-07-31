@@ -168,13 +168,12 @@ public class MTMVTask extends AbstractTask {
                             super.getTaskId(), taskSessionContext);
                 }
             }
-            refreshHmsTable();
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
-            // refreshHmsTable();
+            refreshHmsTable();
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }

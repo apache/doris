@@ -160,6 +160,10 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                 """
         logger.info("hive sql: " + recover_column_str)
         hive_docker """ ${recover_column_str} """
+        // schema change need refresh catalog
+        sql """
+                REFRESH catalog ${catalog_name}
+            """
             sql """
                 REFRESH MATERIALIZED VIEW ${mvName} complete
             """
