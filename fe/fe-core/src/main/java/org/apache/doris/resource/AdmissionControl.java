@@ -17,6 +17,7 @@
 
 package org.apache.doris.resource;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
@@ -31,7 +32,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -70,7 +70,13 @@ public class AdmissionControl extends MasterDaemon {
             this.isAllBeMemoryEnough = true;
             return;
         }
-        Collection<Backend> backends = clusterInfoService.getIdToBackend().values();
+        List<Backend> backends;
+        try {
+            backends = clusterInfoService.getAllBackendsByAllCluster().values().asList();
+        } catch (AnalysisException e) {
+            LOG.warn("get backends failed", e);
+            throw new RuntimeException(e);
+        }
         this.currentMemoryLimit = Config.query_queue_by_be_used_memory;
         boolean tmpIsAllBeMemoryEnough = true;
         List<Future<InternalService.PGetBeResourceResponse>> futureList = new ArrayList();

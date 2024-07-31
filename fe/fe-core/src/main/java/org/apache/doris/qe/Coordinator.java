@@ -565,7 +565,7 @@ public class Coordinator implements CoordInterface {
             currentConnectFE = coordAddress;
         }
 
-        this.idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+        this.idToBackend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
 
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
