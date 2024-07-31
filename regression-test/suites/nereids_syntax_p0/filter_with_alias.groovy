@@ -60,6 +60,14 @@ suite("filter_with_alias") {
         select * from filter_alias_test.test where filter_alias_test.test.id = 1;
     """
 
+    qt_filter_select4 """
+       select * from filter_alias_test.test b where filter_alias_test.b.id = 1;
+    """
+
+    qt_filter_select5 """
+         select * from internal.filter_alias_test.test b where internal.filter_alias_test.b.id = 1;
+    """
+
     sql "drop database if exists filter_alias_test;"
 
 }
