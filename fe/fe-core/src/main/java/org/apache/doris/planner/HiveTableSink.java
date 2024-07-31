@@ -172,6 +172,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             case FORMAT_PARQUET:
                 compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
                 break;
+            case FORMAT_CSV_PLAIN:
+                compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
+                break;
             default:
                 compressType = "uncompressed";
                 break;
