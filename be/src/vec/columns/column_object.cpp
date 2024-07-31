@@ -877,7 +877,8 @@ Field ColumnObject::operator[](size_t n) const {
 void ColumnObject::get(size_t n, Field& res) const {
     if (UNLIKELY(n >= size())) {
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Index ({}) for getting field is out of range", n);
+                               "Index ({}) for getting field is out of range for size {}", n,
+                               size());
     }
     res = VariantMap();
     auto& object = res.get<VariantMap&>();
