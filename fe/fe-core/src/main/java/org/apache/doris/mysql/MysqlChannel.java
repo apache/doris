@@ -313,7 +313,7 @@ public class MysqlChannel implements BytesChannel {
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
             readLen = readAll(result, false);
-            if (isSslMode && remainingBuffer.position() == 0) {
+            if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
                 byte[] header = result.array();
                 int packetId = header[3] & 0xFF;
                 if (packetId != sequenceId) {
