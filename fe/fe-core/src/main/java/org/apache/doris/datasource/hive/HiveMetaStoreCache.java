@@ -511,8 +511,7 @@ public class HiveMetaStoreCache {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
-                    fileLists.stream().mapToInt(l -> l.getFiles() == null
-                            ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                    fileLists.stream().mapToInt(l -> l.getFiles() == null ? 0 : l.getFiles().size()).sum(),
                     partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
         }
         return fileLists;
