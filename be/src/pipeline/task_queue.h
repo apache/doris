@@ -145,7 +145,7 @@ public:
 private:
     PipelineTask* _steal_take(int core_id);
 
-    std::vector<std::unique_ptr<PriorityTaskQueue>> _prio_task_queue_list;
+    std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>> _prio_task_queue_list;
     std::atomic<int> _next_core = 0;
     std::atomic<bool> _closed;
 };
