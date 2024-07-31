@@ -91,6 +91,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
 
     def enable_publish_spin_wait = { tokenName -> 
         if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
             GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
         }
@@ -98,6 +99,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
 
     def disable_publish_spin_wait = {
         if (isCloudMode()) {
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
             GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
         }
@@ -105,7 +107,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
 
     def enable_block_in_publish = { passToken -> 
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
         } else {
             GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
         }

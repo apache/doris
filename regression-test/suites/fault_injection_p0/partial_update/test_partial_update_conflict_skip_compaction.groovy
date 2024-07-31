@@ -90,6 +90,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
             GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
         }
@@ -97,6 +98,7 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
 
     def disable_publish_spin_wait = {
         if (isCloudMode()) {
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
             GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
         }
