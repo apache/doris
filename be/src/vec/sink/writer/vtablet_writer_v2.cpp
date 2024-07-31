@@ -280,7 +280,14 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+    int fault_injection_skip_cnt = 0;
     for (auto& stream : streams) {
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.one_stream_open_failure", {
+            if (fault_injection_skip_cnt < 1) {
+                fault_injection_skip_cnt++;
+                continue;
+            }
+        });
         auto st = stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
                                _txn_id, *_schema, tablets_for_schema, _total_streams,
                                idle_timeout_ms, _state->enable_profile());
@@ -368,11 +375,23 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         tablet.set_tablet_id(tablet_id);
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
-        streams.emplace_back(_load_stream_map->at(node_id)->at(_stream_index));
-        RETURN_IF_ERROR(streams[0]->wait_for_schema(partition_id, index_id, tablet_id));
+        auto stream = _load_stream_map->at(node_id)->at(_stream_index);
+        for (int i = 1; i < _stream_per_node && !stream->is_inited(); i++) {
+            stream = _load_stream_map->at(node_id)->at((_stream_index + i) % _stream_per_node);
+        }
+        streams.emplace_back(std::move(stream));
     }
     _stream_index = (_stream_index + 1) % _stream_per_node;
-    return Status::OK();
+    Status st;
+    for (auto& stream : streams) {
+        st = stream->wait_for_schema(partition_id, index_id, tablet_id);
+        if (st.ok()) {
+            break;
+        } else {
+            LOG(WARNING) << "failed to get schema from stream " << stream << ", err=" << st;
+        }
+    }
+    return st;
 }
 
 Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
@@ -430,7 +449,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         Streams streams;
         auto st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
         if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << st << ", load_id=" << print_id(_load_id);
+            LOG(WARNING) << "select stream failed, " << st << ", load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
         WriteRequest req {

@@ -194,6 +194,8 @@ public:
 
     int64_t dst_id() const { return _dst_id; }
 
+    bool is_inited() const { return _is_init.load(); }
+
     bool is_incremental() const { return _is_incremental; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
@@ -237,7 +239,7 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    Status _init_st;
+    Status _init_st = Status::InternalError<false>("Stream is not open");
     Status _close_st;
     Status _cancel_st;
 
