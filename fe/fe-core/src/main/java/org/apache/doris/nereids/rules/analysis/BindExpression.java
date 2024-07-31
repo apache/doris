@@ -648,11 +648,19 @@ public class BindExpression implements AnalysisRuleFactory {
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
+        String[] split = filter.getConjuncts().toString().split("\\.");
+        List<Plan> planList;
+        if (filter.children().get(0) instanceof LogicalSubQueryAlias && split.length >= 3) {
+            planList = filter.children().get(0).children();
+        } else {
+            planList = filter.children();
+        }
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                filter, cascadesContext, filter.children(), true, true);
+                filter, cascadesContext, planList, true, true);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 filter.getConjuncts().size());
+
         for (Expression conjunct : filter.getConjuncts()) {
             Expression boundConjunct = analyzer.analyze(conjunct);
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
