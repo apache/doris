@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-15.0.2.tar.gz"
-ARROW_NAME="apache-arrow-15.0.2.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-15.0.2"
-ARROW_MD5SUM="d5d051b2698be901e5ad84e36d64e7ab"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
+ARROW_NAME="apache-arrow-17.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-17.0.0"
+ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -412,11 +412,11 @@ BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
-# for arrow-13.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/9.0.1.tar.gz"
-XSIMD_NAME="xsimd-9.0.1.tar.gz"
-XSIMD_SOURCE=xsimd-9.0.1
-XSIMD_MD5SUM="59f38fe3364acd7ed137771258812d6c"
+# for arrow-17.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/13.0.0.tar.gz"
+XSIMD_NAME="13.0.0.tar.gz"
+XSIMD_SOURCE=xsimd-13.0.0
+XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
 
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
