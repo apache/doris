@@ -54,13 +54,16 @@ jobs:
         elif [[ "${COMMENT_BODY}" == *'skip buildall'* ]]; then
             if [[ "${COMMENT_USER_ID}" == '27881198' ||
                   "${COMMENT_USER_ID}" == '37901441' ]]; then
+                echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
                 echo "comment_skip=true" | tee -a "$GITHUB_OUTPUT"
+                echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip buildall."
             else
                 echo "COMMENT_USER_ID ${COMMENT_USER_ID} is not allowed to skip buildall."
                 exit
             fi
         else
             echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
+            echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
             echo "find no keyword in comment body, skip this action."
             exit
         fi
@@ -80,7 +83,7 @@ jobs:
         echo "COMMENT_REPEAT_TIMES=${COMMENT_REPEAT_TIMES}" | tee -a "$GITHUB_OUTPUT"
 
     - name: "Checkout master"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) }}
       uses: actions/checkout@v4
 
     - name: "Check if pr need run build"
