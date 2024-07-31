@@ -50,7 +50,6 @@ public:
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
     bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
-    bool is_quantile_state() const override { return std::is_same_v<T, QuantileState>; }
 
     size_t size() const override { return data.size(); }
 
@@ -81,7 +80,7 @@ public:
         } else if constexpr (std::is_same_v<T, QuantileState>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
-            LOG(FATAL) << "Unexpected type in column complex";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
             __builtin_unreachable();
         }
     }
@@ -145,12 +144,12 @@ public:
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
         __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
-        LOG(FATAL) << "get field not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
         __builtin_unreachable();
     }
 
@@ -177,12 +176,14 @@ public:
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
-        LOG(FATAL) << "serialize_value_into_arena not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "serialize_value_into_arena not implemented");
         __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "deserialize_and_insert_from_arena not implemented");
         __builtin_unreachable();
     }
 
@@ -323,7 +324,8 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
     limit = limit ? std::min(size, limit) : size;
 
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
         __builtin_unreachable();
     }
 

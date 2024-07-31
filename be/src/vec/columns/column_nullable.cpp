@@ -43,7 +43,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 
     if (is_column_const(*null_map)) {
-        LOG(FATAL) << "ColumnNullable cannot have constant null map";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnNullable cannot have constant null map");
         __builtin_unreachable();
     }
     _need_update_has_null = true;
@@ -558,7 +559,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     const NullMap& arr2 = map.get_data();
 
     if (arr1.size() != arr2.size()) {
-        LOG(FATAL) << "Inconsistent sizes of ColumnNullable objects";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Inconsistent sizes of ColumnNullable objects");
         __builtin_unreachable();
     }
 
@@ -581,8 +583,8 @@ void ColumnNullable::apply_null_map(const ColumnNullable& other) {
 
 void ColumnNullable::check_consistency() const {
     if (null_map->size() != get_nested_column().size()) {
-        LOG(FATAL) << "Logical error: Sizes of nested column and null map of Nullable column are "
-                      "not equal";
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Sizes of nested column and null map of Nullable column are not equal");
     }
 }
 

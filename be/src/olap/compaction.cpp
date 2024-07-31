@@ -400,15 +400,14 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    Status st = execute_compact_impl(permits);
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    auto record_compaction_stats = [&](const doris::Exception& ex) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+    };
 
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
-
-    if (!st.ok()) {
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -1183,13 +1182,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    Status st = execute_compact_impl(permits);
-    if (!st.ok()) {
-        garbage_collection();
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
+                                        [&](const doris::Exception& ex) { garbage_collection(); });
     _load_segment_to_cache();
-    return st;
+    return Status::OK();
 }
 
 Status CloudCompactionMixin::modify_rowsets() {
