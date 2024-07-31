@@ -69,10 +69,6 @@ public class ColumnRange {
         return rangeSet.isEmpty();
     }
 
-    public boolean isCompletelyInfinite() {
-        return !span().hasLowerBound() && !span().hasUpperBound();
-    }
-
     /** isSingleton */
     public boolean isSingleton() {
         Set<Range<ColumnBound>> ranges = rangeSet.asRanges();

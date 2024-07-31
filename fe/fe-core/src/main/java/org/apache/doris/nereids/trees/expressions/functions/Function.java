@@ -27,17 +27,6 @@ import java.util.Objects;
  * function in nereids.
  */
 public abstract class Function extends Expression {
-    /**Monotonicity*/
-    public class Monotonicity {
-        public boolean isMonotonic;
-        public boolean isPositive;
-
-        public Monotonicity(boolean isMonotonic, boolean isPositive) {
-            this.isMonotonic = isMonotonic;
-            this.isPositive = isPositive;
-        }
-    }
-
     private final String name;
 
     public Function(String name, Expression... children) {
