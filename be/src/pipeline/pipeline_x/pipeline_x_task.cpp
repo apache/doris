@@ -368,19 +368,18 @@ bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_
         }
         return false;
     } else if (is_wg_mem_low_water_mark) {
-        int64_t query_weighted_limit = 0;
-        int64_t query_weighted_consumption = 0;
-        query_ctx->get_weighted_memory(query_weighted_limit, query_weighted_consumption);
-        if (query_weighted_consumption < query_weighted_limit) {
+        int64_t spill_threshold = query_ctx->spill_threshold();
+        int64_t memory_usage = query_ctx->query_mem_tracker->consumption();
+        if (spill_threshold == 0 || memory_usage < spill_threshold) {
             return false;
         }
         auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
         DCHECK(big_memory_operator_num >= 0);
         int64_t mem_limit_of_op;
         if (0 == big_memory_operator_num) {
-            mem_limit_of_op = int64_t(query_weighted_limit * 0.8);
+            mem_limit_of_op = int64_t(spill_threshold * 0.8);
         } else {
-            mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+            mem_limit_of_op = spill_threshold / big_memory_operator_num;
         }
 
         VLOG_DEBUG << "revoke memory, low water mark, revocable_mem_bytes: "
