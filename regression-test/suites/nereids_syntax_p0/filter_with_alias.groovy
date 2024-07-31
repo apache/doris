@@ -17,8 +17,6 @@
 
 suite("filter_with_alias") {
 
-    sql "drop table if exists test;"
-
     sql "drop database if exists filter_alias_test;"
 
     sql """ CREATE DATABASE IF NOT EXISTS `filter_alias_test` """
@@ -52,14 +50,16 @@ suite("filter_with_alias") {
         select * from `filter_alias_test`.`test` where id = 1;
     """
 
-    qt_filter_select3 """
-        select * from filter_alias_test.test b where filter_alias_test.test.id = 1;
-    """
 
-    qt_filter_select4 """
+    test {
+        sql " select * from filter_alias_test.test b where filter_alias_test.test.id = 1;"
+        exception "Unknown column 'id' in 'filter_alias_test.test' in FILTER clause"
+    }
+
+    qt_filter_select3 """
         select * from filter_alias_test.test where filter_alias_test.test.id = 1;
     """
 
-    sql """ DROP DATABASE IF EXISTS `filter_alias_test` """
+    sql "drop database if exists filter_alias_test;"
 
 }

@@ -649,8 +649,11 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
         String[] split = filter.getConjuncts().toString().split("\\.");
+
         List<Plan> planList;
-        if (filter.children().get(0) instanceof LogicalSubQueryAlias && split.length >= 3) {
+        if (filter.children().get(0) instanceof LogicalSubQueryAlias && split.length >= 3
+                && ((LogicalSubQueryAlias<?>) filter.children().get(0)).getQualifier().get(0)
+                .equals(split[split.length - 2])) {
             planList = filter.children().get(0).children();
         } else {
             planList = filter.children();

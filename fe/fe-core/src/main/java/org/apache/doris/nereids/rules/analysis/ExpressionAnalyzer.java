@@ -285,12 +285,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             ).collect(Collectors.toList());
             UnboundSlot unboundSlot1 = new UnboundSlot(list);
             boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot1));
-        }
-        if (unboundSlot.getNameParts().size() == 4) {
+        } else if (unboundSlot.getNameParts().size() == 4) {
             List<String> list = Stream.of(
                     unboundSlot.getNameParts().get(0),
+                    unboundSlot.getNameParts().get(1),
                     context.cascadesContext.getTables().get(0).getName(),
-                    unboundSlot.getNameParts().get(2),
                     unboundSlot.getNameParts().get(3)
             ).collect(Collectors.toList());
             UnboundSlot unboundSlot1 = new UnboundSlot(list);
