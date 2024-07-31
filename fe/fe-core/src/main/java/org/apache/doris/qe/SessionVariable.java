@@ -139,7 +139,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
-    public static final String ENABLE_SPILLING = "enable_spilling";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
@@ -537,7 +536,6 @@ public class SessionVariable implements Serializable, Writable {
 
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
-    public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
@@ -692,9 +690,6 @@ public class SessionVariable implements Serializable, Writable {
                     + "default 0, turn off scaling up"
     })
     public double scannerScaleUpRatio = 0;
-
-    @VariableMgr.VarAttr(name = ENABLE_SPILLING)
-    public boolean enableSpilling = false;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -2019,12 +2014,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
             checker = "checkExternalSortBytesThreshold", varType = VariableAnnotation.DEPRECATED)
     public long externalSortBytesThreshold = 0;
-
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
-    @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
-            checker = "checkExternalAggBytesThreshold", fuzzy = true, varType = VariableAnnotation.DEPRECATED)
-    public long externalAggBytesThreshold = 0;
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
@@ -3362,14 +3351,6 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public void checkExternalAggBytesThreshold(String externalAggBytesThreshold) {
-        long value = Long.valueOf(externalAggBytesThreshold);
-        if (value > 0 && value < MIN_EXTERNAL_AGG_BYTES_THRESHOLD) {
-            LOG.warn("external agg bytes threshold: {}, min: {}", value, MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
-            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
-        }
-    }
-
     public void checkExternalAggPartitionBits(String externalAggPartitionBits) {
         int value = Integer.valueOf(externalAggPartitionBits);
         if (value < MIN_EXTERNAL_AGG_PARTITION_BITS || value > MAX_EXTERNAL_AGG_PARTITION_BITS) {
@@ -3547,8 +3528,6 @@ public class SessionVariable implements Serializable, Writable {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
 
-        tResult.setEnableSpilling(enableSpilling);
-
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
@@ -3579,8 +3558,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggBytesThreshold(0); // disable for now
 
         tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
-
-        tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
 
