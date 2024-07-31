@@ -176,7 +176,10 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeInt64>();
                 return;
-            } else {
+            } else if (min_bit_width_of_integer <= 128) {
+                *type = std::make_shared<DataTypeInt128>();
+                return; 
+	    } else {
                 LOG(INFO) << " because some of them are signed integers and some are unsigned "
                              "integers, but there is no signed integer type, that can exactly "
                              "represent all required unsigned integer values";
@@ -202,7 +205,10 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeUInt64>();
                 return;
-            } else {
+            } else if (min_bit_width_of_integer <= 128) {
+                *type = std::make_shared<DataTypeUInt128>();
+                return;
+	    } else {
                 LOG(WARNING) << "Logical error: "
                              << "but as all data types are unsigned integers, we must have found "
                                 "maximum unsigned integer type";

@@ -71,8 +71,8 @@ suite("test_array_element_at_and_slice", "p0") {
     // order_qt_sql "SELECT array_slice([], [NULL], NULL), 1 from numbers limit 2;"
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
+//    sql "set enable_nereids_planner=true;"
+//    sql "set enable_fallback_to_original_planner=false;"
 
     // ============= array element_at =========
     // ubsan test

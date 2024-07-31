@@ -100,7 +100,7 @@ public:
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
-        auto map_column = typeid_cast<ColumnMap*>(result_col.get());
+        auto* map_column = typeid_cast<ColumnMap*>(result_col.get());
         if (!map_column) {
             return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
                                         block.get_by_position(result).type->get_name());

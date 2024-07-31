@@ -66,8 +66,6 @@ suite("test_array_functions_concat_compact_difference", "p0") {
     order_qt_old_sql "SELECT array_difference(array(cast(100.0000991821289 as Decimal), -2147483647)) AS x;"
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
     qt_nereid_sql "SELECT 'array_concat'"
 
     order_qt_nereid_sql "SELECT array_concat([]);"

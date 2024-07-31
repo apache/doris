@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_map") {
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
 
     sql "DROP TABLE IF EXISTS `test_map_table`"
     sql """

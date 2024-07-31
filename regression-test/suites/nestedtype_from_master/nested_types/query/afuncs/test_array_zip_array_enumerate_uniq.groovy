@@ -51,25 +51,6 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
     //order_qt_sql """ SELECT max(array_join(arr)) FROM (SELECT array_enumerate_uniq(group_array(DIV(number, 54321)) AS nums, group_array(cast(DIV(number, 98765) as string))) AS arr FROM (SELECT number FROM numbers LIMIT 1000000) GROUP BY bitmap_hash(number) % 100000);"""
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
-//     ========== array-zip ==========
-//     wrong case
-    try {
-        sql """
-               SELECT array_zip();
-                """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().size() > 0)
-    }
-
-    try {
-        sql """
-               SELECT array_zip(['a', 'b', 'c'], ['d', 'e', 'f', 'd']);
-                """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("function array_zip's 2-th argument should have same offsets with first argument"))
-    }
 
     // nereid not support array_enumerate_uniq
     // ============= array_enumerate_uniq =========

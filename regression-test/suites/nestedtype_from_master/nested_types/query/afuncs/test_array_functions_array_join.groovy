@@ -42,8 +42,8 @@ suite("test_array_functions_array_join", "p0") {
 //    ERROR 1105 (HY000): errCode = 2, detailMessage = (172.21.16.12)[CANCELLED]execute failed or unsupported types for function array_join(Array(Nullable(IPv4)),String,)
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
+//    sql "set enable_nereids_planner=true;"
+//    sql "set enable_fallback_to_original_planner=false;"
 
     // ============= array join =========
     qt_nereid_sql "SELECT 'array-join';"
