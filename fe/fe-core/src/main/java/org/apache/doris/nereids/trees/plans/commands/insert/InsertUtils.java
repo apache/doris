@@ -274,15 +274,24 @@ public class InsertUtils {
                 } else {
                     if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
-                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                    + "updating partial columns using the INSERT statement.");
-                        }
-                        for (Column col : olapTable.getFullSchema()) {
-                            Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
-                                    .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                            if (col.isKey() && !insertCol.isPresent()) {
-                                throw new AnalysisException("Partial update should include all key columns, missing: "
-                                        + col.getName());
+                            ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                        } else {
+                            boolean hasMissingColExceptAutoInc = false;
+                            for (Column col : olapTable.getFullSchema()) {
+                                Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
+                                        .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                                if (!col.isAutoInc() && !insertCol.isPresent()) {
+                                    if (col.isKey()) {
+                                        throw new AnalysisException("Partial update should include all key columns,"
+                                                + " missing: " + col.getName());
+                                    }
+                                    if (col.isVisible()) {
+                                        hasMissingColExceptAutoInc = true;
+                                    }
+                                }
+                            }
+                            if (!hasMissingColExceptAutoInc) {
+                                ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                             }
                         }
                     }

@@ -687,6 +687,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
+                if (!_segment->can_apply_predicate_safely(cid,
+                                                          _opts.col_id_to_predicates.at(cid).get(),
+                                                          *_schema, _opts.io_ctx.reader_type)) {
+                    continue;
+                }
                 RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
                 DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
                 RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
@@ -1481,7 +1486,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     // for mow with cluster key table, we should get key range from short key index.
     DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
 
-    if (has_seq_col) {
+    // if full key is exact_match, the primary key without sequence column should also the same
+    if (has_seq_col && !exact_match) {
         size_t seq_col_length =
                 _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())
                         .length() +
