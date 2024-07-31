@@ -227,6 +227,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         while (true) {
             RETURN_IF_CANCELLED(state);
 
+            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+                break;
+            }
             // get all slots from schema table.
             RETURN_IF_ERROR(
                     local_state._schema_scanner->get_next_block(state, &src_block, &schema_eos));

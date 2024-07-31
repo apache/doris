@@ -146,6 +146,7 @@ protected:
     AtomicStatus _scanner_status;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _opened = false;
+    std::atomic<bool> _async_thread_running = false;
 };
 
 } // namespace doris

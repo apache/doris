@@ -93,6 +93,7 @@ Status SchemaScanner::get_next_block(RuntimeState* state, vectorized::Block* blo
     if (_data_block == nullptr) {
         return Status::InternalError("No data left!");
     }
+    DCHECK(_async_thread_running == false);
     RETURN_IF_ERROR(_scanner_status.status());
     for (size_t i = 0; i < block->columns(); i++) {
         std::move(*block->get_by_position(i).column)
@@ -113,12 +114,15 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, task_ctx, state]() {
+                DCHECK(_async_thread_running == false);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     _scanner_status.update(Status::InternalError("Task context not exists!"));
                     return;
                 }
+                SCOPED_ATTACH_TASK(state);
                 _dependency->block();
+                _async_thread_running = true;
                 _finish_dependency->block();
                 if (!_opened) {
                     _data_block = vectorized::Block::create_unique();
@@ -129,6 +133,7 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 bool eos = false;
                 _scanner_status.update(get_next_block_internal(_data_block.get(), &eos));
                 _eos = eos;
+                _async_thread_running = false;
                 _dependency->set_ready();
                 if (eos) {
                     _finish_dependency->set_ready();
