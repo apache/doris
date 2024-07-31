@@ -243,7 +243,9 @@ template <typename T>
 ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
         __builtin_unreachable();
     }
 

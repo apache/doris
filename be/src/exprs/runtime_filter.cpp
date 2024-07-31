@@ -1172,33 +1172,6 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     return Status::OK();
 }
 
-bool IRuntimeFilter::await() {
-    DCHECK(is_consumer());
-    auto execution_timeout = _state->execution_timeout * 1000;
-    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
-    // bitmap filter is precise filter and only filter once, so it must be applied.
-    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? execution_timeout
-                                    : runtime_filter_wait_time_ms;
-    auto expected = _rf_state_atomic.load(std::memory_order_acquire);
-    if (expected == RuntimeFilterState::NOT_READY) {
-        if (!_rf_state_atomic.compare_exchange_strong(
-                    expected,
-                    MonotonicMillis() - registration_time_ >= wait_times_ms
-                            ? RuntimeFilterState::TIME_OUT
-                            : RuntimeFilterState::NOT_READY,
-                    std::memory_order_acq_rel)) {
-            DCHECK(expected == RuntimeFilterState::READY ||
-                   expected == RuntimeFilterState::TIME_OUT);
-            return (expected == RuntimeFilterState::READY);
-        }
-        return false;
-    } else if (expected == RuntimeFilterState::TIME_OUT) {
-        return false;
-    }
-    return true;
-}
-
 void IRuntimeFilter::update_state() {
     DCHECK(is_consumer());
     auto execution_timeout = _state->execution_timeout * 1000;

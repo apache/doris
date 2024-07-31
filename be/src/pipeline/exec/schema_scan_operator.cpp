@@ -48,6 +48,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
+    _schema_scanner->set_dependency(_data_dependency, _finish_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
@@ -59,7 +60,7 @@ Status SchemaScanLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
-    return _schema_scanner->start(state);
+    return _schema_scanner->get_next_block_async(state);
 }
 
 SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -226,8 +227,12 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         while (true) {
             RETURN_IF_CANCELLED(state);
 
+            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+                break;
+            }
             // get all slots from schema table.
-            RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
+            RETURN_IF_ERROR(
+                    local_state._schema_scanner->get_next_block(state, &src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;
