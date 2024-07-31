@@ -502,4 +502,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
     echo "Finished patching ${KRB5_SOURCE}"
 fi
 
+# patch bitshuffle
+if [[ " ${TP_ARCHIVES[*]} " =~ " BITSHUFFLE " ]]; then
+    if [[ "${BITSHUFFLE_SOURCE}" = "bitshuffle-0.5.1" ]]; then
+        cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/bitshuffle-0.5.1.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${BITSHUFFLE_SOURCE}"
+fi
+
 # vim: ts=4 sw=4 ts=4 tw=100:
