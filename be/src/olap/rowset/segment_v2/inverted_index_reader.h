@@ -142,6 +142,12 @@ public:
                                         InvertedIndexReaderType reader_type);
 
 protected:
+    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexQueryInfo& query_info,
+                              const FulltextIndexSearcherPtr& index_searcher,
+                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
@@ -177,13 +183,6 @@ public:
                                          const std::map<string, string>& properties);
     static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
                                              const std::map<string, string>& properties);
-
-private:
-    Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
