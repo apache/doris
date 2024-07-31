@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -34,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,7 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-public class TableStatsMeta implements Writable {
+public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     @SerializedName("tblId")
     public final long tblId;
@@ -74,6 +76,9 @@ public class TableStatsMeta implements Writable {
 
     @SerializedName("userInjected")
     public boolean userInjected;
+
+    @SerializedName("irc")
+    public ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -157,7 +162,9 @@ public class TableStatsMeta implements Writable {
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
+                rowCount = analyzedJob.rowCount;
+                indexesRowCount.putAll(analyzedJob.indexesRowCount);
+                clearStaleIndexRowCount((OlapTable) tableIf);
             }
             if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
                     .containsAll(tableIf.getBaseSchema().stream()
@@ -173,6 +180,28 @@ public class TableStatsMeta implements Writable {
                             .map(Column::getName).collect(Collectors.toSet()))) {
                     newPartitionLoaded.set(false);
                 }
+            }
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (indexesRowCount == null) {
+            indexesRowCount = new ConcurrentHashMap<>();
+        }
+    }
+
+    public long getRowCount(long indexId) {
+        return indexesRowCount.getOrDefault(indexId, -1L);
+    }
+
+    private void clearStaleIndexRowCount(OlapTable table) {
+        Iterator<Long> iterator = indexesRowCount.keySet().iterator();
+        List<Long> indexIds = table.getIndexIds();
+        while (iterator.hasNext()) {
+            long key = iterator.next();
+            if (indexIds.contains(key)) {
+                iterator.remove();
             }
         }
     }

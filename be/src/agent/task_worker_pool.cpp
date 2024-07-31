@@ -417,6 +417,23 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 continue;
             }
             bool need_to_save = false;
+            if (tablet_meta_info.__isset.partition_id) {
+                // for fix partition_id = 0
+                LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
+                             << "partition id from : " << tablet->tablet_meta()->partition_id()
+                             << " to : " << tablet_meta_info.partition_id;
+                auto succ = StorageEngine::instance()->tablet_manager()->update_tablet_partition_id(
+                        tablet_meta_info.partition_id, tablet->tablet_meta()->tablet_id());
+                if (!succ) {
+                    std::string err_msg = fmt::format(
+                            "change be tablet id : {} partition_id : {} failed",
+                            tablet->tablet_meta()->tablet_id(), tablet_meta_info.partition_id);
+                    LOG(WARNING) << err_msg;
+                    status = Status::InvalidArgument(err_msg);
+                    continue;
+                }
+                need_to_save = true;
+            }
             if (tablet_meta_info.__isset.storage_policy_id) {
                 tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
                 need_to_save = true;
@@ -1209,7 +1226,8 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
                 std::shared_ptr<io::S3FileSystem> fs;
                 if (existed_resource.fs == nullptr) {
-                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
+                    st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), nullptr,
+                                                  &fs);
                 } else {
                     fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
                     st = fs->set_conf(s3_conf);

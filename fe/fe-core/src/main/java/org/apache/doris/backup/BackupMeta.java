@@ -26,6 +26,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -34,11 +35,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 
 public class BackupMeta implements Writable {
 
+    @SerializedName(value = "db")
+    private String dbName;
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
@@ -52,7 +56,9 @@ public class BackupMeta implements Writable {
     private BackupMeta() {
     }
 
-    public BackupMeta(List<Table> tables, List<Resource> resources) {
+    public BackupMeta(String dbName, List<Table> tables, List<Resource> resources) {
+        this.dbName = dbName;
+
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
@@ -60,6 +66,10 @@ public class BackupMeta implements Writable {
         for (Resource resource : resources) {
             resourceNameMap.put(resource.getName(), resource);
         }
+    }
+
+    public String getDbName() {
+        return dbName;
     }
 
     public Map<String, Table> getTables() {
@@ -83,11 +93,18 @@ public class BackupMeta implements Writable {
     }
 
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
-        File file = new File(filePath);
+        return fromInputStream(new FileInputStream(filePath), metaVersion);
+    }
+
+    public static BackupMeta fromBytes(byte[] bytes, int metaVersion) throws IOException {
+        return fromInputStream(new ByteArrayInputStream(bytes), metaVersion);
+    }
+
+    protected static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
-        try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
+        try (DataInputStream dis = new DataInputStream(stream)) {
             BackupMeta backupMeta = BackupMeta.read(dis);
             return backupMeta;
         } finally {
@@ -103,11 +120,6 @@ public class BackupMeta implements Writable {
         } finally {
             dos.close();
         }
-    }
-
-    public boolean compatibleWith(BackupMeta other) {
-        // TODO
-        return false;
     }
 
     public static BackupMeta read(DataInput in) throws IOException {

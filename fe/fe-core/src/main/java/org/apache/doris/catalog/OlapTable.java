@@ -323,6 +323,10 @@ public class OlapTable extends Table {
         }
     }
 
+    public void setPartitionInfo(PartitionInfo info) {
+        partitionInfo = info;
+    }
+
     public boolean hasMaterializedIndex(String indexName) {
         return indexNameToId.containsKey(indexName);
     }
@@ -1122,6 +1126,14 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1193,44 +1205,49 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
-        long rowCount = getRowCount();
-        if (rowCount > 0 && tblStats.rowCount == 0) {
+        // 1 Check row count.
+        long currentRowCount = getRowCount();
+        long lastAnalyzeRowCount = tblStats.rowCount;
+        // 1.1 Empty table -> non-empty table. Need analyze.
+        if (currentRowCount != 0 && lastAnalyzeRowCount == 0) {
             return true;
         }
+        // 1.2 Non-empty table -> empty table. Need analyze;
+        if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+            return true;
+        }
+        // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
+        if (currentRowCount == 0) {
+            return false;
+        }
+        // 1.4 If row count changed more than the threshold, need analyze.
+        // lastAnalyzeRowCount == 0 is always false here.
+        double changeRate =
+                ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
+        if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
+            return true;
+        }
+
+        // 2. Check update rows.
         long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
+        int tblHealth = StatisticsUtil.getTableHealth(currentRowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 
     @Override
     public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        Set<String> allPartitions = getPartitionNames().stream().map(this::getPartition)
-                .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        if (tableStats == null) {
-            Map<String, Set<String>> ret = Maps.newHashMap();
-            for (Column col : getSchemaAllIndexes(false)) {
-                if (StatisticsUtil.isUnsupportedType(col.getType())) {
-                    continue;
-                }
-                ret.put(col.getName(), allPartitions);
-            }
-            return ret;
-        }
-        Map<String, Set<String>> colToPart = new HashMap<>();
+        Set<String> partitions = Sets.newHashSet();
+        // No need to filter unchanged partitions, because it may bring unexpected behavior.
+        // Use dummy partition to skip it.
+        partitions.add("Dummy Partition");
+        Map<String, Set<String>> colToParts = new HashMap<>();
         for (Column col : getSchemaAllIndexes(false)) {
             if (StatisticsUtil.isUnsupportedType(col.getType())) {
                 continue;
             }
-            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
-            Set<String> partitions = getPartitionNames().stream()
-                    .map(this::getPartition)
-                    .filter(Partition::hasData)
-                    .filter(partition -> partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
-                    .collect(Collectors.toSet());
-            colToPart.put(col.getName(), partitions);
+            colToParts.put(col.getName(), partitions);
         }
-        return colToPart;
+        return colToParts;
     }
 
     @Override

@@ -94,6 +94,9 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     Status _get_range_params();
     void _init_system_properties();
@@ -220,6 +223,7 @@ private:
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
+    bool _parsed_from_json_root = false; // to avoid parsing json root multiple times
 
     char _value_buffer[4 * 1024 * 1024]; // 4MB
     char _parse_buffer[512 * 1024];      // 512KB

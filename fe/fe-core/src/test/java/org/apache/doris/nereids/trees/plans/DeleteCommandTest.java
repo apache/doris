@@ -83,17 +83,15 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalProject(
-                                                        logicalJoin(
-                                                                logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
-                                                                ),
-                                                                logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
+                                                logicalJoin(
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        ),
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
                                                                 )
                                                         )
                                                 ),

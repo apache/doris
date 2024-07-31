@@ -138,7 +138,7 @@ suite('test_profile') {
         
         assertNotNull(stmt_query_info["Profile ID"])
         assertNotEquals(stmt_query_info["Profile ID"].toString(), "N/A".toString())
-        
+        assertNotNull(stmt_query_info["Default Catalog"])
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
            """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }

@@ -22,10 +22,11 @@
 namespace doris::pipeline {
 
 struct MultiCastBlock {
-    MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
+    MultiCastBlock(vectorized::Block* block, int used_count, int need_copy, size_t mem_size);
 
     std::unique_ptr<vectorized::Block> _block;
     int _used_count;
+    int _un_finish_copy;
     size_t _mem_size;
 };
 
@@ -68,6 +69,12 @@ public:
     }
 
 private:
+    void _copy_block(vectorized::Block* block, int& un_finish_copy);
+
+    void _wait_copy_block(vectorized::Block* block, int& un_finish_copy);
+
+    std::condition_variable _cv;
+
     const RowDescriptor& _row_desc;
     RuntimeProfile* _profile;
     std::list<MultiCastBlock> _multi_cast_blocks;
