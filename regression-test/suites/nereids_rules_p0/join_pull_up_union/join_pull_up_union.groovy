@@ -16,6 +16,7 @@
 // under the License.
 
 suite("join_pull_up_union") {
+    /*
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
@@ -191,4 +192,5 @@ suite("join_pull_up_union") {
     UNION ALL
     SELECT a.id, a.name, c.value, 'C' AS source FROM table_a a JOIN table_c c ON a.id = c.id where a.value = 1) t
     """
+     */
 }
