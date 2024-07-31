@@ -301,6 +301,8 @@ struct TQueryOptions {
   112: optional i32 max_column_reader_num = 0
 
   113: optional bool enable_force_spill = false;
+
+  116: optional bool enable_no_need_read_data_opt = true;
   
   117: optional bool read_csv_empty_line_as_null = false;
 
