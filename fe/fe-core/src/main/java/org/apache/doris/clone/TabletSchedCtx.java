@@ -1327,7 +1327,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         long baseTime = Config.tablet_schedule_high_priority_second * 1000L;
         // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 6 * baseTime;
+            value += 10 * baseTime;
         } else {
             int replicaNum = replicaAlloc.getTotalReplicaNum();
             if (tabletHealth.aliveAndVersionCompleteNum < replicaNum && !tabletHealth.noPathForNewReplica) {
