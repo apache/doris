@@ -580,7 +580,8 @@ public class MaterializedViewUtils {
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 IncrementCheckerContext context) {
             NamedExpression partitionColumn = context.getMvPartitionColumn();
-            for (Expression projectSlot : expressionsToCheck) {
+
+            OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
                 if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
                     continue;
                 }
@@ -612,7 +613,7 @@ public class MaterializedViewUtils {
                             String.format("partition expression use more than one slot reference, invalid "
                                             + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
                                     expressionToCheckColumns, partitionColumns));
-                    return false;
+                    continue;
                 }
                 List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
                 for (Expression expression : expressions) {
@@ -621,7 +622,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("column to check use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<Expression> partitionExpressions = partitionExpression.collectToList(
@@ -632,7 +633,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("partition column use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<DateTrunc> expressionToCheckDataTruncList =
@@ -643,7 +644,7 @@ public class MaterializedViewUtils {
                     // mv time unit level is little then query
                     context.addFailReason("partition column time unit level should be "
                             + "greater than sql select column");
-                    return false;
+                    continue;
                 }
                 if (!partitionColumn.isColumnFromTable()) {
                     context.setMvPartitionColumn(partitionColumns.iterator().next());
@@ -651,8 +652,9 @@ public class MaterializedViewUtils {
                 if (!context.getPartitionExpression().isPresent()) {
                     context.setPartitionExpression(partitionExpression);
                 }
+                return true;
             }
-            return true;
+            return context.getMvPartitionColumn().isColumnFromTable();
         }
     }
 
