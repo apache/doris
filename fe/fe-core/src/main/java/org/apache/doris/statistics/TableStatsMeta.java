@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -166,13 +165,6 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                             .map(Column::getName).collect(Collectors.toSet())))) {
                 partitionChanged.set(false);
                 userInjected = false;
-            } else if (tableIf instanceof OlapTable) {
-                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.jobColumns
-                        .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
-                            .map(Column::getName).collect(Collectors.toSet())))) {
-                    partitionChanged.set(false);
-                }
             }
         }
     }
