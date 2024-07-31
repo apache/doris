@@ -35,3 +35,42 @@ true
 -- !test_compare_expression_12 --
 2008-08-08 00:00:00
 
+-- !test_compare_expression_13 --
+true	false	false	true
+
+-- !test_compare_expression_14 --
+0
+
+-- !test_compare_expression_15 --
+true
+
+-- !test_compare_expression_16 --
+\N
+
+-- !test_compare_expression_17 --
+false
+
+-- !test_compare_expression_18 --
+\N
+
+-- !test_compare_expression_19 --
+true
+
+-- !test_compare_expression_20 --
+\N
+
+-- !test_compare_expression_21 --
+false
+
+-- !test_compare_expression_22 --
+\N
+
+-- !test_compare_expression_23 --
+true
+
+-- !test_compare_expression_24 --
+2008-08-08 00:00:00
+
+-- !test_compare_expression_25 --
+true	false	false	true
+

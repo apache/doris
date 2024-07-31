@@ -7579,6 +7579,14 @@ predicate ::=
 comparison_predicate ::=
   expr:e1 EQUAL:op expr:e2
   {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, e2); :}
+  |  expr:e1 KW_IS KW_TRUE
+  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(true)); :}
+  |  expr:e1 KW_IS KW_NOT KW_TRUE
+  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(false)); :}
+  | expr:e1 KW_IS KW_FALSE
+  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(false)); :}
+  | expr:e1 KW_IS KW_NOT KW_FALSE
+  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(true)); :}
   | expr:e1 NOT EQUAL:op expr:e2
   {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.NE, e1, e2); :}
   | expr:e1 LESSTHAN GREATERTHAN:op expr:e2

@@ -3338,6 +3338,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.NULL:
                     outExpression = new IsNull(valueExpression);
                     break;
+                case DorisParser.TRUE:
+                    outExpression = new EqualTo(
+                            valueExpression,
+                            BooleanLiteral.of(1)
+                    );
+                    break;
+                case DorisParser.FALSE:
+                    outExpression = new EqualTo(
+                            valueExpression,
+                            BooleanLiteral.of(0)
+                    );
+                    break;
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:
                     outExpression = new MatchAny(

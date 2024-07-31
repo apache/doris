@@ -34,3 +34,28 @@ select 1 not in (null, 2);
 select timestamp '2008-08-08 00:00:00' in ('2008-08-08');
 select case when true then timestamp '2008-08-08 00:00:00' else '2008-08-08' end;
 
+select 1 is true, 1 is not true, 0 is true, 0 is not true;
+
+
+
+
+
+SET enable_nereids_planner=false;
+
+select 1 in (1, null);
+select 1 in (2, null);
+
+select 1 not in (1, null);
+select 1 not in (2, null);
+
+select 1 in (2, null, 1);
+select 1 in (null, 2);
+
+select 1 not in (null, 1);
+select 1 not in (null, 2);
+
+
+select timestamp '2008-08-08 00:00:00' in ('2008-08-08');
+select case when true then timestamp '2008-08-08 00:00:00' else '2008-08-08' end;
+
+select 1 is true, 1 is not true, 0 is true, 0 is not true;
