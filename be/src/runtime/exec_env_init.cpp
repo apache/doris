@@ -345,7 +345,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     if (config::is_cloud_mode()) {
-        std::cout << "start BE in cloud mode" << std::endl;
+        std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
+                  << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
     } else {
         std::cout << "start BE in local mode" << std::endl;
