@@ -861,6 +861,9 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("Tablet::capture_consistent_versions.inject_failure",
+                    { status = Status::Error<VERSION_ALREADY_MERGED>("version alread merged"); })
     return status;
 }
 
