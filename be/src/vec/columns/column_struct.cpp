@@ -53,7 +53,8 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     columns.reserve(mutable_columns.size());
     for (auto& column : mutable_columns) {
         if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnStruct cannot have ColumnConst as its element");
             __builtin_unreachable();
         }
         columns.push_back(std::move(column));
@@ -63,7 +64,8 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
 ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnStruct cannot have ColumnConst as its element");
             __builtin_unreachable();
         }
     }
@@ -75,7 +77,8 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
 ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
-            LOG(FATAL) << "ColumnStruct cannot have ColumnConst as its element";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnStruct cannot have ColumnConst as its element");
             __builtin_unreachable();
         }
     }
@@ -124,8 +127,10 @@ void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        LOG(FATAL) << "Cannot insert value of different size into tuple. field tuple size"
-                   << tuple.size() << ", columns size " << tuple_size;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Cannot insert value of different size into tuple. field tuple size "
+                               "{}, columns size {}",
+                               tuple.size(), tuple_size);
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -138,7 +143,8 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
 
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
-        LOG(FATAL) << "Cannot insert value of different size into tuple.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Cannot insert value of different size into tuple.");
         __builtin_unreachable();
     }
 

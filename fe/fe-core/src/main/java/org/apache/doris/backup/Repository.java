@@ -397,6 +397,9 @@ public class Repository implements Writable, GsonPostProcessable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;

@@ -92,7 +92,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public static final int SIGNATURE_VERSION = 1;
     public static final Path BACKUP_ROOT_DIR = Paths.get(Config.tmp_dir, "backup").normalize();
     public static final Path RESTORE_ROOT_DIR = Paths.get(Config.tmp_dir, "restore").normalize();
-
     private RepositoryMgr repoMgr = new RepositoryMgr();
 
     // this lock is used for updating dbIdToBackupOrRestoreJobs
@@ -220,6 +219,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
         }
     }
 

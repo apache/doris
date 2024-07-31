@@ -446,18 +446,12 @@ public:
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
-    RuntimeFilterMgr* local_runtime_filter_mgr() {
-        if (_pipeline_x_runtime_filter_mgr) {
-            return _pipeline_x_runtime_filter_mgr;
-        } else {
-            return _runtime_filter_mgr.get();
-        }
-    }
+    RuntimeFilterMgr* local_runtime_filter_mgr() { return _runtime_filter_mgr; }
 
     RuntimeFilterMgr* global_runtime_filter_mgr();
 
-    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
-        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    void set_runtime_filter_mgr(RuntimeFilterMgr* runtime_filter_mgr) {
+        _runtime_filter_mgr = runtime_filter_mgr;
     }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
@@ -642,11 +636,8 @@ private:
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
-    // runtime filter
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
-
     // owned by PipelineFragmentContext
-    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
+    RuntimeFilterMgr* _runtime_filter_mgr = nullptr;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
