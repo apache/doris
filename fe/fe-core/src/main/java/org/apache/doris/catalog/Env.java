@@ -3304,6 +3304,10 @@ public class Env {
                 sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
             }
 
+            // enable mow light delete
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE).append("\" = \"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
