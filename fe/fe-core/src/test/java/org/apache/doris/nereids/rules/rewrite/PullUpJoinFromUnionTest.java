@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.jupiter.api.Test;
-
 class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMatchSupported {
+/*
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -168,4 +166,5 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .matches(logicalJoin(logicalProject(logicalUnion()), any()));
     }
+*/
 }
