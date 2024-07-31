@@ -30,15 +30,20 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
+import java.io.Closeable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
-public abstract class RemoteFileSystem extends PersistentFileSystem {
+public abstract class RemoteFileSystem extends PersistentFileSystem implements Closeable {
     // this field will be visited by multi-threads, better use volatile qualifier
     protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    private final ReentrantLock fsLock = new ReentrantLock();
+    protected static final AtomicBoolean closed = new AtomicBoolean(false);
 
     public RemoteFileSystem(String name, StorageBackend.StorageType type) {
         super(name, type);
@@ -119,5 +124,19 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         runWhenPathNotExist.run();
 
         return rename(origFilePath, destFilePath);
+    }
+
+    @Override
+    public void close() throws IOException {
+        fsLock.lock();
+        try {
+            if (!closed.getAndSet(true)) {
+                if (dfsFileSystem != null) {
+                    dfsFileSystem.close();
+                }
+            }
+        } finally {
+            fsLock.unlock();
+        }
     }
 }

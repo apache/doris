@@ -75,8 +75,14 @@ public class DFSFileSystem extends RemoteFileSystem {
     @VisibleForTesting
     @Override
     public FileSystem nativeFileSystem(String remotePath) throws UserException {
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
             synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
                 if (dfsFileSystem == null) {
                     Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
