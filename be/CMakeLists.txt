@@ -157,6 +157,7 @@ set(BOOST_VERSION "1.81.0")
 
 if (NOT APPLE)
     find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system container)
 else()
     find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
     find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
@@ -298,12 +299,11 @@ if (COMPILER_CLANG)
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion
+                        -Wno-missing-field-initializers
+                        -Wno-unused-const-variable
                         -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
-        if (NOT OS_MACOSX)
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
-        endif()
         add_definitions(-DUSE_LIBCPP)
     endif()
 endif ()
@@ -517,6 +517,7 @@ find_package(absl)
 # add it here first.
 set(COMMON_THIRDPARTY
     Boost::date_time
+    Boost::container
     ${COMMON_THIRDPARTY}
 )
 
@@ -559,7 +560,6 @@ endif()
 if (OS_MACOSX)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        Boost::container
         bfd
         iberty
         intl
@@ -603,9 +603,11 @@ if (NOT OS_MACOSX)
         ${DORIS_DEPENDENCIES}
         -static-libstdc++
         -static-libgcc
-        -lstdc++fs
         -lresolv
     )
+    if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+    endif()
 else()
     set(DORIS_LINK_LIBS
         ${DORIS_LINK_LIBS}
