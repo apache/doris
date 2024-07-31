@@ -532,6 +532,14 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PROPERTIES", ScalarType.createStringType())
                                     .build()))
+            .put("workload_group_privileges",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
+                            builder().column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("WORKLOAD_GROUP_NAME", ScalarType.createVarchar(256))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
+                                    .build())
+            )
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
