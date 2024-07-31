@@ -42,12 +42,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
@@ -627,29 +624,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         TopicInfo topicInfo = new TopicInfo();
         topicInfo.setWorkloadGroupInfo(tWorkloadGroupInfo);
         return topicInfo;
-    }
-
-    public static boolean isMatchBackendTag(String wgTagStr, String beTagStr) {
-        if (StringUtils.isEmpty(wgTagStr)) {
-            return true;
-        }
-        if (StringUtils.isEmpty(beTagStr)) {
-            return false;
-        }
-
-        String[] wgTagArr = wgTagStr.split(",");
-        Set<String> wgTagSet = new HashSet<>();
-        for (String wgTag : wgTagArr) {
-            wgTagSet.add(wgTag.trim());
-        }
-
-        String[] beTagArr = beTagStr.split(",");
-        Set<String> beTagSet = new HashSet<>();
-        for (String beTag : beTagArr) {
-            beTagSet.add(beTag.trim());
-        }
-
-        return !Collections.disjoint(wgTagSet, beTagSet);
     }
 
     @Override
