@@ -263,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    std::string get_error_log_file_path() const;
+    std::string get_error_log_file_path();
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -343,8 +343,6 @@ public:
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
-
-    bool enable_spill() const { return _query_options.enable_spilling; }
 
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
@@ -446,18 +444,12 @@ public:
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
-    RuntimeFilterMgr* local_runtime_filter_mgr() {
-        if (_pipeline_x_runtime_filter_mgr) {
-            return _pipeline_x_runtime_filter_mgr;
-        } else {
-            return _runtime_filter_mgr.get();
-        }
-    }
+    RuntimeFilterMgr* local_runtime_filter_mgr() { return _runtime_filter_mgr; }
 
     RuntimeFilterMgr* global_runtime_filter_mgr();
 
-    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
-        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    void set_runtime_filter_mgr(RuntimeFilterMgr* runtime_filter_mgr) {
+        _runtime_filter_mgr = runtime_filter_mgr;
     }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
@@ -517,12 +509,6 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    int64_t external_agg_bytes_threshold() const {
-        return _query_options.__isset.external_agg_bytes_threshold
-                       ? _query_options.external_agg_bytes_threshold
-                       : 0;
-    }
-
     inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
                _query_options.enable_delete_sub_predicate_v2;
@@ -561,12 +547,12 @@ public:
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge,
-                                            doris::IRuntimeFilter** producer_filter,
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            doris::IRuntimeFilter** producer_filter);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
     bool enable_join_spill() const {
@@ -595,9 +581,9 @@ public:
 
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return _query_options.min_revocable_mem;
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
-        return 0;
+        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -642,11 +628,8 @@ private:
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
-    // runtime filter
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
-
     // owned by PipelineFragmentContext
-    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
+    RuntimeFilterMgr* _runtime_filter_mgr = nullptr;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
@@ -710,7 +693,7 @@ private:
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
+    std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

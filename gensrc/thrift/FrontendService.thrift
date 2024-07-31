@@ -1002,6 +1002,7 @@ enum TSchemaTableName {
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
 }
 
 struct TMetadataTableRequestParams {

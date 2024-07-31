@@ -317,6 +317,8 @@ under the License.
         <hudi.version>0.14.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
+        <!-- lakesoul -->
+        <lakesoul.version>2.6.1</lakesoul.version>
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
@@ -338,17 +340,20 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>2.7.13</spring.version>
+        <spring.version>2.7.18</spring.version>
         <orc.version>1.8.4</orc.version>
-        <zookeeper.version>3.9.1</zookeeper.version>
+        <zookeeper.version>3.9.2</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.53.v20231009</jetty.version>
+        <jetty.version>9.4.55.v20240627</jetty.version>
         <immutables.version>2.9.3</immutables.version>
+        <ivy.version>2.5.2</ivy.version>
+        <icu4j.version>75.1</icu4j.version>
+        <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>0.27</aircompressor.version>
@@ -408,6 +413,28 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.apache.ivy</groupId>
+                <artifactId>ivy</artifactId>
+                <version>${ivy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ibm.icu</groupId>
+                <artifactId>icu4j</artifactId>
+                <version>${icu4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ini4j</groupId>
+                <artifactId>ini4j</artifactId>
+                <version>${ini4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-bom</artifactId>
+                <version>${jetty.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
@@ -645,31 +672,7 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-server</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-client</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-servlet</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-common</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty</groupId>
-                <artifactId>jetty-server</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>

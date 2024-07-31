@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogProperty;
@@ -346,10 +347,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     private void testBeToJdbcConnection() throws DdlException {
         Backend aliveBe = null;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                aliveBe = be;
+        try {
+            for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
+                if (be.isAlive()) {
+                    aliveBe = be;
+                }
             }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
         }
         if (aliveBe == null) {
             throw new DdlException("Test BE Connection to JDBC Failed: No Alive backends");

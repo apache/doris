@@ -230,17 +230,8 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        _weighted_consumption = weighted_consumption;
-        _weighted_limit = weighted_limit;
-    }
-    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        weighted_limit = _weighted_limit;
-        weighted_consumption = _weighted_consumption;
-    }
-
+    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
+    int64_t spill_threshold() { return _spill_threshold; }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -310,9 +301,7 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::mutex _weighted_mem_lock;
-    int64_t _weighted_consumption = 0;
-    int64_t _weighted_limit = 0;
+    std::atomic<int64_t> _spill_threshold {0};
 
     std::mutex _profile_mutex;
 

@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -40,7 +39,6 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.iceberg.source.IcebergSplit;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -80,7 +78,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -97,7 +94,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected String brokerName;
 
-    @Getter
     protected TableSnapshot tableSnapshot;
 
     /**
@@ -181,16 +177,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    /**
-     * Reset required_slots in contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     */
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        updateRequiredSlots();
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -298,7 +284,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 TScanRangeLocation location = new TScanRangeLocation();
                 long backendId = ConnectContext.get().getBackendId();
-                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
                 location.setBackendId(backendId);
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
@@ -593,5 +579,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 manager.removeSplitSource(sourceId);
             }
         }
+    }
+
+    public void setQueryTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    public TableSnapshot getQueryTableSnapshot() {
+        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
+        if (snapshot != null) {
+            return snapshot;
+        }
+        return this.tableSnapshot;
     }
 }

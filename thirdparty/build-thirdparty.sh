@@ -73,6 +73,8 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
+BUILD_AZURE="ON"
+
 while true; do
     case "$1" in
     -j)
@@ -117,6 +119,10 @@ read -r -a packages <<<"${@}"
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
+fi
+
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 echo "Get params:
@@ -627,7 +633,7 @@ build_bzip() {
     check_if_source_exist "${BZIP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${BZIP_SOURCE}"
 
-    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}" CFLAGS="-fPIC"
 }
 
 # lzo2
@@ -1135,7 +1141,7 @@ build_bitshuffle() {
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        arches=('default')
+        arches=('default' 'neon')
     fi
 
     to_link=""
@@ -1147,6 +1153,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx512" ]]; then
             arch_flag="-mavx512bw -mavx512f"
         fi
+        if [[ "${arch}" == "neon" ]]; then
+            arch_flag="-march=armv8-a+crc"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1156,7 +1165,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
+        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]] || [[ "${arch}" == "neon" ]]; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
@@ -1735,7 +1744,7 @@ build_libuuid() {
     check_if_source_exist "${LIBUUID_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
     CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
-    make -j "${PARALLEL}"
+    make -j "${PARALLEL}" CFLAGS="-fPIC"
     make install
 }
 
@@ -1780,21 +1789,25 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    check_if_source_exist "${AZURE_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
-    azure_dir=$(pwd)
+    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
+        echo "Skip build azure"
+    else
+        check_if_source_exist "${AZURE_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+        azure_dir=$(pwd)
 
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
+        rm -rf "${BUILD_DIR}"
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
 
-    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
-    AZURE_PORTS="vcpkg-custom-ports"
-    AZURE_MANIFEST_DIR="."
+        # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+        AZURE_PORTS="vcpkg-custom-ports"
+        AZURE_MANIFEST_DIR="."
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
 }
 
 # dragonbox

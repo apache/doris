@@ -20,7 +20,9 @@
 #include <aws/core/client/AWSError.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 
+#ifdef USE_AZURE
 #include <azure/core/http/policies/policy.hpp>
+#endif
 
 namespace doris {
 class S3CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
@@ -32,6 +34,7 @@ public:
                      long attemptedRetries) const override;
 };
 
+#ifdef USE_AZURE
 class AzureRetryRecordPolicy final : public Azure::Core::Http::Policies::HttpPolicy {
 public:
     AzureRetryRecordPolicy(int retry_cnt);
@@ -45,4 +48,5 @@ public:
 private:
     mutable int retry_cnt;
 };
+#endif
 } // namespace doris

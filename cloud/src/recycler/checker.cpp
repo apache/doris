@@ -127,8 +127,9 @@ int Checker::start() {
             long enqueue_time_s = 0;
             {
                 std::unique_lock lock(mtx_);
-                pending_instance_cond_.wait(
-                        lock, [&]() { return !pending_instance_queue_.empty() || stopped(); });
+                pending_instance_cond_.wait(lock, [&]() -> bool {
+                    return !pending_instance_queue_.empty() || stopped();
+                });
                 if (stopped()) {
                     return;
                 }

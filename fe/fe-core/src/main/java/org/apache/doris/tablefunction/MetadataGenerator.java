@@ -113,6 +113,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -146,6 +148,13 @@ public class MetadataGenerator {
             optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> wgPrivsBuilder = new ImmutableMap.Builder();
+        List<Column> wgPrivsColList = SchemaTable.TABLE_MAP.get("workload_group_privileges").getFullSchema();
+        for (int i = 0; i < wgPrivsColList.size(); i++) {
+            wgPrivsBuilder.put(wgPrivsColList.get(i).getName().toLowerCase(), i);
+        }
+        WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = wgPrivsBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -228,6 +237,10 @@ public class MetadataGenerator {
             case TABLE_OPTIONS:
                 result = tableOptionsMetadataResult(schemaTableParams);
                 columnIndex = TABLE_OPTIONS_COLUMN_TO_INDEX;
+                break;
+            case WORKLOAD_GROUP_PRIVILEGES:
+                result = workloadGroupPrivsMetadataResult(schemaTableParams);
+                columnIndex = WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -496,8 +509,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // tag
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // waiting query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
+            trow.addToColumnValue(
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(17))); // running query num
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(18))); // waiting query num
             dataBatch.add(trow);
         }
 
@@ -529,6 +545,30 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
 
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult workloadGroupPrivsMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+
+        List<List<String>> rows = new ArrayList<>();
+        Env.getCurrentEnv().getAuth().getUserRoleWorkloadGroupPrivs(rows, currentUserIdentity);
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (List<String> privRow : rows) {
+            TRow trow = new TRow();
+            String workloadGroupName = privRow.get(1);
+            trow.addToColumnValue(new TCell().setStringVal(privRow.get(0))); // GRANTEE
+            trow.addToColumnValue(new TCell().setStringVal(workloadGroupName)); // WORKLOAD_GROUP_NAME
+            trow.addToColumnValue(new TCell().setStringVal(privRow.get(2))); // PRIVILEGE_TYPE
+            trow.addToColumnValue(new TCell().setStringVal(privRow.get(3))); // IS_GRANTABLE
+            dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

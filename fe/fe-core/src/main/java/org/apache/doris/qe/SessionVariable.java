@@ -139,7 +139,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
-    public static final String ENABLE_SPILLING = "enable_spilling";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
@@ -473,7 +472,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
     public static final String GROUP_COMMIT = "group_commit";
+
+    public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -534,7 +536,6 @@ public class SessionVariable implements Serializable, Writable {
 
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
-    public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
@@ -692,9 +693,6 @@ public class SessionVariable implements Serializable, Writable {
     })
     public double scannerScaleUpRatio = 0;
 
-    @VariableMgr.VarAttr(name = ENABLE_SPILLING)
-    public boolean enableSpilling = false;
-
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
@@ -728,9 +726,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
-    // if true, need report to coordinator when plan fragment execute successfully.
+    // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
+    // will be stored to disk.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
-    public int autoProfileThresholdMs = -1;
+    public int autoProfileThresholdMs = 500;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
@@ -840,7 +839,7 @@ public class SessionVariable implements Serializable, Writable {
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
-    public int exchangeInstanceParallel = -1;
+    public int exchangeInstanceParallel = 100;
 
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     public int sqlSafeUpdates = 0;
@@ -1070,7 +1069,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 2048;
+    private int runtimeBloomFilterMinSize = 1048576;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -1678,6 +1677,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
 
+    @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
+    public boolean enablePreparedStmtAuditLog = true;
+
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
                     + "则使用跳表来优化交集操作。",
@@ -2022,12 +2024,6 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalSortBytesThreshold", varType = VariableAnnotation.DEPRECATED)
     public long externalSortBytesThreshold = 0;
 
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_AGG_BYTES_THRESHOLD = 134217728;
-    @VariableMgr.VarAttr(name = EXTERNAL_AGG_BYTES_THRESHOLD,
-            checker = "checkExternalAggBytesThreshold", fuzzy = true, varType = VariableAnnotation.DEPRECATED)
-    public long externalAggBytesThreshold = 0;
-
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
     @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
@@ -2113,10 +2109,14 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
+            this.topnOptLimitThreshold = 0;
+            this.enableSyncRuntimeFilterSize = true;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
+            this.topnOptLimitThreshold = 1024;
+            this.enableSyncRuntimeFilterSize = false;
         }
 
         /*
@@ -2166,6 +2166,7 @@ public class SessionVariable implements Serializable, Writable {
             switch (Config.pull_request_id % 3) {
                 case 0:
                     this.fragmentTransmissionCompressionCodec = "snappy";
+                    this.runtimeFilterWaitTimeMs = 10;
                     break;
                 case 1:
                     this.fragmentTransmissionCompressionCodec = "lz4";
@@ -2180,10 +2181,12 @@ public class SessionVariable implements Serializable, Writable {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
                     this.parallelScanMinRowsPerScanner = 64;
+                    this.runtimeFilterMaxInNum = 10;
                     break;
                 case 1:
                     this.parallelScanMaxScannersCount = 16;
                     this.parallelScanMinRowsPerScanner = 128;
+                    this.runtimeFilterMaxInNum = 0;
                     break;
                 case 2:
                     this.parallelScanMaxScannersCount = 8;
@@ -3250,20 +3253,21 @@ public class SessionVariable implements Serializable, Writable {
     public Set<String> getDisableNereidsRuleNames() {
         String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
         String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
-        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
-                .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+        return Arrays.stream(disableNereidsRules.split(","))
+                .map(rule -> rule.trim().toUpperCase(Locale.ROOT))
+                .filter(rule -> !rule.isEmpty()
+                        && !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
                         && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
     public BitSet getDisableNereidsRules() {
         BitSet bitSet = new BitSet();
-        for (String ruleName : disableNereidsRules.split(",[\\s]*")) {
+        for (String ruleName : disableNereidsRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
             if (ruleName.isEmpty()) {
                 continue;
             }
-            ruleName = ruleName.toUpperCase(Locale.ROOT);
             RuleType ruleType = RuleType.valueOf(ruleName);
             if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
                 continue;
@@ -3368,14 +3372,6 @@ public class SessionVariable implements Serializable, Writable {
         if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
             LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
             throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
-        }
-    }
-
-    public void checkExternalAggBytesThreshold(String externalAggBytesThreshold) {
-        long value = Long.valueOf(externalAggBytesThreshold);
-        if (value > 0 && value < MIN_EXTERNAL_AGG_BYTES_THRESHOLD) {
-            LOG.warn("external agg bytes threshold: {}, min: {}", value, MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
-            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_AGG_BYTES_THRESHOLD);
         }
     }
 
@@ -3556,10 +3552,9 @@ public class SessionVariable implements Serializable, Writable {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
 
-        tResult.setEnableSpilling(enableSpilling);
-
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+        tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -3588,8 +3583,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggBytesThreshold(0); // disable for now
 
         tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
-
-        tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
 
@@ -4120,6 +4113,10 @@ public class SessionVariable implements Serializable, Writable {
             return "sync_mode";
         }
         return groupCommit;
+    }
+
+    public boolean isEnablePreparedStmtAuditLog() {
+        return enablePreparedStmtAuditLog;
     }
 
     public boolean isEnableMaterializedViewRewrite() {

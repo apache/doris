@@ -223,6 +223,7 @@ tables
 triggers
 user_privileges
 views
+workload_group_privileges
 workload_groups
 workload_policy
 

@@ -1216,10 +1216,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+    // for those elements equal in partiton ids, get their names.
+    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
-        for (Long id : partitionIds) {
-            names.add(idToPartition.get(id).getName());
+        for (int i = 0; i < partitionIds1.size(); i++) {
+            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
+                names.add(getPartition(partitionIds1.get(i)).getName());
+            }
         }
         return names;
     }
@@ -1986,9 +1989,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public int hashCode() {
-        return Objects.hash(state, indexIdToMeta, indexNameToId, keysType, partitionInfo, idToPartition,
-                nameToPartition, defaultDistributionInfo, tempPartitions, bfColumns, bfFpp, colocateGroup,
-                hasSequenceCol, sequenceType, indexes, baseIndexId, tableProperty);
+        return (int) baseIndexId;
     }
 
     public Column getBaseColumn(String columnName) {

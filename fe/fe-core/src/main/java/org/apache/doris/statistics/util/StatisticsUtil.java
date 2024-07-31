@@ -1003,7 +1003,7 @@ public class StatisticsUtil {
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
+            if (tableStatsStatus.partitionChanged.get()) {
                 return true;
             }
             // 1. Check row count.

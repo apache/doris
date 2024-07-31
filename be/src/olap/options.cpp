@@ -221,7 +221,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             if (value.IsInt64()) {
                 total_size = value.GetInt64();
             } else {
-                return Status::InvalidArgument("total_size should be int64");
+                total_size = 0;
             }
         }
         if (config::enable_file_cache_query_limit) {
@@ -230,13 +230,12 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                 if (value.IsInt64()) {
                     query_limit_bytes = value.GetInt64();
                 } else {
-                    return Status::InvalidArgument("query_limit should be int64");
+                    query_limit_bytes = 0;
                 }
             }
         }
-        if (total_size <= 0 || (config::enable_file_cache_query_limit && query_limit_bytes <= 0)) {
-            return Status::InvalidArgument(
-                    "total_size or query_limit should not less than or equal to zero");
+        if (total_size < 0 || (config::enable_file_cache_query_limit && query_limit_bytes < 0)) {
+            return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
 
         // percent

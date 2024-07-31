@@ -184,9 +184,11 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getBackendsByCurrentCluster()));
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo()
+                .getBackendsByCurrentCluster().values().asList()));
         if (backends.isEmpty()) {
-            throw new UserException("No available backends");
+            throw new UserException("No available backends, "
+                + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);

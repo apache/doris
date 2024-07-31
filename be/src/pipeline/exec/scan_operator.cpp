@@ -102,7 +102,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -1223,9 +1223,8 @@ Status ScanLocalState<Derived>::_start_scanners(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency,
             // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
+            // 2. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
+            p.ignore_data_distribution() && !p.is_file_scan_operator()
                     ? 1
                     : state()->query_parallel_instance_num());
     return Status::OK();

@@ -601,8 +601,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
 DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DEFINE_mInt64(wg_mem_refresh_interval_ms, "50");
+DEFINE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms, "50");
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
@@ -634,6 +633,8 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
+
+DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -937,7 +938,8 @@ DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
-DEFINE_Int32(s3_transfer_executor_pool_size, "2");
+DEFINE_Int32(min_s3_file_system_thread_num, "16");
+DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");

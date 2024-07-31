@@ -112,6 +112,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -679,10 +680,19 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
-        Supplier<Scope> aggOutputScopeWithoutAggFun = buildAggOutputScopeWithoutAggFun(boundAggOutput, cascadesContext);
+        List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
+        for (NamedExpression output : boundAggOutput) {
+            if (output instanceof BoundStar) {
+                boundProjections.addAll(((BoundStar) output).getSlots());
+            } else {
+                boundProjections.add(output);
+            }
+        }
+        Supplier<Scope> aggOutputScopeWithoutAggFun =
+                buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
-                 agg, agg.getGroupByExpressions(), boundAggOutput, aggOutputScopeWithoutAggFun, cascadesContext);
-        return agg.withGroupByAndOutput(boundGroupBy, boundAggOutput);
+                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
+        return agg.withGroupByAndOutput(boundGroupBy, boundProjections);
     }
 
     private Plan bindRepeat(MatchingContext<LogicalRepeat<Plan>> ctx) {

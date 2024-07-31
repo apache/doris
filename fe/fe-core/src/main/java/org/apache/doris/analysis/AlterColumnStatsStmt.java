@@ -134,6 +134,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
 
+        if (!properties.containsKey(StatsType.ROW_COUNT.getValue())) {
+            throw new AnalysisException("Set column stats must set row_count. e.g. 'row_count'='5'");
+        }
+
         // get statsTypeToValue
         properties.forEach((key, value) -> {
             StatsType statsType = StatsType.fromString(key);
@@ -218,5 +222,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

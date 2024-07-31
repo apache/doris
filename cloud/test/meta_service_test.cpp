@@ -428,6 +428,110 @@ TEST(MetaServiceTest, CreateInstanceTest) {
     }
 }
 
+TEST(MetaServiceTest, AlterS3StorageVaultTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    std::pair<std::string, std::string> pair;
+    sp->set_call_back("extract_object_storage_info:get_aksk_pair", [&](auto&& args) {
+        auto* ret = try_any_cast<std::pair<std::string, std::string>*>(args[0]);
+        pair = *ret;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    StorageVaultPB vault;
+    vault.mutable_obj_info()->MergeFrom(obj_info);
+    vault.set_name("test_alter_s3_vault");
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_ak("new_ak");
+        vault.set_name("test_alter_s3_vault");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        ObjectStoreInfoPB obj;
+        obj_info.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name("test_alter_s3_vault_non_exist");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, AlterClusterTest) {
     auto meta_service = get_meta_service();
     ASSERT_NE(meta_service, nullptr);
@@ -2054,6 +2158,77 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
+    auto meta_service = get_meta_service();
+
+    const int64_t db_id = 666;
+    const int64_t table_id = 777;
+    const std::string label = "test_label";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 15623;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:15586";
+    int64_t txn_id = -1;
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+    TxnCoordinatorPB coordinator;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    coordinator.set_id(coordinator_id);
+    coordinator.set_ip(host);
+    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+    coordinator.set_start_time(cur_time);
+    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+    txn_id = begin_txn_res.txn_id();
+    ASSERT_GT(txn_id, -1);
+
+    brpc::Controller abort_txn_cntl;
+    AbortTxnWithCoordinatorRequest abort_txn_req;
+    AbortTxnWithCoordinatorResponse abort_txn_resp;
+
+    abort_txn_req.set_id(coordinator_id);
+    abort_txn_req.set_ip(host);
+    abort_txn_req.set_start_time(cur_time + 3600);
+
+    // first time to check txn conflict
+    meta_service->abort_txn_with_coordinator(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
+            &abort_txn_resp, nullptr);
+    ASSERT_EQ(abort_txn_resp.status().code(), MetaServiceCode::OK);
+
+    brpc::Controller abort_txn_conflict_cntl;
+    CheckTxnConflictRequest check_txn_conflict_req;
+    CheckTxnConflictResponse check_txn_conflict_res;
+
+    check_txn_conflict_req.set_cloud_unique_id(cloud_unique_id);
+    check_txn_conflict_req.set_db_id(db_id);
+    check_txn_conflict_req.set_end_txn_id(txn_id + 1);
+    check_txn_conflict_req.add_table_ids(table_id);
+
+    // first time to check txn conflict
+    meta_service->check_txn_conflict(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+            &check_txn_conflict_req, &check_txn_conflict_res, nullptr);
+
+    ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
+}
+
 TEST(MetaServiceTest, CheckTxnConflictTest) {
     auto meta_service = get_meta_service();
 
@@ -2097,6 +2272,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), false);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 1);
+    check_txn_conflict_res.clear_conflict_txns();
 
     // mock rowset and tablet
     int64_t tablet_id_base = 123456;
@@ -2125,6 +2302,7 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
 
     {
         std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
@@ -5985,13 +6163,13 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         // Invalid fs name
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         req.mutable_vault()->mutable_hdfs_info()->mutable_build_conf()->set_fs_name(
                 "hdfs://ip:port");
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -6016,7 +6194,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
     }
@@ -6036,7 +6214,7 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6106,7 +6284,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
     }
@@ -6125,7 +6303,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::STORAGE_VAULT_NOT_FOUND)
                 << res.status().msg();
@@ -6145,7 +6323,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6177,7 +6355,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6204,7 +6382,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6230,7 +6408,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6253,7 +6431,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6291,7 +6469,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6474,7 +6652,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -6483,7 +6661,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)
@@ -6507,7 +6685,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
         set_default_req.set_op(AlterObjStoreInfoRequest::SET_DEFAULT_VAULT);
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_NE(set_default_res.status().code(), MetaServiceCode::OK)
@@ -6586,7 +6764,7 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
@@ -6707,7 +6885,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -6733,7 +6911,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
         set_default_req.mutable_vault()->CopyFrom(hdfs);
         AlterObjStoreInfoResponse set_default_res;
         brpc::Controller cntl;
-        meta_service->alter_obj_store_info(
+        meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &set_default_req,
                 &set_default_res, nullptr);
         ASSERT_EQ(set_default_res.status().code(), MetaServiceCode::OK)

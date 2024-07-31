@@ -197,6 +197,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1226,6 +1227,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        ConnectContext ctx = ConnectContext.get();
+        Objects.requireNonNull(ctx, "ConnectContext.get() can not be null.");
         try {
             DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
             TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
@@ -1259,14 +1262,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
-                    createTableStmt.get(0), ConnectContext.get());
-            parsedCreateTableStmt.setTableName(stmt.getTableName());
-            parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
-            createTable(parsedCreateTableStmt);
+
+            try {
+                // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
+                // create_priv of newTable, and select_priv of existedTable, and priv check has done in
+                // CreateTableStmt/CreateTableCommand, so we skip it
+                ctx.setSkipAuth(true);
+                CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
+                        createTableStmt.get(0), ctx);
+                parsedCreateTableStmt.setTableName(stmt.getTableName());
+                parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
+                createTable(parsedCreateTableStmt);
+            } finally {
+                ctx.setSkipAuth(false);
+            }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
-                    + e.getMessage());
+                    + e.getMessage(), e);
         }
     }
 
@@ -1710,7 +1722,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.isInMemory(),
                     singlePartitionDesc.getTabletType(),
                     storagePolicy, idGeneratorBuffer,
-                    binlogConfig, dataProperty.isStorageMediumSpecified(), null, olapTable.rowStorePageSize());
+                    binlogConfig, dataProperty.isStorageMediumSpecified(), null);
             // TODO cluster key ids
 
             // check again
@@ -2006,7 +2018,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
                                                    boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes, long rowStorePageSize)
+                                                   List<Integer> clusterKeyIndexes)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -2090,7 +2102,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionLevelThreshold(),
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool, rowStorePageSize);
+                            objectPool, tbl.rowStorePageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2881,7 +2893,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer,
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified(),
-                        keysDesc.getClusterKeysColumnIds(), olapTable.rowStorePageSize());
+                        keysDesc.getClusterKeysColumnIds());
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
                 olapTable.addPartition(partition);
@@ -2964,7 +2976,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified(),
-                            keysDesc.getClusterKeysColumnIds(), olapTable.rowStorePageSize());
+                            keysDesc.getClusterKeysColumnIds());
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
@@ -3431,7 +3443,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified(),
-                        clusterKeyIdxes, olapTable.rowStorePageSize());
+                        clusterKeyIdxes);
                 newPartitions.add(newPartition);
             }
 

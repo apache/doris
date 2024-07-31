@@ -103,7 +103,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     if (!ret) {
         return false;
     }
-    if (min_key < pre_max_key) {
+    if (min_key <= pre_max_key) {
         return false;
     }
     CHECK(rhs->max_key(&pre_max_key));
@@ -400,15 +400,14 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    Status st = execute_compact_impl(permits);
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    auto record_compaction_stats = [&](const doris::Exception& ex) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+    };
 
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
-
-    if (!st.ok()) {
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -907,7 +906,9 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
     ctx.version = _output_version;
@@ -1181,13 +1182,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    Status st = execute_compact_impl(permits);
-    if (!st.ok()) {
-        garbage_collection();
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
+                                        [&](const doris::Exception& ex) { garbage_collection(); });
     _load_segment_to_cache();
-    return st;
+    return Status::OK();
 }
 
 Status CloudCompactionMixin::modify_rowsets() {
@@ -1199,7 +1197,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
 

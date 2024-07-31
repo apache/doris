@@ -228,6 +228,7 @@ void Daemon::memory_maintenance_thread() {
             DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
         }
 #endif
+        MemInfo::refresh_memory_bvar();
 
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
@@ -392,11 +393,11 @@ void Daemon::je_purge_dirty_pages_thread() const {
     } while (true);
 }
 
-void Daemon::wg_mem_used_refresh_thread() {
-    // Refresh memory usage and limit of workload groups
+void Daemon::wg_weighted_memory_ratio_refresh_thread() {
+    // Refresh weighted memory ratio of workload groups
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::wg_mem_refresh_interval_ms))) {
-        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_memory_info();
+            std::chrono::milliseconds(config::wg_weighted_memory_ratio_refresh_interval_ms))) {
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
     }
 }
 
@@ -441,7 +442,8 @@ void Daemon::start() {
     CHECK(st.ok()) << st;
 
     st = Thread::create(
-            "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
+            "Daemon", "wg_weighted_memory_ratio_refresh_thread",
+            [this]() { this->wg_weighted_memory_ratio_refresh_thread(); },
             &_threads.emplace_back());
 
     if (config::enable_be_proc_monitor) {
