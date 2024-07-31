@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -42,6 +43,7 @@ import org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants;
 import org.apache.doris.job.extensions.cdc.utils.RestService;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PGetCdcSplitsResult;
 import org.apache.doris.proto.InternalService.PStartCdcScannerResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -104,7 +106,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             new Column("Progress", ScalarType.createStringType()));
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
     private static final Logger LOG = LogManager.getLogger(CdcDatabaseJob.class);
-    private static final int port = 10000;
+    private static final int port = 9096;
     private static ObjectMapper objectMapper = new ObjectMapper();
     @SerializedName("rs")
     List<SnapshotSplit> remainingSplits = new CopyOnWriteArrayList<>();
@@ -192,7 +194,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     @Override
     public void onUnRegister() throws JobException {
         super.onUnRegister();
-        Pair<String, Integer> ipPort = Pair.of(selectBackend().getHost(), port);
+        Pair<String, Integer> ipPort = Pair.of(selectBackend(getJobId()).getHost(), port);
         // be rpc close，all backends clear
         RestService.closeResource(ipPort, getJobId());
         if (executor != null) {
@@ -206,6 +208,12 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             executor = Executors.newSingleThreadExecutor(threadFactory);
         }
         executor.submit(() -> {
+            //todo: wait cdc scanner process start
+            try {
+                Thread.sleep(10000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
             // reset failMsg
             splitFailMsg = null;
             for (String splitTbl : remainingTables) {
@@ -232,9 +240,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             if ("initial".equals(config.getOrDefault(CdcLoadConstants.SCAN_STARTUP_MODE, "initial"))) {
                 config.put(SNAPSHOT_TABLE, splitTbl);
             }
-            // call be rpc
-            Pair<String, Integer> ipPort = Pair.of(backend.getHost(), port);
-            splits = RestService.getSplits(ipPort, getJobId(), config);
+            splits = requestTableSplits(backend);
         } catch (Exception ex) {
             LOG.error("Fail to get split, ", ex);
             splitFailMsg = ex.getMessage();
@@ -249,7 +255,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             return;
         }
 
-        LOG.debug("fetch splits {}", splits);
+        LOG.info("fetch splits {}", splits);
         for (AbstractSourceSplit split : splits) {
             if (Objects.equals(split.getSplitId(), BINLOG_SPLIT_ID)) {
                 BinlogSplit binlogSplit = (BinlogSplit) split;
@@ -266,13 +272,60 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         logUpdateOperation();
     }
 
+    private List<? extends AbstractSourceSplit> requestTableSplits(Backend backend) throws JobException {
+        // http
+        // Pair<String, Integer> ipPort = Pair.of(backend.getHost(), port);
+        // return RestService.getSplits(ipPort, getJobId(), config);
+
+        //rpc
+        Map<String, Object> params = new HashMap<>();
+        params.put("jobId", getJobId());
+        params.put("config", config);
+        InternalService.PGetCdcSplitsRequest request = InternalService.PGetCdcSplitsRequest.newBuilder()
+                .setParams(GsonUtils.GSON.toJson(params)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PGetCdcSplitsResult result = null;
+        List<? extends AbstractSourceSplit> responseList;
+        try {
+            Future<PGetCdcSplitsResult> future =
+                    BackendServiceProxy.getInstance().getCdcSplits(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new JobException("Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: " + result.getResponse());
+            }
+        } catch (RpcException | ExecutionException | InterruptedException ex) {
+            throw new JobException(ex);
+        }
+
+        String response = HttpUtils.parseResponse(result.getResponse());
+        try{
+            List<Map<String, Object>> mapList = new ObjectMapper().readValue(response,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            Map<String, Object> split = mapList.get(0);
+            String splitId = split.get(CdcDatabaseJob.SPLIT_ID).toString();
+            if (CdcDatabaseJob.BINLOG_SPLIT_ID.equals(splitId)) {
+                responseList = objectMapper.convertValue(mapList, new TypeReference<List<BinlogSplit>>() {
+                });
+            } else {
+                responseList = objectMapper.convertValue(mapList, new TypeReference<List<SnapshotSplit>>() {
+                });
+            }
+            return responseList;
+        }catch (IOException ex){
+            LOG.error("Get splits error: ", ex);
+            throw new RuntimeException("Get splits error");
+        }
+    }
+
     @Override
     public List<CdcDatabaseTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
         try {
             Map<String, String> readOffset = new HashMap<>();
             // Call the BE interface and pass host, port, jobId
             // select backends
-            Backend backend = selectBackend();
+            Backend backend = selectBackend(getJobId());
 
             if (!isBinlogSplitAssigned) {
                 if (!remainingSplits.isEmpty()) {
@@ -352,8 +405,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         super.initialize();
         if (!remainingTables.isEmpty()) {
             Backend backend = createCdcProcess();
-            System.out.println(backend);
-            //startSplitAsync(backend);
+            startSplitAsync(backend);
         }
     }
 
@@ -362,7 +414,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         super.onStatusChanged(oldStatus, newStatus);
         if (JobStatus.PAUSED.equals(oldStatus) && JobStatus.RUNNING.equals(newStatus)) {
             if (!remainingTables.isEmpty()) {
-                startSplitAsync(selectBackend());
+                startSplitAsync(selectBackend(getJobId()));
             }
         }
 
@@ -372,7 +424,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     }
 
     private Backend createCdcProcess() throws JobException {
-        Backend backend = selectBackend();
+        Backend backend = selectBackend(getJobId());
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         startCdcScanner(address, "");
         LOG.info("Cdc server started on backend: " + backend.getHost());
@@ -389,7 +441,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                throw new JobException("Failed to start cdc server on backend: " + result.getStatus().getErrorMsgs(0));
+                throw new JobException("Failed to start cdc server on backend, " + result.getStatus().getErrorMsgs(0));
             }
         } catch (RpcException | ExecutionException | InterruptedException ex) {
             throw new JobException(ex);
@@ -426,7 +478,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
-    public static Backend selectBackend() throws JobException {
+    public static Backend selectBackend(Long jobId) throws JobException {
         // 用jobid % backendid，从而固定到某个backend
         Backend backend = null;
         BeSelectionPolicy policy = null;
@@ -445,7 +497,8 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        long index = backendIds.get(jobId.intValue() % backendIds.size());
+        backend = Env.getCurrentSystemInfo().getBackend(index);
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }

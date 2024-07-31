@@ -486,7 +486,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } catch (Throwable th) {
                     LOG.warn("Rollback drop cdc database failed, please drop database by manual, erros msg" + th.getMessage());
                 }
-                throw new DdlException("Failed to create cdc database job, " + t.getMessage());
+                throw new DdlException("Failed to create cdc database job: " + t.getMessage());
             }
         }
     }

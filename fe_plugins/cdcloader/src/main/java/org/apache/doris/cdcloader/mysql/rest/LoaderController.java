@@ -18,6 +18,8 @@
 package org.apache.doris.cdcloader.mysql.rest;
 
 
+import java.util.List;
+
 import org.apache.doris.cdcloader.common.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcloader.mysql.config.LoadContext;
 import org.apache.doris.cdcloader.mysql.reader.SourceReader;
@@ -29,10 +31,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 public class LoaderController {
@@ -56,16 +55,6 @@ public class LoaderController {
         SourceReader reader = context.getSourceReader();
         List splits = reader.getSourceSplits(config);
         return ResponseEntityBuilder.ok(splits);
-    }
-
-    @RequestMapping(path = "/api/status", method = RequestMethod.GET)
-    public Object isStarted(@RequestParam("jobId") long jobId) {
-        return ResponseEntityBuilder.ok(true);
-    }
-
-    @RequestMapping(path = "/api/job/cdc/heartbeat", method = RequestMethod.POST)
-    public Object heartbeat(@RequestParam("jobId") long jobId) {
-        return ResponseEntityBuilder.ok();
     }
 
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)

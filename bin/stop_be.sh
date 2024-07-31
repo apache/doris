@@ -73,8 +73,10 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 
+    pgid=$(ps -o pgid= -p ${pid})
+
     # kill PID process and check it
-    if kill "-${signum}" "${pid}" >/dev/null 2>&1; then
+    if kill "-${signum}" -"${pgid}" >/dev/null 2>&1; then
         while true; do
             if kill -0 "${pid}" >/dev/null 2>&1; then
                 echo "Waiting for be process with PID ${pid} to terminate"

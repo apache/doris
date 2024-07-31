@@ -109,10 +109,6 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
 
     @Override
     public List<AbstractSourceSplit> getSourceSplits(JobConfig config) throws JsonProcessingException {
-        try {
-            Thread.sleep(10000);
-        } catch (InterruptedException e) {
-        }
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();

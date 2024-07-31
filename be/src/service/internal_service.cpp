@@ -37,8 +37,16 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <google/protobuf/stubs/callback.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef __APPLE__
+#include <sys/prctl.h>
+#endif
+
+#include <sys/wait.h>
+
 #include <sys/stat.h>
 #include <vec/exec/vjdbc_connector.h>
 
@@ -935,6 +943,109 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         if (!close_st.ok()) {
             LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
         }
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+static void handle_sigchld(int sig_no) {
+    for (;;) {
+        if (waitpid(-1, NULL, WNOHANG) == 0)
+            break;
+    }
+}
+
+void PInternalService::start_cdc_scanner(google::protobuf::RpcController* controller,
+                                            const PStartCdcScannerRequest* request,
+                                            PStartCdcScannerResult* result,
+                                            google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "start cdc scanner request";
+        brpc::ClosureGuard closure_guard(done);
+        Status st = Status::OK();
+        string cdc_jar_path = string(getenv("DORIS_HOME")) + "/lib/cdc-scanner.jar";
+        string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_scanner_port);
+        string cdc_jar_params = request->params();
+        string cdc_log_path = string(getenv("LOG_DIR")) + "/cdc.log";
+        //check cdc jar exists
+        struct stat buffer;
+        if(stat(cdc_jar_path.c_str(), &buffer) != 0){
+            st = Status::InternalError("Can not find cdc-scanner.jar.");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        //Capture signal to prevent child process from becoming a zombie process
+        struct sigaction act;
+        act.sa_flags = 0;
+        act.sa_handler = handle_sigchld;
+        sigaction(SIGCHLD, &act, NULL);
+        LOG(INFO) << "Start to fork cdc scanner process." ;
+
+        // If has a forked process, the child process fails to start and will automatically exit
+        pid_t pid = ::fork();
+        if (pid < 0) {
+            // Fork failed
+            st = Status::InternalError("Fork cdc scanner failed.");
+        }else if (pid == 0) {
+            // When the parent process is killed, the child process also needs to exit
+            #ifndef __APPLE__
+            prctl(PR_SET_PDEATHSIG,SIGKILL);
+            #endif
+            int logFile = open(cdc_log_path.c_str(), O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+            if (logFile < 0) {
+                std::cerr << "Can not open cdc log file: " << cdc_log_path << std::endl;
+                exit(1);
+            }
+            dup2(logFile, STDOUT_FILENO);
+            dup2(logFile, STDERR_FILENO);
+            close(logFile);
+
+            std::cout << "Cdc scanner child process ready to start." << std::endl;
+            execlp("java", "java", "-jar", cdc_jar_path.c_str(), cdc_jar_port.c_str(), cdc_jar_params.c_str(), (char *)NULL);
+            
+            std::cerr << "Cdc scanner child process error." << std::endl; ;
+            exit(1);
+        }
+        st.to_protobuf(result->mutable_status());
+    });
+
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalService::get_cdc_splits(google::protobuf::RpcController* controller,
+                                            const PGetCdcSplitsRequest* request,
+                                            PGetCdcSplitsResult* result,
+                                            google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "get cdc splits request";
+        brpc::ClosureGuard closure_guard(done);
+        //todo: check cdc scanner process alive
+        std::string remote_url_prefix;
+        {
+        std::stringstream ss;
+        ss << "http://" << BackendOptions::get_localhost() << ":" << std::to_string(doris::config::cdc_scanner_port) << "/api/fetchSplits";
+        remote_url_prefix = ss.str();
+        }
+        auto params_body = request->params();
+        string split_response;
+        auto get_splits = [&remote_url_prefix, &split_response, &params_body](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(remote_url_prefix));
+        client->set_timeout_ms(60 * 1000);
+        client->set_payload(params_body);
+        client->set_content_type("application/json");
+        client->set_method(POST);
+        RETURN_IF_ERROR(client->execute(&split_response));
+        return Status::OK();
+        };
+        auto st = HttpClient::execute_with_retry(3, 1, get_splits);
+        result->set_response(split_response);
+        st.to_protobuf(result->mutable_status());        
     });
 
     if (!ret) {

@@ -225,6 +225,16 @@ public:
                               PJdbcTestConnectionResult* result,
                               google::protobuf::Closure* done) override;
 
+    void start_cdc_scanner(google::protobuf::RpcController* controller,
+                              const PStartCdcScannerRequest* request,
+                              PStartCdcScannerResult* result,
+                              google::protobuf::Closure* done) override;      
+
+    void get_cdc_splits(google::protobuf::RpcController* controller,
+                              const PGetCdcSplitsRequest* request,
+                              PGetCdcSplitsResult* result,
+                              google::protobuf::Closure* done) override;                                                
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

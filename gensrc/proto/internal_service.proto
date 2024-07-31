@@ -729,6 +729,15 @@ message PStartCdcScannerResult {
     optional PStatus status = 1;
 }
 
+message PGetCdcSplitsRequest {
+    optional string params = 1; 
+}
+
+message PGetCdcSplitsResult {
+    optional PStatus status = 1;
+    optional string response = 2;
+}
+
 message PRowLocation {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
@@ -1019,5 +1028,6 @@ service PBackendService {
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc start_cdc_scanner(PStartCdcScannerRequest) returns (PStartCdcScannerResult);
+    rpc get_cdc_splits(PGetCdcSplitsRequest) returns (PGetCdcSplitsResult);
 };
 

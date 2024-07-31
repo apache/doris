@@ -114,7 +114,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         // mock pull data
         System.out.println("====run task...");
         try {
-            String response = RestService.fetchRecords(Pair.of(backend.getHost(), 10000), jobId, meta, config);
+            String response = RestService.fetchRecords(Pair.of(backend.getHost(), 9096), jobId, meta, config);
             System.out.println(response);
             Map map = new ObjectMapper().readValue(response, Map.class);
             Map<String, String> res = new ObjectMapper().convertValue(map.get("meta"), Map.class);

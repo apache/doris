@@ -145,7 +145,7 @@
     </dependencies>
 
     <build>
-        <finalName>cdc-loader</finalName>
+        <finalName>cdc-scanner</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

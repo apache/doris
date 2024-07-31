@@ -62,6 +62,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
+DEFINE_Int32(cdc_scanner_port, "9096");
+
 DEFINE_mString(public_access_ip, "");
 
 // the number of bthreads for brpc, the default value is set to -1,

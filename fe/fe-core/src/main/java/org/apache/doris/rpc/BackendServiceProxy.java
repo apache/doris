@@ -377,6 +377,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGetCdcSplitsResult> getCdcSplits(
+            TNetworkAddress address, InternalService.PGetCdcSplitsRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getCdcSplits(request);
+        } catch (Throwable e) {
+            LOG.warn("start cdc job catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
             TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
         try {
