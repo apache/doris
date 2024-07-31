@@ -20,7 +20,6 @@ package org.apache.doris.common.security.authentication;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.trino.plugin.base.authentication.KerberosTicketUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -113,14 +112,46 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
 
     private static long calculateNextRefreshTime(Subject subject) {
         Preconditions.checkArgument(subject != null, "subject must be present in kerberos based UGI");
-        KerberosTicket tgtTicket = KerberosTicketUtils.getTicketGrantingTicket(subject);
-        return KerberosTicketUtils.getRefreshTime(tgtTicket);
+        KerberosTicket tgtTicket = getTicketGrantingTicket(subject);
+        return getRefreshTime(tgtTicket);
     }
 
     private static Date getTicketEndTime(Subject subject) {
         Preconditions.checkArgument(subject != null, "subject must be present in kerberos based UGI");
-        KerberosTicket tgtTicket = KerberosTicketUtils.getTicketGrantingTicket(subject);
+        KerberosTicket tgtTicket = getTicketGrantingTicket(subject);
         return tgtTicket.getEndTime();
+    }
+
+    public static KerberosTicket getTicketGrantingTicket(Subject subject) {
+        Set<KerberosTicket> tickets = subject.getPrivateCredentials(KerberosTicket.class);
+        for (KerberosTicket ticket : tickets) {
+            if (isOriginalTicketGrantingTicket(ticket)) {
+                return ticket;
+            }
+        }
+        throw new IllegalArgumentException("kerberos ticket not found in " + subject);
+    }
+
+    public static boolean isOriginalTicketGrantingTicket(KerberosTicket ticket)
+    {
+        return isTicketGrantingServerPrincipal(ticket.getServer());
+    }
+
+    private static boolean isTicketGrantingServerPrincipal(KerberosPrincipal principal)
+    {
+        if (principal == null) {
+            return false;
+        }
+        if (principal.getName().equals("krbtgt/" + principal.getRealm() + "@" + principal.getRealm())) {
+            return true;
+        }
+        return false;
+    }
+
+    public static long getRefreshTime(KerberosTicket ticket) {
+        long start = ticket.getStartTime().getTime();
+        long end = ticket.getEndTime().getTime();
+        return start + (long) ((end - start) * 0.8f);
     }
 
     private static Subject getSubject(String keytab, String principal, boolean printDebugLog) {
