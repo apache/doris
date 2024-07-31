@@ -55,18 +55,30 @@ public:
     ENABLE_FACTORY_CREATOR(SchemaScanLocalState);
 
     SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent) {}
+            : PipelineXLocalState<>(state, parent) {
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+        _data_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                        parent->get_name() + "_DEPENDENCY", true);
+    }
     ~SchemaScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status open(RuntimeState* state) override;
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    std::vector<Dependency*> dependencies() const override { return {_data_dependency.get()}; }
+
 private:
     friend class SchemaScanOperatorX;
 
     SchemaScannerParam _scanner_param;
     std::unique_ptr<SchemaScanner> _schema_scanner;
+
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _data_dependency;
 };
 
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {

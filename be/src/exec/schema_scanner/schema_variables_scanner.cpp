@@ -70,7 +70,7 @@ Status SchemaVariablesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaVariablesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
