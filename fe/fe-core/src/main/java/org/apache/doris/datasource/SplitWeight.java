@@ -31,7 +31,7 @@ import java.util.function.Function;
 public final class SplitWeight {
     private static final long UNIT_VALUE = 100;
     private static final int UNIT_SCALE = 2; // Decimal scale such that (10 ^ UNIT_SCALE) == UNIT_VALUE
-    private static final SplitWeight STANDARD_WEIGHT = new SplitWeight(UNIT_VALUE);
+    public static final SplitWeight STANDARD_WEIGHT = new SplitWeight(UNIT_VALUE);
 
     private final long value;
 
@@ -74,7 +74,7 @@ public final class SplitWeight {
         return fromRawValueInternal((long) Math.ceil(weight * UNIT_VALUE));
     }
 
-    private static SplitWeight fromRawValueInternal(long value) {
+    public static SplitWeight fromRawValueInternal(long value) {
         return value == UNIT_VALUE ? STANDARD_WEIGHT : new SplitWeight(value);
     }
 
