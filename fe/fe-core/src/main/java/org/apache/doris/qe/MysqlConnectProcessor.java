@@ -344,6 +344,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
             }
+            if (!packetBuf.hasRemaining()) {
+                LOG.info("No more data to be read. Close connection. remote={}", channel.getRemoteHostPortString());
+                ctx.setKilled();
+                return;
+            }
         } catch (AsynchronousCloseException e) {
             // when this happened, timeout checker close this channel
             // killed flag in ctx has been already set, just return
