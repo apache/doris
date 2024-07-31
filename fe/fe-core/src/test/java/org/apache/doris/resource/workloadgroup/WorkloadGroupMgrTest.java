@@ -194,15 +194,24 @@ public class WorkloadGroupMgrTest {
         Config.enable_workload_group = true;
         ConnectContext context = new ConnectContext();
         WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
-        Map<String, String> properties = Maps.newHashMap();
+        Map<String, String> p0 = Maps.newHashMap();
         String name = "g1";
         try {
-            AlterWorkloadGroupStmt stmt1 = new AlterWorkloadGroupStmt(name, properties);
+            AlterWorkloadGroupStmt stmt1 = new AlterWorkloadGroupStmt(name, p0);
+            workloadGroupMgr.alterWorkloadGroup(stmt1);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("alter workload group should contain at least one property"));
+        }
+
+        p0.put(WorkloadGroup.CPU_SHARE, "10");
+        try {
+            AlterWorkloadGroupStmt stmt1 = new AlterWorkloadGroupStmt(name, p0);
             workloadGroupMgr.alterWorkloadGroup(stmt1);
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
 
+        Map<String, String> properties = Maps.newHashMap();
         properties.put(WorkloadGroup.CPU_SHARE, "10");
         properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
