@@ -117,8 +117,8 @@ public:
 
         _filtered_rows = 0;
         _merged_rows = 0;
-        RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
-                                       new_tablet_schema));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_inner_process(rowset_reader, rowset_writer, new_tablet,
+                                                          base_tablet_schema, new_tablet_schema));
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
