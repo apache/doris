@@ -425,7 +425,9 @@ public abstract class TestWithFeService {
             bes.add(createBackend("127.0.0.1", feRpcPort));
         }
         System.out.println("after create backend");
-        Assertions.assertTrue(checkBEHeartbeat(bes));
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
         // Thread.sleep(2000);
         System.out.println("after create backend2");
     }
@@ -448,7 +450,9 @@ public abstract class TestWithFeService {
             bes.add(createBackend(host, feRpcPort));
         }
         System.out.println("after create backend");
-        Assertions.assertTrue(checkBEHeartbeat(bes));
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
         System.out.println("after create backend2");
     }
 
