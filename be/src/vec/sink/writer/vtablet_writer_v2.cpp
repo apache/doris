@@ -279,18 +279,18 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
-    // get tablet schema from each backend only in the 1st stream
-    for (auto& stream : streams | std::ranges::views::take(1)) {
-        const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
-                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
-                                     idle_timeout_ms, _state->enable_profile()));
-    }
-    // for the rest streams, open without getting tablet schema
-    for (auto& stream : streams | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
-                                     _txn_id, *_schema, {}, _total_streams, idle_timeout_ms,
-                                     _state->enable_profile()));
+    std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+    for (auto& stream : streams) {
+        auto st = stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                               _txn_id, *_schema, tablets_for_schema, _total_streams,
+                               idle_timeout_ms, _state->enable_profile());
+        if (st.ok()) {
+            // get tablet schema from each backend only in the 1st stream
+            tablets_for_schema.clear();
+        } else {
+            LOG(WARNING) << "failed to open stream to backend " << dst_id
+                         << ", load_id=" << print_id(_load_id);
+        }
     }
     return Status::OK();
 }
@@ -475,7 +475,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     return st;
 }
 
-Status VTabletWriterV2::_cancel(Status status) {
+void VTabletWriterV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
               << ", txn_id=" << _txn_id << ", sink_id=" << _sender_id
               << ", due to error: " << status;
@@ -491,7 +491,6 @@ Status VTabletWriterV2::_cancel(Status status) {
         });
         _load_stream_map->release();
     }
-    return Status::OK();
 }
 
 Status VTabletWriterV2::_send_new_partition_batch() {
@@ -553,7 +552,8 @@ Status VTabletWriterV2::close(Status exec_status) {
             auto st = _delta_writer_for_tablet->close(segments_for_tablet, _profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
-                RETURN_IF_ERROR(_cancel(st));
+                _cancel(st);
+                return st;
             }
             // only the last sink closing delta writers will have segment num
             if (!segments_for_tablet.empty()) {
@@ -568,23 +568,39 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         // send CLOSE_LOAD on all non-incremental streams if this is the last sink
         if (is_last_sink) {
-            RETURN_IF_ERROR(_load_stream_map->close_load(false));
+            auto st = _load_stream_map->close_load(false);
+            if (!st.ok()) {
+                LOG(WARNING) << "close_load failed: " << st;
+            }
         }
 
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        RETURN_IF_ERROR(_close_wait(false));
+        {
+            auto st = _close_wait(false);
+            if (!st.ok()) {
+                LOG(WARNING) << "close_wait failed: " << st;
+            }
+        }
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
         // this must happen after all non-incremental streams are closed,
         // so we can ensure all sinks are in close phase before closing incremental streams.
         if (is_last_sink) {
-            RETURN_IF_ERROR(_load_stream_map->close_load(true));
+            auto st = _load_stream_map->close_load(true);
+            if (!st.ok()) {
+                LOG(WARNING) << "close_load failed: " << st;
+            }
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
-        RETURN_IF_ERROR(_close_wait(true));
+        {
+            auto st = _close_wait(true);
+            if (!st.ok()) {
+                LOG(WARNING) << "close_wait failed: " << st;
+            }
+        }
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -628,7 +644,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        RETURN_IF_ERROR(_cancel(status));
+        _cancel(status);
     }
 
     _is_closed = true;
@@ -640,6 +656,7 @@ Status VTabletWriterV2::_close_wait(bool incremental) {
     SCOPED_TIMER(_close_load_timer);
     return _load_stream_map->for_each_st(
             [this, incremental](int64_t dst_id, const Streams& streams) -> Status {
+                Status status = Status::OK();
                 for (auto& stream : streams) {
                     if (stream->is_incremental() != incremental) {
                         continue;
@@ -651,9 +668,12 @@ Status VTabletWriterV2::_close_wait(bool incremental) {
                                      << print_id(_load_id);
                         return Status::TimedOut("load timed out before close waiting");
                     }
-                    RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
+                    auto st = stream->close_wait(_state, remain_ms);
+                    if (!st.ok() && status.ok()) {
+                        status = st;
+                    }
                 }
-                return Status::OK();
+                return status;
             });
 }
 
@@ -692,6 +712,9 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
     load_stream_map->for_each([&](int64_t dst_id, const Streams& streams) {
         std::unordered_set<int64_t> known_tablets;
         for (const auto& stream : streams) {
+            LOG(INFO) << "stream " << stream->stream_id()
+                      << " success tablets: " << stream->success_tablets().size()
+                      << ", failed tablets: " << stream->failed_tablets().size();
             for (auto [tablet_id, reason] : stream->failed_tablets()) {
                 if (known_tablets.contains(tablet_id)) {
                     continue;
@@ -717,7 +740,8 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
         if (replicas > (num_replicas - 1) / 2) {
             LOG(INFO) << "tablet " << tablet_id
                       << " failed on majority backends: " << failed_reason[tablet_id];
-            return failed_reason.at(tablet_id);
+            return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,
+                                         failed_reason[tablet_id]);
         }
     }
     return Status::OK();
