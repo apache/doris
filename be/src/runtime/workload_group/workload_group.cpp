@@ -152,10 +152,6 @@ void WorkloadGroup::refresh_memory(int64_t used_memory) {
     _wg_refresh_interval_memory_growth.store(0.0);
 }
 
-void WorkloadGroup::set_weighted_memory_ratio(double ratio) {
-    _weighted_mem_ratio = ratio;
-}
-
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
