@@ -1725,8 +1725,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
 
     switch (_wrapper->column_type()) {
     case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const int32_t*>(max_data));
+        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
+        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
         return;
     }
     case TYPE_TINYINT: {
