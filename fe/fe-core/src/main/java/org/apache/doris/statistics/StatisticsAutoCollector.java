@@ -143,7 +143,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
             JobPriority priority) throws DdlException {
         // appendMvColumn(table, columns);
-        appendPartitionColumns(table, columns);
+        appendAllColumns(table, columns);
         columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
         if (columns.isEmpty()) {
             return;
@@ -161,7 +161,8 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
     }
 
-    protected void appendPartitionColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
+    // If partition changed (partition first loaded, partition dropped and so on), need re-analyze all columns.
+    protected void appendAllColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
         if (!(table instanceof OlapTable)) {
             return;
         }
@@ -169,7 +170,11 @@ public class StatisticsAutoCollector extends MasterDaemon {
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         if (tableStatsStatus != null && tableStatsStatus.partitionChanged.get()) {
             OlapTable olapTable = (OlapTable) table;
-            columns.addAll(olapTable.getColumnIndexPairs(olapTable.getPartitionColumnNames()));
+            Set<String> allColumnPairs = olapTable.getSchemaAllIndexes(false).stream()
+                    .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+            columns.addAll(olapTable.getColumnIndexPairs(allColumnPairs));
         }
     }
 
