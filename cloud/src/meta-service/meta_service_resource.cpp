@@ -452,16 +452,35 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
         return -1;
     }
 
+    int64_t path_version =
+            vault_param.has_path_format() ? vault_param.path_format().path_version() : 0;
+
+    if (path_version < 0 || path_version > 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "path_format.path_version of storage vault must be 0 or 1";
+        return -1;
+    } else if (path_version == 1 && vault_param.path_format().shard_num() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "path_format.shard_num must be > 0 if path_format.path_version of storage vault is 1";
+        return -1;
+    }
+
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
 
+    // Else, object store info
     create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
     if (code != MetaServiceCode::OK) {
         return -1;
     }
 
-    vault_param.mutable_obj_info()->CopyFrom(vault_param.obj_info());
+    if (path_version != 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "path_format.path_version of s3 storage vault must be 0";
+        return -1;
+    }
+
     vault_param.set_id(vault_param.obj_info().id());
     auto vault_key = storage_vault_key({instance.instance_id(), vault_param.obj_info().id()});
     *instance.mutable_resource_ids()->Add() = vault_param.id();
