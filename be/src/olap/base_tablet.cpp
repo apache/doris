@@ -942,10 +942,12 @@ Status BaseTablet::generate_new_block_for_partial_update(
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
+    // rowid in the final block(start from 0) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
                                          old_block, &read_index_old));
 
+    // rowid in the final block(start from 0) -> rowid to read in update_block
     std::map<uint32_t, uint32_t> read_index_update;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
                                          rsid_to_rowset, update_block, &read_index_update));
