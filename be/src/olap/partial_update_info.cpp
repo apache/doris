@@ -114,8 +114,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
 }
 
 std::string PartialUpdateInfo::summary() const {
-    return fmt::format("update_cids:{}, missing_cids:{}, is_strict_mode:{}", update_cids.size(),
-                       missing_cids.size(), is_strict_mode);
+    return fmt::format(
+            "update_cids={}, missing_cids={}, is_strict_mode={}, max_version_in_flush_phase={}",
+            update_cids.size(), missing_cids.size(), is_strict_mode, max_version_in_flush_phase);
 }
 
 void PartialUpdateInfo::_generate_default_values_for_missing_cids(

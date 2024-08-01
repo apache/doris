@@ -541,7 +541,7 @@ Status RowsetMetaManager::save_partial_update_info(
     std::string value;
     if (!partial_update_info_pb.SerializeToString(&value)) {
         return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
-                "serialize partial update info failed. key:{}", key);
+                "serialize partial update info failed. key={}", key);
     }
     VLOG_NOTICE << "save partial update info, key=" << key << ", value_size=" << value.size();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
@@ -558,15 +558,15 @@ Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t ta
         return status;
     }
     if (!status.ok()) {
-        LOG_WARNING("failed to get partial update info. tablet_id={}, txn_id={}", tablet_id,
-                    txn_id);
+        LOG_WARNING("failed to get partial update info. tablet_id={}, partition_id={}, txn_id={}",
+                    tablet_id, partition_id, txn_id);
         return status;
     }
     if (!partial_update_info_pb->ParseFromString(value)) {
         return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
                 "fail to parse partial update info content to protobuf object. tablet_id={}, "
-                "txn_id={}",
-                tablet_id, txn_id);
+                "partition_id={}, txn_id={}",
+                tablet_id, partition_id, txn_id);
     }
     return Status::OK();
 }
@@ -584,7 +584,7 @@ Status RowsetMetaManager::traverse_partial_update_info(
             return true;
         }
         int64_t tablet_id = std::stoll(parts[1]);
-        int64_t partition_id = std::stoll(parts[3]);
+        int64_t partition_id = std::stoll(parts[2]);
         int64_t txn_id = std::stoll(parts[3]);
         return func(tablet_id, partition_id, txn_id, value);
     };

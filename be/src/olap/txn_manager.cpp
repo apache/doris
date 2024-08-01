@@ -416,8 +416,9 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                 if (decoded_partial_update_info) {
                     LOG_INFO(
                             "get partial update info from RocksDB during recovery. txn_id={}, "
-                            "tablet_id={}, partial_update_info=[{}]",
-                            transaction_id, tablet_id, decoded_partial_update_info->summary());
+                            "partition_id={}, tablet_id={}, partial_update_info=[{}]",
+                            transaction_id, partition_id, tablet_id,
+                            decoded_partial_update_info->summary());
                     load_info->partial_update_info = decoded_partial_update_info;
                 }
             }
