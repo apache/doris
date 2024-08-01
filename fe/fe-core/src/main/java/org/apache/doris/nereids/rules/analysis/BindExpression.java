@@ -114,8 +114,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -621,6 +623,10 @@ public class BindExpression implements AnalysisRuleFactory {
         Supplier<Set<NamedExpression>> boundExcepts = Suppliers.memoize(
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
+        List<NamedExpression> replaces = project.getReplaces();
+        Supplier<Set<NamedExpression>> boundReplaces = Suppliers.memoize(
+                () -> analyzer.analyzeToSet(project.getReplaces()));
+
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
@@ -633,7 +639,31 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (!excepts.isEmpty()) {
                     slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
                 }
-                boundProjections.addAll(slots);
+                if (!replaces.isEmpty()) {
+                    final Map<String, NamedExpression> replaceMap = new HashMap<>();
+                    final Set<String> replaced = new HashSet<>();
+                    for (NamedExpression replace : boundReplaces.get()) {
+                        Preconditions.checkArgument(replace instanceof Alias);
+                        Alias alias = (Alias) replace;
+                        replaceMap.put(alias.getName(), alias);
+                    }
+
+                    for (Slot slot : slots) {
+                        if (replaceMap.containsKey(slot.getName())) {
+                            replaced.add(slot.getName());
+                            boundProjections.add(replaceMap.get(slot.getName()));
+                        } else {
+                            boundProjections.add(slot);
+                        }
+                    }
+
+                    if (replaced.size() != replaceMap.size()) {
+                        replaceMap.keySet().removeAll(replaced);
+                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
+                    }
+                } else {
+                    boundProjections.addAll(slots);
+                }
 
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;

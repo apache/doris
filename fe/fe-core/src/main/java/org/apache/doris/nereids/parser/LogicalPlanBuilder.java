@@ -1337,6 +1337,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
+                if (columnCtx.REPLACE() != null) {
+                    throw new ParseException("select-replace cannot be used in one row relation", selectCtx);
+                }
                 relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                         ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
@@ -3009,10 +3012,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     UnboundStar star = new UnboundStar(ImmutableList.of());
-                    project = new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, aggregate);
+                    project = new LogicalProject<>(
+                            ImmutableList.of(star), expressions, ImmutableList.of(), isDistinct, aggregate);
+                } else if (selectColumnCtx.REPLACE() != null) {
+                    List<NamedExpression> expressions = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
+                    boolean isEmpty = expressions.isEmpty();
+                    boolean allAlias = expressions.stream()
+                            .allMatch(e -> e instanceof UnboundAlias && ((UnboundAlias) e).getAlias().isPresent());
+                    if (isEmpty || !allAlias) {
+                        throw new ParseException("only alias is supported in select-replace clause", selectColumnCtx);
+                    }
+                    UnboundStar star = new UnboundStar(ImmutableList.of());
+                    project = new LogicalProject<>(
+                            ImmutableList.of(star), ImmutableList.of(), expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
+                    project = new LogicalProject<>(
+                            projects, ImmutableList.of(), ImmutableList.of(), isDistinct, aggregate);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -3207,7 +3223,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (aggCtx.isPresent()) {
                 if (isDistinct) {
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            Collections.emptyList(), isDistinct, input);
+                            Collections.emptyList(), Collections.emptyList(), isDistinct, input);
                 } else {
                     return input;
                 }
@@ -3218,10 +3234,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     UnboundStar star = new UnboundStar(ImmutableList.of());
-                    return new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, input);
+                    return new LogicalProject<>(
+                            ImmutableList.of(star), expressions, Collections.emptyList(), isDistinct, input);
+                } else if (selectCtx.REPLACE() != null) {
+                    List<NamedExpression> replaces = getNamedExpressions(selectCtx.namedExpressionSeq());
+                    boolean isEmpty = replaces.isEmpty();
+                    boolean allAlias = replaces.stream()
+                            .allMatch(e -> e instanceof UnboundAlias && ((UnboundAlias) e).getAlias().isPresent());
+                    if (isEmpty || !allAlias) {
+                        throw new ParseException("only alias is supported in select-replace clause", selectCtx);
+                    }
+                    UnboundStar star = new UnboundStar(ImmutableList.of());
+                    return new LogicalProject<>(
+                            ImmutableList.of(star), ImmutableList.of(), replaces, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), isDistinct, input);
+                    return new LogicalProject<>(
+                            projects, Collections.emptyList(), Collections.emptyList(), isDistinct, input);
                 }
             }
         });

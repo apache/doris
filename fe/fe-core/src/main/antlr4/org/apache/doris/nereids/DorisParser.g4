@@ -429,6 +429,7 @@ selectClause
 selectColumnClause
     : namedExpressionSeq
     | ASTERISK EXCEPT LEFT_PAREN namedExpressionSeq RIGHT_PAREN
+    | ASTERISK REPLACE LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
