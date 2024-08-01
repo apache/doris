@@ -119,7 +119,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
                 INDEX idx_date (`date`) USING INVERTED,
                 INDEX idx_city (`city`) USING INVERTED)
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "enable_unique_key_merge_on_write" = "true" );
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2", "enable_unique_key_merge_on_write" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

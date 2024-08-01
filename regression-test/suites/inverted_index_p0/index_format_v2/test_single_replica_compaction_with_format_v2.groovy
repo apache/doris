@@ -123,7 +123,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
                 INDEX idx_date (`date`) USING INVERTED,
                 INDEX idx_city (`city`) USING INVERTED)
             DUPLICATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "2", "disable_auto_compaction" = "true", "enable_single_replica_compaction" = "true" );
+            PROPERTIES ( "replication_num" = "2", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2", "enable_single_replica_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
