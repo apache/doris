@@ -85,7 +85,7 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
                 return true;
