@@ -95,7 +95,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
-    segment->_fs = std::move(fs);
+    segment->_fs = fs;
     segment->_file_reader = std::move(file_reader);
     auto st = segment->_open();
     TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
@@ -113,7 +113,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
         segment->_file_reader = std::move(file_reader);
         st = segment->_open();
         if (!st.ok()) {
-            LOG(WARNING) << "failed to try to read remote source file directly,"
+            LOG(WARNING) << "failed to try to read remote source file again,"
                          << " file path: " << path << " cache_key: " << file_cache_key_str(path);
         }
     }

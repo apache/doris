@@ -266,7 +266,7 @@ void handle_disable(HttpRequest* req) {
 InjectionPointAction::InjectionPointAction() = default;
 
 void InjectionPointAction::handle(HttpRequest* req) {
-    LOG(INFO) << req->debug_string();
+    LOG(INFO) << "handle InjectionPointAction " << req->debug_string();
     auto& op = req->param("op");
     if (op == "set") {
         handle_set(req);
