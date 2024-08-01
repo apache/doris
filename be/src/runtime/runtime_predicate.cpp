@@ -31,6 +31,12 @@ namespace doris {
 
 namespace vectorized {
 
+std::string get_time_value(const Field& field) {
+    using ValueType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
+    ValueType value = field.get<ValueType>();
+    return cast_to_string<TYPE_TIMEV2, ValueType>(value, 0);
+}
+
 Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
@@ -96,6 +102,10 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
     }
     case PrimitiveType::TYPE_DATETIME: {
         _get_value_fn = get_datetime_value;
+        break;
+    }
+    case PrimitiveType::TYPE_TIMEV2: {
+        _get_value_fn = get_time_value;
         break;
     }
     case PrimitiveType::TYPE_DECIMAL32: {

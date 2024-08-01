@@ -2395,6 +2395,15 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_light_delete = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2418,4 +2427,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 }

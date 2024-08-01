@@ -1126,6 +1126,14 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1195,6 +1203,10 @@ public class OlapTable extends Table {
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
                 .collect(Collectors.toSet()))) {
+            return true;
+        }
+        // Check new partition first loaded.
+        if (tblStats.newPartitionLoaded != null && tblStats.newPartitionLoaded.get()) {
             return true;
         }
         // 1 Check row count.

@@ -174,7 +174,7 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
 template <typename ArrowType, typename ColumnType, bool is_nullable>
 void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::string>& test_cases,
                    size_t num_elements) {
-    TimezoneUtils::load_timezone_names();
+    TimezoneUtils::load_timezones_to_cache();
     using ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());

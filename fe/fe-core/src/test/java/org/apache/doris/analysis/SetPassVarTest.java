@@ -38,9 +38,9 @@ public class SetPassVarTest {
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();
         ctx.setCurrentUserIdentity(currentUser);
