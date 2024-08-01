@@ -25,6 +25,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
+import org.apache.doris.cloud.qe.ClusterException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -492,8 +493,15 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     @Override
     public int getMinPipelineExecutorSize() {
+        String clusterName = "";
+        try {
+            clusterName = ConnectContext.get().getCloudCluster(false);
+        } catch (ClusterException e) {
+            LOG.warn("failed to get cluster name", e);
+            return 1;
+        }
         if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+                && Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
 
@@ -507,16 +515,21 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new AnalysisException("connect context is null");
         }
 
-        String cluster = ctx.getCurrentCloudCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            throw new AnalysisException("cluster name is empty");
+        Map<Long, Backend> idToBackend = Maps.newHashMap();
+        try {
+            String cluster = ctx.getCurrentCloudCluster();
+            if (Strings.isNullOrEmpty(cluster)) {
+                throw new AnalysisException("cluster name is empty");
+            }
+
+            List<Backend> backends =  getBackendsByClusterName(cluster);
+            for (Backend be : backends) {
+                idToBackend.put(be.getId(), be);
+            }
+        } catch (ClusterException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        List<Backend> backends =  getBackendsByClusterName(cluster);
-        Map<Long, Backend> idToBackend = Maps.newHashMap();
-        for (Backend be : backends) {
-            idToBackend.put(be.getId(), be);
-        }
         return ImmutableMap.copyOf(idToBackend);
     }
 
@@ -956,7 +969,13 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void waitForAutoStartCurrentCluster() throws DdlException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String cloudCluster = context.getCloudCluster();
+            String cloudCluster = "";
+            try {
+                cloudCluster = context.getCloudCluster();
+            } catch (ClusterException e) {
+                LOG.warn("failed to get cloud cluster", e);
+                return;
+            }
             if (!Strings.isNullOrEmpty(cloudCluster)) {
                 waitForAutoStart(cloudCluster);
             }

@@ -433,7 +433,13 @@ public class MysqlLoadManager {
 
         // cloud cluster
         if (Config.isCloudMode()) {
-            String clusterName = ConnectContext.get().getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud cluster: " + e.getMessage());
+                throw new LoadException("failed to get cloud cluster: " + e.getMessage());
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
                 throw new LoadException("cloud cluster is empty");
             }
@@ -447,7 +453,14 @@ public class MysqlLoadManager {
     private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
         Backend backend = null;
         if (Config.isCloudMode()) {
-            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster());
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud cluster: " + e.getMessage());
+                throw new LoadException("failed to get cloud cluster: " + e);
+            }
+            backend = StreamLoadHandler.selectBackend(clusterName);
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ClusterException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
@@ -502,7 +503,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     Map<String, List<Long>> primaryClusterToBackends =
                             ((CloudReplica) replica).getprimaryClusterToBackends();
                     if (!primaryClusterToBackends.containsKey(cluster)) {
-                        long beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
+                        long beId;
+                        try {
+                            beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
+                        } catch (ClusterException e) {
+                            LOG.warn("failed to hash replica to be {}", cluster, e);
+                            beId = -1;
+                        }
                         ((CloudReplica) replica).updateClusterToBe(cluster, beId, true);
                         if (beId <= 0) {
                             assignedErrNum++;
@@ -978,8 +985,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
             // populate to followers
             Database db = Env.getCurrentInternalCatalog().getDbNullable(cloudReplica.getDbId());
             if (db == null) {
+                long beId;
+                try {
+                    beId = cloudReplica.getBackendId();
+                } catch (ClusterException e) {
+                    LOG.warn("get backend failed cloudReplica {}", cloudReplica, e);
+                    beId = -1;
+                }
                 LOG.error("get null db from replica, tabletId={}, partitionId={}, beId={}",
-                        cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getBackendId());
+                        cloudReplica.getTableId(), cloudReplica.getPartitionId(), beId);
                 continue;
             }
             OlapTable table = (OlapTable) db.getTableNullable(cloudReplica.getTableId());

@@ -199,9 +199,14 @@ public class GroupCommitManager {
                 throw new LoadException(e.getMessage());
             }
         } else {
-            // Master FE will select BE by itself.
-            return Env.getCurrentSystemInfo()
+            try {
+                // Master FE will select BE by itself.
+                return Env.getCurrentSystemInfo()
                     .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster()));
+            } catch (Exception e) {
+                LOG.warn("get backend failed, tableId: {}, exception", tableId, e);
+                throw new LoadException(e.getMessage());
+            }
         }
     }
 
