@@ -17,6 +17,7 @@
 
 #include "util/block_compression.h"
 
+#include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
@@ -858,6 +859,75 @@ public:
     }
 };
 
+class Bzip2BlockCompression : public BlockCompressionCodec {
+public:
+    static Bzip2BlockCompression* instance() {
+        static Bzip2BlockCompression s_instance;
+        return &s_instance;
+    }
+    ~Bzip2BlockCompression() {}
+
+    Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+        Slice s(*output);
+
+        auto bzres = BZ2_bzBuffToBuffCompress((char*)s.data, &(unsigned int)s.size,
+                                              (char*)input.data, input.size, 9, 0, 0);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do Bzip2 compress, ret={}", bzres);
+        }
+        output->resize(s.size);
+        return Status::OK();
+    }
+
+    Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
+                    faststring* output) override {
+        size_t max_len = max_compressed_len(uncompressed_size);
+        output->resize(max_len);
+
+        bz_stream bzstrm;
+        bzero(&bzstrm, sizeof(bzstrm));
+        int bzres = BZ2_bzDecompressInit(&bzstrm, 0, 0);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
+        }
+        // we assume that output is e
+        bzstrm.next_out = (char*)output->data();
+        bzstrm.avail_out = output->size();
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i].size == 0) {
+                continue;
+            }
+            bzstrm.next_in = (char*)inputs[i].data;
+            bzstrm.avail_in = inputs[i].size;
+            int flush = (i == (inputs.size() - 1)) ? BZ_FINISH : BZ_RUN;
+
+            bzres = BZ2_bzCompress(&bzstrm, flush);
+            if (bzres != BZ_OK && bzres != BZ_STREAM_END) {
+                return Status::InternalError("Fail to do bzip2 stream compress, res={}", bzres);
+            }
+        }
+
+        size_t total_out = (size_t)bzstrm.total_out_hi32 << 32 | (size_t)bzstrm.total_out_lo32;
+        output->resize(total_out);
+        bzres = BZ2_bzCompressEnd(&bzstrm);
+        if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do deflateEnd on ZLib stream, res={}", bzres);
+        }
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: Bzip2BlockCompression::decompress");
+    }
+
+    size_t max_compressed_len(size_t len) override {
+        // one-time overhead of six bytes for the entire stream plus five bytes per 16 KB block
+        return len + 6 + 5 * ((len >> 14) + 1);
+    }
+};
+
 // for ZSTD compression and decompression, with BOTH fast and high compression ratio
 class ZstdBlockCompression : public BlockCompressionCodec {
 private:
@@ -1324,9 +1394,12 @@ Status get_block_compression_codec(TFileCompressType::type type, BlockCompressio
     case TFileCompressType::GZ:
         *codec = GzipBlockCompression::instance();
         break;
-    // case TFileCompressType::BZ2:
+
     case TFileCompressType::DEFLATE:
         *codec = ZlibBlockCompression::instance();
+        break;
+    case TFileCompressType::BZ2:
+        *codec = Bzip2BlockCompression::instance();
         break;
     case TFileCompressType::LZ4BLOCK:
         *codec = HadoopLz4BlockCompression::instance();
