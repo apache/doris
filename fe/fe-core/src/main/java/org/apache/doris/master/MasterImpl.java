@@ -543,6 +543,11 @@ public class MasterImpl {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
             Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);
         }
