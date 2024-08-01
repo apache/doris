@@ -49,6 +49,18 @@ namespace doris::cloud {
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
+bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
+                                    const TabletJobInfoPB& job_pb) {
+    DCHECK_EQ(compaction.input_versions_size(), 2) << proto_to_json(compaction);
+    DCHECK_LE(compaction.input_versions(0), compaction.input_versions(1))
+            << proto_to_json(compaction);
+    int64_t alter_version = job_pb.schema_change().alter_version();
+    return (compaction.type() == TabletCompactionJobPB_CompactionType_BASE &&
+            compaction.input_versions(1) < alter_version) ||
+           (compaction.type() == TabletCompactionJobPB_CompactionType_CUMULATIVE &&
+            compaction.input_versions(0) > alter_version);
+}
+
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                           std::unique_ptr<Transaction>& txn, const StartTabletJobRequest* request,
                           StartTabletJobResponse* response, std::string& instance_id,
@@ -124,6 +136,17 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
     }
     while (err == TxnErrorCode::TXN_OK) {
         job_pb.ParseFromString(job_val);
+        if (job_pb.has_schema_change() && !check_compaction_input_verions(compaction, job_pb)) {
+            SS << "Check compaction input versions failed in schema change. input_version_start="
+               << compaction.input_versions(0)
+               << " input_version_end=" << compaction.input_versions(1)
+               << " schema_change_alter_version=" << job_pb.schema_change().alter_version();
+            msg = ss.str();
+            INSTANCE_LOG(INFO) << msg;
+            code = MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL;
+            response->set_alter_version(job_pb.schema_change().alter_version());
+            return;
+        }
         if (job_pb.compaction().empty()) {
             break;
         }
@@ -153,7 +176,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             // for MOW table, so priority should be given to performing full
             // compaction operations and canceling other types of compaction.
             compactions.Clear();
-        } else if (compaction.input_versions().empty()) {
+        } else if (!compaction.has_judge_input_versions_range() ||
+                   !compaction.judge_input_versions_range()) {
             // Unknown input version range, doesn't support parallel compaction of same type
             for (auto& c : compactions) {
                 if (c.type() != compaction.type() && c.type() != TabletCompactionJobPB::FULL)
@@ -214,8 +238,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
 
 void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                              std::unique_ptr<Transaction>& txn,
-                             const StartTabletJobRequest* request, std::string& instance_id,
-                             bool& need_commit) {
+                             const StartTabletJobRequest* request, StartTabletJobResponse* response,
+                             std::string& instance_id, bool& need_commit) {
     auto& schema_change = request->job().schema_change();
     if (!schema_change.has_id() || schema_change.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -290,6 +314,13 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     std::string job_val;
     TabletJobInfoPB job_pb;
     err = txn->get(job_key, &job_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        job_pb.ParseFromString(job_val);
+        if (job_pb.has_schema_change() && job_pb.schema_change().id() == schema_change.id()) {
+            response->set_alter_version(job_pb.schema_change().alter_version());
+            return;
+        }
+    }
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         SS << "failed to get tablet job, instance_id=" << instance_id << " tablet_id=" << tablet_id
            << " key=" << hex(job_key) << " err=" << err;
@@ -314,6 +345,11 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     }
     INSTANCE_LOG(INFO) << "schema_change job to save job=" << proto_to_json(schema_change);
     txn->put(job_key, job_val);
+    auto new_tablet_job_key =
+            job_tablet_key({instance_id, new_tablet_idx.table_id(), new_tablet_idx.index_id(),
+                            new_tablet_idx.partition_id(), new_tablet_id});
+    txn->put(new_tablet_job_key, job_val);
+    response->set_alter_version(job_pb.schema_change().alter_version());
     need_commit = true;
 }
 
@@ -386,7 +422,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     }
 
     if (request->job().has_schema_change()) {
-        start_schema_change_job(code, msg, ss, txn, request, instance_id, need_commit);
+        start_schema_change_job(code, msg, ss, txn, request, response, instance_id, need_commit);
         return;
     }
 }
@@ -558,6 +594,38 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
+    bool abort_compaction = false;
+    if (recorded_job.has_schema_change() &&
+        !check_compaction_input_verions(compaction, recorded_job)) {
+        SS << "Check compaction input versions failed in schema change. input_version_start="
+           << compaction.input_versions(0) << " input_version_end=" << compaction.input_versions(1)
+           << " schema_change_alter_version=" << recorded_job.schema_change().alter_version();
+        msg = ss.str();
+        INSTANCE_LOG(INFO) << msg;
+        abort_compaction = true;
+        response->set_alter_version(recorded_job.schema_change().alter_version());
+        code = MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL;
+    }
+
+    //==========================================================================
+    //                               Abort
+    //==========================================================================
+    if (request->action() == FinishTabletJobRequest::ABORT || abort_compaction) {
+        // TODO(gavin): mv tmp rowsets to recycle or remove them directly
+        recorded_job.mutable_compaction()->erase(recorded_compaction);
+        auto job_val = recorded_job.SerializeAsString();
+        txn->put(job_key, job_val);
+        INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
+                           << " key=" << hex(job_key);
+        if (compaction.has_delete_bitmap_lock_initiator()) {
+            remove_delete_bitmap_update_lock(txn, instance_id, table_id,
+                                             COMPACTION_DELETE_BITMAP_LOCK_ID,
+                                             compaction.delete_bitmap_lock_initiator());
+        }
+        need_commit = true;
+        return;
+    }
+
     //==========================================================================
     //                               Lease
     //==========================================================================
@@ -574,25 +642,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         txn->put(job_key, job_val);
         INSTANCE_LOG(INFO) << "lease tablet compaction job, tablet_id=" << tablet_id
                            << " key=" << hex(job_key);
-        need_commit = true;
-        return;
-    }
-
-    //==========================================================================
-    //                               Abort
-    //==========================================================================
-    if (request->action() == FinishTabletJobRequest::ABORT) {
-        // TODO(gavin): mv tmp rowsets to recycle or remove them directly
-        recorded_job.mutable_compaction()->erase(recorded_compaction);
-        auto job_val = recorded_job.SerializeAsString();
-        txn->put(job_key, job_val);
-        INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
-                           << " key=" << hex(job_key);
-        if (compaction.has_delete_bitmap_lock_initiator()) {
-            remove_delete_bitmap_update_lock(txn, instance_id, table_id,
-                                             COMPACTION_DELETE_BITMAP_LOCK_ID,
-                                             compaction.delete_bitmap_lock_initiator());
-        }
         need_commit = true;
         return;
     }
@@ -891,6 +940,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     auto new_tablet_key = meta_tablet_key(
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
+    auto new_tablet_job_key = job_tablet_key(
+            {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
     std::string new_tablet_val;
     doris::TabletMetaCloudPB new_tablet_meta;
     TxnErrorCode err = txn->get(new_tablet_key, &new_tablet_val);
@@ -966,6 +1017,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //==========================================================================
     if (request->action() == FinishTabletJobRequest::ABORT) {
         // TODO(cyx)
+        // remove schema change
+        recorded_job.clear_schema_change();
+        auto job_val = recorded_job.SerializeAsString();
+        txn->put(job_key, job_val);
+        txn->remove(new_tablet_job_key);
+        INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
+                           << " key=" << hex(job_key);
+
+        need_commit = true;
         return;
     }
 
@@ -977,7 +1037,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     // 2. move rowsets [2-alter_version] in new_tablet to recycle
     // 3. update new_tablet stats
     // 4. change tmp rowset to formal rowset
-    // 5. remove schema_change job (unnecessary)
+    // 5. remove schema_change job
     //
     //==========================================================================
     //                          update tablet meta
@@ -1126,6 +1186,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     recorded_job.clear_schema_change();
     auto job_val = recorded_job.SerializeAsString();
     txn->put(job_key, job_val);
+    txn->remove(new_tablet_job_key);
     INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
                        << " key=" << hex(job_key);
 

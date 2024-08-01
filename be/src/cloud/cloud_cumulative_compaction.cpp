@@ -48,7 +48,7 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
-    if (_tablet->tablet_state() != TABLET_RUNNING) {
+    if (_tablet->tablet_state() != TABLET_RUNNING && dynamic_cast<CloudTablet*>(_tablet.get())->alter_version() == -1) {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
@@ -110,11 +110,11 @@ PREPARE_TRY_AGAIN:
     _expiration = now + config::compaction_timeout_seconds;
     compaction_job->set_expiration(_expiration);
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
-    if (config::enable_parallel_cumu_compaction) {
-        // Set input version range to let meta-service judge version range conflict
-        compaction_job->add_input_versions(_input_rowsets.front()->start_version());
-        compaction_job->add_input_versions(_input_rowsets.back()->end_version());
-    }
+
+    compaction_job->add_input_versions(_input_rowsets.front()->start_version());
+    compaction_job->add_input_versions(_input_rowsets.back()->end_version());
+    // Set input version range to let meta-service judge version range conflict
+    compaction_job->set_judge_input_versions_range(config::enable_parallel_cumu_compaction);
     cloud::StartTabletJobResponse resp;
     st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     if (!st.ok()) {
@@ -141,6 +141,18 @@ PREPARE_TRY_AGAIN:
                         .tag("msg", resp.status().msg());
                 return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
             }
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. "
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         return st;
     }
@@ -259,6 +271,18 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. "
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         return st;
     }
@@ -344,8 +368,9 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
-        int64_t candidate_version =
-                std::max(cloud_tablet()->cumulative_layer_point(), _max_conflict_version + 1);
+        int64_t candidate_version = std::max(
+                std::max(cloud_tablet()->cumulative_layer_point(), _max_conflict_version + 1),
+                cloud_tablet()->alter_version());
         // Get all rowsets whose version >= `candidate_version` as candidate rowsets
         cloud_tablet()->traverse_rowsets(
                 [&candidate_rowsets, candidate_version](const RowsetSharedPtr& rs) {

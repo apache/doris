@@ -29,6 +29,7 @@
 #include "service/backend_options.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -82,13 +83,14 @@ Status CloudBaseCompaction::prepare_compact() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    compaction_job->add_input_versions(_input_rowsets.front()->start_version());
+    compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     _expiration = now + config::compaction_timeout_seconds;
     compaction_job->set_expiration(_expiration);
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
     cloud::StartTabletJobResponse resp;
-    //auto st = cloud::meta_mgr()->prepare_tablet_job(job, &resp);
     auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
@@ -97,6 +99,18 @@ Status CloudBaseCompaction::prepare_compact() {
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. "
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         return st;
     }
@@ -314,6 +328,18 @@ Status CloudBaseCompaction::modify_rowsets() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. "
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         return st;
     }

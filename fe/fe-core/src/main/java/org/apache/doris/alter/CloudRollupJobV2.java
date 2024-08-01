@@ -124,6 +124,15 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .dropMaterializedIndex(tableId, rollupIndexList, false);
+                for (Map.Entry<Long, Map<Long, Long>> partitionEntry : partitionIdToBaseRollupTabletIdMap.entrySet()) {
+                    Long partitionId = partitionEntry.getKey();
+                    Map<Long, Long> rollupTabletIdToBaseTabletId = partitionEntry.getValue();
+                    for (Map.Entry<Long, Long> tabletEntry : rollupTabletIdToBaseTabletId.entrySet()) {
+                        Long baseTabletId = tabletEntry.getValue();
+                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                            .removeSchemaChangeJob(dbId, tableId, baseIndexId, partitionId, baseTabletId);
+                    }
+                }
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);

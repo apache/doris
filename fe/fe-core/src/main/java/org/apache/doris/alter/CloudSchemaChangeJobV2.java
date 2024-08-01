@@ -32,6 +32,7 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
@@ -41,6 +42,9 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Table;
+import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,8 +53,10 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
@@ -106,7 +112,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     }
 
     @Override
-    protected void postProcessShadowIndex() {
+    protected void onCancel() {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip drop shadown indexes in checking compatibility mode");
             return;
@@ -114,6 +120,31 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
+
+        long tryTimes = 1;
+        while (true) {
+            try {
+                Set<Table.Cell<Long, Long, Map<Long, Long>>> tableSet = partitionIndexTabletMap.cellSet();
+                Iterator<Cell<Long, Long, Map<Long, Long>>> it = tableSet.iterator();
+                while (it.hasNext()) {
+                    Table.Cell<Long, Long, Map<Long, Long>> data = it.next();
+                    Long partitionId = data.getRowKey();
+                    Long shadowIndexId = data.getColumnKey();
+                    Long originIndexId = indexIdMap.get(shadowIndexId);
+                    Map<Long, Long> shadowTabletIdToOriginTabletId = data.getValue();
+                    for (Map.Entry<Long, Long> entry : shadowTabletIdToOriginTabletId.entrySet()) {
+                        Long originTabletId = entry.getValue();
+                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                            .removeSchemaChangeJob(dbId, tableId, originIndexId, partitionId, originTabletId);
+                    }
+                }
+                break;
+            } catch (Exception e) {
+                LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);
+            }
+            sleepSeveralSeconds();
+            tryTimes++;
+        }
     }
 
     @Override

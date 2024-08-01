@@ -592,7 +592,8 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compact
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first != 0 && version.first < _cumulative_point) {
+            if (version.first != 0 && version.first < _cumulative_point &&
+                (_alter_version == -1 || version.first < _alter_version)) {
                 candidate_rowsets.push_back(rs);
             }
         }
