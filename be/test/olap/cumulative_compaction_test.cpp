@@ -206,6 +206,61 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         EXPECT_EQ(rowsets.back()->end_version(), 2);
         EXPECT_EQ(missing_version.size(), 0);
     }
+
+    {
+        std::vector<RowsetSharedPtr> rowsets;
+        for (int i = 2; i <= 2; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        std::vector<Version> missing_version;
+        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_EQ(rowsets.size(), 1);
+        EXPECT_EQ(rowsets.front()->start_version(), 2);
+        EXPECT_EQ(rowsets.front()->end_version(), 2);
+
+        EXPECT_EQ(rowsets.back()->start_version(), 2);
+        EXPECT_EQ(rowsets.back()->end_version(), 2);
+        EXPECT_EQ(missing_version.size(), 0);
+    }
+
+    {
+        std::vector<RowsetSharedPtr> rowsets;
+        for (int i = 2; i <= 4; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        for (int i = 6; i <= 10; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        for (int i = 12; i <= 20; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        std::vector<Version> missing_version;
+        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+
+        EXPECT_EQ(rowsets.size(), 9);
+        EXPECT_EQ(rowsets.front()->start_version(), 12);
+        EXPECT_EQ(rowsets.front()->end_version(), 12);
+        EXPECT_EQ(rowsets.back()->start_version(), 20);
+        EXPECT_EQ(rowsets.back()->end_version(), 20);
+
+        EXPECT_EQ(missing_version.size(), 4);
+        EXPECT_EQ(missing_version[0].first, 4);
+        EXPECT_EQ(missing_version[0].second, 4);
+        EXPECT_EQ(missing_version[1].first, 6);
+        EXPECT_EQ(missing_version[1].second, 6);
+        EXPECT_EQ(missing_version[2].first, 10);
+        EXPECT_EQ(missing_version[2].second, 10);
+        EXPECT_EQ(missing_version[3].first, 12);
+        EXPECT_EQ(missing_version[3].second, 12);
+    }
 }
 
 } // namespace doris
