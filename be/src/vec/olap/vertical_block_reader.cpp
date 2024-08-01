@@ -133,6 +133,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         _reader_context.need_ordered_result = true; // TODO: should it be?
         _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
         _reader_context.is_key_column_group = read_params.is_key_column_group;
+        _reader_context.record_rowids = read_params.record_rowids;
     }
 
     // build heap if key column iterator or build vertical merge iterator if value column

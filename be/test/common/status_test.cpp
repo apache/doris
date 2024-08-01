@@ -50,8 +50,6 @@ TEST_F(StatusTest, OK) {
 TEST_F(StatusTest, TStatusCodeWithStatus) {
     // The definition in status.h
     //extern ErrorCode::ErrorCodeState error_states[ErrorCode::MAX_ERROR_CODE_DEFINE_NUM];
-    extern ErrorCode::ErrorCodeState error_states;
-    extern ErrorCode::ErrorCodeInitializer error_code_init;
     // The definition in Status_types.h
     extern const std::map<int, const char*> _TStatusCode_VALUES_TO_NAMES;
     ErrorCode::error_code_init.check_init();
