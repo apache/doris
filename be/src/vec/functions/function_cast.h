@@ -856,12 +856,19 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
-
                 if constexpr (type_index == TypeIndex::UInt8) {
+                    // cast from json value to boolean type
                     if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
+                    } else if (value->isInt()) {
+                        res[i] = ((const JsonbIntVal*)value)->val() > 0 ? 1 : 0;
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                         ((const JsonbDoubleVal*)value)->val()) > 0
+                                         ? 1
+                                         : 0;
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -871,15 +878,31 @@ struct ConvertImplFromJsonb {
                                      type_index == TypeIndex::Int32 ||
                                      type_index == TypeIndex::Int64 ||
                                      type_index == TypeIndex::Int128) {
+                    // cast from json value to integer types
                     if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                ((const JsonbDoubleVal*)value)->val());
+                    } else if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
                     }
-                } else if constexpr (type_index == TypeIndex::Float64) {
+                } else if constexpr (type_index == TypeIndex::Float64 ||
+                                     type_index == TypeIndex::Float32) {
+                    // cast from json value to floating point types
                     if (value->isDouble()) {
                         res[i] = ((const JsonbDoubleVal*)value)->val();
+                    } else if (value->isFloat()) {
+                        res[i] = ((const JsonbFloatVal*)value)->val();
+                    } else if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
                     } else if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
