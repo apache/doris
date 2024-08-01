@@ -43,7 +43,7 @@ suite("test_rollup_prune_tablet") {
             (7,0,7,7,7);"""
 
     explain {
-        sql("explain select id,sum(c1) from test_prune_tablet_t2 where c1=0 and id = 3 group by id;")
+        sql("select id,sum(c1) from test_prune_tablet_t2 where c1=0 and id = 3 group by id;")
         contains "example_rollup_index"
         contains "tablets=1/16"
     }
