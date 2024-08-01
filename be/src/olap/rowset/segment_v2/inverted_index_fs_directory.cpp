@@ -132,20 +132,20 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
                     { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
     if (st.code() == ErrorCode::NOT_FOUND) {
-        error.set(CL_ERR_FileNotFound, "File does not exist");
+        error.set(CL_ERR_FileNotFound, fmt::format("File does not exist, file is {}", path));
     } else if (st.code() == ErrorCode::IO_ERROR) {
-        error.set(CL_ERR_IO, "File open io error");
+        error.set(CL_ERR_IO, fmt::format("File open io error, file is {}", path));
     } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
-        error.set(CL_ERR_IO, "File Access denied");
+        error.set(CL_ERR_IO, fmt::format("File Access denied, file is {}", path));
     } else if (!st.ok()) {
-        error.set(CL_ERR_IO, "Could not open file");
+        error.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", path));
     }
 
     //Check if a valid handle was retrieved
     if (st.ok() && h->_reader) {
         if (h->_reader->size() == 0) {
             // may be a empty file
-            error.set(CL_ERR_IO, "Opened File is empty");
+            error.set(CL_ERR_IO, fmt::format("Opened File is empty, file is {}", path));
             return false;
         } else {
             //Store the file length
@@ -788,6 +788,12 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMFSDirectory();
     } else {
+        bool exists = false;
+        LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error");
+        if (!exists) {
+            LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
+                                   "Get directory create directory IO error");
+        }
         dir = _CLNEW DorisFSDirectory();
     }
     dir->init(_fs, file, lock_factory);

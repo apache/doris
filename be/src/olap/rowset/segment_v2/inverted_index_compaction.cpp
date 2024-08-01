@@ -40,13 +40,8 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                     "debug point: index compaction error");
         }
     })
-    auto fs = io::global_local_filesystem();
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(tmp_path.data(), &exists));
-    if (!exists) {
-        RETURN_IF_ERROR(fs->create_directory(tmp_path.data()));
-    }
-    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(fs, tmp_path.data());
+    lucene::store::Directory* dir =
+            DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data());
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);

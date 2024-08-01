@@ -52,11 +52,6 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     if (exists) {
         LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
         return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
-    } else if (!config::inverted_index_ram_dir_enable) {
-        st = local_fs->create_directory(local_fs_index_path.c_str());
-        if (!st.ok()) {
-            return ResultError(st);
-        }
     }
 
     bool can_use_ram_dir = true;
