@@ -50,6 +50,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -2325,6 +2326,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             RETURN_IF_ERROR(_next_batch_internal(block));
+            RETURN_IF_ERROR(_fill_missing_columns(block));
 
             // reverse block row order if read_orderby_key_reverse is true for key topn
             // it should be processed for all success _next_batch_internal
@@ -2400,6 +2402,10 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
     }
 
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
+}
+
+Status SegmentIterator::_fill_missing_columns(vectorized::Block* block) {
+    return Status::OK();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {

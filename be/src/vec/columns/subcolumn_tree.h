@@ -73,6 +73,8 @@ public:
             kind = Kind::SCALAR;
         }
 
+        void modify_to_nested() { kind = Kind::NESTED; }
+
         void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
             next_node->parent = this;
             StringRef key_ref;
@@ -142,6 +144,8 @@ public:
         root = std::make_shared<Node>(Node::SCALAR, leaf_data);
         leaves.push_back(root);
     }
+
+    void create_nested_root() { root = std::make_shared<Node>(Node::NESTED); }
 
     void add_leaf(const NodePtr& node) { leaves.push_back(node); }
 

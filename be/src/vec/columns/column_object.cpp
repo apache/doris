@@ -71,6 +71,7 @@
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
 
@@ -283,6 +284,37 @@ private:
     bool have_nulls = false;
 };
 
+/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
+/// and replaces all scalars or nested arrays to @replacement at that level.
+class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
+public:
+    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
+            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
+
+    Field operator()(const Array& x) const {
+        if (num_dimensions_to_keep == 0) {
+            return replacement;
+        }
+
+        const size_t size = x.size();
+        Array res(size);
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = apply_visitor(
+                    FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
+        }
+        return res;
+    }
+
+    template <typename T>
+    Field operator()(const T&) const {
+        return replacement;
+    }
+
+private:
+    const Field& replacement;
+    size_t num_dimensions_to_keep;
+};
+
 } // namespace
 
 template <typename Visitor>
@@ -413,6 +445,71 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     }
 
     data.back()->insert(field);
+}
+
+static DataTypePtr create_array(TypeIndex type, size_t num_dimensions) {
+    DataTypePtr result_type;
+    auto nested_type = make_nullable(DataTypeFactory::instance().create_data_type(type));
+    for (size_t i = 0; i < num_dimensions; ++i) {
+        result_type = std::make_shared<DataTypeArray>(nested_type);
+    }
+    return result_type;
+}
+
+Array create_empty_array_field(size_t num_dimensions) {
+    if (num_dimensions == 0) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Cannot create array field with 0 dimensions");
+    }
+
+    Array array;
+    Array* current_array = &array;
+    for (size_t i = 1; i < num_dimensions; ++i) {
+        current_array->push_back(Array());
+        current_array = &current_array->back().get<Array&>();
+    }
+
+    return array;
+}
+
+// Recreates column with default scalar values and keeps sizes of arrays.
+static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, TypeIndex scalar_type,
+                                                     size_t num_dimensions) {
+    const auto* column_array = check_and_get_column<ColumnArray>(column.get());
+    if (column_array && num_dimensions) {
+        return ColumnArray::create(
+                recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
+                                                    num_dimensions - 1),
+                IColumn::mutate(column_array->get_offsets_ptr()));
+    }
+
+    return create_array(scalar_type, num_dimensions)
+            ->create_column()
+            ->clone_resized(column->size());
+}
+
+ColumnObject::Subcolumn ColumnObject::Subcolumn::recreateWithDefaultValues(
+        const FieldInfo& field_info) const {
+    Subcolumn new_subcolumn(*this);
+    new_subcolumn.least_common_type =
+            LeastCommonType {create_array(field_info.scalar_type_id, field_info.num_dimensions)};
+
+    for (auto& part : new_subcolumn.data) {
+        part = recreate_column_with_default_values(part, field_info.scalar_type_id,
+                                                   field_info.num_dimensions);
+    }
+
+    return new_subcolumn;
+}
+
+Field ColumnObject::Subcolumn::get_last_field() const {
+    if (data.empty()) {
+        return Field();
+    }
+
+    const auto& last_part = data.back();
+    assert(!last_part->empty());
+    return (*last_part)[last_part->size() - 1];
 }
 
 void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start, size_t length) {
@@ -816,7 +913,10 @@ void ColumnObject::try_insert(const Field& field) {
     }
     for (auto& entry : subcolumns) {
         if (old_size == entry->data.size()) {
-            entry->data.insertDefault();
+            bool inserted = try_insert_default_from_nested(entry);
+            if (!inserted) {
+                entry->data.insertDefault();
+            }
         }
     }
     ++num_rows;
@@ -890,6 +990,53 @@ void ColumnObject::get(size_t n, Field& res) const {
     }
 }
 
+void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info,
+                                        size_t new_size) {
+    if (!key.has_nested_part()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Cannot add Nested subcolumn, because path doesn't contain Nested");
+    }
+
+    bool inserted = false;
+    /// We find node that represents the same Nested type as @key.
+    const auto* nested_node = subcolumns.find_best_match(key);
+
+    if (nested_node && !nested_node->path.empty()) {
+        /// Find any leaf of Nested subcolumn.
+        const auto* leaf = Subcolumns::find_leaf(nested_node, [&](const auto&) { return true; });
+        assert(leaf);
+
+        /// Recreate subcolumn with default values and the same sizes of arrays.
+        auto new_subcolumn = leaf->data.recreateWithDefaultValues(field_info);
+
+        /// It's possible that we have already inserted value from current row
+        /// to this subcolumn. So, adjust size to expected.
+        if (new_subcolumn.size() > new_size) {
+            new_subcolumn.pop_back(new_subcolumn.size() - new_size);
+        }
+
+        assert(new_subcolumn.size() == new_size);
+        inserted = subcolumns.add(key, new_subcolumn);
+    } else {
+        /// If node was not found just add subcolumn with empty arrays.
+        inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
+    }
+
+    if (!inserted) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn '{}' already exists",
+                               key.get_path());
+    }
+
+    if (num_rows == 0) {
+        num_rows = new_size;
+    } else if (new_size != num_rows) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Required size of subcolumn {} ({}) is inconsistent with column size ({})",
+                key.get_path(), new_size, num_rows);
+    }
+}
+
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
 #ifndef NDEBUG
     check_consistency();
@@ -897,14 +1044,24 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
     const auto& src_object = assert_cast<const ColumnObject&>(src);
     for (const auto& entry : src_object.subcolumns) {
         if (!has_subcolumn(entry->path)) {
-            add_sub_column(entry->path, num_rows);
+            if (entry->path.has_nested_part()) {
+                FieldInfo field_info {
+                        .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+                        .num_dimensions = entry->data.get_dimensions()};
+                add_nested_subcolumn(entry->path, field_info, num_rows);
+            } else {
+                add_sub_column(entry->path, num_rows);
+            }
         }
         auto* subcolumn = get_subcolumn(entry->path);
         subcolumn->insertRangeFrom(entry->data, start, length);
     }
     for (auto& entry : subcolumns) {
         if (!src_object.has_subcolumn(entry->path)) {
-            entry->data.insertManyDefaults(length);
+            bool inserted = try_insert_many_defaults_from_nested(entry);
+            if (!inserted) {
+                entry->data.insertManyDefaults(length);
+            }
         }
     }
     num_rows += length;
@@ -1575,6 +1732,16 @@ bool ColumnObject::is_scalar_variant() const {
            subcolumns.get_root()->is_scalar();
 }
 
+const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
+        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeObject>())));
+
+// Root type is Nullable(Array(Nullable(Variant)))
+bool ColumnObject::is_nested_variant() const {
+    return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
+           subcolumns.get_root()->data.get_least_common_type()->equals(*NESTED_TYPE);
+}
+
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
 }
@@ -1691,6 +1858,100 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
+}
+
+ColumnObject::Subcolumn ColumnObject::Subcolumn::cut(size_t start, size_t length) const {
+    Subcolumn new_subcolumn(0, is_nullable);
+    new_subcolumn.insertRangeFrom(*this, start, length);
+    return new_subcolumn;
+}
+
+const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
+        const Subcolumns::NodePtr& entry) const {
+    if (!entry->path.has_nested_part()) {
+        return nullptr;
+    }
+
+    size_t old_size = entry->data.size();
+    const auto* current_node = subcolumns.find_leaf(entry->path);
+    const Subcolumns::Node* leaf = nullptr;
+
+    while (current_node) {
+        /// Try to find the first Nested up to the current node.
+        const auto* node_nested = Subcolumns::find_parent(
+                current_node, [](const auto& candidate) -> bool { return candidate.is_nested(); });
+
+        if (!node_nested) {
+            break;
+        }
+
+        /// Find the leaf with subcolumn that contains values
+        /// for the last rows.
+        /// If there are no leaves, skip current node and find
+        /// the next node up to the current.
+        leaf = Subcolumns::find_leaf(node_nested, [&](const auto& candidate) {
+            return candidate.data.size() > old_size;
+        });
+
+        if (leaf) {
+            break;
+        }
+
+        current_node = node_nested->parent;
+    }
+
+    if (leaf && is_nothing(leaf->data.get_least_common_typeBase())) {
+        return nullptr;
+    }
+
+    return leaf;
+}
+
+bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const {
+    const auto* leaf = get_leaf_of_the_same_nested(entry);
+    if (!leaf) {
+        return false;
+    }
+
+    size_t old_size = entry->data.size();
+    FieldInfo field_info = {
+            .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .num_dimensions = entry->data.get_dimensions(),
+    };
+
+    /// Cut the needed range from the found leaf
+    /// and replace scalar values to the correct
+    /// default values for given entry.
+    auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
+                                 .recreateWithDefaultValues(field_info);
+
+    entry->data.insertRangeFrom(new_subcolumn, 0, new_subcolumn.size());
+    return true;
+}
+
+bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {
+    const auto* leaf = get_leaf_of_the_same_nested(entry);
+    if (!leaf) {
+        return false;
+    }
+
+    auto last_field = leaf->data.get_last_field();
+    if (last_field.is_null()) {
+        return false;
+    }
+
+    size_t leaf_num_dimensions = leaf->data.get_dimensions();
+    size_t entry_num_dimensions = entry->data.get_dimensions();
+
+    auto default_scalar =
+            entry_num_dimensions > leaf_num_dimensions
+                    ? create_empty_array_field(entry_num_dimensions - leaf_num_dimensions)
+                    : entry->data.get_least_common_type()->get_default();
+
+    auto default_field = apply_visitor(
+            FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
+    entry->data.insert(std::move(default_field));
+    return true;
 }
 
 } // namespace doris::vectorized

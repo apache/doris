@@ -601,6 +601,15 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
     };
 
+    auto new_default_iter = [&]() {
+        if (tablet_column.is_nested_subcolumn() &&
+            type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
+            *iter = std::make_unique<EmptyColumnIterator>();
+            return Status::OK();
+        }
+        return new_default_iterator(tablet_column, iter);
+    };
+
     if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
         // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
@@ -612,7 +621,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                 RETURN_IF_ERROR(_new_iterator_with_variant_root(
                         tablet_column, iter, root, sparse_node->data.file_column_type));
             } else {
-                RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+                RETURN_IF_ERROR(new_default_iter());
             }
             return Status::OK();
         }
@@ -644,7 +653,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                                                             sparse_node->data.file_column_type));
         } else {
             // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+            RETURN_IF_ERROR(new_default_iter());
         }
     }
 

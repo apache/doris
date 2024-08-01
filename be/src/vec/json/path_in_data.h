@@ -71,8 +71,10 @@ public:
     bool empty() const { return parts.empty(); }
     const vectorized::String& get_path() const { return path; }
     const Parts& get_parts() const { return parts; }
+    std::string get_nested_prefix() const;
     bool is_nested(size_t i) const { return parts[i].is_nested; }
     bool has_nested_part() const { return has_nested; }
+    void set_has_nested(bool has) { has_nested = has; }
     bool operator==(const PathInData& other) const { return parts == other.parts; }
     struct Hash {
         size_t operator()(const PathInData& value) const;
