@@ -1077,7 +1077,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    RuntimeFilterContextSPtr _rf_context;
+    // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
+    // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
+    // after query context because the rpc is not returned.
+    std::weak_ptr<RuntimeFilterContext> _rf_context;
     std::string _rf_debug_info;
 
     using Base =
@@ -1085,22 +1088,22 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
-        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
-        auto ctx = _rf_context;
+        auto ctx = _rf_context.lock();
         if (!ctx) {
             return;
         }
 
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
         ctx->err_msg = cntl_->ErrorText();
         Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
-        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
-        auto ctx = _rf_context;
+        auto ctx = _rf_context.lock();
         if (!ctx) {
             return;
         }
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
 
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
