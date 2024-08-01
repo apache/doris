@@ -76,7 +76,6 @@ public:
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
@@ -93,7 +92,7 @@ public:
                                       " must be an array but it has type " +
                                       arguments[i]->get_name() + ".";
             }
-            is_nested_nullable = is_nested_nullable | array_type->get_nested_type()->is_nullable();
+            is_nested_nullable = is_nested_nullable || array_type->get_nested_type()->is_nullable();
         }
 
         auto return_nested_type = std::make_shared<DataTypeInt64>();
