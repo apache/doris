@@ -267,7 +267,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() >= 0) {
             // we can create a special empty split and skip the plan process
-            return Collections.singletonList(splits.get(0));
+            return splits.isEmpty() ? splits : Collections.singletonList(splits.get(0));
         }
 
         readPartitionNum = partitionPathSet.size();
