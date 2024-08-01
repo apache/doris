@@ -145,7 +145,6 @@ import java.util.stream.Collectors;
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private static final Logger LOG = LogManager.getLogger(CloudGlobalTransactionMgr.class);
     private static final String NOT_SUPPORTED_MSG = "Not supported in cloud mode";
-    private static final int DELETE_BITMAP_LOCK_EXPIRATION_SECONDS = 10;
     private static final int CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS = 15;
 
     private TxnStateCallbackFactory callbackFactory;
@@ -721,7 +720,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.setTableId(entry.getKey())
                     .setLockId(transactionId)
                     .setInitiator(-1)
-                    .setExpiration(DELETE_BITMAP_LOCK_EXPIRATION_SECONDS)
+                    .setExpiration(Config.delete_bitmap_lock_expiration_seconds)
                     .setRequireCompactionStats(true);
             List<Long> tabletList = tableToTabletList.get(entry.getKey());
             for (Long tabletId : tabletList) {
@@ -831,7 +830,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         boolean ok;
         try {
-            ok = countDownLatch.await(CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            ok = countDownLatch.await(Config.calculate_delete_bitmap_task_timeout_seconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             LOG.warn("InterruptedException: ", e);
             ok = false;
