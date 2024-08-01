@@ -33,14 +33,14 @@ suite("test_rollup_prune_tablet") {
 	    alter table test_prune_tablet_t2 add rollup example_rollup_index(c1,id); 
     """)
 
-    sql "insert into test_prune_tablet_t2 values
+    sql """insert into test_prune_tablet_t2 values
             (1,0,1,1,1),
             (2,0,2,2,2),
             (3,0,3,3,3),
             (4,0,4,4,4),
             (5,0,5,5,5),
             (6,0,6,6,6),
-            (7,0,7,7,7);"
+            (7,0,7,7,7);"""
 
     explain {
         sql("explain select id,sum(c1) from test_prune_tablet_t2 where c1=0 and id = 3 group by id;")
