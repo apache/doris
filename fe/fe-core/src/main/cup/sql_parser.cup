@@ -4172,7 +4172,7 @@ show_stmt ::=
     {:
         RESULT = new ShowStoragePolicyUsingStmt(null);
     :}
-    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident_or_text:policy
     {:
         RESULT = new ShowStoragePolicyUsingStmt(policy);
     :}
