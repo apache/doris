@@ -47,6 +47,21 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-unsafe</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-c-data</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
 
         <!-- scala deps -->
         <dependency>
@@ -70,8 +85,7 @@ under the License.
         <dependency>
             <groupId>com.dmetasoul</groupId>
             <artifactId>lakesoul-io-java</artifactId>
-            <version>${lakesoul.version}</version>
-            <classifier>shaded</classifier>
+            <version>2.5.4</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -84,6 +98,10 @@ under the License.
                 <exclusion>
                     <groupId>org.slf4j</groupId>
                     <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.antlr</groupId>
