@@ -78,12 +78,12 @@ suite("test_multi_level_mtmv") {
            REFRESH MATERIALIZED VIEW ${mv1} AUTO
        """
     waitingMTMVTaskFinishedByMvName(mv1)
-    order_qt_mv1_should_one_partition "select NeedRefreshPartitions from ${mv1} order by CreateTime desc limit 1"
+    order_qt_mv1_should_one_partition "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv1}' order by CreateTime desc limit 1"
     sql """
            REFRESH MATERIALIZED VIEW ${mv2} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mv2)
-    order_qt_mv2_should_one_partition "select NeedRefreshPartitions from ${mv2} order by CreateTime desc limit 1"
+    order_qt_mv2_should_one_partition "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv2}' order by CreateTime desc limit 1"
 
     // drop table
     sql """
