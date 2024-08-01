@@ -123,6 +123,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         TFileFormatType formatType = getTFileFormatType(sd.getInputFormat());
         tSink.setFileFormat(formatType);
         setCompressType(tSink, formatType);
+        setSerDeProperties(tSink);
 
         THiveLocationParams locationParams = new THiveLocationParams();
         LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());

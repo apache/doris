@@ -245,6 +245,20 @@ public:
         static HadoopLz4BlockCompression s_instance;
         return &s_instance;
     }
+
+    // hadoop use block compression for lz4
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // TODO: zero copy in here
+        faststring buf;
+        RETURN_IF_ERROR(Lz4BlockCompression::compress(input, &buf));
+        output->resize(buf.size() + 8);
+        BigEndian::Store32(output->data(), input.get_size());
+        BigEndian::Store32(output->data() + 4, buf.size());
+        memcpy(output->data() + 8, buf.data(), buf.size());
+        return Status::OK();
+    }
+
     Status decompress(const Slice& input, Slice* output) override {
         size_t input_bytes_read = 0;
         size_t decompressed_len = 0;
@@ -738,6 +752,32 @@ public:
     }
 
     size_t max_compressed_len(size_t len) override { return snappy::MaxCompressedLength(len); }
+};
+
+class HadoopSnappyBlockCompression : public SnappyBlockCompression {
+public:
+    static HadoopSnappyBlockCompression* instance() {
+        static HadoopSnappyBlockCompression s_instance;
+        return &s_instance;
+    }
+    ~HadoopSnappyBlockCompression() override {}
+
+    // hadoop use block compression for snappy
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // TODO: zero copy in here
+        faststring buf;
+        RETURN_IF_ERROR(SnappyBlockCompression::compress(input, &buf));
+        output->resize(buf.size() + 8);
+        BigEndian::Store32(output->data(), input.get_size());
+        BigEndian::Store32(output->data() + 4, buf.size());
+        memcpy(output->data() + 8, buf.data(), buf.size());
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: SnappyHadoopBlockCompression::decompress");
+    }
 };
 
 class ZlibBlockCompression : public BlockCompressionCodec {
@@ -1275,6 +1315,7 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
     return Status::OK();
 }
 
+// this can only be used in hive text write
 Status get_block_compression_codec(TFileCompressType::type type, BlockCompressionCodec** codec) {
     switch (type) {
     case TFileCompressType::PLAIN:
@@ -1283,29 +1324,21 @@ Status get_block_compression_codec(TFileCompressType::type type, BlockCompressio
     case TFileCompressType::GZ:
         *codec = GzipBlockCompression::instance();
         break;
-    case TFileCompressType::LZO:
-        *codec = LzoBlockCompression::instance();
-        break;
     // case TFileCompressType::BZ2:
-    case TFileCompressType::LZ4FRAME:
-        *codec = Lz4BlockCompression::instance();
+    case TFileCompressType::DEFLATE:
+        *codec = ZlibBlockCompression::instance();
         break;
-    // case TFileCompressType::DEFLATE:
-    // case TFileCompressType::LZOP:
     case TFileCompressType::LZ4BLOCK:
-        *codec = Lz4BlockCompression::instance();
+        *codec = HadoopLz4BlockCompression::instance();
         break;
     case TFileCompressType::SNAPPYBLOCK:
-        *codec = SnappyBlockCompression::instance();
-        break;
-    case TFileCompressType::ZLIB:
-        *codec = ZlibBlockCompression::instance();
+        *codec = HadoopSnappyBlockCompression::instance();
         break;
     case TFileCompressType::ZSTD:
         *codec = ZstdBlockCompression::instance();
         break;
     default:
-        return Status::InternalError("unknown compression type({})", type);
+        return Status::InternalError("unsupport compression type({}) int hive text", type);
     }
 
     return Status::OK();
