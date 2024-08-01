@@ -82,7 +82,6 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         std::vector<RowsetSharedPtr> rowsets;
         for (int i = 2; i < 10; ++i) {
             RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
-            //tablet->_rs_version_map.emplace(rs->version(), rs);
             rowsets.push_back(rs);
         }
         std::vector<Version> missing_version;
@@ -93,36 +92,119 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
 
         EXPECT_EQ(rowsets.back()->start_version(), 9);
         EXPECT_EQ(rowsets.back()->end_version(), 9);
+
+        EXPECT_EQ(missing_version.size(), 0);
     }
 
     {
         std::vector<RowsetSharedPtr> rowsets;
         for (int i = 2; i <= 4; ++i) {
             RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
-            //tablet->_rs_version_map.emplace(rs->version(), rs);
             rowsets.push_back(rs);
         }
 
         for (int i = 6; i <= 10; ++i) {
             RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
-            //tablet->_rs_version_map.emplace(rs->version(), rs);
             rowsets.push_back(rs);
         }
 
         for (int i = 12; i <= 13; ++i) {
             RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
-            //tablet->_rs_version_map.emplace(rs->version(), rs);
             rowsets.push_back(rs);
         }
 
         std::vector<Version> missing_version;
         cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+
         EXPECT_EQ(rowsets.size(), 5);
         EXPECT_EQ(rowsets.front()->start_version(), 6);
         EXPECT_EQ(rowsets.front()->end_version(), 6);
-
         EXPECT_EQ(rowsets.back()->start_version(), 10);
         EXPECT_EQ(rowsets.back()->end_version(), 10);
+
+        EXPECT_EQ(missing_version.size(), 4);
+        EXPECT_EQ(missing_version[0].first, 4);
+        EXPECT_EQ(missing_version[0].second, 4);
+        EXPECT_EQ(missing_version[1].first, 6);
+        EXPECT_EQ(missing_version[1].second, 6);
+        EXPECT_EQ(missing_version[2].first, 10);
+        EXPECT_EQ(missing_version[2].second, 10);
+        EXPECT_EQ(missing_version[3].first, 12);
+        EXPECT_EQ(missing_version[3].second, 12);
+    }
+
+    {
+        std::vector<RowsetSharedPtr> rowsets;
+        for (int i = 2; i <= 2; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        for (int i = 4; i <= 4; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        std::vector<Version> missing_version;
+        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+
+        EXPECT_EQ(rowsets.size(), 1);
+        EXPECT_EQ(rowsets.front()->start_version(), 2);
+        EXPECT_EQ(rowsets.front()->end_version(), 2);
+        EXPECT_EQ(rowsets.back()->start_version(), 2);
+        EXPECT_EQ(rowsets.back()->end_version(), 2);
+
+        EXPECT_EQ(missing_version.size(), 2);
+        EXPECT_EQ(missing_version[0].first, 2);
+        EXPECT_EQ(missing_version[0].second, 2);
+        EXPECT_EQ(missing_version[1].first, 4);
+        EXPECT_EQ(missing_version[1].second, 4);
+    }
+
+    {
+        std::vector<RowsetSharedPtr> rowsets;
+        RowsetSharedPtr rs = create_rowset({2, 3}, 1, false, 1024);
+        rowsets.push_back(rs);
+        rs = create_rowset({4, 5}, 1, false, 1024);
+        rowsets.push_back(rs);
+
+        rs = create_rowset({9, 11}, 1, false, 1024);
+        rowsets.push_back(rs);
+        rs = create_rowset({12, 13}, 1, false, 1024);
+        rowsets.push_back(rs);
+
+        std::vector<Version> missing_version;
+        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+
+        EXPECT_EQ(rowsets.size(), 2);
+        EXPECT_EQ(rowsets.front()->start_version(), 2);
+        EXPECT_EQ(rowsets.front()->end_version(), 3);
+        EXPECT_EQ(rowsets.back()->start_version(), 4);
+        EXPECT_EQ(rowsets.back()->end_version(), 5);
+
+        EXPECT_EQ(missing_version.size(), 2);
+        EXPECT_EQ(missing_version[0].first, 4);
+        EXPECT_EQ(missing_version[0].second, 5);
+        EXPECT_EQ(missing_version[1].first, 9);
+        EXPECT_EQ(missing_version[1].second, 11);
+    }
+
+    {
+        std::vector<RowsetSharedPtr> rowsets;
+        for (int i = 2; i <= 2; ++i) {
+            RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+            rowsets.push_back(rs);
+        }
+
+        std::vector<Version> missing_version;
+        cumu_compaction.find_longest_consecutive_version(&rowsets, &missing_version);
+        EXPECT_EQ(rowsets.size(), 1);
+        EXPECT_EQ(rowsets.front()->start_version(), 2);
+        EXPECT_EQ(rowsets.front()->end_version(), 2);
+
+        EXPECT_EQ(rowsets.back()->start_version(), 2);
+        EXPECT_EQ(rowsets.back()->end_version(), 2);
+        EXPECT_EQ(missing_version.size(), 0);
     }
 }
 
