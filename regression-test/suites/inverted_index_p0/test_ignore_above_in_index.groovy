@@ -41,6 +41,7 @@ suite("test_ignore_above_in_index", "p0") {
     qt_sql "select count() from ${tableName} where c = '1234567890';"
 
     def tableName2 = "test_ignore_above_in_index2"
+
     sql "DROP TABLE IF EXISTS ${tableName2}"
     sql """
         CREATE TABLE ${tableName2} (
