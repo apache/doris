@@ -3724,7 +3724,7 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
     }
 
     if (!rowsets_skip_alignment.empty()) {
-        auto token = _engine.calc_delete_bitmap_executor()->create_token();
+        auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, rowsets_skip_alignment, delete_bitmap,
                                            cur_version - 1, token.get(), nullptr));
