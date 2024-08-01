@@ -67,11 +67,11 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" ]]; then
+if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-3.0" ]]; then
     echo "INFO: PR target branch ${target_branch}"
     install_java
 else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
+    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-3.0), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
     exit 0
 fi
@@ -106,11 +106,11 @@ install_fdb
 clean_fdb "cloud_instance_0"
 
 echo "#### 5. check if binary package ready"
-merge_pr_to_master_commit() {
+merge_pr_to_target_branch_compiled_commit() {
     local pr_num_from_trigger="$1"
     local target_branch="$2"
-    local master_commit="$3"
-    echo "INFO: merge pull request into ${target_branch} ${master_commit}"
+    local target_branch_compiled_commit="$3"
+    echo "INFO: merge pull request into ${target_branch} ${target_branch_compiled_commit}"
     if [[ -z "${teamcity_build_checkoutDir}" ]]; then
         echo "ERROR: env teamcity_build_checkoutDir not set" && return 1
     fi
@@ -119,10 +119,10 @@ merge_pr_to_master_commit() {
     git fetch origin "${target_branch}"
     git checkout "${target_branch}"
     git reset --hard origin/"${target_branch}"
-    git checkout "${master_commit}"
+    git checkout "${target_branch_compiled_commit}"
     returnValue=$?
     if [[ ${returnValue} -ne 0 ]]; then
-        echo "ERROR: checkout ${target_branch} ${master_commit} failed. please rebase to the newest version."
+        echo "ERROR: checkout ${target_branch} ${target_branch_compiled_commit} failed. please rebase to the newest version."
         return 1
     fi
     git rev-parse HEAD
@@ -131,7 +131,7 @@ merge_pr_to_master_commit() {
     echo "git fetch origin refs/pull/${pr_num_from_trigger}/head"
     git fetch origin "refs/pull/${pr_num_from_trigger}/head"
     git merge --no-edit --allow-unrelated-histories FETCH_HEAD
-    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into ${target_branch} ${master_commit}"
+    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into ${target_branch} ${target_branch_compiled_commit}"
     # CONFLICTS=$(git ls-files -u | wc -l)
     if [[ $(git ls-files -u | wc -l) -gt 0 ]]; then
         echo "ERROR: merge refs/pull/${pr_num_from_trigger}/head into  failed. Aborting"
@@ -144,11 +144,11 @@ if ! check_oss_file_exist "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.
 if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then
     rm -rf "${teamcity_build_checkoutDir}"/output
     tar -I pigz -xf "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"
-    master_commit_file="master.commit"
-    if [[ -e output/${master_commit_file} ]]; then
+    target_branch_compiled_commit_file="master.commit"
+    if [[ -e output/${target_branch_compiled_commit_file} ]]; then
         # checkout to master commit and merge this pr, to ensure binary and case are same version
-        master_commit=$(cat output/"${master_commit_file}")
-        if merge_pr_to_master_commit "${pr_num_from_trigger}" "${target_branch}" "${master_commit}"; then
+        target_branch_compiled_commit=$(cat output/"${target_branch_compiled_commit_file}")
+        if merge_pr_to_target_branch_compiled_commit "${pr_num_from_trigger}" "${target_branch}" "${target_branch_compiled_commit}"; then
             echo "INFO: merged done"
             if [[ "${teamcity_buildType_id:-}" == "Doris_DorisCloudRegression_CloudP1" ]]; then
                 echo "INFO: 用cloud_p1/conf覆盖cloud_p0/conf"

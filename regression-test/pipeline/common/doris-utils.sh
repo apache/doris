@@ -94,7 +94,7 @@ function install_java() {
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
-    # doris master branch use java-17
+    # doris master and branch-3.0 use java-17
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*')" ]]; then
         sudo apt update && sudo apt install openjdk-17-jdk -y >/dev/null
