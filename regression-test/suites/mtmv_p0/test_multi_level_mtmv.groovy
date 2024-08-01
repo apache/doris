@@ -46,6 +46,7 @@ suite("test_multi_level_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mv1}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(k1)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
@@ -60,6 +61,7 @@ suite("test_multi_level_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mv2}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(k1)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
