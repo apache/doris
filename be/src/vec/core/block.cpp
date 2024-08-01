@@ -53,6 +53,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 
 class SipHash;
 
@@ -476,7 +477,7 @@ std::string Block::dump_types() const {
     return out;
 }
 
-std::string Block::dump_data(size_t begin, size_t row_limit) const {
+std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
     std::vector<size_t> headers_size;
     for (const auto& it : data) {
@@ -515,7 +516,14 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
             }
             std::string s;
             if (data[i].column) {
-                s = data[i].to_string(row_num);
+                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
+                    assert(allow_null_mismatch);
+                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                ->get_nested_type()
+                                ->to_string(*data[i].column, row_num);
+                } else {
+                    s = data[i].to_string(row_num);
+                }
             }
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";

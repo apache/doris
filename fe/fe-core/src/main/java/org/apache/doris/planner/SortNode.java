@@ -198,6 +198,19 @@ public class SortNode extends PlanNode {
         if (useTwoPhaseReadOpt) {
             output.append(detailPrefix + "OPT TWO PHASE\n");
         }
+
+        output.append(detailPrefix + "algorithm: ");
+        boolean isFixedLength = info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
+                && !e.getType().isCollectionType());
+        if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate
+                || isFixedLength)) {
+            output.append("heap sort\n");
+        } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
+            output.append("topn sort\n");
+        } else {
+            output.append("full sort\n");
+        }
+
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
