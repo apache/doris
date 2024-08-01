@@ -761,8 +761,9 @@ public:
         // (select 0) intersect (select null) the build side hash table should not
         // ignore null value.
         std::vector<DataTypePtr> data_types;
-        for (const auto& ctx : child_exprs_lists[0]) {
-            data_types.emplace_back(build_not_ignore_null[0]
+        for (int i = 0; i < child_exprs_lists[0].size(); i++) {
+            const auto& ctx = child_exprs_lists[0][i];
+            data_types.emplace_back(build_not_ignore_null[i]
                                             ? make_nullable(ctx->root()->data_type())
                                             : ctx->root()->data_type());
         }
