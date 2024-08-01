@@ -18,8 +18,11 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -29,7 +32,6 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -73,6 +75,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String TAG = "tag";
 
+    public static final String READ_BYTES_PER_SECOND = "read_bytes_per_second";
+
+    public static final String REMOTE_READ_BYTES_PER_SECOND = "remote_read_bytes_per_second";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
@@ -81,7 +87,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
-            .add(TAG).build();
+            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).build();
 
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
@@ -184,9 +190,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             throws DdlException {
         Map<String, String> newProperties = new HashMap<>(currentWorkloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
-            if (!Strings.isNullOrEmpty(kv.getValue())) {
-                newProperties.put(kv.getKey(), kv.getValue());
-            }
+            newProperties.put(kv.getKey(), kv.getValue());
         }
 
         checkProperties(newProperties);
@@ -382,6 +386,47 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     + SPILL_THRESHOLD_LOW_WATERMARK + "(" + lowWaterMark + ")");
         }
 
+        if (properties.containsKey(READ_BYTES_PER_SECOND)) {
+            String readBytesVal = properties.get(READ_BYTES_PER_SECOND);
+            try {
+                long longVal = Long.parseLong(readBytesVal);
+                boolean isValidValue = longVal == -1 || longVal > 0;
+                if (!isValidValue) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        READ_BYTES_PER_SECOND + " should be -1 or an integer value bigger than 0, but input value is "
+                                + readBytesVal);
+            }
+        }
+
+        if (properties.containsKey(REMOTE_READ_BYTES_PER_SECOND)) {
+            String readBytesVal = properties.get(REMOTE_READ_BYTES_PER_SECOND);
+            try {
+                long longVal = Long.parseLong(readBytesVal);
+                boolean isValidValue = longVal == -1 || longVal > 0;
+                if (!isValidValue) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(REMOTE_READ_BYTES_PER_SECOND
+                        + " should be -1 or an integer value bigger than 0, but input value is " + readBytesVal);
+            }
+        }
+
+        String tagStr = properties.get(TAG);
+        if (!StringUtils.isEmpty(tagStr)) {
+            String[] tagArr = tagStr.split(",");
+            for (String tag : tagArr) {
+                try {
+                    FeNameFormat.checkCommonName("workload group tag name", tag);
+                } catch (AnalysisException e) {
+                    throw new DdlException("workload group tag name format is illegal, " + tagStr);
+                }
+            }
+        }
+
     }
 
     public long getId() {
@@ -420,6 +465,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         List<String> row = new ArrayList<>();
         row.add(String.valueOf(id));
         row.add(name);
+        Pair<Integer, Integer> queryQueueDetail = qq != null ? qq.getQueryQueueDetail() : null;
         // skip id,name,running query,waiting query
         for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
             String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
@@ -461,13 +507,20 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     row.add(val + "%");
                 }
             } else if (QueryQueue.RUNNING_QUERY_NUM.equals(key)) {
-                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
+                row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
-                row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
+                row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
             } else if (TAG.equals(key)) {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
                     row.add("");
+                } else {
+                    row.add(val);
+                }
+            } else if (READ_BYTES_PER_SECOND.equals(key) || REMOTE_READ_BYTES_PER_SECOND.equals(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add("-1");
                 } else {
                     row.add(val);
                 }
@@ -551,6 +604,21 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String spillHighWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
         if (spillHighWatermarkStr != null) {
             tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
+        }
+
+        String readBytesPerSecStr = properties.get(READ_BYTES_PER_SECOND);
+        if (readBytesPerSecStr != null) {
+            tWorkloadGroupInfo.setReadBytesPerSecond(Long.valueOf(readBytesPerSecStr));
+        }
+
+        String remoteReadBytesPerSecStr = properties.get(REMOTE_READ_BYTES_PER_SECOND);
+        if (remoteReadBytesPerSecStr != null) {
+            tWorkloadGroupInfo.setRemoteReadBytesPerSecond(Long.valueOf(remoteReadBytesPerSecStr));
+        }
+
+        String tagStr = properties.get(TAG);
+        if (!StringUtils.isEmpty(tagStr)) {
+            tWorkloadGroupInfo.setTag(tagStr);
         }
 
         TopicInfo topicInfo = new TopicInfo();

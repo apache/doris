@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class S3Properties extends BaseProperties {
 
@@ -82,6 +83,8 @@ public class S3Properties extends BaseProperties {
             InstanceProfileCredentialsProvider.class.getName(),
             WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
+
+    private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
 
     public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
         Map<String, String> resMap = new HashMap<>();
@@ -132,11 +135,18 @@ public class S3Properties extends BaseProperties {
         }
         String endpoint = props.get(Env.ENDPOINT);
         String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        props.putIfAbsent(Env.REGION, PropertyConverter.checkRegion(endpoint, region, Env.REGION));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 
     public static String getRegionOfEndpoint(String endpoint) {
-        String[] endpointSplit = endpoint.split("\\.");
+        if (IPV4_PORT_PATTERN.matcher(endpoint).find()) {
+            // if endpoint contains '192.168.0.1:8999', return null region
+            return null;
+        }
+        String[] endpointSplit = endpoint.replace("http://", "")
+                .replace("https://", "")
+                .split("\\.");
         if (endpointSplit.length < 2) {
             return null;
         }
@@ -298,14 +308,30 @@ public class S3Properties extends BaseProperties {
 
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-        builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
-        builder.setRegion(properties.get(S3Properties.REGION));
-        builder.setAk(properties.get(S3Properties.ACCESS_KEY));
-        builder.setSk(properties.get(S3Properties.SECRET_KEY));
-        builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
-        builder.setBucket(properties.get(S3Properties.BUCKET));
-        builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
-        builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.REGION)) {
+            builder.setRegion(properties.get(S3Properties.REGION));
+        }
+        if (properties.containsKey(S3Properties.ACCESS_KEY)) {
+            builder.setAk(properties.get(S3Properties.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.SECRET_KEY)) {
+            builder.setSk(properties.get(S3Properties.SECRET_KEY));
+        }
+        if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.BUCKET)) {
+            builder.setBucket(properties.get(S3Properties.BUCKET));
+        }
+        if (properties.containsKey(S3Properties.EXTERNAL_ENDPOINT)) {
+            builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+        }
         return builder;
     }
 }

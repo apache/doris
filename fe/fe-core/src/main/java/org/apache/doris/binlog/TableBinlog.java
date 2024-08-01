@@ -84,26 +84,25 @@ public class TableBinlog {
     public void recoverBinlog(TBinlog binlog) {
         TBinlog dummy = getDummyBinlog();
         if (binlog.getCommitSeq() > dummy.getCommitSeq()) {
-            binlogs.add(binlog);
-            ++binlog.table_ref;
-            binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
-            if (binlog.getTimestamp() > 0) {
-                timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
-            }
+            addBinlogWithoutCheck(binlog);
         }
     }
 
     public void addBinlog(TBinlog binlog) {
         lock.writeLock().lock();
         try {
-            binlogs.add(binlog);
-            ++binlog.table_ref;
-            binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
-            if (binlog.getTimestamp() > 0) {
-                timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
-            }
+            addBinlogWithoutCheck(binlog);
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    private void addBinlogWithoutCheck(TBinlog binlog) {
+        binlogs.add(binlog);
+        ++binlog.table_ref;
+        binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
+        if (binlog.getTimestamp() > 0) {
+            timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
         }
     }
 

@@ -180,7 +180,13 @@ public class TabletScheduler extends MasterDaemon {
      * update working slots at the beginning of each round
      */
     private boolean updateWorkingSlots() {
-        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = infoService.getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends with current cluster", e);
+            return false;
+        }
         for (Backend backend : backends.values()) {
             if (!backend.hasPathHash() && backend.isAlive()) {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.

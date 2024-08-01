@@ -33,6 +33,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 
@@ -70,6 +71,10 @@ public:
     void set_query_id(const TUniqueId& query_id) { _query_id = query_id; }
 
     TUniqueId query_id() { return _query_id; }
+
+    void set_wg_wptr(const std::weak_ptr<WorkloadGroup>& wg_wptr) { _wg_wptr = wg_wptr; }
+
+    void reset_wg_wptr() { _wg_wptr.reset(); }
 
     void start_count_scope_mem() {
         CHECK(init());
@@ -151,6 +156,7 @@ private:
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
+    std::weak_ptr<WorkloadGroup> _wg_wptr;
 
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
@@ -287,8 +293,16 @@ inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
     if (!_limiter_tracker_raw->try_consume(size)) {
         return false;
     }
+    auto wg_ptr = _wg_wptr.lock();
+    if (wg_ptr) {
+        if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
+            _limiter_tracker_raw->release(size); // rollback
+            return false;
+        }
+    }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        _limiter_tracker_raw->release(size); // rollback
+        _limiter_tracker_raw->release(size);                 // rollback
+        wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
         return false;
     }
     if (_count_scope_mem) {
@@ -306,6 +320,10 @@ inline void ThreadMemTrackerMgr::release_reserved() {
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                        _untracked_mem);
         _limiter_tracker_raw->release(_reserved_mem);
+        auto wg_ptr = _wg_wptr.lock();
+        if (!wg_ptr) {
+            wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
+        }
         if (_count_scope_mem) {
             _scope_mem -= _reserved_mem;
         }

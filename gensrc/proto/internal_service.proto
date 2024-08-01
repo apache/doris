@@ -24,6 +24,7 @@ option java_package = "org.apache.doris.proto";
 import "data.proto";
 import "descriptors.proto";
 import "types.proto";
+import "olap_common.proto";
 import "olap_file.proto";
 
 option cc_generic_services = true;
@@ -71,6 +72,7 @@ message PTabletID {
     optional int64 partition_id = 1;
     optional int64 index_id = 2;
     optional int64 tablet_id = 3;
+    optional int64 num_segments = 4;
 }
 
 message PTabletInfo {
@@ -244,6 +246,12 @@ message PExecPlanFragmentStartRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
+    // BE receive rpc
+    optional int64 received_time = 2;
+    // Start executing on bthread
+    optional int64 execution_time = 3;
+    // Done on bthread
+    optional int64 execution_done_time = 4;
 };
 
 message PCancelPlanFragmentRequest {
@@ -852,6 +860,7 @@ message PGroupCommitInsertResponse {
     optional int64 txn_id = 3;
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
+    optional string error_url = 6;
 }
 
 message POpenLoadStreamRequest {
@@ -909,6 +918,7 @@ message PStreamHeader {
     repeated PTabletID tablets = 10;
     optional TabletSchemaPB flush_schema = 11;
     optional uint64 offset = 12;
+    optional FileType file_type = 13;
 }
 
 message PGetWalQueueSizeRequest{
@@ -941,6 +951,19 @@ message PAlterVaultSyncRequest {
 }
 
 message PAlterVaultSyncResponse {
+}
+
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
 }
 
 service PBackendService {
@@ -993,5 +1016,6 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 

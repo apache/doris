@@ -51,6 +51,8 @@ private:
     friend class PassToOneExchanger;
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
+    template <typename BlockType>
+    friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
     int _channel_id;

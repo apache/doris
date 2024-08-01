@@ -74,11 +74,30 @@ void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_row
 
 template <typename T>
 void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                  const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-            keys[i].size += sizeof(T);
+                                                  const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
+
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(UInt8));
+            if (null_map[i] == 0) {
+                // If this row is not null, serialize the value
+                memcpy(dest + 1, (void*)&data[i], sizeof(T));
+            }
+
+            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
+        }
+    } else {
+        // All rows are not null, serialize null & value
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            memset(dest, 0, 1);
+            memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+            keys[i].size += sizeof(T) + sizeof(UInt8);
         }
     }
 }
@@ -480,7 +499,9 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
         limit = std::min(size, limit);
 
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
         __builtin_unreachable();
     }
 

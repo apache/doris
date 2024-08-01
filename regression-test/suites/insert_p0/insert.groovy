@@ -83,4 +83,33 @@ suite("insert") {
     sql "sync"
     qt_insert """ select * from mutable_datatype order by c_bigint, c_double, c_string, c_date, c_timestamp, c_boolean, c_short_decimal"""
 
+
+    multi_sql """
+        drop table if exists table_select_test1;
+        CREATE TABLE table_select_test1 (
+          `id` int    
+        )
+        distributed by hash(id)
+        properties('replication_num'='1');
+
+        insert into table_select_test1 values(2);
+
+        drop table if exists table_test_insert1;
+        create table table_test_insert1 (id int)
+        partition by range(id)
+        (
+          partition p1 values[('1'), ('50')),
+          partition p2 values[('50'), ('100'))
+        )
+        distributed by hash(id) buckets 100
+        properties('replication_num'='1')
+        
+        insert into table_test_insert1 values(1), (50);
+        
+        insert into table_test_insert1
+        with
+          a as (select * from table_select_test1),
+          b as (select * from a)
+        select id from a;
+        """
 }

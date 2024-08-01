@@ -71,6 +71,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -396,9 +397,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected Backend getBackend() {
         // For the http stream task, we should obtain the be for processing the task
+        ImmutableMap<Long, Backend> beIdToBe;
+        try {
+            beIdToBe = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("get backend failed, ", e);
+            return null;
+        }
+
         if (getTFileType() == TFileType.FILE_STREAM) {
             long backendId = ConnectContext.get().getBackendId();
-            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = beIdToBe.get(backendId);
             if (be == null || !be.isAlive()) {
                 LOG.warn("Backend {} is not alive", backendId);
                 return null;
@@ -406,7 +415,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 return be;
             }
         }
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : beIdToBe.values()) {
             if (be.isAlive()) {
                 return be;
             }

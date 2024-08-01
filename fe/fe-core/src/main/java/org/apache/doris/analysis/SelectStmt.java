@@ -564,6 +564,7 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
+            originalExpr = new ArrayList<>(resultExprs);
         } else {
             if (needToSql) {
                 originalExpr = new ArrayList<>();
@@ -2898,5 +2899,10 @@ public class SelectStmt extends QueryStmt {
     public void resetSelectList(SelectList selectList) {
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

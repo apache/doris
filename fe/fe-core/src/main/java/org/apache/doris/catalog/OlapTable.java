@@ -101,6 +101,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1215,10 +1216,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+    // for those elements equal in partiton ids, get their names.
+    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
-        for (Long id : partitionIds) {
-            names.add(idToPartition.get(id).getName());
+        for (int i = 0; i < partitionIds1.size(); i++) {
+            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
+                names.add(getPartition(partitionIds1.get(i)).getName());
+            }
         }
         return names;
     }
@@ -1324,12 +1328,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
-    public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
     }
 
-    public boolean getEnableDeleteOnDeletePredicate() {
-        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
     }
 
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
@@ -1427,18 +1431,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-        }
-        return rowCount;
+        return getRowCountForIndex(baseIndexId);
     }
 
     public long getRowCountForIndex(long indexId) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
-            rowCount += index == null ? 0 : index.getRowCount();
+            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
         return rowCount;
     }
@@ -1989,9 +1989,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public int hashCode() {
-        return Objects.hash(state, indexIdToMeta, indexNameToId, keysType, partitionInfo, idToPartition,
-                nameToPartition, defaultDistributionInfo, tempPartitions, bfColumns, bfFpp, colocateGroup,
-                hasSequenceCol, sequenceType, indexes, baseIndexId, tableProperty);
+        return (int) baseIndexId;
     }
 
     public Column getBaseColumn(String columnName) {
@@ -2415,16 +2413,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      *         names are still p1 and p2.
      *
      */
-    public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
-            boolean strictRange, boolean useTempPartitionName) throws DdlException {
+    public void replaceTempPartitions(long dbId, List<String> partitionNames, List<String> tempPartitionNames,
+            boolean strictRange, boolean useTempPartitionName, boolean isForceDropOld) throws DdlException {
         // check partition items
         checkPartition(partitionNames, tempPartitionNames, strictRange);
 
         // begin to replace
         // 1. drop old partitions
         for (String partitionName : partitionNames) {
-            // This will also drop all tablets of the partition from TabletInvertedIndex
-            dropPartition(-1, partitionName, true);
+            dropPartition(dbId, partitionName, isForceDropOld);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
@@ -2503,6 +2500,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPRESSION, compressionType.name());
         tableProperty.buildCompressionType();
+    }
+
+    public void setRowStorePageSize(long pageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                Long.valueOf(pageSize).toString());
+        tableProperty.buildRowStorePageSize();
+    }
+
+    public long rowStorePageSize() {
+        if (tableProperty != null) {
+            return tableProperty.rowStorePageSize();
+        }
+        return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -2759,6 +2770,55 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tablets.addAll(partition.getBaseIndex().getTablets());
         }
         return tablets;
+    }
+
+    // Get sample tablets for remote desc schema
+    // 1. Estimate tablets for a partition, 1 at least
+    // 2. Pick the partition sorted with id in desc order, greater id with the newest partition
+    // 3. Truncate to sampleSize
+    public List<Tablet> getSampleTablets(int sampleSize) {
+        List<Tablet> sampleTablets = new ArrayList<>();
+        // Filter partition with empty data
+        Collection<Partition> partitions = getPartitions()
+                .stream()
+                .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                .collect(Collectors.toList());
+        if (partitions.isEmpty()) {
+            return sampleTablets;
+        }
+        // 1. Estimate tablets for a partition, 1 at least
+        int estimatePartitionTablets = Math.max(sampleSize / partitions.size(), 1);
+
+        // 2. Sort the partitions by id in descending order (greater id means the newest partition)
+        List<Partition> sortedPartitions = partitions.stream().sorted(new Comparator<Partition>() {
+            @Override
+            public int compare(Partition p1, Partition p2) {
+                // compare with desc order
+                return Long.compare(p2.getId(), p1.getId());
+            }
+        }).collect(Collectors.toList());
+
+        // 3. Collect tablets from partitions
+        for (Partition partition : sortedPartitions) {
+            List<Tablet> targetTablets = new ArrayList<>(partition.getBaseIndex().getTablets());
+            Collections.shuffle(targetTablets);
+            if (!targetTablets.isEmpty()) {
+                // Ensure we do not exceed the available number of tablets
+                int tabletsToFetch = Math.min(targetTablets.size(), estimatePartitionTablets);
+                sampleTablets.addAll(targetTablets.subList(0, tabletsToFetch));
+            }
+
+            if (sampleTablets.size() >= sampleSize) {
+                break;
+            }
+        }
+
+        // 4. Truncate to sample size if needed
+        if (sampleTablets.size() > sampleSize) {
+            sampleTablets = sampleTablets.subList(0, sampleSize);
+        }
+
+        return sampleTablets;
     }
 
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,

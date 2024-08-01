@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
@@ -74,7 +75,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
     protected long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
@@ -139,7 +140,28 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
                     && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
-                DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
+                DataSink childFragmentSink = fragment.getChild(0).getSink();
+                DataStreamSink dataStreamSink = null;
+                if (childFragmentSink instanceof MultiCastDataSink) {
+                    MultiCastDataSink multiCastDataSink = (MultiCastDataSink) childFragmentSink;
+                    int outputExchangeId = (fragment.getPlanRoot()).getId().asInt();
+                    // which DataStreamSink link to the output exchangeNode?
+                    for (DataStreamSink currentDataStreamSink : multiCastDataSink.getDataStreamSinks()) {
+                        int sinkExchangeId = currentDataStreamSink.getExchNodeId().asInt();
+                        if (outputExchangeId == sinkExchangeId) {
+                            dataStreamSink = currentDataStreamSink;
+                            break;
+                        }
+                    }
+                    if (dataStreamSink == null) {
+                        throw new IllegalStateException("Can not find DataStreamSink in the MultiCastDataSink");
+                    }
+                } else if (childFragmentSink instanceof DataStreamSink) {
+                    dataStreamSink = (DataStreamSink) childFragmentSink;
+                } else {
+                    throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
+                }
+
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
                 dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
                         database.getId(), olapTableSink.getDstTable(), analyzer));
@@ -274,11 +296,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             errMsg = "Record info of insert load with error " + e.getMessage();
         }
 
+        setReturnInfo();
+    }
+
+    protected void setReturnInfo() {
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
         StringBuilder sb = new StringBuilder();
-        sb.append("{'label':'").append(labelName).append("', 'status':'")
-                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        sb.append("{'label':'").append(labelName).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             sb.append("', 'rows':'").append(loadedRows).append("'");

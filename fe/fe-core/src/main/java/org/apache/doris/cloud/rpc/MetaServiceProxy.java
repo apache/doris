@@ -318,6 +318,15 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.checkKv(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
@@ -478,6 +487,16 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.alterStorageVault(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
@@ -494,6 +513,16 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.getObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.abortTxnWithCoordinator(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

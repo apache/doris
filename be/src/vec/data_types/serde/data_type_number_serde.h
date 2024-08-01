@@ -70,6 +70,12 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -313,7 +319,8 @@ Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
     } else if constexpr (std::is_same_v<T, double>) {
         result.SetDouble(data[row_num]);
     } else {
-        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "unknown column type {} for writing to jsonb " + column.get_name());
         __builtin_unreachable();
     }
     return Status::OK();

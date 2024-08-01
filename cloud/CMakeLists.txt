@@ -85,6 +85,7 @@ else()
     set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed-$ENV{DORIS_BRANCH}")
 endif()
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -164,7 +165,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -260,6 +261,7 @@ include_directories(
 include_directories(
     SYSTEM
     ${GENSRC_DIR}/
+    ${COMMON_SRC_DIR}
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
@@ -329,19 +331,28 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     Recycler
     RateLimiter
     ${WL_END_GROUP}
+    CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
-    -lstdc++fs
     -lresolv
     -L${DORIS_JAVA_HOME}/lib/server
     -ljvm
 )
+if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+endif()
 
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
 else ()
     set(MALLOCLIB tcmalloc)
+endif()
+
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE STREQUAL "ON")
+    add_definitions(-DUSE_AZURE)
 endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -456,6 +467,8 @@ add_subdirectory(${SRC_DIR}/resource-manager)
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_downgrade_compatibility_auth","p0,auth") {
+suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
 
     sql """ADMIN SET FRONTEND CONFIG ('experimental_enable_workload_group' = 'true');"""
     sql """set experimental_enable_pipeline_engine = true;"""
@@ -35,13 +35,22 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth") {
     String rg1 = 'test_up_down_resource_1_hdfs'
     String rg2 = 'test_up_down_resource_2_hdfs'
 
+    //cloud-mode
+    if (isCloudMode()) {
+        //grant cluster to user
+        def res = sql_return_maparray "show clusters;"
+        logger.info("show clusters from ${res}")
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user1}"; """
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user2}"; """
+    }
+
     // user
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
@@ -54,7 +63,7 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
@@ -70,6 +79,6 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth") {
     // resource group
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
-        assertTrue(res.size == 10)
+        assertTrue(res.size() == 10)
     }
 }

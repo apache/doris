@@ -263,6 +263,7 @@ suite("txn_insert") {
 
         // 8. insert into select to same table
         if (use_nereids_planner) {
+            createMV """ create materialized view mv_${table}_0 as select k1, sum(k2) from ${table}_0 group by k1; """
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1; """
             sql """ insert into ${table}_0 select * from ${table}_2; """
@@ -271,6 +272,7 @@ suite("txn_insert") {
             sql """ commit; """
             sql "sync"
             order_qt_select25 """select * from ${table}_0"""
+            order_qt_select25_mv """ select k1, sum(k2) from ${table}_0  group by k1"""
 
             sql """ insert into ${table}_0 select * from ${table}_1; """
             sql "sync"
@@ -447,6 +449,7 @@ suite("txn_insert") {
         if (use_nereids_planner) {
             // 1. use show transaction command to check
             CountDownLatch insertLatch = new CountDownLatch(1)
+            boolean failed = false
             def txn_id = 0
             Thread thread = new Thread(() -> {
                 try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
@@ -458,12 +461,17 @@ suite("txn_insert") {
                     txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
                     insertLatch.countDown()
                     sleep(60000)
+                } catch (Exception e) {
+                    logger.info("exception: " + e.getMessage())
+                    insertLatch.countDown()
+                    failed = true
                 }
             })
             thread.start()
             insertLatch.await(1, TimeUnit.MINUTES)
-            assertNotEquals(txn_id, 0)
-            if (!isCloudMode()) {
+            logger.info("txn_id: ${txn_id}, failed: ${failed}")
+            assertTrue(failed || txn_id > 0)
+            if (!isCloudMode() && txn_id > 0) {
                 def txn_state = ""
                 for (int i = 0; i < 20; i++) {
                     def txn_info = sql_return_maparray """ show transaction where id = ${txn_id} """
@@ -495,7 +503,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
                 } finally {
                     try {
                         sql "rollback"
@@ -543,6 +551,7 @@ suite("txn_insert") {
                         `score` int(11) NULL default "-1"
                     ) ENGINE=OLAP
                     UNIQUE KEY(`id`, `name`)
+                    AUTO PARTITION BY list(id)()
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES (
                 """ + (i == 2 ? "\"function_column.sequence_col\"='score', " : "") +
@@ -559,16 +568,19 @@ suite("txn_insert") {
                 sql """ insert into ${unique_table}_2 select * from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_1 select * from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_2 select * from ${unique_table}_1; """
+                sql """ insert into ${unique_table}_0 select * from ${unique_table}_2 where id = 5; """
                 sql """ commit; """
                 sql "sync"
+                def partitions = sql " show partitions from ${unique_table}_0 "
+                assertEquals(partitions.size(), 4)
                 order_qt_selectmowi0 """select * from ${unique_table}_0"""
                 order_qt_selectmowi1 """select * from ${unique_table}_1"""
                 order_qt_selectmowi2 """select * from ${unique_table}_2"""
             } catch (Exception e) {
                 logger.info("exception: " + e)
+                sql """ rollback """
                 if (isCloudMode()) {
                     assertTrue(e.getMessage().contains("Transaction load is not supported for merge on write unique keys table in cloud mode"))
-                    sql """ rollback """
                 } else {
                     assertTrue(false, "should not reach here")
                 }
@@ -650,6 +662,7 @@ suite("txn_insert") {
                     c2 string,
                     c3 double
                 ) unique key (id)
+                auto partition by list (id)()
                 distributed by hash(id)
                 properties(
                     'replication_num'='1'

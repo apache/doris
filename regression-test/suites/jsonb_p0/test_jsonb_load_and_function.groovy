@@ -127,7 +127,7 @@ suite("test_jsonb_load_and_function", "p0") {
     sql """ set enable_insert_strict = true """
     def success = true
     try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+        sql """INSERT INTO ${testTable} VALUES(27, '')"""
     } catch(Exception ex) {
        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
        success = false
@@ -135,7 +135,7 @@ suite("test_jsonb_load_and_function", "p0") {
     assertEquals(false, success)
     success = true
     try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+        sql """INSERT INTO ${testTable} VALUES(28, 'abc')"""
     } catch(Exception ex) {
        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
        success = false
@@ -147,7 +147,7 @@ suite("test_jsonb_load_and_function", "p0") {
     sql """ set enable_insert_strict = false """
     success = true
     try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+        sql """INSERT INTO ${testTable} VALUES(29, '')"""
     } catch(Exception ex) {
        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
        success = false
@@ -155,7 +155,7 @@ suite("test_jsonb_load_and_function", "p0") {
     assertEquals(true, success)
     success = true
     try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+        sql """INSERT INTO ${testTable} VALUES(30, 'abc')"""
     } catch(Exception ex) {
        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
        success = false

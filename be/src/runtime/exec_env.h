@@ -36,6 +36,13 @@
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
+namespace orc {
+class MemoryPool;
+}
+namespace arrow {
+class MemoryPool;
+}
+
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
@@ -197,6 +204,7 @@ public:
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
+    ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
@@ -305,6 +313,9 @@ public:
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
 
+    orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
+    arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
+
 private:
     ExecEnv();
 
@@ -371,6 +382,7 @@ private:
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
+    std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
@@ -435,6 +447,9 @@ private:
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
     doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    orc::MemoryPool* _orc_memory_pool = nullptr;
+    arrow::MemoryPool* _arrow_memory_pool = nullptr;
 };
 
 template <>

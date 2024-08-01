@@ -105,6 +105,7 @@ public class BackupHandlerTest {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
         rootDir.mkdirs();
+        FeConstants.runningUnitTest = true;
 
         new Expectations() {
             {
@@ -212,7 +213,7 @@ public class BackupHandlerTest {
                 List<Table> tbls = Lists.newArrayList();
                 tbls.add(tbl);
                 List<Resource> resources = Lists.newArrayList();
-                BackupMeta backupMeta = new BackupMeta(tbls, resources);
+                BackupMeta backupMeta = new BackupMeta(null, tbls, resources);
                 Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
                 for (Partition part : tbl.getPartitions()) {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {

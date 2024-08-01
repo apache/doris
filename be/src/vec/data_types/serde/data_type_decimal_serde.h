@@ -65,7 +65,8 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
             return TYPE_DECIMAL256;
         }
-        LOG(FATAL) << "__builtin_unreachable";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "get_primitive_type __builtin_unreachable");
         __builtin_unreachable();
     }
 
@@ -113,6 +114,12 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
+
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
 
 private:
     template <bool is_binary_format>

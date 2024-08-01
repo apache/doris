@@ -24,10 +24,13 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -258,7 +261,7 @@ public class RestoreJobTest {
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
-        backupMeta = new BackupMeta(tbls, resources);
+        backupMeta = new BackupMeta(null, tbls, resources);
     }
 
     @Test
@@ -305,5 +308,29 @@ public class RestoreJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testResetPartitionVisibleAndNextVersionForRestore() throws Exception {
+        long visibleVersion = 1234;
+        long remotePartId = 123;
+        String partName = "p20240723";
+        MaterializedIndex index = new MaterializedIndex();
+        Partition remotePart = new Partition(remotePartId, partName, index, new HashDistributionInfo());
+        remotePart.setVisibleVersionAndTime(visibleVersion, 0);
+        remotePart.setNextVersion(visibleVersion + 10);
+
+        OlapTable localTbl = new OlapTable();
+        localTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.addPartition(remotePart);
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+
+        ReplicaAllocation alloc = new ReplicaAllocation();
+        job.resetPartitionForRestore(localTbl, remoteTbl, partName, alloc);
+
+        Partition localPart = remoteTbl.getPartition(partName);
+        Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
+        Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
     }
 }

@@ -22,7 +22,8 @@ suite("check_before_quit", "nonConcurrent,p0") {
     List<Object> beRow = be_result.get(0)
     String beHost = beRow.get(1).toString().trim()
     String bePort =  beRow.get(4).toString().trim()
-    logger.info("get be host and port:" + beHost + " " + bePort)
+    String beBrpcPort = beRow.get(5).toString().trim()
+    logger.info("get be host and port:" + beHost + " " + bePort + ", BrpcPort:" + beBrpcPort)
 
     //NOTE: this suite is used to check whether workload group's query queue works correctly when all query finished
     long beginTime = System.currentTimeMillis();
@@ -70,5 +71,149 @@ suite("check_before_quit", "nonConcurrent,p0") {
         logger.info("print be task:${out}")
     }
 
+    assertTrue(clear)
+
+    // check spill temporary files is cleared
+    // Function to parse the metrics
+    def getPrometheusMetric = { String data, String name -> {
+        def metricValues = []
+        data.eachLine { line ->
+            line = line.trim()
+
+            // Skip comment lines
+            if (line.startsWith('#')) return
+
+            // Regular expression to match metric lines
+            def matcher = (line =~ /^(\w+)(\{[^}]+\})?\s+(.+)$/)
+
+            if (matcher) {
+                def metricName = matcher[0][1]
+                def labels = matcher[0][2]
+                def value = matcher[0][3]
+                if (metricName == name) {
+                    metricValues << value
+                }
+            }
+        }
+        return metricValues
+    } }
+
+    def getVar = { String data, String name -> {
+        def varValues = []
+        data.eachLine { line ->
+            line = line.trim()
+
+            // Skip comment lines
+            if (line.startsWith('#')) return
+
+            // Regular expression to match metric lines
+            def matcher = (line =~ /^(\w+)\s:\s(.+)$/)
+
+            if (matcher) {
+                def varName = matcher[0][1]
+                def varValue = matcher[0][2]
+                if (varName == name) {
+                    varValues << varValue
+                }
+            }
+        }
+        return varValues
+    } }
+
+    beginTime = System.currentTimeMillis();
+    timeoutMs = 30 * 1000 // 30s
+    clear = false
+
+    def command_metrics = "curl http://${beHost}:${bePort}/metrics"
+    def command_vars = "curl http://${beHost}:${beBrpcPort}/vars"
+    while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
+        clear = true
+        logger.info("executing command: ${command_metrics}")
+        def process_metrics = command_metrics.execute()
+        def outputStream_metrics = new StringBuffer()
+        def errorStream_metrics = new StringBuffer()
+        process_metrics.consumeProcessOutput(outputStream_metrics, errorStream_metrics)
+        def code_metrics = process_metrics.waitFor()
+        def metrics = outputStream_metrics.toString()
+        logger.info("Request BE metrics: code=" + code_metrics + ", err=" + errorStream_metrics.toString())
+
+        logger.info("executing command: ${command_vars}")
+        def process_vars = command_vars.execute()
+        def outputStream_vars = new StringBuffer()
+        def errorStream_vars = new StringBuffer()
+        process_vars.consumeProcessOutput(outputStream_vars, errorStream_vars)
+        def code_vars = process_vars.waitFor()
+        def vars = outputStream_vars.toString()
+        logger.info("Request BE vars: code=" + code_vars + ", err=" + errorStream_vars.toString())
+
+        def hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_data")
+        logger.info("has spill temporary files :${hasSpillData}")
+        for (int i = 0; i < hasSpillData.size(); i++) {
+            if (0 != Integer.valueOf(hasSpillData.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_gc_data")
+        logger.info("has spill temporary files :${hasSpillData}")
+        for (int i = 0; i < hasSpillData.size(); i++) {
+            if (0 != Integer.valueOf(hasSpillData.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def spill_data_sizes = getPrometheusMetric(metrics, "doris_be_spill_disk_data_size")
+        logger.info("spill data sizes :${spill_data_sizes}")
+        for (int i = 0; i < spill_data_sizes.size(); i++) {
+            if (0 != Integer.valueOf(spill_data_sizes.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def doris_be_load_channel_count = getPrometheusMetric(metrics, "doris_be_load_channel_count")
+        logger.info("doris_be_load_channel_count :${doris_be_load_channel_count}")
+        for (int i = 0; i < doris_be_load_channel_count.size(); i++) {
+            if (0 != Integer.valueOf(doris_be_load_channel_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_count = getVar(vars, "load_stream_count")
+        logger.info("load_stream_count :${load_stream_count}")
+        for (int i = 0; i < load_stream_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_writer_count = getVar(vars, "load_stream_writer_count")
+        logger.info("load_stream_writer_count :${load_stream_writer_count}")
+        for (int i = 0; i < load_stream_writer_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_writer_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_file_writer_count = getVar(vars, "load_stream_file_writer_count")
+        logger.info("load_stream_file_writer_count :${load_stream_file_writer_count}")
+        for (int i = 0; i < load_stream_file_writer_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_file_writer_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        if (clear) {
+            break
+        }
+
+        Thread.sleep(2000)
+    }
     assertTrue(clear)
 }

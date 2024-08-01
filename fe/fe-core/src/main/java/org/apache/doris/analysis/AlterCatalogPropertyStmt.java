@@ -54,4 +54,9 @@ public class AlterCatalogPropertyStmt extends AlterCatalogStmt {
     public boolean needAuditEncryption() {
         return true;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

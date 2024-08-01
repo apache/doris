@@ -290,7 +290,7 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
           _disk_capacity_bytes(capacity_bytes),
           _storage_medium(storage_medium) {
     spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("spill_data_dir.") + path, {{"path", path}});
+            std::string("spill_data_dir.") + _path, {{"path", _path + "/" + SPILL_DIR_PREFIX}});
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);

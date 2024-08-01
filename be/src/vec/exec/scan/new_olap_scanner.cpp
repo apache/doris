@@ -75,8 +75,27 @@ NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
+                  .tablet_schema {},
                   .aggregation = params.aggregation,
                   .version = {0, params.version},
+                  .start_key {},
+                  .end_key {},
+                  .conditions {},
+                  .bloom_filters {},
+                  .bitmap_filters {},
+                  .in_filters {},
+                  .conditions_except_leafnode_of_andnode {},
+                  .function_filters {},
+                  .delete_predicates {},
+                  .target_cast_type_for_variants {},
+                  .rs_splits {},
+                  .return_columns {},
+                  .output_columns {},
+                  .remaining_conjunct_roots {},
+                  .common_expr_ctxs_push_down {},
+                  .topn_filter_source_node_ids {},
+                  .filter_block_conjuncts {},
+                  .key_group_cluster_key_idxes {},
           }) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
@@ -480,6 +499,10 @@ Status NewOlapScanner::_init_return_columns() {
 }
 
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    if (config::is_cloud_mode()) {
+        // we don't have cold storage in cloud mode, all storage is treated as local
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    }
     int local_reader = 0;
     for (const auto& reader : _tablet_reader_params.rs_splits) {
         local_reader += reader.rs_reader->rowset()->is_local();

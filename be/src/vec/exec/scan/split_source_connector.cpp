@@ -56,14 +56,8 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
         TFetchSplitBatchResult result;
         try {
             coord->fetchSplitBatch(result, request);
-        } catch (std::exception& e1) {
-            LOG(WARNING) << "Failed to get batch of split source: {}, try to reopen" << e1.what();
-            RETURN_IF_ERROR(coord.reopen());
-            try {
-                coord->fetchSplitBatch(result, request);
-            } catch (std::exception& e2) {
-                return Status::IOError("Failed to get batch of split source: {}", e2.what());
-            }
+        } catch (std::exception& e) {
+            return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
         }
         _last_batch = result.splits.empty();
         _scan_ranges = result.splits;

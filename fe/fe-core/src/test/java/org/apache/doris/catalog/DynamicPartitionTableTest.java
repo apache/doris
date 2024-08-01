@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -87,8 +88,8 @@ public class DynamicPartitionTableTest {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
-    private static void changeBeDisk(TStorageMedium storageMedium) {
-        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+    private static void changeBeDisk(TStorageMedium storageMedium) throws UserException {
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 diskInfo.setStorageMedium(storageMedium);
@@ -744,7 +745,11 @@ public class DynamicPartitionTableTest {
         String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
-        Assert.assertEquals(7, tbl4.getPartitionNames().size());
+        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+        String dropPartitionErr = Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .getRuntimeInfo(tbl4.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG);
+        Assert.assertTrue(dropPartitionErr.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+                + "can use alter table sql to increase it."));
     }
 
     @Test

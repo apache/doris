@@ -36,7 +36,7 @@ size_t DataTypeIPv4::number_length() const {
     //255.255.255.255
     return 16;
 }
-void DataTypeIPv4::push_bumber(ColumnString::Chars& chars, const IPv4& num) const {
+void DataTypeIPv4::push_number(ColumnString::Chars& chars, const IPv4& num) const {
     auto value = IPv4Value(num);
     auto ipv4_str = value.to_string();
     chars.insert(ipv4_str.begin(), ipv4_str.end());

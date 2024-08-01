@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -181,8 +183,10 @@ public class MaterializedViewUtils {
 
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * @param originalPlan original plan, the output is right
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+    public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
             BitSet materializedViewTableSet) {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
@@ -202,7 +206,7 @@ public class MaterializedViewUtils {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
-                            queryTableSet, ownerGroup, plan);
+                            queryTableSet, ownerGroup, originalPlan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
@@ -211,7 +215,7 @@ public class MaterializedViewUtils {
             }
         }
         // if plan doesn't belong to any group, construct it directly
-        return ImmutableList.of(StructInfo.of(plan, cascadesContext));
+        return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
     }
 
     /**
@@ -470,6 +474,13 @@ public class MaterializedViewUtils {
                 return null;
             }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
+            Expr definExpr = mvReferenceColumn.getDefineExpr();
+            if (definExpr instanceof SlotRef) {
+                Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
+                if (referenceRollupColumn != null) {
+                    mvReferenceColumn = referenceRollupColumn;
+                }
+            }
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
@@ -578,7 +589,8 @@ public class MaterializedViewUtils {
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 IncrementCheckerContext context) {
             NamedExpression partitionColumn = context.getMvPartitionColumn();
-            for (Expression projectSlot : expressionsToCheck) {
+
+            OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
                 if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
                     continue;
                 }
@@ -610,7 +622,7 @@ public class MaterializedViewUtils {
                             String.format("partition expression use more than one slot reference, invalid "
                                             + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
                                     expressionToCheckColumns, partitionColumns));
-                    return false;
+                    continue;
                 }
                 List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
                 for (Expression expression : expressions) {
@@ -619,7 +631,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("column to check use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<Expression> partitionExpressions = partitionExpression.collectToList(
@@ -630,7 +642,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("partition column use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<DateTrunc> expressionToCheckDataTruncList =
@@ -641,7 +653,7 @@ public class MaterializedViewUtils {
                     // mv time unit level is little then query
                     context.addFailReason("partition column time unit level should be "
                             + "greater than sql select column");
-                    return false;
+                    continue;
                 }
                 if (!partitionColumn.isColumnFromTable()) {
                     context.setMvPartitionColumn(partitionColumns.iterator().next());
@@ -649,8 +661,9 @@ public class MaterializedViewUtils {
                 if (!context.getPartitionExpression().isPresent()) {
                     context.setPartitionExpression(partitionExpression);
                 }
+                return true;
             }
-            return true;
+            return context.getMvPartitionColumn().isColumnFromTable();
         }
     }
 

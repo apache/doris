@@ -83,8 +83,8 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     size_t disk_capacity = static_cast<size_t>(
             static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
             (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
-    if (disk_capacity < file_cache_settings.capacity) {
-        LOG_INFO("The cache {} config size {} is larger than {}% disk size {}, recalc it.",
+    if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+        LOG_INFO("The cache {} config size {} is larger than {}% disk size {} or zero, recalc it.",
                  cache_base_path, file_cache_settings.capacity,
                  config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
         file_cache_settings =
@@ -141,6 +141,21 @@ std::vector<std::string> FileCacheFactory::get_base_paths() {
         paths.push_back(pair.first);
     }
     return paths;
+}
+
+std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    if (path.empty()) {
+        std::stringstream ss;
+        for (auto& [_, cache] : _path_to_cache) {
+            ss << cache->reset_capacity(new_capacity);
+        }
+        return ss.str();
+    } else {
+        if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
+            return iter->second->reset_capacity(new_capacity);
+        }
+    }
+    return "Unknown the cache path " + path;
 }
 
 } // namespace io

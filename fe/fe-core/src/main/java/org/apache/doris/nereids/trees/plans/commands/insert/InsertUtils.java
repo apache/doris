@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -102,9 +103,10 @@ public class InsertUtils {
 
         TransactionEntry txnEntry = ctx.getTxnEntry();
         int effectRows = 0;
+        FormatOptions options = FormatOptions.getDefault();
         for (List<NamedExpression> row : constantExprsList) {
             ++effectRows;
-            InternalService.PDataRow data = getRowStringValue(row);
+            InternalService.PDataRow data = getRowStringValue(row, options);
             if (data == null) {
                 continue;
             }
@@ -147,7 +149,7 @@ public class InsertUtils {
     /**
      * literal expr in insert operation
      */
-    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols, FormatOptions options) {
         if (cols.isEmpty()) {
             return null;
         }
@@ -164,7 +166,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));
@@ -278,21 +280,28 @@ public class InsertUtils {
                 } else {
                     if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
-                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                    + "updating partial columns using the INSERT statement.");
-                        }
-                        for (Column col : olapTable.getFullSchema()) {
-                            Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
-                                    .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                            if (col.isKey() && !insertCol.isPresent()) {
-                                throw new AnalysisException("Partial update should include all key columns, missing: "
-                                        + col.getName());
+                            ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                        } else {
+                            boolean hasMissingColExceptAutoInc = false;
+                            for (Column col : olapTable.getFullSchema()) {
+                                Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
+                                        .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                                if (col.isKey() && !col.isAutoInc() && !insertCol.isPresent()) {
+                                    throw new AnalysisException("Partial update should include all key columns,"
+                                            + " missing: " + col.getName());
+                                }
+                                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                        && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
+                                    throw new AnalysisException("Partial update should include"
+                                            + " all ordinary columns referenced"
+                                            + " by generated columns, missing: " + col.getName());
+                                }
+                                if (!col.isAutoInc() && !insertCol.isPresent() && col.isVisible()) {
+                                    hasMissingColExceptAutoInc = true;
+                                }
                             }
-                            if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
-                                    && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
-                                throw new AnalysisException("Partial update should include"
-                                        + " all ordinary columns referenced"
-                                        + " by generated columns, missing: " + col.getName());
+                            if (!hasMissingColExceptAutoInc) {
+                                ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                             }
                         }
                     }

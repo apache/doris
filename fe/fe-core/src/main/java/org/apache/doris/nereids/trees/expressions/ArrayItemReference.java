@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -157,8 +158,18 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
         }
 
         @Override
-        public SlotReference withNullable(boolean newNullable) {
+        public SlotReference withNullable(boolean nullable) {
+            return new ArrayItemSlot(exprId, name.get(), dataType, this.nullable);
+        }
+
+        @Override
+        public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
             return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
+        }
+
+        @Override
+        public Slot withIndexInSql(Pair<Integer, Integer> index) {
+            return this;
         }
 
         @Override

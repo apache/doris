@@ -84,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
@@ -203,7 +204,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                  *  TODO: group these rules to make sure the result plan is what we expected.
                                  */
                                 new CorrelateApplyToUnCorrelateApply(),
-                                new ApplyToJoin()
+                                new ApplyToJoin(),
+                                // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
+                                // The later rule CheckPrivileges which inherent from ColumnPruning only works
+                                // if the aggregation node is normalized, so we need call NormalizeAggregate here
+                                new NormalizeAggregate()
                         )
                 ),
                 // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,
@@ -366,6 +371,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
+                        topDown(new LimitAggToTopNAgg()),
                         topDown(new MergeTopNs()),
                         topDown(new SplitLimit()),
                         topDown(

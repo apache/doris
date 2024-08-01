@@ -288,7 +288,22 @@ suite("test_disable_move_memtable", "nonConcurrent") {
     sql """ set enable_nereids_dml=false """
     insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
     insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-    
+
+    if (isGroupCommitMode()) {
+        def ret = sql "SHOW FRONTEND CONFIG like '%stream_load_default_memtable_on_sink_node%';"
+        logger.info("${ret}")
+        try {
+            sql "ADMIN SET FRONTEND CONFIG ('stream_load_default_memtable_on_sink_node' = 'true')"
+            sql """ set enable_nereids_planner=true """
+            sql """ set enable_nereids_dml=true """
+            stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")
+            stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "fail")
+        } finally {
+            sql "ADMIN SET FRONTEND CONFIG ('stream_load_default_memtable_on_sink_node' = '${ret[0][1]}')"
+        }
+        return
+    }
+
     sql """ set enable_nereids_planner=true """
     sql """ set enable_nereids_dml=true """
     stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")

@@ -22,8 +22,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
@@ -33,7 +31,6 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -64,8 +61,6 @@ public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
 
     private final TUniqueId queryId;
-    private boolean isFinished = false;
-    private long startTime = 0L;
     private long queryFinishTime = 0L;
     // The root profile of this execution task
     private RuntimeProfile root;
@@ -86,7 +81,9 @@ public class ExecutionProfile {
     private Map<Integer, Integer> fragmentIdBeNum;
     private Map<Integer, Integer> seqNoToFragmentId;
 
-    public ExecutionProfile(TUniqueId queryId, List<PlanFragment> fragments) {
+    // Constructor does not need list<PlanFragment>, use List<FragmentId> is enough
+    // and will be convenient for the test.
+    public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
         this.queryId = queryId;
         root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
@@ -96,14 +93,14 @@ public class ExecutionProfile {
         fragmentIdBeNum = Maps.newHashMap();
         seqNoToFragmentId = Maps.newHashMap();
         int i = 0;
-        for (PlanFragment planFragment : fragments) {
+        for (int fragmentId : fragmentIds) {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
-            fragmentProfiles.put(planFragment.getFragmentId().asInt(), runtimeProfile);
+            fragmentProfiles.put(fragmentId, runtimeProfile);
             fragmentsProfile.addChild(runtimeProfile);
-            multiBeProfile.put(planFragment.getFragmentId().asInt(),
+            multiBeProfile.put(fragmentId,
                     new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
-            fragmentIdBeNum.put(planFragment.getFragmentId().asInt(), 0);
-            seqNoToFragmentId.put(i, planFragment.getFragmentId().asInt());
+            fragmentIdBeNum.put(fragmentId, 0);
+            seqNoToFragmentId.put(i, fragmentId);
             ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
@@ -152,6 +149,9 @@ public class ExecutionProfile {
     }
 
     public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+        for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
+            fragmentProfile.sortChildren();
+        }
         /*
             * Fragment 0
             * ---Pipeline 0
@@ -177,23 +177,6 @@ public class ExecutionProfile {
 
     public RuntimeProfile getRoot() {
         return root;
-    }
-
-    // The execution profile is maintained in ProfileManager, if it is finished, then should
-    // remove it from it as soon as possible.
-    public void update(long startTime, boolean isFinished) {
-        if (this.isFinished) {
-            return;
-        }
-        this.isFinished = isFinished;
-        this.startTime = startTime;
-        if (startTime > 0) {
-            root.getCounterTotalTime().setValue(TUnit.TIME_MS, TimeUtils.getElapsedTimeMs(startTime));
-        }
-
-        for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
-            fragmentProfile.sortChildren();
-        }
     }
 
     public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
@@ -232,7 +215,6 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                pipelineIdx++;
                 fragmentProfiles.get(fragmentId).addChild(profileNode);
             }
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
@@ -280,7 +262,6 @@ public class ExecutionProfile {
             if (params.done) {
                 profile.setIsDone(true);
             }
-            pipelineIdx++;
             profile.sortChildren();
             fragmentProfiles.get(params.fragment_id).addChild(profile);
         }

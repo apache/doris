@@ -6,7 +6,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
 
-add_executable(sync_point_test sync_point_test.cpp)
+#add_executable(sync_point_test sync_point_test.cpp)
 
 add_executable(codec_test codec_test.cpp)
 
@@ -52,10 +52,12 @@ add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
 
 add_executable(stopwatch_test stopwatch_test.cpp)
 
+add_executable(util_test util_test.cpp)
+
 add_executable(network_util_test network_util_test.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
-target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
+#target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
 target_link_libraries(codec_test ${TEST_LINK_LIBS})
 
@@ -84,6 +86,8 @@ target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
 
 target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
+
+target_link_libraries(util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
 

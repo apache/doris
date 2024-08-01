@@ -21,11 +21,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
-#include <ostream>
-#include <unordered_map>
-#include <utility>
-
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -43,8 +38,9 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
-#include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
+#include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
+#include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
+#include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -81,21 +77,22 @@ using namespace ErrorCode;
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
+inline std::string segment_mem_tracker_name(uint32_t segment_id) {
+    return "SegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                             DataDir* data_dir, uint32_t max_row_per_segment,
-                             const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context)
+                             DataDir* data_dir, const SegmentWriterOptions& opts,
+                             io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
-          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -140,7 +137,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         file_writer->path().c_str())},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format());
+                _tablet_schema->get_inverted_index_storage_format(),
+                std::move(inverted_file_writer));
     }
 }
 
@@ -255,8 +253,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
-        opts.data_page_size = config::row_column_page_size;
+        auto page_size = _tablet_schema->row_store_page_size();
+        opts.data_page_size =
+                (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -952,11 +953,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
     if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _max_row_per_segment)) {
+                      _num_rows_written >= _opts.max_rows_per_segment)) {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
+    int64_t count_rows = (int64_t)_opts.max_rows_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
 }

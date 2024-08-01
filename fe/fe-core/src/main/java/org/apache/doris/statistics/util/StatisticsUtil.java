@@ -980,6 +980,14 @@ public class StatisticsUtil {
         if (column == null) {
             return false;
         }
+        try {
+            if (!table.getDatabase().getCatalog().enableAutoAnalyze()) {
+                return false;
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to get catalog property. {}", t.getMessage());
+            return false;
+        }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         // Table never been analyzed, need analyze.
@@ -1003,7 +1011,7 @@ public class StatisticsUtil {
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             // 0. Check new partition first time loaded flag.
-            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
+            if (tableStatsStatus.partitionChanged.get()) {
                 return true;
             }
             // 1. Check row count.
@@ -1058,11 +1066,14 @@ public class StatisticsUtil {
         if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
             return false;
         }
-        Collection<Partition> partitions = table.getPartitions();
+        if (tableStatsStatus.partitionChanged != null && tableStatsStatus.partitionChanged.get()) {
+            return true;
+        }
         ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
         if (partitionUpdateRows == null) {
             return true;
         }
+        Collection<Partition> partitions = table.getPartitions();
         // New partition added or old partition deleted.
         if (partitions.size() != partitionUpdateRows.size()) {
             return true;

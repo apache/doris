@@ -43,7 +43,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 
     if (is_column_const(*null_map)) {
-        LOG(FATAL) << "ColumnNullable cannot have constant null map";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "ColumnNullable cannot have constant null map");
         __builtin_unreachable();
     }
     _need_update_has_null = true;
@@ -245,22 +246,8 @@ size_t ColumnNullable::get_max_row_byte_size() const {
 
 void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
-    if (has_null()) {
-        const auto& arr = get_null_map_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
-            *val = (arr[i] ? 1 : 0);
-            keys[i].size++;
-        }
-        get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
-            *val = 0;
-            keys[i].size++;
-        }
-        get_nested_column().serialize_vec(keys, num_rows, max_row_byte_size);
-    }
+    const auto& arr = get_null_map_data();
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
@@ -572,7 +559,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     const NullMap& arr2 = map.get_data();
 
     if (arr1.size() != arr2.size()) {
-        LOG(FATAL) << "Inconsistent sizes of ColumnNullable objects";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Inconsistent sizes of ColumnNullable objects");
         __builtin_unreachable();
     }
 
@@ -595,8 +583,8 @@ void ColumnNullable::apply_null_map(const ColumnNullable& other) {
 
 void ColumnNullable::check_consistency() const {
     if (null_map->size() != get_nested_column().size()) {
-        LOG(FATAL) << "Logical error: Sizes of nested column and null map of Nullable column are "
-                      "not equal";
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Sizes of nested column and null map of Nullable column are not equal");
     }
 }
 

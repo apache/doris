@@ -39,7 +39,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -103,7 +103,7 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     if (!ret) {
         return false;
     }
-    if (min_key < pre_max_key) {
+    if (min_key <= pre_max_key) {
         return false;
     }
     CHECK(rhs->max_key(&pre_max_key));
@@ -400,15 +400,14 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    Status st = execute_compact_impl(permits);
-    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    auto record_compaction_stats = [&](const doris::Exception& ex) {
+        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+        data_dir->disks_compaction_score_increment(-permits);
+        data_dir->disks_compaction_num_increment(-1);
+    };
 
-    data_dir->disks_compaction_score_increment(-permits);
-    data_dir->disks_compaction_num_increment(-1);
-
-    if (!st.ok()) {
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -642,9 +641,13 @@ Status Compaction::do_inverted_index_compaction() {
     // format: rowsetId_segmentId
     std::vector<std::unique_ptr<InvertedIndexFileWriter>> inverted_index_file_writers(
             dest_segment_num);
-    for (int i = 0; i < dest_segment_num; ++i) {
+
+    // Some columns have already been indexed
+    // key: seg_id, value: inverted index file size
+    std::unordered_map<int, int64_t> compacted_idx_file_size;
+    for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
         std::string index_path_prefix {
-                InvertedIndexDescriptor::get_index_file_path_prefix(ctx.segment_path(i))};
+                InvertedIndexDescriptor::get_index_file_path_prefix(ctx.segment_path(seg_id))};
         auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
                 ctx.fs(), index_path_prefix,
                 _cur_tablet_schema->get_inverted_index_storage_format());
@@ -654,16 +657,31 @@ Status Compaction::do_inverted_index_compaction() {
         if (st.ok()) {
             auto index_not_need_to_compact =
                     DORIS_TRY(inverted_index_file_reader->get_all_directories());
+            // V1: each index is a separate file
+            // V2: all indexes are in a single file
+            if (_cur_tablet_schema->get_inverted_index_storage_format() !=
+                doris::InvertedIndexStorageFormatPB::V1) {
+                int64_t fsize = 0;
+                st = ctx.fs()->file_size(
+                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix), &fsize);
+                if (!st.ok()) {
+                    LOG(ERROR) << "file size error in index compaction, error:" << st.msg();
+                    return st;
+                }
+                compacted_idx_file_size[seg_id] = fsize;
+            }
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), seg_id,
                     _cur_tablet_schema->get_inverted_index_storage_format());
             RETURN_IF_ERROR(inverted_index_file_writer->initialize(index_not_need_to_compact));
-            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+            inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
         } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), seg_id,
                     _cur_tablet_schema->get_inverted_index_storage_format());
-            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+            inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
+            // no index file
+            compacted_idx_file_size[seg_id] = 0;
         } else {
             LOG(ERROR) << "inverted_index_file_reader init failed in index compaction, error:"
                        << st;
@@ -742,9 +760,15 @@ Status Compaction::do_inverted_index_compaction() {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
-    for (auto& inverted_index_file_writer : inverted_index_file_writers) {
+
+    uint64_t inverted_index_file_size = 0;
+    for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
+        auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
         if (Status st = inverted_index_file_writer->close(); !st.ok()) {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        } else {
+            inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
+            inverted_index_file_size -= compacted_idx_file_size[seg_id];
         }
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
@@ -752,11 +776,22 @@ Status Compaction::do_inverted_index_compaction() {
         return status;
     }
 
+    // index compaction should update total disk size and index disk size
+    _output_rowset->rowset_meta()->set_data_disk_size(_output_rowset->data_disk_size() +
+                                                      inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_total_disk_size(_output_rowset->data_disk_size() +
+                                                       inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
+                                                       inverted_index_file_size);
+
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+
     LOG(INFO) << "succeed to do index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
               << ", output row number=" << _output_rowset->num_rows()
               << ", input_rowset_size=" << _input_rowsets_size
               << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", inverted index file size=" << inverted_index_file_size
               << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
 
     return Status::OK();
@@ -871,7 +906,9 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
     ctx.version = _output_version;
@@ -1145,13 +1182,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    Status st = execute_compact_impl(permits);
-    if (!st.ok()) {
-        garbage_collection();
-        return st;
-    }
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
+                                        [&](const doris::Exception& ex) { garbage_collection(); });
     _load_segment_to_cache();
-    return st;
+    return Status::OK();
 }
 
 Status CloudCompactionMixin::modify_rowsets() {
@@ -1163,7 +1197,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     if (config::inverted_index_compaction_enable &&
         (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
            _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+          _tablet->keys_type() == KeysType::DUP_KEYS)) &&
+        _cur_tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
         construct_skip_inverted_index(ctx);
     }
 

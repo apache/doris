@@ -116,7 +116,7 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     @Override
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         List<Backend> backendList = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 backendList.add(be);
             }

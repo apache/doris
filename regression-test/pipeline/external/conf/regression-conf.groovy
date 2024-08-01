@@ -128,6 +128,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+enableIcebergTest=true
 
 enableEsTest=true
 es_5_port=59200
@@ -137,10 +138,7 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-s3Provider = "COS"
+s3Source="aliyun"
 
 max_failure_num=50
 
@@ -162,3 +160,7 @@ enableTrinoConnectorTest = true
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+
+
+// LakeSoul catalog test config
+enableLakesoulTest = true

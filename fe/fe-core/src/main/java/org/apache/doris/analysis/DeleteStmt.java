@@ -124,7 +124,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
 
         // analyze predicate
         if ((fromClause == null && !((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite())
-                || (fromClause == null && ((OlapTable) targetTable).getEnableDeleteOnDeletePredicate())) {
+                || (fromClause == null && ((OlapTable) targetTable).getEnableMowLightDelete())) {
             if (wherePredicate == null) {
                 throw new AnalysisException("Where clause is not set");
             }
@@ -462,5 +462,10 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

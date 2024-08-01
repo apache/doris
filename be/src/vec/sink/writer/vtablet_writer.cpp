@@ -45,7 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -528,8 +528,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    RETURN_IF_ERROR(
-            block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    if (!st.ok()) {
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        return st;
+    }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
@@ -892,11 +895,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 Status VNodeChannel::close_wait(RuntimeState* state) {
     DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemoryReclamation::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    // set _is_closed to true finally
-    Defer set_closed {[&]() {
-        std::lock_guard<std::mutex> l(_closed_lock);
-        _is_closed = true;
-    }};
 
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
@@ -920,8 +918,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     VLOG_CRITICAL << _parent->_sender_id << " close wait finished";
     _close_time_ms = UnixMillis() - _close_time_ms;
 
-    if (_cancelled || state->is_cancelled()) {
-        cancel(state->cancel_reason().to_string());
+    if (state->is_cancelled()) {
+        _cancel_with_msg(state->cancel_reason().to_string());
     }
 
     if (_add_batches_finished) {
@@ -933,6 +931,11 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
         _index_channel->set_tablets_filtered_rows(_tablets_filtered_rows, _node_id);
+
+        std::lock_guard<std::mutex> l(_closed_lock);
+        // only when normal close, we set _is_closed to true.
+        // otherwise, we will set it to true in cancel().
+        _is_closed = true;
         return Status::OK();
     }
 

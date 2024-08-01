@@ -34,6 +34,7 @@ import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -48,7 +49,6 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
@@ -99,11 +99,16 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
+
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
+
+    protected TableSnapshot tableSnapshot;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -172,15 +177,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // 2. key column slot is distribution column and first column
     protected boolean isKeySearch() {
         return false;
-    }
-
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
@@ -833,4 +829,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return !topnFilterSortNodes.isEmpty();
     }
 
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
+    }
 }

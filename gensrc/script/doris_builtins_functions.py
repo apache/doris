@@ -1619,6 +1619,7 @@ visible_functions = {
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['VARCHAR'], ''],
+        [['crc32'], 'BIGINT', ['VARCHAR'], ''],
         [['bit_length'], 'INT', ['VARCHAR'], ''],
 
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
@@ -1657,6 +1658,8 @@ visible_functions = {
         [['money_format'], 'VARCHAR', ['DECIMAL64'], ''],
         [['money_format'], 'VARCHAR', ['DECIMAL128'], ''],
         [['split_by_string'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+        [['split_by_regexp'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+        [['split_by_regexp'],'ARRAY_VARCHAR',['STRING','STRING', 'INT'], ''],
         [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
@@ -1685,6 +1688,7 @@ visible_functions = {
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['STRING'], ''],
+        [['crc32'], 'BIGINT', ['STRING'], ''],
         [['bit_length'], 'INT', ['STRING'], ''],
 
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
@@ -2254,6 +2258,11 @@ visible_functions = {
         [['ignore'], 'BOOLEAN', ['ARRAY_DECIMAL128', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_STRING', '...'], 'ALWAYS_NOT_NULLABLE']
+    ],
+
+    # multi match functions
+    "MultiMatch": [
+        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 

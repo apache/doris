@@ -136,30 +136,9 @@ mysql
 -- !date7 --
 3	\N	2019-11-12T20:33:57.999	\N	\N	\N	\N	\N
 
--- !filter4_old_plan --
-1	alice	20	99.5
-3	jerry	23	88.0
-4	andy	21	93.0
-
--- !filter5_old_plan --
-1	alice	20	99.5
-2	bob	21	90.5
-3	jerry	23	88.0
-4	andy	21	93.0
-
--- !filter6_old_plan --
-1	alice	20	99.5
-4	andy	21	93.0
-
--- !filter7_old_plan --
-3	jerry	23	88.0
-
--- !filter8_old_plan --
-4	andy	21	93.0
-
--- !filter9_old_plan --
-3	jerry	23	88.0
-4	andy	21	93.0
+-- !raw --
+1	0xFFFF	0xAAAA
+2	beijing	shanghai
 
 -- !test_insert1 --
 doris1	18
@@ -183,39 +162,39 @@ doris3	20
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !ctas_desc --
-ADDRESS	TEXT	Yes	false	\N	NONE
-BIGINT_VALUE1	BIGINT	Yes	false	\N	NONE
-BIGINT_VALUE2	LARGEINT	Yes	false	\N	NONE
-CITY	TEXT	Yes	false	\N	NONE
-COUNTRY	TEXT	Yes	false	\N	NONE
-ID	LARGEINT	Yes	true	\N	
-INT_VALUE1	INT	Yes	false	\N	NONE
-INT_VALUE2	BIGINT	Yes	false	\N	NONE
-N1	TEXT	Yes	false	\N	NONE
-N2	LARGEINT	Yes	false	\N	NONE
-N3	DECIMAL(9, 2)	Yes	false	\N	NONE
-N4	LARGEINT	Yes	false	\N	NONE
-N5	LARGEINT	Yes	false	\N	NONE
-N6	DECIMAL(5, 2)	Yes	false	\N	NONE
-N7	DOUBLE	Yes	false	\N	NONE
-N8	DOUBLE	Yes	false	\N	NONE
-N9	DOUBLE	Yes	false	\N	NONE
-NAME	TEXT	Yes	false	\N	NONE
-NUM1	DECIMAL(5, 2)	Yes	false	\N	NONE
-NUM2	INT	Yes	false	\N	NONE
-NUM4	DECIMAL(7, 7)	Yes	false	\N	NONE
-REMARK	TEXT	Yes	false	\N	NONE
-SMALLINT_VALUE1	SMALLINT	Yes	false	\N	NONE
-SMALLINT_VALUE2	INT	Yes	false	\N	NONE
-T1	DATETIME	Yes	false	\N	NONE
-T2	DATETIME(3)	Yes	false	\N	NONE
-T3	DATETIME(6)	Yes	false	\N	NONE
-T4	DATETIME(6)	Yes	false	\N	NONE
-T5	DATETIME(6)	Yes	false	\N	NONE
-T6	TEXT	Yes	false	\N	NONE
-T7	TEXT	Yes	false	\N	NONE
-TINYINT_VALUE1	TINYINT	Yes	false	\N	NONE
-TINYINT_VALUE2	SMALLINT	Yes	false	\N	NONE
+ADDRESS	text	Yes	false	\N	NONE
+BIGINT_VALUE1	bigint	Yes	false	\N	NONE
+BIGINT_VALUE2	largeint	Yes	false	\N	NONE
+CITY	text	Yes	false	\N	NONE
+COUNTRY	text	Yes	false	\N	NONE
+ID	largeint	Yes	true	\N	
+INT_VALUE1	int	Yes	false	\N	NONE
+INT_VALUE2	bigint	Yes	false	\N	NONE
+N1	text	Yes	false	\N	NONE
+N2	largeint	Yes	false	\N	NONE
+N3	decimal(9,2)	Yes	false	\N	NONE
+N4	largeint	Yes	false	\N	NONE
+N5	largeint	Yes	false	\N	NONE
+N6	decimal(5,2)	Yes	false	\N	NONE
+N7	double	Yes	false	\N	NONE
+N8	double	Yes	false	\N	NONE
+N9	double	Yes	false	\N	NONE
+NAME	text	Yes	false	\N	NONE
+NUM1	decimal(5,2)	Yes	false	\N	NONE
+NUM2	int	Yes	false	\N	NONE
+NUM4	decimal(7,7)	Yes	false	\N	NONE
+REMARK	text	Yes	false	\N	NONE
+SMALLINT_VALUE1	smallint	Yes	false	\N	NONE
+SMALLINT_VALUE2	int	Yes	false	\N	NONE
+T1	datetime	Yes	false	\N	NONE
+T2	datetime(3)	Yes	false	\N	NONE
+T3	datetime(6)	Yes	false	\N	NONE
+T4	datetime(6)	Yes	false	\N	NONE
+T5	datetime(6)	Yes	false	\N	NONE
+T6	text	Yes	false	\N	NONE
+T7	text	Yes	false	\N	NONE
+TINYINT_VALUE1	tinyint	Yes	false	\N	NONE
+TINYINT_VALUE2	smallint	Yes	false	\N	NONE
 
 -- !select_insert_all_types --
 1	111	123	7456123.89	573	34	673.43	34.1264	60.0	23.231	99	9999	999999999	999999999999999999	999	99999	9999999999	9999999999999999999	1	china 	beijing	alice	abcdefghrjkmnopq	123.45	12300	0.0012345	2022-01-21T05:23:01	2019-11-12T20:33:57.999	2019-11-12T20:33:57.999998	2019-11-12T20:33:57.999996	2019-11-12T20:33:57.999997	223-9	12 10:23:1.123457
@@ -270,9 +249,9 @@ mysql
 1	alice
 
 -- !query_lower_desc --
-doris_1	TEXT	Yes	true	\N	
-doris_2	TEXT	Yes	true	\N	
-doris_3	TEXT	Yes	true	\N	
+doris_1	text	Yes	true	\N	
+doris_2	text	Yes	true	\N	
+doris_3	text	Yes	true	\N	
 
 -- !query_lower_all --
 DORIS	Doris	doris

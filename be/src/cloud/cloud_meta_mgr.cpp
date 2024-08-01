@@ -41,7 +41,7 @@
 #include "cloud/pb_convert.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -747,7 +747,12 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
 
-    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(true);
+    // Variant schema maybe updated, so we need to update the schema as well.
+    // The updated rowset meta after `rowset->merge_rowset_meta` in `BaseTablet::update_delete_bitmap`
+    // will be lost in `update_tmp_rowset` if skip_schema.So in order to keep the latest schema we should keep schema in update_tmp_rowset
+    // for variant type
+    bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     Status st =
             retry_rpc("update committed rowset", req, &resp, &MetaService_Stub::update_tmp_rowset);

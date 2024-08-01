@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "function_array_index.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"

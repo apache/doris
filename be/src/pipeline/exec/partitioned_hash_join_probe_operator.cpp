@@ -204,7 +204,6 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
         VLOG_DEBUG << "query: " << print_id(query_id)
                    << " hash probe revoke done, node: " << p.node_id()
                    << ", task: " << state->task_id();
-        _dependency->set_ready();
         return Status::OK();
     };
 
@@ -340,7 +339,6 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
 
         ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
         shared_state_sptr->spilled_streams[partition_index].reset();
-        _dependency->set_ready();
         VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                    << ", task id: " << state->task_id() << ", partition: " << partition_index
                    << ", recovery build data done";
@@ -363,6 +361,7 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
+        _dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
@@ -459,8 +458,6 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
             spilled_stream.reset();
         }
-
-        _dependency->set_ready();
     };
 
     auto exception_catch_func = [read_func, query_id, this]() {
@@ -480,6 +477,7 @@ Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(Runti
             _spill_status_ok = false;
             _spill_status = std::move(status);
         }
+        _dependency->set_ready();
     };
 
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
@@ -627,8 +625,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 
     local_state._runtime_state->set_desc_tbl(&state->desc_tbl());
     local_state._runtime_state->resize_op_id_to_local_state(-1);
-    local_state._runtime_state->set_pipeline_x_runtime_filter_mgr(
-            state->local_runtime_filter_mgr());
+    local_state._runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     local_state._in_mem_shared_state_sptr = _inner_sink_operator->create_shared_state();
 

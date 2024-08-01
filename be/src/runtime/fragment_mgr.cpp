@@ -39,6 +39,7 @@
 #include <thrift/transport/TTransportException.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 
 #include "common/status.h"
@@ -337,6 +338,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 if (!rs->get_error_log_file_path().empty()) {
                     params.__set_tracking_url(
                             to_load_error_http_path(rs->get_error_log_file_path()));
+                }
+                if (rs->wal_id() > 0) {
+                    params.__set_txn_id(rs->wal_id());
+                    params.__set_label(rs->import_label());
                 }
             }
         }
@@ -705,7 +710,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+    SCOPED_ATTACH_TASK(query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -892,11 +897,32 @@ void FragmentMgr::cancel_worker() {
                                         print_id(q_ctx->query_id()));
                             }
                         } else {
-                            LOG_WARNING(
-                                    "Could not find target coordinator {}:{} of query {}, going to "
-                                    "cancel it.",
-                                    q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
-                                    print_id(q_ctx->query_id()));
+                            // In some rear cases, the rpc port of follower is not updated in time,
+                            // then the port of this follower will be zero, but acutally it is still running,
+                            // and be has already received the query from follower.
+                            // So we need to check if host is in running_fes.
+                            bool fe_host_is_standing = std::any_of(
+                                    running_fes.begin(), running_fes.end(),
+                                    [&q_ctx](const auto& fe) {
+                                        return fe.first.hostname == q_ctx->coord_addr.hostname &&
+                                               fe.first.port == 0;
+                                    });
+                            if (fe_host_is_standing) {
+                                LOG_WARNING(
+                                        "Coordinator {}:{} is not found, but its host is still "
+                                        "running with an unstable brpc port, not going to cancel "
+                                        "it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Could not find target coordinator {}:{} of query {}, "
+                                        "going to "
+                                        "cancel it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                            }
                         }
                     }
                     // Coordinator of this query has already dead or query context has been released.
@@ -1028,7 +1054,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    ObjectPool* pool = nullptr;
 
     const auto& fragment_instance_ids = request->fragment_instance_ids();
     {
@@ -1045,9 +1070,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
                 DCHECK(pip_context != nullptr);
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-                pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker};
+                                        pip_context->get_query_ctx()->query_mem_tracker,
+                                        pip_context->get_query_ctx()->workload_group()};
             } else {
                 return Status::InternalError("Non-pipeline is disabled!");
             }
@@ -1062,13 +1087,13 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     SCOPED_ATTACH_TASK(query_thread_context);
     // 1. get the target filters
-    std::vector<IRuntimeFilter*> filters;
+    std::vector<std::shared_ptr<IRuntimeFilter>> filters;
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
     // 2. create the filter wrapper to replace or ignore the target filters
     if (!filters.empty()) {
-        UpdateRuntimeFilterParamsV2 params {request, attach_data, pool, filters[0]->column_type()};
-        RuntimePredicateWrapper* filter_wrapper = nullptr;
+        UpdateRuntimeFilterParamsV2 params {request, attach_data, filters[0]->column_type()};
+        std::shared_ptr<RuntimePredicateWrapper> filter_wrapper;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
@@ -1081,8 +1106,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1093,10 +1116,13 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
     }
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->send_filter_size(request);
     return merge_status;
 }
@@ -1138,7 +1164,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                            queryid.to_string());
         }
     }
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
+    SCOPED_ATTACH_TASK(query_ctx.get());
     auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }

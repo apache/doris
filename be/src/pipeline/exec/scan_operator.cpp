@@ -102,7 +102,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter(true));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -1100,18 +1100,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            if (hybrid_set->size() <=
-                _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
-                iter = hybrid_set->begin();
-            } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            }
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
-            vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
 
-            vectorized::InState* state = reinterpret_cast<vectorized::InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -1120,6 +1114,11 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
             }
 
             iter = state->hybrid_set->begin();
+
+            if (state->hybrid_set->contain_null()) {
+                *pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
         }
 
         while (iter->has_next()) {
@@ -1224,9 +1223,8 @@ Status ScanLocalState<Derived>::_start_scanners(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency,
             // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
+            // 2. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
+            p.ignore_data_distribution() && !p.is_file_scan_operator()
                     ? 1
                     : state()->query_parallel_instance_num());
     return Status::OK();
