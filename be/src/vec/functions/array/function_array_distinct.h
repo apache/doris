@@ -254,13 +254,12 @@ private:
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) const {
-#define EXECUTE_NUMBER(TYPE, NAME)                                                      \
-    if (which.is_##NAME()) {                                                            \
-        res = _execute_number<TYPE>(src_column, src_offsets, dest_column, dest_offsets, \
-                                    src_null_map, dest_null_map);                       \
+#define EXECUTE_NUMBER(TYPE, NAME)                                                       \
+    if (which.is_##NAME()) {                                                             \
+        return _execute_number<TYPE>(src_column, src_offsets, dest_column, dest_offsets, \
+                                     src_null_map, dest_null_map);                       \
     } else
 
-        bool res = false;
         WhichDataType which(remove_nullable(nested_type));
         EXECUTE_NUMBER(ColumnUInt8, uint8)
         EXECUTE_NUMBER(ColumnInt8, int8)
@@ -280,13 +279,16 @@ private:
         EXECUTE_NUMBER(ColumnDecimal256, decimal256)
         EXECUTE_NUMBER(ColumnDecimal128V2, decimal128v2)
         if (which.is_string()) {
-            res = _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                  dest_null_map);
+            return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
+                                   dest_null_map);
+        } else {
+            LOG(ERROR) << "Unsupported array's element type: "
+                       << remove_nullable(nested_type)->get_name() << " for function "
+                       << this->get_name();
+            return false;
         }
 
 #undef EXECUTE_NUMBER
-
-        return res;
     }
 };
 
