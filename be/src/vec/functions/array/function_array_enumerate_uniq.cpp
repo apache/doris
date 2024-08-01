@@ -90,7 +90,7 @@ public:
                                       " must be an array but it has type " +
                                       arguments[i]->get_name() + ".";
             }
-	    is_nested_nullable = is_nested_nullable || array_type->get_nested_type()->is_nullable();
+            is_nested_nullable = is_nested_nullable || array_type->get_nested_type()->is_nullable();
         }
 
         auto return_nested_type = std::make_shared<DataTypeInt64>();
