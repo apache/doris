@@ -104,7 +104,6 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnion;
-import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -351,9 +350,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateFilter(),
                             new PushDownFilterThroughProject(),
                             new MergeProjects()
-                        ),
-                        topDown(
-                            new PullUpJoinFromUnionAll()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
