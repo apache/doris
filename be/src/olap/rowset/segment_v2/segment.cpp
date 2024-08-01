@@ -28,7 +28,9 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -77,9 +79,13 @@ namespace doris::segment_v2 {
 static bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
-std::string file_cache_key_str(const std::string& seg_path) {
+io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
     std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base).to_string();
+    return io::BlockFileCache::hash(base);
+}
+
+std::string file_cache_key_str(const std::string& seg_path) {
+    return file_cache_key_from_path(seg_path).to_string();
 }
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -92,18 +98,18 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     segment->_fs = std::move(fs);
     segment->_file_reader = std::move(file_reader);
     auto st = segment->_open();
+    TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     if (st.is<ErrorCode::CORRUPTION>() &&
         reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
-        // We assume that the remote source may be OK to read
-        // TODO(gavin): remove the file cache entry associated to this segment
-        std::string path = segment->_file_reader->path().native();
         LOG(WARNING) << "bad segment file may be read from file cache, try to read remote source "
                         "file directly, file path: "
                      << path << " cache_key: " << file_cache_key_str(path);
-        io::FileReaderOptions opt = reader_options;
-        opt.cache_type = io::FileCachePolicy::NO_CACHE; // skip cache
+        auto file_key = file_cache_key_from_path(path);
+        auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+        file_cache->remove_if_cached(file_key);
+
         file_reader.reset();
-        RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
+        RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
         segment->_file_reader = std::move(file_reader);
         st = segment->_open();
         if (!st.ok()) {

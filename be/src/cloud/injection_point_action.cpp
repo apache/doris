@@ -108,6 +108,14 @@ void register_suites() {
         sp->set_call_back("VOlapTableSink::close",
                           [](auto&&) { std::this_thread::sleep_for(std::chrono::seconds(5)); });
     });
+    suite_map.emplace("test_file_segment_cache_corruption", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
+        });
+    });
 }
 
 void set_sleep(const std::string& point, HttpRequest* req) {
@@ -215,6 +223,7 @@ void handle_set(HttpRequest* req) {
 void handle_clear(HttpRequest* req) {
     const auto& point = req->param("name");
     auto* sp = SyncPoint::get_instance();
+    LOG(INFO) << "clear injection point : " << (point.empty() ? "(all points)" : point);
     if (point.empty()) {
         // If point name is emtpy, clear all
         sp->clear_all_call_backs();
