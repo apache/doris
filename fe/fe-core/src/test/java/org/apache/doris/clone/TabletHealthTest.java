@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
@@ -80,12 +81,12 @@ public class TabletHealthTest extends TestWithFeService {
         for (Table table : db.getTables()) {
             dropTable(table.getName(), true);
         }
-        for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG)) {
             be.setDecommissioned(false);
         }
         Env.getCurrentEnv().getTabletScheduler().clear();
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG)));
     }
 
     private void shutdownBackends(List<Long> backendIds) throws Exception {
@@ -209,7 +210,7 @@ public class TabletHealthTest extends TestWithFeService {
 
         // be alive again
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG)));
 
         alterTableSync("ALTER TABLE tbl1 MODIFY PARTITION(*) SET ('replication_num' = '2')");
         ReplicaAllocation replicaAlloc = table.getPartitionInfo().getReplicaAllocation(partition.getId());
@@ -323,7 +324,7 @@ public class TabletHealthTest extends TestWithFeService {
 
         // be alive again
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG)));
 
         // temporary delete replica 1
         tablet.deleteReplica(tablet.getReplicas().get(1));
