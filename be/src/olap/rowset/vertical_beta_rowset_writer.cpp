@@ -186,9 +186,10 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
-    *writer = std::make_unique<segment_v2::SegmentWriter>(
-            file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
-            context.max_rows_per_segment, writer_options, nullptr);
+    writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    *writer = std::make_unique<segment_v2::SegmentWriter>(file_writer.get(), seg_id,
+                                                          context.tablet_schema, context.tablet,
+                                                          context.data_dir, writer_options);
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);
