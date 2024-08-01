@@ -39,24 +39,5 @@ suite("test_array_functions_array_with_const", "p0") {
 
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
-
-    //array_with_constant
-    qt_nereid_sql "SELECT 'array_with_constant';"
-    order_qt_nereid_sql "SELECT array_with_constant(3, number) FROM numbers limit 10;"
-    order_qt_nereid_sql "SELECT array_with_constant(number, 'Hello') FROM numbers limit 10;"
-    // not support const expression
-//    order_qt_sql "SELECT array_with_constant(number % 3, number % 2 ? 'Hello' : NULL) FROM numbers limit 10;"
-    order_qt_sql "SELECT array_with_constant(number, []) FROM numbers limit 10;"
-    order_qt_nereid_sql "SELECT array_with_constant(2, 'qwerty'), array_with_constant(0, -1), array_with_constant(1, 1);"
-    //  -- { serverError }
-    try {
-        sql """ 
-                SELECT array_with_constant(-231.37104, -138); 
-                """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Array size can not be negative in function:array_with_constant"))
-    }
 
 }

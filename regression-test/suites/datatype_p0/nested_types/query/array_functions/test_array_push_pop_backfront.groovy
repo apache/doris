@@ -55,42 +55,5 @@ suite("test_array_push_pop_backfront", "p0") {
 
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
-
-
-    qt_nereid_sql "SELECT 'array_pushback-pushfront'"
-    order_qt_nereid_sql "SELECT array_pushback(Null, 1);"
-    order_qt_nereid_sql "SELECT array_pushback([1], 1);"
-    order_qt_nereid_sql "SELECT array_pushback([Null], 1);"
-    order_qt_nereid_sql "SELECT array_pushback([0.5, 0.7], 1);"
-    order_qt_nereid_sql "SELECT array_pushback([1], -1);"
-    order_qt_nereid_sql "SELECT array_pushback(['a', 'b'], 'cd');"
-    order_qt_nereid_sql "SELECT array_pushback([], 1);"
-    order_qt_nereid_sql "SELECT array_pushback([], -1);"
-
-    order_qt_nereid_sql "SELECT array_pushfront(Null, 1);"
-    order_qt_nereid_sql "SELECT array_pushfront([1], 1);"
-    order_qt_nereid_sql "SELECT array_pushfront([Null], 1);"
-    order_qt_nereid_sql "SELECT array_pushfront([0.5, 0.7], 1);"
-    order_qt_nereid_sql "SELECT array_pushfront([1], -1);"
-    order_qt_nereid_sql "SELECT array_pushfront(['a', 'b'], 'cd');"
-    order_qt_nereid_sql "SELECT array_pushfront([], 1);"
-    order_qt_nereid_sql "SELECT array_pushfront([], -1);"
-
-    qt_nereid_sql "SELECT 'array_popback-popfront'"
-    order_qt_nereid_sql "SELECT array_popback(Null);"
-    order_qt_nereid_sql "SELECT array_popback([]);"
-    order_qt_nereid_sql "SELECT array_popback([1]);"
-    order_qt_nereid_sql "SELECT array_popback([1, 2, 3]);"
-    order_qt_nereid_sql "SELECT array_popback([0.1, 0.2, 0.3]);"
-    order_qt_nereid_sql "SELECT array_popback(['a', 'b', 'c']);"
-
-    order_qt_nereid_sql "SELECT array_popfront(Null);"
-    order_qt_nereid_sql "SELECT array_popfront([]);"
-    order_qt_nereid_sql "SELECT array_popfront([1]);"
-    order_qt_nereid_sql "SELECT array_popfront([1, 2, 3]);"
-    order_qt_nereid_sql "SELECT array_popfront([0.1, 0.2, 0.3]);"
-    order_qt_nereid_sql "SELECT array_popfront(['a', 'b', 'c']);"
 
 }

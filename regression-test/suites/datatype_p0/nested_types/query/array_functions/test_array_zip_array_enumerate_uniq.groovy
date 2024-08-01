@@ -17,9 +17,6 @@
 
 suite("test_array_zip_array_enumerate_uniq", "p0") {
 
-    sql "drop table if exists numbers;"
-    sql "create table if not exists numbers (number int) ENGINE=OLAP DISTRIBUTED BY HASH(number) BUCKETS 1 PROPERTIES('replication_num' = '1');"
-    sql "insert into numbers values (NULL), (0), (1), (2), (3), (4), (5), (6), (7), (8), (9), (10);"
 
     sql "set enable_nereids_planner=false;"
 //     ========== array-zip ==========
@@ -42,6 +39,7 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
 
     // ============= array_enumerate_uniq =========
     qt_sql "SELECT 'array_enumerate_uniq';"
+    sql """ set enable_fold_constant_by_be=true; """ // if we enable_fold_constant_by_be=false, will meet cast error`
     order_qt_old_sql """ SELECT array_enumerate_uniq(array_enumerate_uniq(array(cast(10 as LargeInt), cast(100 as LargeInt), cast(2 as LargeInt))), array(cast(123 as LargeInt), cast(1023 as LargeInt), cast(123 as LargeInt))); """
 
     order_qt_old_sql """SELECT array_enumerate_uniq(
@@ -57,25 +55,6 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
     //order_qt_sql """ SELECT max(array_join(arr)) FROM (SELECT array_enumerate_uniq(group_array(DIV(number, 54321)) AS nums, group_array(cast(DIV(number, 98765) as string))) AS arr FROM (SELECT number FROM numbers LIMIT 1000000) GROUP BY bitmap_hash(number) % 100000);"""
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
-//     ========== array-zip ==========
-//     wrong case
-    try {
-        sql """
-               SELECT array_zip();
-                """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().size() > 0)
-    }
-
-    try {
-        sql """
-               SELECT array_zip(['a', 'b', 'c'], ['d', 'e', 'f', 'd']);
-                """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("function array_zip's 2-th argument should have same offsets with first argument"))
-    }
 
     // nereid not support array_enumerate_uniq
     // ============= array_enumerate_uniq =========

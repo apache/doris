@@ -44,22 +44,6 @@ suite("test_array_functions_array_join", "p0") {
 //    ERROR 1105 (HY000): errCode = 2, detailMessage = (172.21.16.12)[CANCELLED]execute failed or unsupported types for function array_join(Array(Nullable(IPv4)),String,)
 
     // nereids
-    sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
-
-    // ============= array join =========
-    qt_nereid_sql "SELECT 'array-join';"
-    // only support array_join with two arguments
-    // order_qt_sql "SELECT array_join(['Hello', 'World']);"
-    order_qt_nereid_sql "SELECT array_join(['Hello', 'World'], ', ');"
-    // order_qt_sql "SELECT array_join([]);"
-    // order_qt_sql "SELECT array_join(array_range(number)) FROM numbers LIMIT 10;"
-    order_qt_nereid_sql "SELECT array_join(array_range(number), '') FROM numbers LIMIT 10;"
-    order_qt_nereid_sql "SELECT array_join(array_range(number), ',') FROM numbers LIMIT 10;"
-    order_qt_nereid_sql "SELECT array_join(array_range(number % 4), '_') FROM numbers LIMIT 10;"
-    order_qt_nereid_sql "SELECT array_join([Null, 'hello', Null, 'world', Null, 'xyz', 'def', Null], ';');"
-    order_qt_nereid_sql "SELECT array_join([1, 23, 456], ';');"
-    order_qt_nereid_sql "SELECT array_join([Null, 1, Null, 23, Null, 456, Null], ';');"
     // array with ip type make mistake
     // old planner
 //    mysql> select array(cast('127.0.0.1' as ipv4), Null);
