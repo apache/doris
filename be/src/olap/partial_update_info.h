@@ -25,10 +25,10 @@ namespace doris {
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
               const std::set<string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, const std::string& timezone) {
+              int64_t timestamp_ms, const std::string& timezone, int64_t cur_max_version = -1) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
-
+        max_version_in_flush_phase = cur_max_version;
         this->timestamp_ms = timestamp_ms;
         this->timezone = timezone;
         missing_cids.clear();
@@ -77,6 +77,7 @@ private:
 
 public:
     bool is_partial_update {false};
+    int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
     std::vector<uint32_t> update_cids;

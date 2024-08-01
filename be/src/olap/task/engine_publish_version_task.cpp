@@ -107,6 +107,21 @@ Status EnginePublishVersionTask::finish() {
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
+        auto token = dp->param<std::string>("token", "invalid_token");
+        while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
+            auto block_dp = DebugPoints::instance()->get_debug_point(
+                    "EnginePublishVersionTask::execute.block");
+            if (block_dp) {
+                auto pass_token = block_dp->param<std::string>("pass_token", "");
+                if (pass_token == token) {
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
+
     std::unique_ptr<ThreadPoolToken> token =
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
