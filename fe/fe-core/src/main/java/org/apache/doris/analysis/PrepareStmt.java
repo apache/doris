@@ -190,8 +190,7 @@ public class PrepareStmt extends StatementBase {
             // use session var to decide whether to use full prepared or let user client handle to do fail over
             if (preparedType != PreparedType.FULL_PREPARED
                     && !ConnectContext.get().getSessionVariable().enableServeSidePreparedStatement) {
-                throw new UserException("Failed to prepare statement"
-                                + "try to set enable_server_side_prepared_statement = true");
+                throw new UserException("Failed to prepare statement");
             }
         } else if (inner instanceof NativeInsertStmt) {
             LabelName label = ((NativeInsertStmt) inner).getLoadLabel();
