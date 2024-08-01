@@ -23,7 +23,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
@@ -40,10 +39,9 @@ import org.apache.doris.job.extensions.cdc.state.AbstractSourceSplit;
 import org.apache.doris.job.extensions.cdc.state.BinlogSplit;
 import org.apache.doris.job.extensions.cdc.state.SnapshotSplit;
 import org.apache.doris.job.extensions.cdc.utils.CdcLoadConstants;
-import org.apache.doris.job.extensions.cdc.utils.RestService;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PGetCdcSplitsResult;
+import org.apache.doris.proto.InternalService.PRequestCdcScannerResult;
 import org.apache.doris.proto.InternalService.PStartCdcScannerResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -194,11 +192,29 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     @Override
     public void onUnRegister() throws JobException {
         super.onUnRegister();
-        Pair<String, Integer> ipPort = Pair.of(selectBackend(getJobId()).getHost(), port);
-        // be rpc close，all backends clear
-        RestService.closeResource(ipPort, getJobId());
+        closeCdcResource();
         if (executor != null) {
             executor.shutdown();
+        }
+    }
+
+    private void closeCdcResource() throws JobException {
+        Backend backend = selectBackend(getJobId());
+        InternalService.PRequestCdcScannerRequest request = InternalService.PRequestCdcScannerRequest.newBuilder()
+                .setApi("/api/close/" + getJobId())
+                .setParams("").build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcScannerResult result = null;
+        try {
+            Future<PRequestCdcScannerResult> future =
+                    BackendServiceProxy.getInstance().requestCdcScanner(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                LOG.warn("Close cdc scanner failed, {}", result.getStatus().getErrorMsgs(0));
+            }
+        } catch (RpcException | ExecutionException | InterruptedException ex) {
+            LOG.warn("Close cdc scanner error, {}", ex.getMessage());
         }
     }
 
@@ -208,12 +224,6 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
             executor = Executors.newSingleThreadExecutor(threadFactory);
         }
         executor.submit(() -> {
-            //todo: wait cdc scanner process start
-            try {
-                Thread.sleep(10000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
             // reset failMsg
             splitFailMsg = null;
             for (String splitTbl : remainingTables) {
@@ -273,22 +283,18 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     }
 
     private List<? extends AbstractSourceSplit> requestTableSplits(Backend backend) throws JobException {
-        // http
-        // Pair<String, Integer> ipPort = Pair.of(backend.getHost(), port);
-        // return RestService.getSplits(ipPort, getJobId(), config);
-
-        //rpc
         Map<String, Object> params = new HashMap<>();
         params.put("jobId", getJobId());
         params.put("config", config);
-        InternalService.PGetCdcSplitsRequest request = InternalService.PGetCdcSplitsRequest.newBuilder()
+        InternalService.PRequestCdcScannerRequest request = InternalService.PRequestCdcScannerRequest.newBuilder()
+                .setApi("/api/fetchSplits")
                 .setParams(GsonUtils.GSON.toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        InternalService.PGetCdcSplitsResult result = null;
+        InternalService.PRequestCdcScannerResult result = null;
         List<? extends AbstractSourceSplit> responseList;
         try {
-            Future<PGetCdcSplitsResult> future =
-                    BackendServiceProxy.getInstance().getCdcSplits(address, request);
+            Future<PRequestCdcScannerResult> future =
+                    BackendServiceProxy.getInstance().requestCdcScanner(address, request);
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -404,7 +410,8 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     public void initialize() throws JobException {
         super.initialize();
         if (!remainingTables.isEmpty()) {
-            Backend backend = createCdcProcess();
+            Backend backend = selectBackend(getJobId());
+            startCdcScanner(backend);
             startSplitAsync(backend);
         }
     }
@@ -423,15 +430,10 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         }
     }
 
-    private Backend createCdcProcess() throws JobException {
-        Backend backend = selectBackend(getJobId());
+    private void startCdcScanner(Backend backend) throws JobException {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        startCdcScanner(address, "");
-        LOG.info("Cdc server started on backend: " + backend.getHost());
-        return backend;
-    }
-
-    private void startCdcScanner(TNetworkAddress address, String params) throws JobException {
+        //Reserved parameters, currently empty
+        String params = "";
         InternalService.PStartCdcScannerRequest request =
                 InternalService.PStartCdcScannerRequest.newBuilder().setParams(params).build();
         InternalService.PStartCdcScannerResult result = null;
@@ -479,7 +481,6 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
     }
 
     public static Backend selectBackend(Long jobId) throws JobException {
-        // 用jobid % backendid，从而固定到某个backend
         Backend backend = null;
         BeSelectionPolicy policy = null;
         Set<Tag> userTags = new HashSet<>();
@@ -497,6 +498,7 @@ public class CdcDatabaseJob extends AbstractJob<CdcDatabaseTask, Map<Object, Obj
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
+        //jobid % backendSize
         long index = backendIds.get(jobId.intValue() % backendIds.size());
         backend = Env.getCurrentSystemInfo().getBackend(index);
         if (backend == null) {

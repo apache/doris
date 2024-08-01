@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.cdc.utils.RestService;
 import org.apache.doris.job.task.AbstractTask;
@@ -37,6 +38,8 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,6 +87,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     private Map<String, String> meta;
     private Map<String, String> finishedMeta;
     private Map<String, String> config;
+    private volatile long txnId = -1;
 
     public CdcDatabaseTask(long dbId, Backend backend, Long jobId, Map<String, String> meta,
             Map<String, String> config) {
@@ -106,9 +110,11 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
 
     @Override
     public void run() throws JobException {
-        createLoadTask();
+        // if(beginTxn()){
+        //     //call be rpc
+        //     //waitlock
+        // }
 
-        // begin txn
 
         // Call the BE interface and pass host, port, jobId
         // mock pull data
@@ -125,21 +131,11 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         }
     }
 
-    private void createLoadTask() throws JobException {
-        // long txnId = beginTxn();
-        // 参数
-        // jobid， meta， config，txnid，sourcetype
-
-
-    }
-
-
-    public long beginTxn() throws JobException {
-        long txnId = -1;
+    public boolean beginTxn() throws JobException {
         // begin a txn for task
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(dbId,
-                    Lists.newArrayList(), DebugUtil.printId(id), null,
+                    Lists.newArrayList(), "cdc_scanner_" + DebugUtil.printId(id), null,
                     new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(), ExecuteEnv.getInstance().getStartupTime()),
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, getJobId(),
@@ -147,9 +143,9 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         } catch (Exception ex) {
             LOG.warn("failed to begin txn for cdc load task: {}, job id: {}",
                     DebugUtil.printId(id), jobId, ex);
-            throw new JobException("failed to begin txn");
+            return false;
         }
-        return txnId;
+        return true;
     }
 
 
@@ -200,22 +196,36 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
                     .add("msg", "task before committed")
                     .build());
         }
-        // todo:
-        // 1. 校验当前的task的状态，是否已经fail+cancel
-        // 2. 更新offset，如果comit成功，记录editlog，否则回滚offset
+        TaskStatus status = getStatus();
+        if(status == TaskStatus.CANCELED || status == TaskStatus.FAILED) {
+            throw new TransactionException("txn " + txnState.getTransactionId()
+                    + " could not be " + TransactionStatus.COMMITTED
+                    + " while task " + txnState.getLabel() + " has been aborted.");
+        }
     }
 
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-        // todo
-        // 1. 校验当前的task的状态，是否已经fail+cancel
+        //do nothing
     }
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
-        // todo:
-        // 1. 找到正在runing的task的taskid
-        // 2. updateEditLog
+        if(txnOperated){
+            if(txnState.getTransactionId() != txnId){
+                LOG.info("Can not find task with transaction {} after committed, task: {}, job: {}",
+                        txnState.getTransactionId(), id, getJobId());
+                return;
+            }
+
+            CdcDatabaseJob job = (CdcDatabaseJob) Env.getCurrentEnv().getJobManager().getJob(getJobId());
+            TxnCommitAttachment txnCommitAttachment = txnState.getTxnCommitAttachment();
+            // txnCommitAttachment.getFinishedMeta()
+            // updateOffset
+            job.updateOffset(finishedMeta);
+            //release lock
+        }
+
     }
 
     @Override
@@ -225,19 +235,22 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
             throws UserException {
-        // todo: rollback offset and split
+        // nothing to do
+        // release lock
     }
 
     @Override
     public void replayOnAborted(TransactionState txnState) {
+        //do nothing
     }
 
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        //do nothing
     }
 
     @Override
     public void replayOnVisible(TransactionState txnState) {
-
+        //do nothing
     }
 }

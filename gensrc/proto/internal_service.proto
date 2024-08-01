@@ -729,11 +729,12 @@ message PStartCdcScannerResult {
     optional PStatus status = 1;
 }
 
-message PGetCdcSplitsRequest {
-    optional string params = 1; 
+message PRequestCdcScannerRequest {
+    optional string api = 1; 
+    optional string params = 2; 
 }
 
-message PGetCdcSplitsResult {
+message PRequestCdcScannerResult {
     optional PStatus status = 1;
     optional string response = 2;
 }
@@ -1028,6 +1029,6 @@ service PBackendService {
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc start_cdc_scanner(PStartCdcScannerRequest) returns (PStartCdcScannerResult);
-    rpc get_cdc_splits(PGetCdcSplitsRequest) returns (PGetCdcSplitsResult);
+    rpc request_cdc_scanner(PRequestCdcScannerRequest) returns (PRequestCdcScannerResult);
 };
 

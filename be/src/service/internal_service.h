@@ -230,9 +230,9 @@ public:
                               PStartCdcScannerResult* result,
                               google::protobuf::Closure* done) override;      
 
-    void get_cdc_splits(google::protobuf::RpcController* controller,
-                              const PGetCdcSplitsRequest* request,
-                              PGetCdcSplitsResult* result,
+    void request_cdc_scanner(google::protobuf::RpcController* controller,
+                              const PRequestCdcScannerRequest* request,
+                              PRequestCdcScannerResult* result,
                               google::protobuf::Closure* done) override;                                                
 
 private:

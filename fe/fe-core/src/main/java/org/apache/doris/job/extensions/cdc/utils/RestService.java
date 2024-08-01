@@ -86,14 +86,14 @@ public class RestService {
         }
     }
 
-    public static void closeResource(Pair<String, Integer> ipPort, Long jobId) {
-        try {
-            String requestUrl = HttpUtils.concatUrl(ipPort, CLOSE_RESOURCE + jobId, empty);
-            Map<String, String> header = new HashMap<>();
-            String response = HttpUtils.doPost(requestUrl, header, null);
-            System.out.println(response);
-        } catch (Exception ex) {
-            LOG.error("Failed to close resource", ex);
-        }
-    }
+    // public static void closeResource(Pair<String, Integer> ipPort, Long jobId) {
+    //     try {
+    //         String requestUrl = HttpUtils.concatUrl(ipPort, CLOSE_RESOURCE + jobId, empty);
+    //         Map<String, String> header = new HashMap<>();
+    //         String response = HttpUtils.doPost(requestUrl, header, null);
+    //         System.out.println(response);
+    //     } catch (Exception ex) {
+    //         LOG.error("Failed to close resource", ex);
+    //     }
+    // }
 }

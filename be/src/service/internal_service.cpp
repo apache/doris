@@ -953,9 +953,33 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 
 static void handle_sigchld(int sig_no) {
     for (;;) {
-        if (waitpid(-1, NULL, WNOHANG) == 0)
+        if (waitpid(-1, NULL, WNOHANG) == 0){
             break;
+        }
     }
+}
+
+static Status check_cdc_health(int retry_times, int sleep_time, std::string& health_response) {
+        Status st = Status::OK();
+        std::string cdc_health_url;
+        {
+            std::stringstream ss;
+            ss << "http://" << BackendOptions::get_localhost() << ":" << std::to_string(doris::config::cdc_scanner_port) << "/actuator/health";
+            cdc_health_url = ss.str();
+            }
+            auto health_request = [&cdc_health_url, &health_response](HttpClient* client) {
+                RETURN_IF_ERROR(client->init(cdc_health_url));
+                client->set_timeout_ms(5 * 1000);
+                RETURN_IF_ERROR(client->execute(&health_response));
+                return Status::OK();
+            };
+            auto status = HttpClient::execute_with_retry(retry_times, sleep_time, health_request);
+            if (status.ok() && health_response.find("\"status\":\"UP\"") != std::string::npos) {
+                st = Status::OK();
+            }else {
+               st = Status::InternalError("cdc scanner not health.");
+            } 
+        return st;
 }
 
 void PInternalService::start_cdc_scanner(google::protobuf::RpcController* controller,
@@ -977,6 +1001,18 @@ void PInternalService::start_cdc_scanner(google::protobuf::RpcController* contro
             st.to_protobuf(result->mutable_status());
             return;
         }
+
+        //check cdc process already started
+        string check_response;
+        auto check_st = check_cdc_health(1,0,check_response);
+        if(check_st.ok()){
+            LOG(INFO) << "cdc scanner already started.";
+            st.to_protobuf(result->mutable_status());
+            return;
+        }else{
+            LOG(INFO) << "cdc scanner not started, to start.";
+        }
+
         //Capture signal to prevent child process from becoming a zombie process
         struct sigaction act;
         act.sa_flags = 0;
@@ -1008,6 +1044,16 @@ void PInternalService::start_cdc_scanner(google::protobuf::RpcController* contro
             
             std::cerr << "Cdc scanner child process error." << std::endl; ;
             exit(1);
+        }else {
+            //Waiting for cdc to start, failed after more than 30 seconds
+            string health_response;
+            Status status = check_cdc_health(5,6,health_response);
+            if (!status.ok()) {
+                LOG(ERROR) << "Failed to start cdc scanner process, status=" << status.to_string() << ", response=" << health_response;
+                st = Status::InternalError("Start cdc scanner failed.");
+            }else {
+                LOG(INFO) << "Start cdc scanner success, status=" << status.to_string() << ", response=" << health_response;
+            }
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -1018,33 +1064,34 @@ void PInternalService::start_cdc_scanner(google::protobuf::RpcController* contro
     }
 }
 
-void PInternalService::get_cdc_splits(google::protobuf::RpcController* controller,
-                                            const PGetCdcSplitsRequest* request,
-                                            PGetCdcSplitsResult* result,
+void PInternalService::request_cdc_scanner(google::protobuf::RpcController* controller,
+                                            const PRequestCdcScannerRequest* request,
+                                            PRequestCdcScannerResult* result,
                                             google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
-        VLOG_RPC << "get cdc splits request";
+        VLOG_RPC << "request to cdc scanner, api " << request->api();
         brpc::ClosureGuard closure_guard(done);
-        //todo: check cdc scanner process alive
         std::string remote_url_prefix;
         {
         std::stringstream ss;
-        ss << "http://" << BackendOptions::get_localhost() << ":" << std::to_string(doris::config::cdc_scanner_port) << "/api/fetchSplits";
+        ss << "http://" << BackendOptions::get_localhost() << ":" << std::to_string(doris::config::cdc_scanner_port) << request->api();
         remote_url_prefix = ss.str();
         }
         auto params_body = request->params();
-        string split_response;
-        auto get_splits = [&remote_url_prefix, &split_response, &params_body](HttpClient* client) {
+        string cdc_response;
+        auto cdc_request = [&remote_url_prefix, &cdc_response, &params_body](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
         client->set_timeout_ms(60 * 1000);
-        client->set_payload(params_body);
+        if(!params_body.empty()){
+            client->set_payload(params_body);
+        }
         client->set_content_type("application/json");
         client->set_method(POST);
-        RETURN_IF_ERROR(client->execute(&split_response));
+        RETURN_IF_ERROR(client->execute(&cdc_response));
         return Status::OK();
         };
-        auto st = HttpClient::execute_with_retry(3, 1, get_splits);
-        result->set_response(split_response);
+        auto st = HttpClient::execute_with_retry(3, 1, cdc_request);
+        result->set_response(cdc_response);
         st.to_protobuf(result->mutable_status());        
     });
 

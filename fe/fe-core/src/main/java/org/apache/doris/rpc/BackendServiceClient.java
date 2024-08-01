@@ -126,8 +126,8 @@ public class BackendServiceClient {
         return stub.startCdcScanner(request);
     }
 
-    public Future<InternalService.PGetCdcSplitsResult> getCdcSplits(InternalService.PGetCdcSplitsRequest request) {
-        return stub.getCdcSplits(request);
+    public Future<InternalService.PRequestCdcScannerResult> requestCdcScanner(InternalService.PRequestCdcScannerRequest request) {
+        return stub.requestCdcScanner(request);
     }
 
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
