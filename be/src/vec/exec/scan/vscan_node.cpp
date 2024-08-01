@@ -1133,21 +1133,23 @@ Status VScanNode::_normalize_in_and_not_in_compound_predicate(vectorized::VExpr*
         std::string fn_name =
                 expr->op() == TExprOpcode::type::FILTER_IN ? "in_list" : "not_in_list";
 
+        for (const auto& child_expr : expr->children()) {
+            if (child_expr->node_type() == TExprNodeType::NULL_LITERAL) {
+                *pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
+        }
+
         HybridSetBase::IteratorBase* iter = nullptr;
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            if (hybrid_set->size() <= _max_pushdown_conditions_per_column) {
-                iter = hybrid_set->begin();
-            } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            }
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
-            VInPredicate* pred = static_cast<VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
 
-            InState* state = reinterpret_cast<InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
