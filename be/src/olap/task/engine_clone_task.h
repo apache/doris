@@ -55,7 +55,6 @@ public:
                     std::vector<TTabletInfo>* tablet_infos);
     ~EngineCloneTask() override = default;
 
-public:
     bool is_new_tablet() const { return _is_new_tablet; }
 
 private:
