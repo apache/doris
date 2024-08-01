@@ -65,10 +65,11 @@ public class TabletsProcDir implements ProcDirInterface {
         this.index = index;
     }
 
-    public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
+    public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state)
+            throws AnalysisException {
         Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(index);
-        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
         Map<Long, String> pathHashToRoot = new HashMap<>();
@@ -179,12 +180,12 @@ public class TabletsProcDir implements ProcDirInterface {
         return tabletInfos;
     }
 
-    private List<List<Comparable>> fetchComparableResult() {
+    private List<List<Comparable>> fetchComparableResult() throws AnalysisException {
         return fetchComparableResult(-1, -1, null);
     }
 
     @Override
-    public ProcResult fetchResult() {
+    public ProcResult fetchResult() throws AnalysisException {
         List<List<Comparable>> tabletInfos = fetchComparableResult();
         // sort by tabletId, replicaId
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1);

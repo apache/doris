@@ -94,7 +94,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected String brokerName;
 
-    @Getter
     protected TableSnapshot tableSnapshot;
 
     /**
@@ -285,7 +284,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 TScanRangeLocation location = new TScanRangeLocation();
                 long backendId = ConnectContext.get().getBackendId();
-                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                Backend backend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
                 location.setBackendId(backendId);
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
@@ -580,5 +579,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 manager.removeSplitSource(sourceId);
             }
         }
+    }
+
+    public void setQueryTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    public TableSnapshot getQueryTableSnapshot() {
+        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
+        if (snapshot != null) {
+            return snapshot;
+        }
+        return this.tableSnapshot;
     }
 }

@@ -100,6 +100,8 @@
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
+#include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
@@ -263,6 +265,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_nonblock_close_thread_num)
                               .set_max_threads(config::max_nonblock_close_thread_num)
                               .build(&_non_block_close_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
+                              .set_min_threads(config::min_s3_file_system_thread_num)
+                              .set_max_threads(config::max_s3_file_system_thread_num)
+                              .build(&_s3_file_system_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -339,7 +345,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     if (config::is_cloud_mode()) {
-        std::cout << "start BE in cloud mode" << std::endl;
+        std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
+                  << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
     } else {
         std::cout << "start BE in local mode" << std::endl;
@@ -573,6 +580,10 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
+    // init orc memory pool
+    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
+    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
+
     return Status::OK();
 }
 
@@ -669,6 +680,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
+    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
@@ -714,6 +726,7 @@ void ExecEnv::destroy() {
     _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
+    _s3_file_system_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
@@ -750,6 +763,9 @@ void ExecEnv::destroy() {
 
     // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
     SAFE_DELETE(_without_group_task_scheduler);
+
+    SAFE_DELETE(_arrow_memory_pool);
+    SAFE_DELETE(_orc_memory_pool);
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);

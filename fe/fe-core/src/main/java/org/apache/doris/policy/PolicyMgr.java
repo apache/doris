@@ -731,7 +731,7 @@ public class PolicyMgr implements Writable {
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterStoragePolicy(storagePolicy);
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (long backendId : Env.getCurrentSystemInfo().getIdToBackend().keySet()) {
+        for (long backendId : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().keySet()) {
             PushStoragePolicyTask pushStoragePolicyTask = new PushStoragePolicyTask(backendId,
                     Collections.singletonList(storagePolicy), Collections.emptyList(), Collections.emptyList());
             batchTask.addTask(pushStoragePolicyTask);

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -57,8 +58,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
     }
 
     @Override
-    public ProcResult fetchResult() {
-        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
+    public ProcResult fetchResult() throws AnalysisException {
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);

@@ -46,7 +46,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
-        LOG(FATAL) << "offsets_column must be a ColumnUInt64";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
         __builtin_unreachable();
     }
 
@@ -55,8 +55,10 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            LOG(FATAL) << "nested_column's size " << data->size()
-                       << " is not consistent with offsets_column's " << last_offset;
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "nested_column's size {}, is not consistent with offsets_column's {}",
+                    data->size(), last_offset);
         }
     }
 
@@ -68,7 +70,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     if (!data->empty()) {
-        LOG(FATAL) << "Not empty data passed to ColumnArray, but no offsets passed";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Not empty data passed to ColumnArray, but no offsets passed");
         __builtin_unreachable();
     }
 
@@ -126,8 +129,10 @@ Field ColumnArray::operator[](size_t n) const {
     size_t size = size_at(n);
 
     if (size > max_array_size_as_field)
-        LOG(FATAL) << "Array of size " << size << " is too large to be manipulated as single field,"
-                   << "maximum size " << max_array_size_as_field;
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Array of size {}, is too large to be manipulated as single field, maximum size {}",
+                size, max_array_size_as_field);
 
     Array res(size);
 
@@ -141,8 +146,10 @@ void ColumnArray::get(size_t n, Field& res) const {
     size_t size = size_at(n);
 
     if (size > max_array_size_as_field)
-        LOG(FATAL) << "Array of size " << size << " is too large to be manipulated as single field,"
-                   << " maximum size " << max_array_size_as_field;
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Array of size {}, is too large to be manipulated as single field, maximum size {}",
+                size, max_array_size_as_field);
 
     res = Array(size);
     Array& res_arr = doris::vectorized::get<Array&>(res);
@@ -181,8 +188,11 @@ bool ColumnArray::is_default_at(size_t n) const {
 void ColumnArray::insert_data(const char* pos, size_t length) {
     /** Similarly - only for arrays of fixed length values.
       */
-    if (!data->is_fixed_and_contiguous())
-        LOG(FATAL) << "Method insert_data is not supported for " << get_name();
+    if (!data->is_fixed_and_contiguous()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method insert_data should have_fixed_size, {} is not suitable",
+                               get_name());
+    }
 
     size_t field_size = data->size_of_value_if_fixed();
 
@@ -194,7 +204,8 @@ void ColumnArray::insert_data(const char* pos, size_t length) {
             data->insert_data(pos, field_size);
 
         if (pos != end)
-            LOG(FATAL) << "Incorrect length argument for method ColumnArray::insert_data";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Incorrect length argument for method ColumnArray::insert_data");
         __builtin_unreachable();
     }
 
@@ -1053,7 +1064,8 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
         limit = std::min(size, limit);
     }
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
         __builtin_unreachable();
     }
     if (limit == 0) {

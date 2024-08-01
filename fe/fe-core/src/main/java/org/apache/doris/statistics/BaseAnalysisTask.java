@@ -498,6 +498,14 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            // Update index row count after analyze.
+            if (this instanceof OlapAnalysisTask) {
+                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
+                // For sync job, get jobInfo from job.jobInfo.
+                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
+                jobInfo.addIndexRowCount(indexId, colStatsData.count);
+            }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));

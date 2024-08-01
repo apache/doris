@@ -68,6 +68,7 @@ struct VerticalSegmentWriterOptions {
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    std::shared_ptr<MowContext> mow_ctx;
 };
 
 struct RowsInBlock {
@@ -80,9 +81,7 @@ class VerticalSegmentWriter {
 public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                                   DataDir* data_dir, uint32_t max_row_per_segment,
-                                   const VerticalSegmentWriterOptions& opts,
-                                   std::shared_ptr<MowContext> mow_context,
+                                   DataDir* data_dir, const VerticalSegmentWriterOptions& opts,
                                    io::FileWriterPtr inverted_file_writer = nullptr);
     ~VerticalSegmentWriter();
 
