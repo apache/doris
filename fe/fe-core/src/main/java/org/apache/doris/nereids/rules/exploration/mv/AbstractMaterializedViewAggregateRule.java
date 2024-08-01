@@ -332,6 +332,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             CascadesContext cascadesContext) {
 
         if (materializationContext instanceof SyncMaterializationContext) {
+            // For data correctness, should always add aggregate node if rewritten by sync materialized view
             return false;
         }
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
@@ -433,24 +434,20 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /**
-     * Check group by is equal or not after group by eliminate
+     * Check group by is equal or not after group by eliminate by functional dependency
      * Such as query group by expression is (l_orderdate#1, l_supperkey#2)
      * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
      * materialized view expression mapping is
      * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}
-     *
      * 1. viewShuttledExpressionQueryBasedToGroupByExpressionMap
      * is {l_orderdate#1:l_orderdate#10,  l_supperkey#2:l_supperkey#11}
      * groupByExpressionToViewShuttledExpressionQueryBasedMap
      * is {l_orderdate#10:l_orderdate#1,  l_supperkey#11:l_supperkey#2:}
-     *
      * 2. construct projects query used by view group expressions
      * projects (l_orderdate#10, l_supperkey#11)
-     *
      * 3. try to eliminate materialized view group expression
      * projects (l_orderdate#10, l_supperkey#11)
      * viewAggregate
-     *
      * 4. check the viewAggregate group by expression is equals queryAggregate expression or not
      */
     private static boolean isGroupByEqualsAfterGroupByEliminate(Set<Expression> queryGroupShuttledExpression,
