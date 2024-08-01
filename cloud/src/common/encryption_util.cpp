@@ -632,8 +632,8 @@ static int generate_random_root_key(TxnKv* txn_kv, KmsClient* kms_client, std::s
 
     // 3. otherwise, generate a random data key in memory
     std::mt19937 rnd(time(nullptr));
-    std::uniform_int_distribution<char> dist(std::numeric_limits<char>::min(),
-                                             std::numeric_limits<char>::max());
+    std::uniform_int_distribution<short> dist(std::numeric_limits<char>::min(),
+                                              std::numeric_limits<char>::max());
     std::string root_key_plaintext(32, '0');
     for (char& i : root_key_plaintext) {
         i = (char)dist(rnd);

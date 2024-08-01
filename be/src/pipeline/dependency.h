@@ -88,20 +88,11 @@ class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(false),
-              _ready(false) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(false) {}
     Dependency(int id, int node_id, std::string name, bool ready)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(true),
-              _ready(ready) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(ready) {}
     virtual ~Dependency() = default;
 
-    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     BasicSharedState* shared_state() { return _shared_state; }
@@ -118,12 +109,10 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
@@ -166,7 +155,6 @@ protected:
     const int _id;
     const int _node_id;
     const std::string _name;
-    const bool _is_write_dependency;
     std::atomic<bool> _ready;
 
     BasicSharedState* _shared_state = nullptr;

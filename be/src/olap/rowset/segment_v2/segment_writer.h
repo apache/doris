@@ -23,18 +23,14 @@
 #include <stddef.h>
 
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
@@ -71,11 +67,13 @@ extern const uint32_t k_segment_magic_length;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    uint32_t max_rows_per_segment = UINT32_MAX;
     bool enable_unique_key_merge_on_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    std::shared_ptr<MowContext> mow_ctx;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -84,8 +82,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
-                           uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context,
+                           const SegmentWriterOptions& opts,
                            io::FileWriterPtr inverted_file_writer = nullptr);
     ~SegmentWriter();
 
@@ -120,7 +117,7 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    uint32_t get_segment_id() { return _segment_id; }
+    uint32_t get_segment_id() const { return _segment_id; }
 
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
@@ -192,7 +189,6 @@ private:
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
     DataDir* _data_dir = nullptr;
-    uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter or SegmentFlusher

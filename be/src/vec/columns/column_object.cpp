@@ -416,7 +416,12 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
 }
 
 void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start, size_t length) {
-    assert(start + length <= src.size());
+    if (start + length > src.size()) {
+        throw doris::Exception(
+                ErrorCode::OUT_OF_BOUND,
+                "Invalid range for insertRangeFrom: start={}, length={}, src.size={}", start,
+                length, src.size());
+    }
     size_t end = start + length;
     // num_rows += length;
     if (data.empty()) {
@@ -438,7 +443,12 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
     }
     auto insert_from_part = [&](const auto& column, const auto& column_type, size_t from,
                                 size_t n) {
-        assert(from + n <= column->size());
+        if (from + n > column->size()) {
+            throw doris::Exception(
+                    ErrorCode::OUT_OF_BOUND,
+                    "Invalid range for insertRangeFrom: from={}, n={}, column.size={}", from, n,
+                    column->size());
+        }
         if (column_type->equals(*least_common_type.get())) {
             data.back()->insert_range_from(*column, from, n);
             return;
@@ -596,7 +606,10 @@ void ColumnObject::Subcolumn::insertManyDefaults(size_t length) {
 }
 
 void ColumnObject::Subcolumn::pop_back(size_t n) {
-    assert(n <= size());
+    if (n > size()) {
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Invalid number of elements to pop: {}, size: {}", n, size());
+    }
     size_t num_removed = 0;
     for (auto it = data.rbegin(); it != data.rend(); ++it) {
         if (n == 0) {
@@ -617,37 +630,38 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     num_of_defaults_in_prefix -= n;
 }
 
-Field ColumnObject::Subcolumn::get_last_field() const {
-    if (data.empty()) {
-        return Field();
-    }
-    const auto& last_part = data.back();
-    assert(!last_part->empty());
-    return (*last_part)[last_part->size() - 1];
-}
-
 IColumn& ColumnObject::Subcolumn::get_finalized_column() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return *data[0];
 }
 
 const IColumn& ColumnObject::Subcolumn::get_finalized_column() const {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return *data[0];
 }
 
 const ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() const {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return data[0];
 }
 
 ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return data[0];
 }
 
 void ColumnObject::Subcolumn::remove_nullable() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     data[0] = doris::vectorized::remove_nullable(data[0]);
     least_common_type.remove_nullable();
 }
@@ -863,7 +877,8 @@ Field ColumnObject::operator[](size_t n) const {
 void ColumnObject::get(size_t n, Field& res) const {
     if (UNLIKELY(n >= size())) {
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Index ({}) for getting field is out of range", n);
+                               "Index ({}) for getting field is out of range for size {}", n,
+                               size());
     }
     res = VariantMap();
     auto& object = res.get<VariantMap&>();
@@ -872,19 +887,6 @@ void ColumnObject::get(size_t n, Field& res) const {
         auto it = object.try_emplace(entry->path.get_path()).first;
         entry->data.get(n, it->second);
     }
-}
-
-Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,
-                                             const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnObject::insert_default();
-        } else {
-            ColumnObject::insert_from(src, *x);
-        }
-    }
-    finalize();
-    return Status::OK();
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -1449,17 +1451,6 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
-void ColumnObject::strip_outer_array() {
-    assert(is_finalized());
-    Subcolumns new_subcolumns;
-    for (auto&& entry : subcolumns) {
-        auto base_column = get_base_column_of_array(entry->data.get_finalized_column_ptr());
-        new_subcolumns.add(entry->path, Subcolumn {base_column->assume_mutable(), is_nullable});
-        num_rows = base_column->size();
-    }
-    std::swap(subcolumns, new_subcolumns);
-}
-
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
@@ -1551,15 +1542,6 @@ void ColumnObject::clear() {
     _prev_positions.clear();
 }
 
-void ColumnObject::revise_to(int target_num_rows) {
-    for (auto&& entry : subcolumns) {
-        if (entry->data.size() > target_num_rows) {
-            entry->data.pop_back(entry->data.size() - target_num_rows);
-        }
-    }
-    num_rows = target_num_rows;
-}
-
 void ColumnObject::create_root() {
     auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
                             : std::make_shared<MostCommonType>();
@@ -1605,17 +1587,6 @@ DataTypePtr ColumnObject::get_root_type() const {
                 "Root column is not jsonb type but {}, path {}",                                   \
                 subcolumns.get_root()->data.get_least_common_type()->get_name(), path.get_path()); \
     }
-
-Status ColumnObject::extract_root(const PathInData& path) {
-    SANITIZE_ROOT();
-    if (!path.empty()) {
-        MutableColumnPtr extracted;
-        RETURN_IF_ERROR(schema_util::extract(subcolumns.get_root()->data.get_finalized_column_ptr(),
-                                             path, extracted));
-        subcolumns.get_mutable_root()->data.data[0] = extracted->get_ptr();
-    }
-    return Status::OK();
-}
 
 Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst) const {
     SANITIZE_ROOT();

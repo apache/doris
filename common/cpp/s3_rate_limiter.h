@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <functional>
 #include <memory>
 #include <shared_mutex>
@@ -44,8 +43,7 @@ public:
     int64_t add(size_t amount);
 
 private:
-    std::pair<size_t, double> _update_remain_token(std::chrono::system_clock::time_point now,
-                                                   size_t amount);
+    std::pair<size_t, double> _update_remain_token(long now, size_t amount);
     size_t _count {0};
     const size_t _max_speed {0}; // in tokens per second. which indicates the QPS
     const size_t _max_burst {0}; // in tokens. which indicates the token bucket size
@@ -54,7 +52,7 @@ private:
     std::unique_ptr<SimpleSpinLock> _mutex;
     // Amount of remain_tokens available in token bucket. Updated in `add` method.
     double _remain_tokens {0};
-    std::chrono::system_clock::time_point _prev_ms; // Previous `add` call time (in nanoseconds).
+    long _prev_ns_count {0}; // Previous `add` call time (in nanoseconds).
 };
 
 class S3RateLimiterHolder {
