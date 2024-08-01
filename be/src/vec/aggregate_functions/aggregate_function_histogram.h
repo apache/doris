@@ -59,16 +59,10 @@ template <typename T>
 struct AggregateFunctionHistogramData {
     using ColVecType =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnVector<T>>;
-    const static Int32 DEFAULT_BUCKET_NUM = 128;
+    const static size_t DEFAULT_BUCKET_NUM = 128;
+    const static size_t BUCKET_NUM_INIT_VALUE = 0;
 
-    void set_parameters(Int32 input_max_num_buckets) {
-        if (input_max_num_buckets > 0) {
-            max_num_buckets = input_max_num_buckets;
-        } else {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid max_num_buckets {}",
-                                   input_max_num_buckets);
-        }
-    }
+    void set_parameters(size_t input_max_num_buckets) { max_num_buckets = input_max_num_buckets; }
 
     void reset() { ordered_map.clear(); }
 
@@ -92,9 +86,9 @@ struct AggregateFunctionHistogramData {
     }
 
     void merge(const AggregateFunctionHistogramData& rhs) {
-        // if rhs.max_num_buckets == 1, it means the input block for serialization is all null
+        // if rhs.max_num_buckets == 0, it means the input block for serialization is all null
         // we should discard this data, because histogram only fouce on the not-null data
-        if (!rhs.max_num_buckets || rhs.max_num_buckets == -1) {
+        if (!rhs.max_num_buckets) {
             return;
         }
 
@@ -155,12 +149,13 @@ struct AggregateFunctionHistogramData {
     std::string get(const DataTypePtr& data_type) const {
         std::vector<Bucket<T>> buckets;
         rapidjson::StringBuffer buffer;
-        // NOTE: We need an extral branch for to handle max_num_buckets == 1
+        // NOTE: We need an extral branch for to handle max_num_buckets == 0,
         // when target column is nullable, and input block is all null,
         // set_parameters will not be called because of the short-circuit in
-        // AggregateFunctionNullVariadicInline, so max_num_buckets will be -1 in this situation.
-        build_histogram(buckets, ordered_map,
-                        max_num_buckets == -1 ? DEFAULT_BUCKET_NUM : max_num_buckets);
+        // AggregateFunctionNullVariadicInline, so max_num_buckets will be 0 in this situation.
+        build_histogram(
+                buckets, ordered_map,
+                max_num_buckets == BUCKET_NUM_INIT_VALUE ? DEFAULT_BUCKET_NUM : max_num_buckets);
         histogram_to_json(buffer, buckets, data_type);
         return std::string(buffer.GetString());
     }
@@ -174,7 +169,7 @@ struct AggregateFunctionHistogramData {
     }
 
 private:
-    Int32 max_num_buckets = -1;
+    size_t max_num_buckets = BUCKET_NUM_INIT_VALUE;
     std::map<T, size_t> ordered_map;
 };
 
@@ -206,8 +201,7 @@ public:
                                        "Invalid max_num_buckets {}, row_num {}",
                                        input_max_num_buckets, row_num);
             }
-            this->data(place).set_parameters(
-                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+            this->data(place).set_parameters(input_max_num_buckets);
         } else {
             this->data(place).set_parameters(Data::DEFAULT_BUCKET_NUM);
         }

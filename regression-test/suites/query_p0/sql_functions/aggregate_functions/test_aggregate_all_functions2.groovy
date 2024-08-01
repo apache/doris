@@ -152,7 +152,14 @@ suite("test_aggregate_all_functions2") {
     qt_select_histogram_k5 """SELECT histogram(k5, 5) FROM baseall"""
     qt_select_histogram_k6 """SELECT histogram(k6, 6) FROM baseall"""
     qt_select_histogram_k7 """SELECT histogram(k7, 7) FROM baseall"""
-    qt_select_histogram_k8 """SELECT histogram(k8, 8) FROM baseall"""
+    // the test case for double and float is removed, becase the result is not stable since we have
+    // 0 and -0 in column k8, both of them are valid but we can not make both of them stand in out file.
+//     qt_select_histogram_k8 """SELECT histogram(k8, 8) FROM baseall"""
+//     qt_select_histogram_k9 """SELECT histogram(k9, 9) FROM baseall"""
+    qt_select_histogram_k10 """SELECT histogram(k10, 10) FROM baseall"""
+    qt_select_histogram_k11 """SELECT histogram(k11, 11) FROM baseall"""
+    qt_select_histogram_k12 """SELECT histogram(k12, 12) FROM baseall"""
+    qt_select_histogram_k13 """SELECT histogram(k13, 13) FROM baseall"""
 
     sql """
     TRUNCATE TABLE baseall;
@@ -195,5 +202,10 @@ suite("test_aggregate_all_functions2") {
     qt_select_histogram_k5_all_null """SELECT histogram(k5, 5) FROM baseall"""
     qt_select_histogram_k6_all_null """SELECT histogram(k6, 6) FROM baseall"""
     qt_select_histogram_k7_all_null """SELECT histogram(k7, 7) FROM baseall"""
-    qt_select_histogram_k8_all_null """SELECT histogram(k8, 8) FROM baseall"""
+//     qt_select_histogram_k8_all_null """SELECT histogram(k8, 8) FROM baseall"""
+//     qt_select_histogram_k9_all_null """SELECT histogram(k9, 9) FROM baseall"""
+    qt_select_histogram_k10_all_null """SELECT histogram(k10, 10) FROM baseall"""
+    qt_select_histogram_k11_all_null """SELECT histogram(k11, 11) FROM baseall"""
+    qt_select_histogram_k12_all_null """SELECT histogram(k12, 12) FROM baseall"""
+    qt_select_histogram_k13_all_null """SELECT histogram(k13, 13) FROM baseall"""
 }
