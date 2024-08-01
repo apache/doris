@@ -70,6 +70,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -252,6 +253,7 @@ Status OrcReader::_create_file_reader() {
     // create orc reader
     try {
         orc::ReaderOptions options;
+        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -261,7 +263,9 @@ Status OrcReader::_create_file_reader() {
         if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
             return Status::EndOfFile("stop");
         }
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
+        // one for fs, the other is for oss.
+        if (_err_msg.find("No such file or directory") != std::string::npos ||
+            _err_msg.find("NoSuchKey") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);

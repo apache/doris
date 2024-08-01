@@ -202,7 +202,7 @@ suite("regression_test_variant", "p0"){
         // 7. gh data
         table_name = "ghdata"
         create_table table_name
-        load_json_data.call(table_name, """${getS3Url() + '/load/ghdata_sample.json'}""")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
         qt_sql_26 "select count() from ${table_name}"
 
         // 8. json empty string
@@ -217,7 +217,7 @@ suite("regression_test_variant", "p0"){
         // // // 9. btc data
         // // table_name = "btcdata"
         // // create_table table_name
-        // // load_json_data.call(table_name, """${getS3Url() + '/load/btc_transactions.json'}""")
+        // // load_json_data.call(table_name, """${getS3Url() + '/regression/load/btc_transactions.json'}""")
         // // qt_sql_28 "select count() from ${table_name}"
 
         // 10. alter add variant
