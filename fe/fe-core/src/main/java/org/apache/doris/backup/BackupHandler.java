@@ -452,7 +452,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 throw new DdlException("read backup meta failed", e);
             }
             String backupTimestamp = TimeUtils.longToTimeString(
-                    jobInfo.getBackupTime(), TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                     stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),

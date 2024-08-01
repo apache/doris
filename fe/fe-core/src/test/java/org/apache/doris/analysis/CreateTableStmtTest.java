@@ -77,6 +77,8 @@ public class CreateTableStmtTest {
      **/
     @Before
     public void setUp() {
+        MockedAuth.mockedAccess(accessManager);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         // analyzer
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // table name
@@ -98,9 +100,6 @@ public class CreateTableStmtTest {
         invalidColsName.add("col1");
         invalidColsName.add("col2");
         invalidColsName.add("col2");
-
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test

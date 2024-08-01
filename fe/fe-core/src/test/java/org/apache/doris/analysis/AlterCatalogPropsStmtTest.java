@@ -42,9 +42,9 @@ public class AlterCatalogPropsStmtTest {
 
     @Before
     public void setUp() throws DdlException {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "%");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
     }
 
     @Test
