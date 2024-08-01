@@ -54,6 +54,8 @@ public:
 
     virtual DependencySPtr get_local_state_dependency(int _channel_id) { return nullptr; }
 
+    virtual std::string data_queue_debug_string(int i) = 0;
+
 protected:
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
@@ -114,9 +116,21 @@ public:
             : ExchangerBase(running_sink_operators, num_sources, num_partitions, free_block_limit) {
     }
     ~Exchanger() override = default;
+    std::string data_queue_debug_string(int i) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "Data Queue {}: [size approx = {}, eos = {}]",
+                       _data_queue[i].data_queue.size_approx(), _data_queue[i].eos);
+        return fmt::to_string(debug_string_buffer);
+    }
 
 protected:
+    bool _enqueue_data_and_set_ready(int channel_id, LocalExchangeSinkLocalState& local_state,
+                                     BlockType&& block);
+    bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos);
     std::vector<BlockQueue<BlockType>> _data_queue;
+
+private:
+    std::mutex _m;
 };
 
 class LocalExchangeSourceLocalState;
