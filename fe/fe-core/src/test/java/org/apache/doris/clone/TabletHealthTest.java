@@ -80,12 +80,12 @@ public class TabletHealthTest extends TestWithFeService {
         for (Table table : db.getTables()) {
             dropTable(table.getName(), true);
         }
-        for (Backend be : Env.getCurrentSystemInfo().getAllBackends()) {
+        for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster()) {
             be.setDecommissioned(false);
         }
         Env.getCurrentEnv().getTabletScheduler().clear();
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackends()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
     }
 
     private void shutdownBackends(List<Long> backendIds) throws Exception {
@@ -209,7 +209,7 @@ public class TabletHealthTest extends TestWithFeService {
 
         // be alive again
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackends()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
 
         alterTableSync("ALTER TABLE tbl1 MODIFY PARTITION(*) SET ('replication_num' = '2')");
         ReplicaAllocation replicaAlloc = table.getPartitionInfo().getReplicaAllocation(partition.getId());
@@ -323,7 +323,7 @@ public class TabletHealthTest extends TestWithFeService {
 
         // be alive again
         DebugPointUtil.clearDebugPoints();
-        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackends()));
+        Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getAllBackendsByAllCluster()));
 
         // temporary delete replica 1
         tablet.deleteReplica(tablet.getReplicas().get(1));
