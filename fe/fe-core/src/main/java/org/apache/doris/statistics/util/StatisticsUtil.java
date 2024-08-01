@@ -980,6 +980,14 @@ public class StatisticsUtil {
         if (column == null) {
             return false;
         }
+        try {
+            if (!table.getDatabase().getCatalog().enableAutoAnalyze()) {
+                return false;
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to get catalog property. {}", t.getMessage());
+            return false;
+        }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         // Table never been analyzed, need analyze.
