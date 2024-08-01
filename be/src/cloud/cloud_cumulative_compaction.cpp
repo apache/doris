@@ -48,8 +48,9 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
-    if (_tablet->tablet_state() != TABLET_RUNNING && config::enable_new_tablet_do_compaction &&
-        dynamic_cast<CloudTablet*>(_tablet.get())->alter_version() == -1) {
+    if (_tablet->tablet_state() != TABLET_RUNNING &&
+        (!config::enable_new_tablet_do_compaction ||
+         static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
@@ -142,8 +143,8 @@ PREPARE_TRY_AGAIN:
                         .tag("msg", resp.status().msg());
                 return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
             }
-        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
-            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
+            (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "
                   "failed in schema change. "
@@ -272,7 +273,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
-        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "

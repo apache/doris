@@ -99,7 +99,7 @@ Status CloudBaseCompaction::prepare_compact() {
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
-        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "
@@ -332,7 +332,7 @@ Status CloudBaseCompaction::modify_rowsets() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
-        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION_FAIL) {
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "

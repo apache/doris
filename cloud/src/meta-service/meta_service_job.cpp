@@ -60,10 +60,13 @@ static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
                                     const TabletJobInfoPB& job_pb) {
     if (!job_pb.has_schema_change() || !job_pb.schema_change().has_alter_version()) return true;
-    // compaction need to know [start_version, end_version]
-    DCHECK_EQ(compaction.input_versions_size(), 2) << proto_to_json(compaction);
-    DCHECK_LE(compaction.input_versions(0), compaction.input_versions(1))
-            << proto_to_json(compaction);
+    if (compaction.input_versions_size() != 2 ||
+        compaction.input_versions(0) > compaction.input_versions(1)) {
+        LOG(WARNING) << "The compaction need to know [start_version, end_version], and \
+                            the start_version should LE end_version. \n"
+                     << proto_to_json(compaction);
+        return false;
+    }
 
     int64_t alter_version = job_pb.schema_change().alter_version();
     return (compaction.type() == TabletCompactionJobPB_CompactionType_BASE &&
@@ -154,7 +157,7 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
                << " schema_change_alter_version=" << job_pb.schema_change().alter_version();
             msg = ss.str();
             INSTANCE_LOG(INFO) << msg;
-            code = MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL;
+            code = MetaServiceCode::JOB_CHECK_ALTER_VERSION;
             response->set_alter_version(job_pb.schema_change().alter_version());
             return;
         }
@@ -327,16 +330,6 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     std::string job_val;
     TabletJobInfoPB job_pb;
     err = txn->get(job_key, &job_val);
-    if (err == TxnErrorCode::TXN_OK) {
-        job_pb.ParseFromString(job_val);
-        if (job_pb.has_schema_change() && job_pb.schema_change().has_alter_version() &&
-            job_pb.schema_change().id() == schema_change.id() &&
-            job_pb.schema_change().initiator() == schema_change.initiator()) {
-            TEST_SYNC_POINT_CALLBACK("restart_compaction_job");
-            response->set_alter_version(job_pb.schema_change().alter_version());
-            return;
-        }
-    }
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         SS << "failed to get tablet job, instance_id=" << instance_id << " tablet_id=" << tablet_id
            << " key=" << hex(job_key) << " err=" << err;
@@ -347,6 +340,13 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     if (!job_pb.ParseFromString(job_val)) {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         msg = "pb deserialization failed";
+        return;
+    }
+    if (job_pb.has_schema_change() && job_pb.schema_change().has_alter_version() &&
+        job_pb.schema_change().id() == schema_change.id() &&
+        job_pb.schema_change().initiator() == schema_change.initiator()) {
+        TEST_SYNC_POINT_CALLBACK("restart_compaction_job");
+        response->set_alter_version(job_pb.schema_change().alter_version());
         return;
     }
     job_pb.mutable_idx()->CopyFrom(request->job().idx());
@@ -620,7 +620,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         INSTANCE_LOG(INFO) << msg;
         abort_compaction = true;
         response->set_alter_version(recorded_job.schema_change().alter_version());
-        code = MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL;
+        code = MetaServiceCode::JOB_CHECK_ALTER_VERSION;
     }
 
     //==========================================================================
@@ -1056,7 +1056,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                     recorded_schema_change.new_tablet_idx().index_id() &&
             schema_change.new_tablet_idx().tablet_id() ==
                     recorded_schema_change.new_tablet_idx().tablet_id()) {
-            // TODO(cyx)
             // remove schema change
             recorded_job.clear_schema_change();
             new_recorded_job.clear_schema_change();
