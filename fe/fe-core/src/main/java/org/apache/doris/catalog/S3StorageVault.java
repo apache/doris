@@ -61,7 +61,8 @@ public class S3StorageVault extends StorageVault {
     public static final HashSet<String> ALTER_CHECK_PROPERTIES = new HashSet<>(Arrays.asList(
             TYPE,
             S3Properties.ACCESS_KEY,
-            S3Properties.SECRET_KEY
+            S3Properties.SECRET_KEY,
+            VAULT_NAME
     ));
 
     @SerializedName(value = "properties")
