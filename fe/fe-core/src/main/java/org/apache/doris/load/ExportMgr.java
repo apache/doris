@@ -37,6 +37,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
@@ -126,7 +127,8 @@ public class ExportMgr {
             unprotectAddJob(job);
             // delete existing files
             if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                exportDeleteExistFiles(job);
+                BrokerUtil.deletePathWithFileSystem(job.getExportPath(), job.getBrokerDesc());
+                // exportDeleteExistFiles(job);
             }
             job.getTaskExecutors().forEach(executor -> {
                 Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
@@ -164,7 +166,7 @@ public class ExportMgr {
 
         // 4. get BE
         TNetworkAddress address = null;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
