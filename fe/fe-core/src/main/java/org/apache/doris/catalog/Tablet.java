@@ -215,7 +215,7 @@ public class Tablet extends MetaObject {
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
-            if (replica.getBackendId() == newReplica.getBackendId()) {
+            if (replica.getBackendIdWithoutException() == newReplica.getBackendIdWithoutException()) {
                 hasBackend = true;
                 if (replica.getVersion() <= version) {
                     iterator.remove();
@@ -247,7 +247,7 @@ public class Tablet extends MetaObject {
     public Set<Long> getBackendIds() {
         Set<Long> beIds = Sets.newHashSet();
         for (Replica replica : replicas) {
-            beIds.add(replica.getBackendId());
+            beIds.add(replica.getBackendIdWithoutException());
         }
         return beIds;
     }
@@ -263,7 +263,7 @@ public class Tablet extends MetaObject {
 
     @FunctionalInterface
     interface BackendIdGetter {
-        long get(Replica rep, String be);
+        long get(Replica rep, String be) throws UserException;
     }
 
     private Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
@@ -371,7 +371,7 @@ public class Tablet extends MetaObject {
 
     public Replica getReplicaByBackendId(long backendId) {
         for (Replica replica : replicas) {
-            if (replica.getBackendId() == backendId) {
+            if (replica.getBackendIdWithoutException() == backendId) {
                 return replica;
             }
         }
@@ -381,7 +381,7 @@ public class Tablet extends MetaObject {
     public boolean deleteReplica(Replica replica) {
         if (replicas.contains(replica)) {
             replicas.remove(replica);
-            Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendId());
+            Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendIdWithoutException());
             return true;
         }
         return false;
@@ -391,7 +391,7 @@ public class Tablet extends MetaObject {
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
-            if (replica.getBackendId() == backendId) {
+            if (replica.getBackendIdWithoutException() == backendId) {
                 iterator.remove();
                 Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
                 return true;
@@ -541,7 +541,7 @@ public class Tablet extends MetaObject {
         Set<String> hosts = Sets.newHashSet();
         ArrayList<Long> versions = new ArrayList<>();
         for (Replica replica : replicas) {
-            Backend backend = systemInfoService.getBackend(replica.getBackendId());
+            Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
                 continue;
             }
@@ -636,7 +636,8 @@ public class Tablet extends MetaObject {
 
         // 3. replica is under relocating
         if (stable < replicationNum) {
-            Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toSet());
+            Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendIdWithoutException)
+                    .collect(Collectors.toSet());
             List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)
@@ -756,7 +757,7 @@ public class Tablet extends MetaObject {
         int aliveAndVersionComplete = 0;
         Set<String> hosts = Sets.newHashSet();
         for (Replica replica : replicas) {
-            Backend backend = systemInfoService.getBackend(replica.getBackendId());
+            Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
                 continue;
             }
@@ -805,7 +806,7 @@ public class Tablet extends MetaObject {
 
         // 2. check version completeness
         for (Replica replica : replicas) {
-            if (!backendsSet.contains(replica.getBackendId())) {
+            if (!backendsSet.contains(replica.getBackendIdWithoutException())) {
                 // We don't care about replicas that are not in backendsSet.
                 // eg:  replicaBackendIds=(1,2,3,4); backendsSet=(1,2,3),
                 //      then replica 4 should be skipped here and then goto ```COLOCATE_REDUNDANT``` in step 3
@@ -861,7 +862,7 @@ public class Tablet extends MetaObject {
 
         boolean allBeAliveOrDecommissioned = true;
         for (Replica replica : replicas) {
-            Backend backend = infoService.getBackend(replica.getBackendId());
+            Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
             if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
                 allBeAliveOrDecommissioned = false;
                 break;

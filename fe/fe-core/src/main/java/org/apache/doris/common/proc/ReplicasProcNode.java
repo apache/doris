@@ -80,7 +80,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
         }
 
         for (Replica replica : replicas) {
-            Backend be = backendMap.get(replica.getBackendId());
+            Backend be = backendMap.get(replica.getBackendIdWithoutException());
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
@@ -106,7 +106,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
-                                        String.valueOf(replica.getBackendId()),
+                                        String.valueOf(replica.getBackendIdWithoutException()),
                                         String.valueOf(replica.getVersion()),
                                         String.valueOf(replica.getLastSuccessVersion()),
                                         String.valueOf(replica.getLastFailedVersion()),
