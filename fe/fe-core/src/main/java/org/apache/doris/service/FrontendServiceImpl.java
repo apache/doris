@@ -1683,7 +1683,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + " fullDbName: " + fullDbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds;
+                : Config.try_commit_lock_timeout_seconds * 1000;
         List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
@@ -1800,7 +1800,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 4: get timeout
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds;
+                : Config.try_commit_lock_timeout_seconds * 1000;
 
         // Step 5: commit and publish
         if (request.isSetTxnInsert() && request.isTxnInsert()) {
