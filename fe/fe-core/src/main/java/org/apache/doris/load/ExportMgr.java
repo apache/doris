@@ -127,7 +127,9 @@ public class ExportMgr {
             unprotectAddJob(job);
             // delete existing files
             if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                BrokerUtil.deletePathWithFileSystem(job.getExportPath(), job.getBrokerDesc());
+                String fullPath = job.getExportPath();
+                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                        job.getBrokerDesc());
                 // exportDeleteExistFiles(job);
             }
             job.getTaskExecutors().forEach(executor -> {

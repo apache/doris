@@ -107,12 +107,12 @@ public class BrokerUtil {
         }
     }
 
-    public static void deletePathWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
+    public static void deleteDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
         RemoteFileSystem fileSystem = FileSystemFactory.get(
                 brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-        Status st = fileSystem.delete(path);
+        Status st = fileSystem.deleteDirectory(path);
         if (!st.ok()) {
-            throw new UserException(brokerDesc.getName() +  " delete path exception. path="
+            throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
                     + path + ", err: " + st.getErrMsg());
         }
     }
