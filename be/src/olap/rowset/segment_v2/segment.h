@@ -35,8 +35,8 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
-#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"

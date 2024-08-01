@@ -170,6 +170,21 @@ PathInData PathInData::copy_pop_front() const {
     return copy_pop_nfront(1);
 }
 
+std::string PathInData::get_nested_prefix() const {
+    if (!has_nested) {
+        return "";
+    }
+    std::string prefix;
+    for (const auto& part : parts) {
+        if (part.is_nested) {
+            break;
+        }
+        prefix += part.key;
+        prefix += ".";
+    }
+    return prefix;
+}
+
 PathInData PathInData::copy_pop_nfront(size_t n) const {
     if (n >= parts.size()) {
         return {};

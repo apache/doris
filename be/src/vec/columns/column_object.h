@@ -141,11 +141,20 @@ public:
 
         void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
 
+        /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
+        /// Used to create columns of type Nested with consistent array sizes.
+        Subcolumn recreateWithDefaultValues(const FieldInfo& field_info) const;
+
         void pop_back(size_t n);
+
+        Subcolumn cut(size_t start, size_t length) const;
 
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
         void finalize();
+
+        /// Returns last inserted field.
+        Field get_last_field() const;
 
         bool check_if_sparse_column(size_t num_rows);
 
@@ -280,6 +289,10 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
+    bool is_nested_variant() const;
+
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;
@@ -314,6 +327,16 @@ public:
 
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
+
+    /// Adds a subcolumn of type Nested of specific size with default values.
+    /// It cares about consistency of sizes of Nested arrays.
+    void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
+    /// Finds a subcolumn from the same Nested type as @entry and inserts
+    /// an array with default values with consistent sizes as in Nested type.
+    bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
+    bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
+    /// It's used to get shared sized of Nested to insert correct default values.
+    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 

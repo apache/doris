@@ -219,10 +219,32 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
     auto&& cluster_key_idxes = tablet_schema.cluster_key_idxes();
 
     std::vector<uint32_t> value_columns;
+    std::string nested_prefix;
+
     for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             cluster_key_idxes.end() !=
                     std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
+            continue;
+        }
+        // merge all subcolumns of single nested columns into one group, subcolumns need to do offsets alignment
+        if (tablet_schema.column(i).is_nested_subcolumn()) {
+            if (nested_prefix != tablet_schema.column(i).path_info_ptr()->get_nested_prefix()) {
+                nested_prefix = tablet_schema.column(i).path_info_ptr()->get_nested_prefix();
+                if (!value_columns.empty()) {
+                    column_groups->push_back(value_columns);
+                    value_columns.clear();
+                }
+            }
+            value_columns.push_back(i);
+            continue;
+        }
+
+        if (!nested_prefix.empty()) {
+            column_groups->push_back(value_columns);
+            value_columns.clear();
+            value_columns.push_back(i);
+            nested_prefix.clear();
             continue;
         }
 

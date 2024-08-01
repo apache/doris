@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
@@ -714,6 +715,40 @@ private:
 
     // current rowid
     ordinal_t _current_rowid = 0;
+};
+
+// This iterator is used to read default value column
+class EmptyColumnIterator : public ColumnIterator {
+public:
+    EmptyColumnIterator() = default;
+
+    Status init(const ColumnIteratorOptions& opts) override { return Status::OK(); }
+
+    Status seek_to_first() override { return Status::NotSupported("Not supported seek_to_first"); }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        return Status::NotSupported("Not supported seek_to_ordinal");
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) { return Status::OK(); }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        return Status::OK();
+    }
+
+    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("Not supported next_batch_of_zone_map");
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("Not supported read_by_rowids");
+    }
+
+    ordinal_t get_current_ordinal() const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Not supported get_current_ordinal");
+    }
 };
 
 } // namespace segment_v2
