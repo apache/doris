@@ -22,7 +22,7 @@ suite("test_cast_decimal") {
 
     explain {
         sql """select cast(32123.34212456734 as decimal(3,2));"""
-        contains "cast(32123.34212456734 as DECIMALV3(3, 2))"
+        contains "CAST(32123.34212456734 AS decimalv3(3,2))"
     }
     
 
@@ -31,8 +31,8 @@ suite("test_cast_decimal") {
     """
 
     explain {
-        sql """select cast(32123.34212456734 as decimal(3,2));"""
-        contains "CAST(32123.34212456734 AS DECIMALV3(3, 2))"
+        sql """select cast(32123.34212456734 as decimalv3(3,2));"""
+        contains "CAST(32123.34212456734 AS decimalv3(3,2))"
     }
 
     sql """drop table if exists test_ttt"""

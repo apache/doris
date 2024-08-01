@@ -99,7 +99,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e = cast(1.1 as double);"
-        contains "CAST(e[#4] AS DOUBLE) = 1.1"
+        contains "CAST(e[#4] AS double) = 1.1"
     }
 
     explain {
@@ -112,7 +112,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e > cast(1.1 as double);"
-        contains "CAST(e[#4] AS DOUBLE) > 1.1"
+        contains "CAST(e[#4] AS double) > 1.1"
     }
 
     explain {
@@ -125,7 +125,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e < cast(1.1 as double);"
-        contains "CAST(e[#4] AS DOUBLE) < 1.1"
+        contains "CAST(e[#4] AS double) < 1.1"
     }
 
     explain {
@@ -138,7 +138,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e >= cast(1.1 as double);"
-        contains "CAST(e[#4] AS DOUBLE) >= 1.1"
+        contains "CAST(e[#4] AS double) >= 1.1"
     }
 
     explain {
@@ -151,7 +151,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e <= cast(1.1 as double);"
-        contains "CAST(e[#4] AS DOUBLE) <= 1.1"
+        contains "CAST(e[#4] AS double) <= 1.1"
     }
 
     explain {
@@ -215,7 +215,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e = 1.1;"
-        contains "CAST(e[#4] AS DOUBLE) = 1.1"
+        contains "CAST(e[#4] AS double) = 1.1"
     }
 
     explain {
@@ -228,7 +228,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e > 1.1;"
-        contains "CAST(e[#4] AS DOUBLE) > 1.1"
+        contains "CAST(e[#4] AS double) > 1.1"
     }
 
     explain {
@@ -241,7 +241,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e < 1.1;"
-        contains "CAST(e[#4] AS DOUBLE) < 1.1"
+        contains "CAST(e[#4] AS double) < 1.1"
     }
 
     explain {
@@ -254,7 +254,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e >= 1.1;"
-        contains "CAST(e[#4] AS DOUBLE) >= 1.1"
+        contains "CAST(e[#4] AS double) >= 1.1"
     }
 
     explain {
@@ -267,7 +267,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e <= 1.1;"
-        contains "CAST(e[#4] AS DOUBLE) <= 1.1"
+        contains "CAST(e[#4] AS double) <= 1.1"
     }
 
     qt_select1 """select * from simple_test_table_t where cast(a as decimal(5,1)) = 10.0;"""
