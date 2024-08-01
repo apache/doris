@@ -132,20 +132,20 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
                     { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
     if (st.code() == ErrorCode::NOT_FOUND) {
-        error.set(CL_ERR_FileNotFound, fmt::format("File does not exist, file is {}", path));
+        error.set(CL_ERR_FileNotFound, fmt::format("File does not exist, file is {}", path).data());
     } else if (st.code() == ErrorCode::IO_ERROR) {
-        error.set(CL_ERR_IO, fmt::format("File open io error, file is {}", path));
+        error.set(CL_ERR_IO, fmt::format("File open io error, file is {}", path).data());
     } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
-        error.set(CL_ERR_IO, fmt::format("File Access denied, file is {}", path));
+        error.set(CL_ERR_IO, fmt::format("File Access denied, file is {}", path).data());
     } else if (!st.ok()) {
-        error.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", path));
+        error.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", path).data());
     }
 
     //Check if a valid handle was retrieved
     if (st.ok() && h->_reader) {
         if (h->_reader->size() == 0) {
             // may be a empty file
-            error.set(CL_ERR_IO, fmt::format("Opened File is empty, file is {}", path));
+            error.set(CL_ERR_IO, fmt::format("Opened File is empty, file is {}", path).data());
             return false;
         } else {
             //Store the file length
