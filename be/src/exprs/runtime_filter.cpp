@@ -1005,7 +1005,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    RuntimeFilterContextSPtr _rf_context;
+    // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
+    // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
+    // after query context because the rpc is not returned.
+    std::weak_ptr<RuntimeFilterContext> _rf_context;
     std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
@@ -1021,7 +1024,13 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _rf_context->ignored = true;
+            auto ctx = _rf_context.lock();
+            if (ctx) {
+                ctx->ignored = true;
+            } else {
+                LOG(WARNING) << "sync filter size returned but context is released, filter="
+                             << _rf_debug_info;
+            }
         } else {
             LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
             Base::_process_if_meet_error_status(status);
