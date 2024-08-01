@@ -7310,6 +7310,20 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | expr:e KW_IS KW_TRUE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
+  | expr:e KW_IS KW_NOT KW_TRUE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_FALSE
+  {:
+    e = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e);
+    RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null);
+  :}
+  | expr:e KW_IS KW_NOT KW_FALSE
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), e); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
   {: 
     ArrayList<Expr> exprs = new ArrayList<>();
@@ -7579,14 +7593,6 @@ predicate ::=
 comparison_predicate ::=
   expr:e1 EQUAL:op expr:e2
   {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, e2); :}
-  |  expr:e1 KW_IS KW_TRUE
-  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(true)); :}
-  |  expr:e1 KW_IS KW_NOT KW_TRUE
-  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(false)); :}
-  | expr:e1 KW_IS KW_FALSE
-  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(false)); :}
-  | expr:e1 KW_IS KW_NOT KW_FALSE
-  {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, new BoolLiteral(true)); :}
   | expr:e1 NOT EQUAL:op expr:e2
   {: RESULT = new BinaryPredicate(BinaryPredicate.Operator.NE, e1, e2); :}
   | expr:e1 LESSTHAN GREATERTHAN:op expr:e2
