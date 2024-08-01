@@ -108,13 +108,27 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
         auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
         file_cache->remove_if_cached(file_key);
 
-        file_reader.reset();
         RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
         segment->_file_reader = std::move(file_reader);
         st = segment->_open();
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to try to read remote source file again,"
+        TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
+        if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
+            LOG(WARNING) << "failed to try to read remote source file again with cache support,"
+                         << " try to read from remote directly, "
                          << " file path: " << path << " cache_key: " << file_cache_key_str(path);
+            file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached(file_key);
+
+            io::FileReaderOptions opt = reader_options;
+            opt.cache_type = io::FileCachePolicy::NO_CACHE; // skip cache
+            RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
+            segment->_file_reader = std::move(file_reader);
+            st = segment->_open();
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to try to read remote source file directly,"
+                             << " file path: " << path
+                             << " cache_key: " << file_cache_key_str(path);
+            }
         }
     }
     RETURN_IF_ERROR(st);

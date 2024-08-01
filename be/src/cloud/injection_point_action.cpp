@@ -116,6 +116,14 @@ void register_suites() {
             *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
         });
     });
+    suite_map.emplace("test_file_segment_cache_corruption1", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Segment::open:corruption1", [](auto&& args) {
+            LOG(INFO) << "injection Segment::open:corruption1";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
+        });
+    });
 }
 
 void set_sleep(const std::string& point, HttpRequest* req) {
