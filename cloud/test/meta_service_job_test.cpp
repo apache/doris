@@ -687,8 +687,11 @@ TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
     recorded_sc->set_id("sc1");
     recorded_sc->set_initiator("BE1");
     job_val = recorded_job.SerializeAsString();
+    auto new_job_key =
+            job_tablet_key({instance_id, table_id, new_index_id, partition_id, new_tablet_id});
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(job_key, job_val);
+    txn->put(new_job_key, job_val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
@@ -2342,12 +2345,12 @@ TEST(MetaServiceJobTest, DoCompactionWhenSC) {
     StartTabletJobResponse res;
     start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
                          TabletCompactionJobPB::CUMULATIVE, res, {7, 10});
-    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION);
     res.Clear();
 
     start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
                          TabletCompactionJobPB::BASE, res, {0, 10});
-    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION_FAIL);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_CHECK_ALTER_VERSION);
     res.Clear();
 
     start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 7,
@@ -2499,7 +2502,8 @@ TEST(MetaServiceJobTest, CancelSC) {
         FinishTabletJobResponse finish_res;
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job_sc", "BE1", {},
                                  finish_res, FinishTabletJobRequest::ABORT);
-        ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK);
+        ASSERT_NE(finish_res.status().msg().find("unmatched job id or initiator"),
+                  std::string::npos);
     }
     {
         std::unique_ptr<Transaction> txn;

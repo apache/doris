@@ -131,11 +131,11 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                         Long rollupTabletId = tabletEntry.getKey();
                         Long baseTabletId = tabletEntry.getValue();
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .removeSchemaChangeJob(dbId, tableId, baseIndexId, rollupIndexId,
+                                .removeSchemaChangeJob(dbId, tableId, baseIndexId, rollupIndexId,
                                     partitionId, baseTabletId, rollupTabletId);
                     }
-                    LOG.info("Cancel RollupJob. Remove SchemaChangeJob in ms." + 
-                            "dbId:{}, tableId:{}, rollupIndexId: {} partitionId:{}. tabletSize:{}",
+                    LOG.info("Cancel RollupJob. Remove SchemaChangeJob in ms."
+                            + "dbId:{}, tableId:{}, rollupIndexId: {} partitionId:{}. tabletSize:{}",
                             dbId, tableId, rollupIndexId, partitionId, rollupTabletIdToBaseTabletId.size());
                 }
                 break;

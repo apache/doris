@@ -22,5 +22,6 @@ DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true",
-"enable_mow_light_delete" = "true"
+"enable_mow_light_delete" = "true",
+"disable_auto_compaction" = "true"
 );

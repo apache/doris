@@ -874,8 +874,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         newtabletIndexPBBuilder.setTabletId(newTabletId);
         final Cloud.TabletIndexPB newtabletIndex = newtabletIndexPBBuilder.build();
         schemaChangeJobPBBuilder.setNewTabletIdx(newtabletIndex);
-        final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb = 
-            schemaChangeJobPBBuilder.build();
+        final Cloud.TabletSchemaChangeJobPB tabletSchemaChangeJobPb =
+                schemaChangeJobPBBuilder.build();
 
         tabletJobInfoPBBuilder.setSchemaChange(tabletSchemaChangeJobPb);
 

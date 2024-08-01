@@ -92,6 +92,9 @@ Status CloudBaseCompaction::prepare_compact() {
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
     cloud::StartTabletJobResponse resp;
     auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    if (resp.has_alter_version()) {
+        (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+    }
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
@@ -113,7 +116,6 @@ Status CloudBaseCompaction::prepare_compact() {
                << " schema_change_alter_version=" << resp.alter_version();
             std::string msg = ss.str();
             LOG(WARNING) << msg;
-            cloud_tablet->set_alter_version(resp.alter_version());
             return Status::InternalError(msg);
         }
         return st;

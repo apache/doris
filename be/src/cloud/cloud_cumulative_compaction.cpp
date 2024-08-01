@@ -270,11 +270,13 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
+    if (resp.has_alter_version()) {
+        (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+    }
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
-            (dynamic_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
             ss << "failed to prepare cumu compaction. Check compaction input versions "
                   "failed in schema change. "
@@ -288,6 +290,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         }
         return st;
     }
+
     auto& stats = resp.stats();
     LOG(INFO) << "tablet stats=" << stats.ShortDebugString();
     {

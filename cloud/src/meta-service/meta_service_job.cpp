@@ -919,7 +919,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     txn->put(job_key, job_val);
     INSTANCE_LOG(INFO) << "remove compaction job tabelt_id=" << tablet_id
                        << " key=" << hex(job_key);
-
+    response->set_alter_version(recorded_job.has_schema_change() &&
+                                                recorded_job.schema_change().has_alter_version()
+                                        ? recorded_job.schema_change().alter_version()
+                                        : -1);
     need_commit = true;
 }
 
@@ -1007,9 +1010,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     }
 
     // MUST check initiator to let the retried BE commit this schema_change job.
-    if (request->action() == FinishTabletJobRequest::COMMIT &&
-        (schema_change.id() != recorded_schema_change.id() ||
-         schema_change.initiator() != recorded_schema_change.initiator())) {
+    if (schema_change.id() != recorded_schema_change.id() ||
+        schema_change.initiator() != recorded_schema_change.initiator()) {
         SS << "unmatched job id or initiator, recorded_id=" << recorded_schema_change.id()
            << " given_id=" << schema_change.id()
            << " recorded_job=" << proto_to_json(recorded_schema_change)
@@ -1031,21 +1033,22 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
 
     std::string new_tablet_job_val;
+    TabletJobInfoPB new_recorded_job;
     err = txn->get(new_tablet_job_key, &new_tablet_job_val);
-    if (err != TxnErrorCode::TXN_OK) {
-        SS << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        SS << "internal error,"
            << " instance_id=" << instance_id << " tablet_id=" << new_tablet_id
            << " job=" << proto_to_json(request->job()) << " err=" << err;
         msg = ss.str();
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::INVALID_ARGUMENT
                                                       : cast_as<ErrCategory::READ>(err);
         return;
-    }
-    TabletJobInfoPB new_recorded_job;
-    if (!new_recorded_job.ParseFromString(new_tablet_job_val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = "malformed new tablet recorded job";
-        return;
+    } else if (err == TxnErrorCode::TXN_OK) {
+        if (!new_recorded_job.ParseFromString(new_tablet_job_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "malformed new tablet recorded job";
+            return;
+        }
     }
 
     //==========================================================================
@@ -1058,11 +1061,13 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                     recorded_schema_change.new_tablet_idx().tablet_id()) {
             // remove schema change
             recorded_job.clear_schema_change();
-            new_recorded_job.clear_schema_change();
             auto job_val = recorded_job.SerializeAsString();
-            new_tablet_job_val = new_recorded_job.SerializeAsString();
             txn->put(job_key, job_val);
-            txn->put(new_tablet_job_key, new_tablet_job_val);
+            if (!new_tablet_job_val.empty()) {
+                new_recorded_job.clear_schema_change();
+                new_tablet_job_val = new_recorded_job.SerializeAsString();
+                txn->put(new_tablet_job_key, new_tablet_job_val);
+            }
             INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
                                << " key=" << hex(job_key);
 
@@ -1226,11 +1231,13 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //                      remove schema_change job
     //==========================================================================
     recorded_job.clear_schema_change();
-    new_recorded_job.clear_schema_change();
     auto job_val = recorded_job.SerializeAsString();
     txn->put(job_key, job_val);
-    new_tablet_job_val = new_recorded_job.SerializeAsString();
-    txn->put(new_tablet_job_key, new_tablet_job_val);
+    if (!new_tablet_job_val.empty()) {
+        new_recorded_job.clear_schema_change();
+        new_tablet_job_val = new_recorded_job.SerializeAsString();
+        txn->put(new_tablet_job_key, new_tablet_job_val);
+    }
     INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
                        << " key=" << hex(job_key);
 

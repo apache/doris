@@ -19,5 +19,6 @@ CREATE TABLE IF NOT EXISTS `date` (
 )
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"replication_num" = "1"
+"replication_num" = "1",
+"disable_auto_compaction" = "true"
 );

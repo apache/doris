@@ -26,6 +26,7 @@ suite('test_schema_change_with_compaction5', 'nonConcurrent') {
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
     options.beConfigs += [ "disable_auto_compaction=true" ]
+    options.beConfigs += [ "enable_new_tablet_do_compaction=true" ]
     options.beNum = 1
     docker(options) {
         def getJobState = { tableName ->

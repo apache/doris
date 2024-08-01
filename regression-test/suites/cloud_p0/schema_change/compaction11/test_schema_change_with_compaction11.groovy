@@ -20,13 +20,13 @@ import org.apache.http.NoHttpResponseException
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_with_compaction9') {
+suite('test_schema_change_with_compaction11') {
     def options = new ClusterOptions()
     options.cloudMode = true
     options.enableDebugPoints()
     options.beConfigs += [ "enable_java_support=false" ]
+    options.beConfigs += [ "enable_new_tablet_do_compaction=false" ]
     options.beConfigs += [ "disable_auto_compaction=true" ]
-    options.beConfigs += [ "enable_new_tablet_do_compaction=true" ]
     options.beNum = 1
     docker(options) {
         def getJobState = { tableName ->
@@ -115,6 +115,7 @@ suite('test_schema_change_with_compaction9') {
             for (int i = 0; i < 5; i++) {
                 load_date_once("date");
             }
+
             // base compaction
             logger.info("run compaction:" + originTabletId)
             (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
@@ -140,29 +141,30 @@ suite('test_schema_change_with_compaction9') {
             
 
             // cu compaction
-            for (int i = 0; i < array.size(); i++) {
-                tabletId = array[i].TabletId
-                logger.info("run compaction:" + tabletId)
-                (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            }
+            tabletId = array[0].TabletId
+            logger.info("run compaction:" + tabletId)
+            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
-            for (int i = 0; i < array.size(); i++) {
-                running = true
-                do {
-                    Thread.sleep(100)
-                    tabletId = array[i].TabletId
-                    (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
-            }
-            cluster.restartFrontends()
-            sleep(30000)
-            context.reconnectFe()
+            running = true
+            do {
+                Thread.sleep(100)
+                tabletId = array[0].TabletId
+                (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def compactionStatus = parseJson(out.trim())
+                assertEquals("success", compactionStatus.status.toLowerCase())
+                running = compactionStatus.run_status
+            } while (running)
+
+             // new tablet cannot do cu compaction
+            tabletId = array[1].TabletId
+            logger.info("run compaction:" + tabletId)
+            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+            assertTrue(out.contains("invalid tablet state."))
+
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
@@ -199,7 +201,8 @@ suite('test_schema_change_with_compaction9') {
             assertTrue(out.contains("[2-2]"))
             assertTrue(out.contains("[7-7]"))
             assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-13]"))
+            assertTrue(out.contains("[9-9]"))
+            assertTrue(out.contains("[13-13]"))
             
             // base compaction
             logger.info("run compaction:" + newTabletId)
@@ -219,15 +222,32 @@ suite('test_schema_change_with_compaction9') {
                 running = compactionStatus.run_status
             }
 
+            // cu compaction
+            logger.info("run compaction:" + newTabletId)
+            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+
+
+            // wait for all compactions done
+            running = true
+            while (running) {
+                Thread.sleep(100)
+                (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, newTabletId)
+                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def compactionStatus = parseJson(out.trim())
+                assertEquals("success", compactionStatus.status.toLowerCase())
+                running = compactionStatus.run_status
+            }
+
             logger.info("run show:" + newTabletId)
             (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))
-            assertTrue(out.contains("[8-8]"))
-            assertTrue(out.contains("[9-13]"))
+            assertTrue(out.contains("[8-13]"))
 
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < 4; i++) {
                 load_date_once("date");
             }
 
@@ -254,7 +274,7 @@ suite('test_schema_change_with_compaction9') {
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))
-            assertTrue(out.contains("[8-16]"))
+            assertTrue(out.contains("[8-17]"))
         }
     }
 }
