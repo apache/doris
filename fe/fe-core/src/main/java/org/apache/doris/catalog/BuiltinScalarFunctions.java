@@ -380,6 +380,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
@@ -865,6 +866,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sm4Encrypt.class, "sm4_encrypt"),
             scalar(Space.class, "space"),
             scalar(SplitByChar.class, "split_by_char"),
+            scalar(SplitByRegexp.class, "split_by_regexp"),
             scalar(SplitByString.class, "split_by_string"),
             scalar(SplitPart.class, "split_part"),
             scalar(Sqrt.class, "sqrt"),
