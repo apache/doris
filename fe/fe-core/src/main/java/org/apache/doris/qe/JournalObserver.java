@@ -124,7 +124,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
         }
 
         JournalObserver obs = ((JournalObserver) obj);
-        return this.targetJournalVersion == obs.targetJournalVersion && this.id == obs.id;
+        return this.targetJournalVersion.equals(obs.targetJournalVersion) && this.id.equals(obs.id);
     }
 
     @Override
