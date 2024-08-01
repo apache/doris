@@ -86,17 +86,6 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         }
         return Status::OK();
     } else {
-        int64_t input_rows = 0, filter_rows = 0;
-        Defer statistic_filter_info {[&]() {
-            if (_expr_filtered_rows_counter) {
-                COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
-            }
-            if (_expr_input_rows_counter) {
-                COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
-            }
-        }};
-        input_rows += block->rows();
-
         if (_getting_const_col) {
             _impl->set_getting_const_col(true);
         }
@@ -106,15 +95,12 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             _impl->set_getting_const_col(false);
         }
 
-        const auto rows = block->rows();
         ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
 
         if (_null_aware) {
             change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
         }
 
-        filter_rows = rows - calculate_false_number(result_column.column);
-        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _skip_counter);
         return Status::OK();
     }
 }

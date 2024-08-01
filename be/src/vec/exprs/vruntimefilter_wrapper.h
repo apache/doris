@@ -80,10 +80,22 @@ public:
 
     // return true when we need
     template <typename T>
-    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
+    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
                                   T& skip_counter) {
-        if (filter_rows / (scan_rows * 1.0) < ignore_threshold) {
+        if (filter_rows / (input_rows * 1.0) < ignore_threshold) {
             skip_counter = config::runtime_filter_sampling_frequency;
+        }
+    }
+
+    bool need_judge_selectivity() override { return true; }
+
+    void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
+        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _skip_counter);
+        if (_expr_filtered_rows_counter) {
+            COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
+        }
+        if (_expr_input_rows_counter) {
+            COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
         }
     }
 
