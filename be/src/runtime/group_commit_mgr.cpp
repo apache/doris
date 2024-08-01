@@ -436,6 +436,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
                     { status = Status::InternalError(""); });
     if (status.ok()) {
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
+                        { status = Status::InternalError(""); });
         // commit txn
         TLoadTxnCommitRequest request;
         request.__set_auth_code(0); // this is a fake, fe not check it now
