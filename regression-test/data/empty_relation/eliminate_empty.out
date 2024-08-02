@@ -76,7 +76,7 @@ PhysicalResultSink
 
 -- !null_explain_union_empty_data --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
+--PhysicalDistribute
 ----hashAgg[LOCAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
@@ -103,7 +103,7 @@ PhysicalResultSink
 
 -- !null_explain_except_data_empty --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
+--PhysicalDistribute
 ----PhysicalProject
 ------hashAgg[LOCAL]
 --------PhysicalProject
@@ -111,12 +111,12 @@ PhysicalResultSink
 
 -- !null_explain_except_data_empty_data --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
+--PhysicalDistribute
 ----PhysicalExcept
-------PhysicalDistribute[DistributionSpecHash]
+------PhysicalDistribute
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
-------PhysicalDistribute[DistributionSpecHash]
+------PhysicalDistribute
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
 ------------PhysicalOlapScan[nation]
@@ -139,11 +139,25 @@ PhysicalResultSink
 
 -- !prune_partition1 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------filter((eliminate_partition_prune.k1 = 100))
+----------------PhysicalOlapScan[eliminate_partition_prune]
 
 -- !prune_partition2 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------filter((eliminate_partition_prune.k1 = 100))
+----------------PhysicalOlapScan[eliminate_partition_prune]
 
 -- !join_with_empty_child --
 2	8	e	v	3
