@@ -341,18 +341,6 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PExportDeleteExistFilesResult> exportDeleteExistFilesAsync(
-            TNetworkAddress address, InternalService.PExportDeleteExistFilesRequest request) throws RpcException {
-        try {
-            final BackendServiceClient client = getProxy(address);
-            return client.exportDeleteExistFilesAsync(request);
-        } catch (Throwable e) {
-            LOG.warn("export delete exist files catch a exception, address={}:{}",
-                    address.getHostname(), address.getPort(), e);
-            throw new RpcException(address.hostname, e.getMessage());
-        }
-    }
-
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {
