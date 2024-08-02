@@ -103,7 +103,11 @@ public:
      */
     std::string reset_capacity(size_t new_capacity);
 
-    std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+    std::map<size_t /* offset */, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+
+    // Return true if the cache contains the block with the given hash.
+    [[nodiscard]] bool contains(const UInt128Wrapper& hash);
+
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);
 
