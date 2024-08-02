@@ -337,5 +337,19 @@ suite("test_array_functions") {
             (12, 1.200, 1.200000000  , 1.200, 1.20000, 1.200000000, [1.200000000, 1.200000000]); """
 
     qt_sql """ select array_position(kadcml, kdcmls1), kadcml, kdcmls1 from fn_test;"""
-
+    // test large size of array
+    test {
+        sql """ select sequence(1, 10000000000); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql """ select sequence(1, 10000000000, 2); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 }

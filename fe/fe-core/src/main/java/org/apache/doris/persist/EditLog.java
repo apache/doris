@@ -1905,4 +1905,17 @@ public class EditLog {
     public void logDeleteTableStats(TableStatsDeletionLog log) {
         logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
     }
+
+    public boolean exceedMaxJournalSize(BackupJob job) {
+        try {
+            return exceedMaxJournalSize(OperationType.OP_BACKUP_JOB, job);
+        } catch (Exception e) {
+            LOG.warn("exceedMaxJournalSize exception:", e);
+        }
+        return true;
+    }
+
+    private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        return journal.exceedMaxJournalSize(op, writable);
+    }
 }

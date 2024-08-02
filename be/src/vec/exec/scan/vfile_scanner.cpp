@@ -235,6 +235,7 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 }
 
 Status VFileScanner::open(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -271,6 +272,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(_get_next_reader());
         }
@@ -664,6 +666,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
+            _cur_reader->collect_profile_before_close();
             _cur_reader->close();
         }
         _cur_reader.reset(nullptr);
@@ -1070,11 +1073,6 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
-    }
-
     if (_cur_reader) {
         _cur_reader->close();
     }
@@ -1087,6 +1085,19 @@ void VFileScanner::try_stop() {
     VScanner::try_stop();
     if (_io_ctx) {
         _io_ctx->should_stop = true;
+    }
+}
+
+void VFileScanner::_collect_profile_before_close() {
+    VScanner::_collect_profile_before_close();
+    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
+        _profile != nullptr) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader != nullptr) {
+        _cur_reader->collect_profile_before_close();
     }
 }
 

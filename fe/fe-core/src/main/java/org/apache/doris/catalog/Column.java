@@ -243,7 +243,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
         this.defineExpr = column.getDefineExpr();
-        this.defineName = column.getDefineName();
+        this.defineName = column.getRealDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -285,6 +285,12 @@ public class Column implements Writable, GsonPostProcessable {
             return defineName;
         }
         return name;
+    }
+
+    // In order for the copy constructor to get the real defineName value.
+    // getDefineName() cannot meet this requirement
+    public String getRealDefineName() {
+        return defineName;
     }
 
     public void setName(String newName) {
@@ -729,13 +735,13 @@ public class Column implements Writable, GsonPostProcessable {
             } else if (type.isDateV2()) {
                 sb.append("date");
             } else if (type.isDecimalV3()) {
-                sb.append("DECIMAL");
+                sb.append("decimal");
                 ScalarType sType = (ScalarType) type;
                 int scale = sType.getScalarScale();
                 int precision = sType.getScalarPrecision();
                 // not default
                 if (!sType.isDefaultDecimal()) {
-                    sb.append("(").append(precision).append(", ").append(scale)
+                    sb.append("(").append(precision).append(",").append(scale)
                             .append(")");
                 }
             } else {

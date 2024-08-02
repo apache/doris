@@ -2748,7 +2748,7 @@ public class ShowExecutor {
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
-                row.add(TimeUtils.DATETIME_FORMAT.format(
+                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                         ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
@@ -3026,7 +3026,7 @@ public class ShowExecutor {
                 row.add("N/A");
             }
             row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
+            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(String.valueOf(analysisInfo.timeCostInMs));

@@ -71,6 +71,7 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
+#include "util/runtime_profile.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -119,14 +120,16 @@ Status S3FileSystem::set_conf(S3Conf s3_conf) {
     return Status::OK();
 }
 
-Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs) {
-    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id)));
+Status S3FileSystem::create(S3Conf s3_conf, std::string id, RuntimeProfile* profile,
+                            std::shared_ptr<S3FileSystem>* fs) {
+    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id), profile));
     return (*fs)->connect();
 }
 
-S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
+S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id, RuntimeProfile* profile)
         : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
-          _s3_conf(std::move(s3_conf)) {
+          _s3_conf(std::move(s3_conf)),
+          _profile(profile) {
     // remove the first and last '/'
     if (!_s3_conf.prefix.empty()) {
         if (_s3_conf.prefix[0] == '/') {
@@ -168,7 +171,7 @@ Status S3FileSystem::open_file_internal(const FileDescription& fd, const Path& a
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
     *reader = std::make_shared<S3FileReader>(
             std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,
-            std::static_pointer_cast<S3FileSystem>(shared_from_this()));
+            std::static_pointer_cast<S3FileSystem>(shared_from_this()), _profile);
     return Status::OK();
 }
 

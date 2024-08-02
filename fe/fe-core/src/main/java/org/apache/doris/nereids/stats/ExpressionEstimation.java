@@ -18,11 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.LargeIntLiteral;
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -224,7 +220,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             }
         }
         // cast numeric to numeric
-        if (isNumericLiteralExpr(colStats.minExpr) && isNumericLiteralExpr(colStats.maxExpr)) {
+        if (colStats.minExpr instanceof NumericLiteralExpr && colStats.maxExpr instanceof NumericLiteralExpr) {
             if (targetType.isNumericType()) {
                 return colStats;
             }
@@ -235,11 +231,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
                 .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
         return builder.build();
-    }
-
-    private boolean isNumericLiteralExpr(LiteralExpr literal) {
-        return literal instanceof DecimalLiteral || literal instanceof FloatLiteral
-                || literal instanceof IntLiteral || literal instanceof LargeIntLiteral;
     }
 
     @Override

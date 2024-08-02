@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_compress_type", "load_p0") {
+    def s3BucketName = getS3BucketName()
     def tableName = "basic_data"
 
     // GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
@@ -50,18 +51,18 @@ suite("test_compress_type", "load_p0") {
     ]
 
     def paths = [
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4"
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
+            "s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4"
     ]
     def labels = []
 
@@ -88,8 +89,8 @@ suite("test_compress_type", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}"
             )
             properties(
                 "use_new_load_scan_node" = "true"

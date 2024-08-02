@@ -196,6 +196,9 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* read_time;
@@ -264,10 +267,15 @@ private:
     void _init_system_properties();
     void _init_file_description();
     template <bool is_filter = false>
-    Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
+    Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
                                        orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <bool is_filter = false>
+    Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
+                                   const DataTypePtr& data_type, const orc::Type* orc_column_type,
+                                   orc::ColumnVectorBatch* cvb, size_t num_values);
 
     template <typename CppType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
@@ -564,7 +572,7 @@ private:
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 };
 
-class ORCFileInputStream : public orc::InputStream {
+class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
@@ -588,6 +596,10 @@ public:
 
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
+
+protected:
+    void _collect_profile_at_runtime() override {};
+    void _collect_profile_before_close() override;
 
 private:
     const std::string& _file_name;

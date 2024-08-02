@@ -358,8 +358,7 @@ public class RoutineLoadManager implements Writable {
             try {
                 routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
                 routineLoadJob.autoResumeCount = 0;
-                routineLoadJob.firstResumeTimestamp = 0;
-                routineLoadJob.autoResumeLock = false;
+                routineLoadJob.latestResumeTimestamp = 0;
                 routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                         .add("current_state", routineLoadJob.getState())
@@ -480,7 +479,7 @@ public class RoutineLoadManager implements Writable {
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
 
-            // 1. Find if the given BE id has available slots
+            // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
                 // get the previousBackend info
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
@@ -495,7 +494,7 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (idleTaskNum > 0) {
+                    if (idleTaskNum > (Config.max_routine_load_task_num_per_be >> 1)) {
                         return previousBeId;
                     }
                 }

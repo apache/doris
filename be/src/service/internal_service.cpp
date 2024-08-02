@@ -933,7 +933,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
-        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
+        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 60 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
             if (!kafka_request.partition_id_for_latest_offsets().empty()) {

@@ -57,9 +57,7 @@ excludeSuites = "test_profile,test_broker_load_p2,test_spark_load,test_refresh_m
 excludeDirectories = "workload_manager_p1"
 cacheDataPath="/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+s3Source="aliyun"
 
 max_failure_num=0
 

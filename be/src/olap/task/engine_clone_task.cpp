@@ -407,7 +407,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // change all rowset ids because they maybe its id same with local rowset
             status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
-                    _clone_req.partition_id, _clone_req.schema_hash);
+                    _clone_req.table_id, _clone_req.partition_id, _clone_req.schema_hash);
         } else {
             LOG_WARNING("failed to download snapshot from remote BE")
                     .tag("url", _mask_token(remote_url_prefix))
@@ -606,7 +606,13 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir,
                                       int64_t committed_version, bool is_incremental_clone) {
-    Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
+    Defer remove_clone_dir {[&]() {
+        std::error_code ec;
+        std::filesystem::remove_all(clone_dir, ec);
+        if (ec) {
+            LOG(WARNING) << "failed to remove=" << clone_dir << " msg=" << ec.message();
+        }
+    }};
 
     // check clone dir existed
     bool exists = true;
@@ -637,7 +643,13 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
     if (binlog_metas_file_exists) {
-        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        std::error_code ec;
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file, ec);
+        if (ec) {
+            LOG(WARNING) << "get file size error" << ec.message();
+            return Status::IOError("can't retrive file_size of {}, due to {}", binlog_metas_file,
+                                   ec.message());
+        }
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));

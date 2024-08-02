@@ -73,6 +73,12 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
+        traverseReadyTxnAndDispatchPublishVersionTask(readyTransactionStates, allBackends);
+        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr);
+    }
+
+    private void traverseReadyTxnAndDispatchPublishVersionTask(List<TransactionState> readyTransactionStates,
+            List<Long> allBackends) {
         long createPublishVersionTaskTime = System.currentTimeMillis();
         // every backend-transaction identified a single task
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -81,99 +87,121 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (transactionState.hasSendTask()) {
                 continue;
             }
-            List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
-            for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
-                partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
+            try {
+                genPublishTask(allBackends, transactionState, createPublishVersionTaskTime, batchTask);
+            } catch (Throwable t) {
+                LOG.error("errors while generate publish task for transaction: {}", transactionState, t);
             }
-            List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
-            for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
-                        commitInfo.getVersion(), 0);
-                partitionVersionInfos.add(versionInfo);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}]",
-                            commitInfo.getPartitionId(),
-                            commitInfo.getVersion());
-                }
-            }
-            Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
-            // public version tasks are not persisted in catalog, so publishBackends may be empty.
-            // so we have to try publish to all backends;
-            if (publishBackends.isEmpty()) {
-                // could not just add to it, should new a new object, or the back map will destroyed
-                publishBackends = Sets.newHashSet();
-                publishBackends.addAll(allBackends);
-            }
-
-            for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId,
-                        transactionState.getTransactionId(),
-                        transactionState.getDbId(),
-                        partitionVersionInfos,
-                        createPublishVersionTaskTime);
-                // add to AgentTaskQueue for handling finish report.
-                // not check return value, because the add will success
-                AgentTaskQueue.addTask(task);
-                batchTask.addTask(task);
-                transactionState.addPublishVersionTask(backendId, task);
-            }
-            transactionState.setSendedTask();
-            LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
-                    transactionState.getDbId());
         }
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
         }
+    }
 
-        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
-        // try to finish the transaction, if failed just retry in next loop
-        for (TransactionState transactionState : readyTransactionStates) {
-            Stream<PublishVersionTask> publishVersionTaskStream = transactionState
-                    .getPublishVersionTasks()
-                    .values()
-                    .stream()
-                    .peek(task -> {
-                        if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tableIdToDeltaNumRows =
-                                    task.getTableIdToDeltaNumRows();
-                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToTotalDeltaNumRows
-                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
-                            });
-                        }
-                    });
-            boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
-                    .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
-
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout();
-            if (shouldFinishTxn) {
-                try {
-                    // one transaction exception should not affect other transaction
-                    globalTransactionMgr.finishTransaction(transactionState.getDbId(),
-                            transactionState.getTransactionId());
-                } catch (Exception e) {
-                    LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
-                }
-                if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
-                    // if finish transaction state failed, then update publish version time, should check
-                    // to finish after some interval
-                    transactionState.updateSendTaskTime();
-                    LOG.debug("publish version for transaction {} failed", transactionState);
-                }
+    private void genPublishTask(List<Long> allBackends, TransactionState transactionState,
+            long createPublishVersionTaskTime, AgentBatchTask batchTask) {
+        List<PartitionCommitInfo> partitionCommitInfos = new ArrayList<>();
+        for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+            partitionCommitInfos.addAll(tableCommitInfo.getIdToPartitionCommitInfo().values());
+        }
+        List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
+        for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
+            TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                    commitInfo.getVersion(), 0);
+            partitionVersionInfos.add(versionInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                        commitInfo.getPartitionId(),
+                        commitInfo.getVersion());
             }
+        }
+        Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+        // public version tasks are not persisted in catalog, so publishBackends may be empty.
+        // so we have to try publish to all backends;
+        if (publishBackends.isEmpty()) {
+            // could not just add to it, should new a new object, or the back map will destroyed
+            publishBackends = Sets.newHashSet();
+            publishBackends.addAll(allBackends);
+        }
 
-            if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
-                }
-                transactionState.pruneAfterVisible();
-                if (MetricRepo.isInit) {
-                    long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
-                    MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
-                }
+        for (long backendId : publishBackends) {
+            PublishVersionTask task = new PublishVersionTask(backendId,
+                    transactionState.getTransactionId(),
+                    transactionState.getDbId(),
+                    partitionVersionInfos,
+                    createPublishVersionTaskTime);
+            // add to AgentTaskQueue for handling finish report.
+            // not check return value, because the add will success
+            AgentTaskQueue.addTask(task);
+            batchTask.addTask(task);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
+        transactionState.setSendedTask();
+        LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
+                transactionState.getDbId());
+    }
+
+    private void tryFinishTxn(List<TransactionState> readyTransactionStates,
+            SystemInfoService infoService, GlobalTransactionMgr globalTransactionMgr) {
+        for (TransactionState transactionState : readyTransactionStates) {
+            try {
+                // try to finish the transaction, if failed just retry in next loop
+                tryFinishOneTxn(transactionState, infoService, globalTransactionMgr);
+            } catch (Throwable t) {
+                LOG.error("errors while finish transaction: {}, publish tasks: {}", transactionState,
+                        transactionState.getPublishVersionTasks(), t);
             }
         } // end for readyTransactionStates
+    }
+
+    private void tryFinishOneTxn(TransactionState transactionState, SystemInfoService infoService,
+            GlobalTransactionMgr globalTransactionMgr) {
+        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
+        Stream<PublishVersionTask> publishVersionTaskStream = transactionState
+                .getPublishVersionTasks()
+                .values()
+                .stream()
+                .peek(task -> {
+                    if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
+                        Map<Long, Long> tableIdToDeltaNumRows =
+                                task.getTableIdToDeltaNumRows();
+                        tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                            tableIdToTotalDeltaNumRows
+                                    .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
+                            tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
+                        });
+                    }
+                });
+        boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
+                .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
+        transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
+
+        boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout();
+        if (shouldFinishTxn) {
+            try {
+                // one transaction exception should not affect other transaction
+                globalTransactionMgr.finishTransaction(transactionState.getDbId(),
+                        transactionState.getTransactionId());
+            } catch (Exception e) {
+                LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
+            }
+            if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
+                // if finish transaction state failed, then update publish version time, should check
+                // to finish after some interval
+                transactionState.updateSendTaskTime();
+                LOG.debug("publish version for transaction {} failed", transactionState);
+            }
+        }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
+                AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
+            }
+            transactionState.pruneAfterVisible();
+            if (MetricRepo.isInit) {
+                long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
+                MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
+            }
+        }
     }
 }
