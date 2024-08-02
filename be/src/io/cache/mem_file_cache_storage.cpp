@@ -114,9 +114,10 @@ void MemFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* _mgr,
     // load nothing for in memory cache coz nothing is persisted
 }
 
-void MemFileCacheStorage::clear() {
+Status MemFileCacheStorage::clear(std::string& msg) {
     std::lock_guard<std::mutex> lock(_cache_map_mtx);
     _cache_map.clear();
+    return Status::OK();
 }
 
 } // namespace doris::io
