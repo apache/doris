@@ -89,7 +89,6 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "olap/wal/wal_manager.h"
-#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -136,7 +135,6 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/writer/vfile_result_writer.h"
 
 namespace google {
 namespace protobuf {
