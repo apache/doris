@@ -40,7 +40,6 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
         return rewrite(this, whenClause, context);
     }
 
-
     /** rewrite */
     public static final <C> Expression rewrite(ExpressionVisitor<Expression, C> rewriter, Expression expr, C context) {
         List<Expression> newChildren = new ArrayList<>();
