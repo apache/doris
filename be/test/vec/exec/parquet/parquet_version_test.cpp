@@ -128,8 +128,8 @@ void assertLessThan(const std::string& a, const std::string& b) {
     std::unique_ptr<SemanticVersion> version_b;
     status = SemanticVersion::parse(b, &version_b);
     EXPECT_TRUE(status.ok());
-    EXPECT_LT(version_a->compareTo(*version_b), 0) << a << " should be < " << b;
-    EXPECT_GT(version_b->compareTo(*version_a), 0) << b << " should be > " << a;
+    EXPECT_LT(version_a->compare_to(*version_b), 0) << a << " should be < " << b;
+    EXPECT_GT(version_b->compare_to(*version_a), 0) << b << " should be > " << a;
 }
 
 void assertEqualTo(const std::string& a, const std::string& b) {
@@ -139,29 +139,29 @@ void assertEqualTo(const std::string& a, const std::string& b) {
     std::unique_ptr<SemanticVersion> version_b;
     status = SemanticVersion::parse(b, &version_b);
     EXPECT_TRUE(status.ok());
-    EXPECT_EQ(version_a->compareTo(*version_b), 0) << a << " should equal " << b;
+    EXPECT_EQ(version_a->compare_to(*version_b), 0) << a << " should equal " << b;
 }
 
 TEST_F(ParquetVersionTest, test_compare) {
-    EXPECT_EQ(SemanticVersion(1, 8, 1).compareTo(SemanticVersion(1, 8, 1)), 0);
-    EXPECT_LT(SemanticVersion(1, 8, 0).compareTo(SemanticVersion(1, 8, 1)), 0);
-    EXPECT_GT(SemanticVersion(1, 8, 2).compareTo(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_EQ(SemanticVersion(1, 8, 1).compare_to(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_LT(SemanticVersion(1, 8, 0).compare_to(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_GT(SemanticVersion(1, 8, 2).compare_to(SemanticVersion(1, 8, 1)), 0);
 
-    EXPECT_EQ(SemanticVersion(1, 8, 1).compareTo(SemanticVersion(1, 8, 1)), 0);
-    EXPECT_LT(SemanticVersion(1, 8, 0).compareTo(SemanticVersion(1, 8, 1)), 0);
-    EXPECT_GT(SemanticVersion(1, 8, 2).compareTo(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_EQ(SemanticVersion(1, 8, 1).compare_to(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_LT(SemanticVersion(1, 8, 0).compare_to(SemanticVersion(1, 8, 1)), 0);
+    EXPECT_GT(SemanticVersion(1, 8, 2).compare_to(SemanticVersion(1, 8, 1)), 0);
 
-    EXPECT_LT(SemanticVersion(1, 7, 0).compareTo(SemanticVersion(1, 8, 0)), 0);
-    EXPECT_GT(SemanticVersion(1, 9, 0).compareTo(SemanticVersion(1, 8, 0)), 0);
+    EXPECT_LT(SemanticVersion(1, 7, 0).compare_to(SemanticVersion(1, 8, 0)), 0);
+    EXPECT_GT(SemanticVersion(1, 9, 0).compare_to(SemanticVersion(1, 8, 0)), 0);
 
-    EXPECT_LT(SemanticVersion(0, 0, 0).compareTo(SemanticVersion(1, 0, 0)), 0);
-    EXPECT_GT(SemanticVersion(2, 0, 0).compareTo(SemanticVersion(1, 0, 0)), 0);
+    EXPECT_LT(SemanticVersion(0, 0, 0).compare_to(SemanticVersion(1, 0, 0)), 0);
+    EXPECT_GT(SemanticVersion(2, 0, 0).compare_to(SemanticVersion(1, 0, 0)), 0);
 
-    EXPECT_LT(SemanticVersion(1, 8, 100).compareTo(SemanticVersion(1, 9, 0)), 0);
+    EXPECT_LT(SemanticVersion(1, 8, 100).compare_to(SemanticVersion(1, 9, 0)), 0);
 
-    EXPECT_GT(SemanticVersion(1, 8, 0).compareTo(SemanticVersion(1, 8, 0, true)), 0);
-    EXPECT_EQ(SemanticVersion(1, 8, 0, true).compareTo(SemanticVersion(1, 8, 0, true)), 0);
-    EXPECT_LT(SemanticVersion(1, 8, 0, true).compareTo(SemanticVersion(1, 8, 0)), 0);
+    EXPECT_GT(SemanticVersion(1, 8, 0).compare_to(SemanticVersion(1, 8, 0, true)), 0);
+    EXPECT_EQ(SemanticVersion(1, 8, 0, true).compare_to(SemanticVersion(1, 8, 0, true)), 0);
+    EXPECT_LT(SemanticVersion(1, 8, 0, true).compare_to(SemanticVersion(1, 8, 0)), 0);
 }
 
 TEST_F(ParquetVersionTest, test_semver_prerelease_examples) {

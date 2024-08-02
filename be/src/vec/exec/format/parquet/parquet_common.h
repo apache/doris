@@ -262,7 +262,6 @@ private:
         std::vector<NumberOrString> _identifiers;
     };
 
-private:
     static int _compare_integers(int x, int y);
     static int _compare_booleans(bool x, bool y);
 

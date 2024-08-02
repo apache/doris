@@ -274,10 +274,18 @@ Status SemanticVersion::parse(const std::string& version,
 }
 
 int SemanticVersion::compare_to(const SemanticVersion& other) const {
-    if (int cmp = _compare_integers(_major, other._major); cmp != 0) return cmp;
-    if (int cmp = _compare_integers(_minor, other._minor); cmp != 0) return cmp;
-    if (int cmp = _compare_integers(_patch, other._patch); cmp != 0) return cmp;
-    if (int cmp = _compare_booleans(other._prerelease, _prerelease); cmp != 0) return cmp;
+    if (int cmp = _compare_integers(_major, other._major); cmp != 0) {
+        return cmp;
+    }
+    if (int cmp = _compare_integers(_minor, other._minor); cmp != 0) {
+        return cmp;
+    }
+    if (int cmp = _compare_integers(_patch, other._patch); cmp != 0) {
+        return cmp;
+    }
+    if (int cmp = _compare_booleans(other._prerelease, _prerelease); cmp != 0) {
+        return cmp;
+    }
     if (_pre.has_value()) {
         if (other._pre.has_value()) {
             return _pre.value().compare_to(other._pre.value());
