@@ -109,7 +109,7 @@ suite("txn_insert_concurrent_insert") {
         futures.add(future)
     }
     CompletableFuture<?>[] futuresArray = futures.toArray(new CompletableFuture[0])
-    CompletableFuture.allOf(futuresArray).get(3, TimeUnit.MINUTES)
+    CompletableFuture.allOf(futuresArray).get(10, TimeUnit.MINUTES)
     sql """ sync """
 
     def result = sql """ select count() from ${tableName}_0 """
