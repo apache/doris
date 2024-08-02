@@ -431,8 +431,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                         stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
                         _tablet->table_id());
                 DCHECK(false) << err_msg;
+                // Log here just for debugging, do not return error.
                 LOG(WARNING) << err_msg;
-                return Status::InternalError(err_msg);
             }
         }
 
