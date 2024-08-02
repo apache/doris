@@ -89,11 +89,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
         Thread.sleep(500)
 
         def t2 = Thread.start {
-            sql "set enable_nereids_planner=false;"
-            sql "set enable_nereids_dml=false;"
-            sql "delete from ${table1} where c4=2;"
-            sql "set enable_nereids_planner=true;"
-            sql "set enable_nereids_dml=true;"
+            sql "insert into ${table1}(k1,__DORIS_DELETE_SIGN__) values(2,1);"
         }
 
 
