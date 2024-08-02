@@ -56,6 +56,6 @@ suite("sql_create_time_range_table") {
     sql "drop table if exists varchar_0_char_0"
     sql "create table varchar_0_char_0 (id int, a varchar(0), b char(0)) distributed by hash(id) properties(\"replication_num\"=\"1\")\n"
     def res_show = sql "show create table varchar_0_char_0"
-    mustContain(res_show[0][1], "varchar(65533)")
-    mustContain(res_show[0][1], "char(1)")
+    mustContain(res_show[0][1], "VARCHAR(65533)")
+    mustContain(res_show[0][1], "CHAR(1)")
 }
