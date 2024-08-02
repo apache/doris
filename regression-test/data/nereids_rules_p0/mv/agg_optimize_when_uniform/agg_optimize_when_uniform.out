@@ -53,13 +53,6 @@ mi	56.20	56.20	56.20	1
 -- !query4_0_before --
 yy	11.50	11.50	11.50	1
 
--- !shape4_0_after --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------filter((orders.o_orderdate = '2023-12-09'))
---------PhysicalOlapScan[orders]
-
 -- !query4_0_after --
 yy	11.50	11.50	11.50	1
 

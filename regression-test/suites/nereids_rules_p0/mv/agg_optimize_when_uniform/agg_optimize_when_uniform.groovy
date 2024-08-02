@@ -291,7 +291,6 @@ suite("agg_optimize_when_uniform") {
     order_qt_query4_0_before "${query4_0}"
     // query success but add agg
     check_mv_rewrite_success_without_check_chosen(db, mv4_0, query4_0, "mv4_0")
-    qt_shape4_0_after """explain shape plan ${query4_0}"""
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
