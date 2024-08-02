@@ -295,23 +295,6 @@ SELECT pi();
 SELECT power(5.0E0, NULL);
 SELECT power(NULL, 5.0E0);
 SELECT pow(5.0E0, 2.0E0);
--- SELECT rand(); # differ: doris : 0.9863657089191736, presto : 0.85930921525685
--- SELECT random(); # differ: doris : 0.7403026061603785, presto : 0.3468191554949721
--- SELECT rand(1000); # differ: doris : 930.0, presto : 93
--- SELECT random(TINYINT'3', TINYINT'5'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'3', TINYINT'5');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(TINYINT'-3', TINYINT'-1'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'-3', TINYINT'-1');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(TINYINT'-3', TINYINT'5'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'-3', TINYINT'5');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(SMALLINT'20000', SMALLINT'30000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'20000', SMALLINT'30000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(SMALLINT'-20000', SMALLINT'-10000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'-20000', SMALLINT'-10000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(SMALLINT'-20000', SMALLINT'30000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'-20000', SMALLINT'30000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(1000, 2000); # differ: doris : 1110.0, presto : 1771
--- SELECT random(-10, -5); # differ: doris : -8.0, presto : -10
--- SELECT random(-10, 10); # differ: doris : -10.0, presto : 5
--- SELECT random(2000); # differ: doris : 58.0, presto : 1932
--- SELECT random(3000000000); # differ: doris : 535252210.0, presto : 2464538892
--- SELECT random(3000000000, 5000000000); # differ: doris : 3528313981.0, presto : 4446733198
--- SELECT random(-3000000000, -2000000000); # differ: doris : -2237448502.0, presto : -2244758522
--- SELECT random(-3000000000, 5000000000); # differ: doris : -192694898.0, presto : 4847629242
 SELECT round(TINYINT '3');
 SELECT round(TINYINT '-3');
 SELECT round(CAST(NULL as TINYINT));
@@ -1144,23 +1127,6 @@ SELECT pi();
 SELECT power(5.0E0, NULL);
 SELECT power(NULL, 5.0E0);
 SELECT pow(5.0E0, 2.0E0);
--- SELECT rand(); # differ: doris : 0.0692983886342674, presto : 0.912097691554082
--- SELECT random(); # differ: doris : 0.228496615042562, presto : 0.3419050978167234
--- SELECT rand(1000); # differ: doris : 912.0, presto : 963
--- SELECT random(TINYINT'3', TINYINT'5'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'3', TINYINT'5');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(TINYINT'-3', TINYINT'-1'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'-3', TINYINT'-1');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(TINYINT'-3', TINYINT'5'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(TINYINT'-3', TINYINT'5');	              ^	Encountered: TINYINT	Expected: TINYINT is keyword, maybe `TINYINT`	
--- SELECT random(SMALLINT'20000', SMALLINT'30000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'20000', SMALLINT'30000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(SMALLINT'-20000', SMALLINT'-10000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'-20000', SMALLINT'-10000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(SMALLINT'-20000', SMALLINT'30000'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT random(SMALLINT'-20000', SMALLINT'30000');	              ^	Encountered: SMALLINT	Expected: SMALLINT is keyword, maybe `SMALLINT`	
--- SELECT random(1000, 2000); # differ: doris : 1973.0, presto : 1597
-SELECT random(-10, -5);
--- SELECT random(-10, 10); # differ: doris : 5.0, presto : -7
--- SELECT random(2000); # differ: doris : 1513.0, presto : 1911
--- SELECT random(3000000000); # differ: doris : 1175756888.0, presto : 687273958
--- SELECT random(3000000000, 5000000000); # differ: doris : 4110943942.0, presto : 3400484348
--- SELECT random(-3000000000, -2000000000); # differ: doris : -2585341675.0, presto : -2937207324
--- SELECT random(-3000000000, 5000000000); # differ: doris : 1927584387.0, presto : -723937703
 SELECT round(TINYINT '3');
 SELECT round(TINYINT '-3');
 SELECT round(CAST(NULL as TINYINT));
