@@ -215,6 +215,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     ss << "LocalTabletsChannel txn_id: " << _txn_id << " load_id: " << print_id(params.id())
        << " incremental open delta writer: ";
 
+    // every change will hold _lock. this find in under _lock too. so no need _tablet_writers_lock again.
     for (const auto& tablet : params.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
@@ -237,6 +238,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
         auto delta_writer = create_delta_writer(wrequest);
         {
+            // here we modify _tablet_writers. so need lock.
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
@@ -291,6 +293,7 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // All senders are closed
     // 1. close all delta writers
     std::set<DeltaWriter*> need_wait_writers;
+    // under _lock. no need _tablet_writers_lock again.
     for (auto&& [tablet_id, writer] : _tablet_writers) {
         if (_partition_ids.contains(writer->partition_id())) {
             auto st = writer->close();
@@ -492,6 +495,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
 #endif
 
     int tablet_cnt = 0;
+    // under _lock. no need _tablet_writers_lock again.
     for (const auto& tablet : request.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
@@ -574,6 +578,11 @@ Status BaseTabletsChannel::_write_block_data(
                                  std::function<Status(BaseDeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
+
+        // add_batch may concurrency with inc_open but not under _lock.
+        // so need to protect it with _tablet_writers_lock.
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
             return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
