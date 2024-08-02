@@ -607,14 +607,14 @@ public class LoadStmt extends DdlStmt {
             connection.setConnectTimeout(10000);
             connection.connect();
         } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException("Incorrect object storage info: " + e.getMessage());
+            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
+            throw new UserException("Failed to access object storage", e);
         } finally {
             if (connection != null) {
                 try {
                     connection.disconnect();
                 } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
+                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
                 }
             }
             SecurityChecker.getInstance().stopSSRFChecking();
