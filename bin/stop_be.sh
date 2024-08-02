@@ -73,7 +73,7 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 
-    pgid=$(ps -o pgid= -p ${pid})
+    pgid=$(eval echo $(ps -o pgid= -p ${pid}))
 
     # kill PID process and check it
     if kill "-${signum}" -"${pgid}" >/dev/null 2>&1; then

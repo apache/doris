@@ -331,7 +331,7 @@ void InvokeDefaultSignalHandler(int signal_number) {
     sigemptyset(&sig_action.sa_mask);
     sig_action.sa_handler = SIG_DFL;
     sigaction(signal_number, &sig_action, nullptr);
-    kill(getpid(), signal_number);
+    killpg(getpgrp(), signal_number);
 }
 
 // This variable is used for protecting FailureSignalHandler() from

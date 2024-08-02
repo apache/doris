@@ -952,11 +952,9 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 }
 
 static void handle_sigchld(int sig_no) {
-    for (;;) {
-        if (waitpid(-1, NULL, WNOHANG) == 0){
-            break;
-        }
-    }
+    int status = 0;
+    pid_t pid = waitpid(0, &status, WNOHANG);
+    LOG(INFO) << "handle cdc process exit, result: " << pid << ", status: " << status ;
 }
 
 static Status check_cdc_health(int retry_times, int sleep_time, std::string& health_response) {
