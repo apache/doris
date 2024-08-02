@@ -20,7 +20,6 @@
 #include <thrift/protocol/TJSONProtocol.h>
 
 #include <boost/shared_ptr.hpp>
-#include <cstddef>
 
 #include "runtime/descriptors.h"
 #include "util/simd/bits.h"
