@@ -715,6 +715,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("error ", e);
             }
         }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            String token = debugPoint.param("token", "invalid_token");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")) {
+                DebugPoint blockDebugPoint = DebugPointUtil.getDebugPoint(
+                        "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
+                String passToken = blockDebugPoint.param("pass_token", "");
+                if (token.equals(passToken)) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+        }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int totalRetryTime = 0;

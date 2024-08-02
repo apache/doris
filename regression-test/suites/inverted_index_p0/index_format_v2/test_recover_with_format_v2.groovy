@@ -20,9 +20,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_recover_with_format_v2", "inverted_index_format_v2"){
     def tableName = "test_recover_with_format_v2"
 
-    def calc_file_crc_on_tablet = { ip, port, tablet ->
-        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
-    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -34,15 +31,7 @@ suite("test_recover_with_format_v2", "inverted_index_format_v2"){
             String backend_id = tablets[i].BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            def (code, out, err) = calc_file_crc_on_tablet(ip, port, tablet_id)
-            logger.info("Run calc_file_crc_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(code == 0)
-            assertTrue(out.contains("crc_value"))
-            assertTrue(out.contains("used_time_ms"))
-            assertEquals("0", parseJson(out.trim()).start_version)
-            assertEquals("3", parseJson(out.trim()).end_version)
-            assertEquals("3", parseJson(out.trim()).rowset_count)
-            assertEquals("4", parseJson(out.trim()).file_count)
+            check_nested_index_file(ip, port, tablet_id, 3, 2, "V2")
         }
     }
 
@@ -77,6 +66,9 @@ suite("test_recover_with_format_v2", "inverted_index_format_v2"){
     sql """ INSERT INTO ${tableName} VALUES (2, "bason", 99); """
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
+
+    // select to sync tablet meta in cloud mode
+    sql """ SELECT * FROM ${tableName}; """
 
     check_index_file()
 
