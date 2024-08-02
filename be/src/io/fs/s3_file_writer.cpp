@@ -209,16 +209,13 @@ Status S3FileWriter::_close_impl() {
     }
 
     if (_bytes_appended == 0) {
+        DCHECK(_cur_part_num == 1);
         // No data written, but need to create an empty file
         RETURN_IF_ERROR(_build_upload_buffer());
-        auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-        pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) { _put_object(buf); });
-        if (_used_by_s3_committer) {
-            pending_buf->set_upload_to_remote(
-                    [part_num = _cur_part_num, this](UploadFileBuffer& buf) {
-                        _upload_one_part(part_num, buf);
-                    });
-            DCHECK(_cur_part_num == 1);
+        if (!_used_by_s3_committer) {
+            auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) { _put_object(buf); });
+        } else {
             RETURN_IF_ERROR(_create_multi_upload_request());
         }
     }
