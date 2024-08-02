@@ -35,11 +35,9 @@ void Status::to_thrift(TStatus* s) const {
     //        << _code;
     s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
 
-    if (_code == ErrorCode::VERSION_ALREADY_MERGED) { //Status::Error<VERSION_ALREADY_MERGED>
+    if (_code == ErrorCode::VERSION_ALREADY_MERGED) {
         s->status_code = TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED;
-    }
-
-    if (_code == ErrorCode::TABLE_NOT_FOUND) { //Status::Error<TABLE_NOT_FOUND>
+    } else if (_code == ErrorCode::TABLE_NOT_FOUND) {
         s->status_code = TStatusCode::TABLET_MISSING;
     }
 
