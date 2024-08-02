@@ -45,7 +45,18 @@ struct TypeId<UInt128> {
     static constexpr const TypeIndex value = TypeIndex::UInt128;
 };
 
-#if defined(__SSE4_2__) || defined(__aarch64__)
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+
+struct UInt128HashCRC32 {
+    size_t operator()(UInt128 x) const {
+        UInt64 crc = -1ULL;
+        crc = __crc32cd(static_cast<UInt32>(crc), x.low());
+        crc = __crc32cd(static_cast<UInt32>(crc), x.high());
+        return crc;
+    }
+};
+
+#elif defined(__SSE4_2__) || defined(__aarch64__)
 
 struct UInt128HashCRC32 {
     size_t operator()(const UInt128& x) const {
