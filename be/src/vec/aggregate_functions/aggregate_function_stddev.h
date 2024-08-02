@@ -20,20 +20,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <memory>
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -139,6 +135,10 @@ struct PopData : Data {
         }
     }
 };
+
+// For this series of functions, the Decimal type is not supported
+// because the operations involve squaring,
+// which can easily exceed the range of the Decimal type.
 
 template <typename Data>
 struct StddevName : Data {
