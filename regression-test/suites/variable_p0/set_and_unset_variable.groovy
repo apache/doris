@@ -61,6 +61,8 @@ suite("set_and_unset_variable") {
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show session variables like 'show_hidden_columns'"""
 
+    qt_cmd """select * from information_schema.session_variables where variable_name = 'show_hidden_columns'"""
+
     // test UNSET GLOBAL VARIABLE ALL
     qt_cmd """set global runtime_filter_type='BLOOM_FILTER'"""
     qt_cmd """set global experimental_enable_agg_state='true'"""
@@ -69,4 +71,6 @@ suite("set_and_unset_variable") {
     qt_cmd """show global variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'show_hidden_columns'"""
+
+    qt_cmd """select * from information_schema.global_variables where variable_name = 'show_hidden_columns'"""
 }
