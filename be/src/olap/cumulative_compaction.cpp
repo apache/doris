@@ -110,7 +110,7 @@ Status CumulativeCompaction::execute_compact() {
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
     // The TIME_SERIES_POLICY generates an empty rowset and doesn't update the timestamp
     if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
-          _output_rowset->num_segment() == 0)) {
+          _output_rowset->num_segments() == 0)) {
         tablet()->set_last_cumu_compaction_success_time(UnixMillis());
     }
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
