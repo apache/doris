@@ -633,5 +633,4 @@ suite("test_jsonb_load_and_function", "p0") {
 
     sql """ insert into json_keys_table values (1, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {}}', '\$.a'), (2, '{"a.b.c":{"k1.a1":"v31", "k2": 300}}', '\$.a.b.c'), (3, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {"k1.a1": 1}}', '\$.a'), (4, '["a", "b"]', '\$.a'); """
     qt_select_json_keys """SELECT j, p, json_keys(j, p) FROM json_keys_table ORDER BY id"""
->>>>>>> c8145f37f6 (support json-keys)
 }
