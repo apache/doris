@@ -73,17 +73,57 @@ public:
         auto result = check_column_const_set_readability(column, row_num);
         ColumnPtr ptr = result.first;
         row_num = result.second;
-
-        if (_nesting_level > 1) {
-            bw.write('"');
-        }
-
         const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
-        bw.write(value.data, value.size);
+
         if (_nesting_level > 1) {
             bw.write('"');
         }
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                // we should make deal with some special characters in json str if we have escape_char
+                StringRef str_ref = value;
+                write_with_escaped_char_to_json(str_ref, bw);
+            } else {
+                bw.write(value.data, value.size);
+            }
+        } else {
+            bw.write(value.data, value.size);
+        }
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+
         return Status::OK();
+    }
+
+    inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) const {
+        for (char it : value) {
+            switch (it) {
+            case '\b':
+                bw.write("\\b", 2);
+                break;
+            case '\f':
+                bw.write("\\f", 2);
+                break;
+            case '\n':
+                bw.write("\\n", 2);
+                break;
+            case '\r':
+                bw.write("\\r", 2);
+                break;
+            case '\t':
+                bw.write("\\t", 2);
+                break;
+            case '\\':
+                bw.write("\\\\", 2);
+                break;
+            case '"':
+                bw.write("\\\"", 2);
+                break;
+            default:
+                bw.write(it);
+            }
+        }
     }
 
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
