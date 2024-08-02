@@ -321,7 +321,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_") && columnNameUpperCase.endsWith("_SIGN__")) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                throw new AnalysisException(
                         "Disable to create table column with name __DORIS_[.]*_SIGN__: " + columnNameUpperCase);
             }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
