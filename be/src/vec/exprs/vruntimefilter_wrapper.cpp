@@ -76,8 +76,8 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    if (_skip_counter) {
-        _skip_counter--;
+    _judge_counter--;
+    if (_always_true) {
         block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
                        _data_type, expr_name()});
         *result_column_id = block->columns() - 1;

@@ -339,14 +339,15 @@ public:
             }
         }
 
-        if (_can_ignore()) {
+        if (_can_ignore() && !_judge_counter) {
             for (uint16_t i = 0; i < size; i++) {
                 current_passed_rows += flags[i];
             }
             _passed_rows += current_passed_rows;
-            vectorized::VRuntimeFilterWrapper::judge_selectivity(
+            _always_true = vectorized::VRuntimeFilterWrapper::judge_selectivity(
                     get_ignore_threshold(), current_evaluated_rows - current_passed_rows,
-                    current_evaluated_rows, _skip_counter);
+                    current_evaluated_rows);
+            _judge_counter = config::runtime_filter_sampling_frequency;
         }
     }
 

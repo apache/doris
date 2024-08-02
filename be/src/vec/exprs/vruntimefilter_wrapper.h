@@ -78,19 +78,15 @@ public:
         _always_true_counter = always_true_counter;
     }
 
-    // return true when we need
-    template <typename T>
-    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
-                                  T& skip_counter) {
-        if (filter_rows / (input_rows * 1.0) < ignore_threshold) {
-            skip_counter = config::runtime_filter_sampling_frequency;
-        }
+    static bool judge_selectivity(double ignore_threshold, int64_t filter_rows,
+                                  int64_t input_rows) {
+        return filter_rows / (input_rows * 1.0) < ignore_threshold;
     }
 
-    bool need_judge_selectivity() override { return true; }
+    bool need_judge_selectivity() override { return _judge_counter == 0; }
 
     void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
-        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _skip_counter);
+        _always_true = judge_selectivity(_ignore_thredhold, filter_rows, input_rows);
         if (_expr_filtered_rows_counter) {
             COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
         }
@@ -101,7 +97,8 @@ public:
 
 private:
     VExprSPtr _impl;
-    std::atomic_int _skip_counter = 0;
+    std::atomic_int _judge_counter = 0;
+    std::atomic_int _always_true = false;
 
     RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;

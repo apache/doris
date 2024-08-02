@@ -195,9 +195,10 @@ public:
         uint16_t new_size = _evaluate_inner(column, sel, size);
         _evaluated_rows += size;
         _passed_rows += new_size;
-        if (_can_ignore()) {
-            vectorized::VRuntimeFilterWrapper::judge_selectivity(
-                    get_ignore_threshold(), size - new_size, size, _skip_counter);
+        if (_can_ignore() && !_judge_counter) {
+            _always_true = vectorized::VRuntimeFilterWrapper::judge_selectivity(
+                    get_ignore_threshold(), size - new_size, size);
+            _judge_counter = config::runtime_filter_sampling_frequency;
         }
         return new_size;
     }
@@ -303,13 +304,13 @@ public:
     }
 
     bool always_true(bool update) const {
-        if (_skip_counter) {
-            if (update) {
-                _skip_counter--;
+        if (update) {
+            _judge_counter--;
+            if (!_judge_counter) {
+                _always_true = false;
             }
-            return true;
         }
-        return false;
+        return _always_true;
     }
 
 protected:
@@ -332,7 +333,8 @@ protected:
     std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
-    mutable int _skip_counter = 0;
+    mutable int _judge_counter = 0;
+    mutable bool _always_true = false;
 };
 
 } //namespace doris
