@@ -108,10 +108,11 @@ public class BaseViewInfo {
     }
 
     /**
-     * rewriteSql
-     * @param indexStringSqlMap indexStringSqlMap
-     * @param querySql querySql
-     * @return rewriteSql
+     * Add the full path to the field
+     *
+     * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced, and value is the new string used for replacement.
+     * @param querySql origin query sql
+     * @return sql rewritten sql
      */
     public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
