@@ -31,7 +31,7 @@ suite("test_show_create_table_and_views_nereids", "show") {
 
             test {
                 sql "create table table_with_hidden_sign(id int, __DORIS_DELETE_SIGN__ int) distributed by hash(id) properties('replication_num'='1')"
-                exception "Disable to create table column with name __DORIS_"
+                exception "Disable to create table column with name start with __DORIS_: "
             }
         }
     }()
