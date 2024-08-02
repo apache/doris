@@ -70,7 +70,6 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long fileSplitSize;
-    public long rowCount = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {

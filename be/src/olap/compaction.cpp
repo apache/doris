@@ -512,8 +512,8 @@ Status Compaction::do_inverted_index_compaction() {
             } else {
                 DCHECK(false) << err_msg;
             }
+            // log here just for debugging, do not return error
             LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
         }
     }
 

@@ -458,6 +458,7 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
@@ -3337,6 +3338,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.NULL:
                     outExpression = new IsNull(valueExpression);
+                    break;
+                case DorisParser.TRUE:
+                    outExpression = new Cast(valueExpression,
+                            BooleanType.INSTANCE, true);
+                    break;
+                case DorisParser.FALSE:
+                    outExpression = new Not(new Cast(valueExpression,
+                            BooleanType.INSTANCE, true));
                     break;
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:

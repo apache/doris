@@ -18,7 +18,11 @@
 #include "recycler/hdfs_accessor.h"
 
 #include <gen_cpp/cloud.pb.h>
-#include <hadoop_hdfs/hdfs.h>
+#ifdef USE_HADOOP_HDFS
+#include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
+#else
+#include <hdfs/hdfs.h> // IWYU pragma: export
+#endif
 
 #include <string_view>
 
