@@ -187,7 +187,7 @@ Status CloudStorageEngine::open() {
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
-    // use memory limit
+    // The default cache is set to 100MB, use memory limit to dynamic adjustment
     bool is_percent = false;
     int64_t delete_bitmap_agg_cache_cache_limit =
             ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
