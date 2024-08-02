@@ -199,24 +199,15 @@ public:
     /// Find node that matches the path the best.
     const Node* find_best_match(const PathInData& path) const { return find_impl(path, false); }
 
-    /// Find node that matches the path exactly.
-    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
-
-    /// Find leaf by path.
-    const Node* find_leaf(const PathInData& path) const {
-        const auto* candidate = find_exact(path);
-        if (!candidate || !candidate->is_scalar()) {
-            return nullptr;
-        }
-        return candidate;
-    }
-
     using NodePredicate = std::function<bool(const Node&)>;
 
     /// Finds leaf that satisfies the predicate.
     const Node* find_leaf(const NodePredicate& predicate) {
         return find_leaf(root.get(), predicate);
     }
+
+    /// Find node that matches the path exactly.
+    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
 
     static const Node* find_leaf(const Node* node, const NodePredicate& predicate) {
         if (!node) {
@@ -236,6 +227,53 @@ public:
         return nullptr;
     }
 
+    /// Find leaf by path.
+    const Node* find_leaf(const PathInData& path) const {
+        const auto* candidate = find_exact(path);
+        if (!candidate || !candidate->is_scalar()) {
+            return nullptr;
+        }
+        return candidate;
+    }
+
+    const Node* get_leaf_of_the_same_nested(const PathInData& path,
+                                            std::function<size_t(const Node&)> subcolumn_size_fn,
+                                            size_t old_size) const {
+        if (!path.has_nested_part()) {
+            return nullptr;
+        }
+
+        const auto* current_node = find_leaf(path);
+        const Node* leaf = nullptr;
+
+        while (current_node) {
+            /// Try to find the first Nested up to the current node.
+            const auto* node_nested = find_parent(current_node, [](const auto& candidate) -> bool {
+                return candidate.is_nested();
+            });
+
+            if (!node_nested) {
+                break;
+            }
+
+            /// Find the leaf with subcolumn that contains values
+            /// for the last rows.
+            /// If there are no leaves, skip current node and find
+            /// the next node up to the current.
+            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, [&](const auto& candidate) {
+                return subcolumn_size_fn(candidate) > old_size;
+            });
+
+            if (leaf) {
+                break;
+            }
+
+            current_node = node_nested->parent;
+        }
+
+        return leaf;
+    }
+
     /// Find first parent node that satisfies the predicate.
     static const Node* find_parent(const Node* node, const NodePredicate& predicate) {
         while (node && !predicate(*node)) {
@@ -243,6 +281,9 @@ public:
         }
         return node;
     }
+
+    // get the mutable parent node
+    static Node* get_mutable_parent(const Node* node) { return const_cast<Node*>(node->parent); }
 
     bool empty() const { return root == nullptr; }
     size_t size() const { return leaves.size(); }
