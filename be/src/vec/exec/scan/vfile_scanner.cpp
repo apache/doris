@@ -824,12 +824,21 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_parquet_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_parquet_use_column_names =
+                            _state->query_options().hive_parquet_use_column_names;
+                }
+
                 std::vector<std::string> place_holder;
                 init_status = parquet_reader->init_reader(
                         _file_col_names, place_holder, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
+                        &_slot_id_to_filter_conjuncts, true, hive_parquet_use_column_names);
                 _cur_reader = std::move(parquet_reader);
             }
             need_to_get_parsed_schema = true;
@@ -885,10 +894,18 @@ Status VFileScanner::_get_next_reader() {
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range));
                 _cur_reader = std::move(paimon_reader);
             } else {
+                bool hive_orc_use_column_names = true;
+
+                if (range.__isset.table_format_params &&
+                    range.table_format_params.table_format_type == "hive" && _state != nullptr)
+                        [[likely]] {
+                    hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
+                }
                 init_status = orc_reader->init_reader(
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                        hive_orc_use_column_names);
                 _cur_reader = std::move(orc_reader);
             }
             need_to_get_parsed_schema = true;
