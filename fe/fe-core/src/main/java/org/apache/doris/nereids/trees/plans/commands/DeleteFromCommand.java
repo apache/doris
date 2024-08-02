@@ -401,25 +401,26 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
+            NamedExpression expr = null;
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+                expr = new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN);
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
                     && targetTable.getSequenceMapCol() != null) {
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                expr = new UnboundSlot(tableName, column.getName());
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                expr = new UnboundSlot(tableName, column.getName());
             } else {
-                selectLists.add(new UnboundSlot(tableName, column.getName()));
+                continue;
             }
+            selectLists.add(expr);
             cols.add(column.getName());
         }
 
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && cols.size() < targetTable.getColumns().size();
+        boolean isPartialUpdate = isMow && cols.size() < targetTable.getColumns().size();
         logicalQuery = handleCte(logicalQuery);
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
