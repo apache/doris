@@ -60,7 +60,7 @@ public:
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
-    virtual void clear() = 0;
+    virtual Status clear(std::string& msg) = 0;
 };
 
 } // namespace doris::io

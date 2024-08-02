@@ -42,7 +42,7 @@ public:
     Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
-    void clear() override;
+    Status clear(std::string& msg) override;
 
 private:
     std::unordered_map<FileWriterMapKey, MemBlock, FileWriterMapKeyHash> _cache_map;

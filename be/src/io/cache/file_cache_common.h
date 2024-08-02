@@ -95,6 +95,9 @@ struct FileCacheSettings {
     size_t query_queue_elements {0};
     size_t max_file_block_size {0};
     size_t max_query_cache_size {0};
+
+    // to string
+    std::string to_string() const;
 };
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,

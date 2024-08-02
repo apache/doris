@@ -68,13 +68,13 @@ public:
     /// Cache capacity in bytes.
     [[nodiscard]] size_t capacity() const { return _capacity; }
 
+    bool is_in_memory() const { return _is_in_memory; }
+
     // try to release all releasable block
     // it maybe hang the io/system
     size_t try_release();
 
-    [[nodiscard]] const std::string& get_base_path() const {
-        return (config::use_in_memory_file_cache ? "in-memory" : _cache_base_path);
-    }
+    [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
 
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
@@ -444,6 +444,8 @@ private:
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
     LRUQueue _ttl_queue;
+
+    bool _is_in_memory = false;
 
     // metrics
     size_t _num_read_blocks = 0;
