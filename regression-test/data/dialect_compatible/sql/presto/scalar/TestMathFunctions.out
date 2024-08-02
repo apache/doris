@@ -1263,64 +1263,64 @@
 25.0
 
 -- !TestMathFunctions_422 --
--10.0
+3
 
 -- !TestMathFunctions_423 --
-3
+-3
 
 -- !TestMathFunctions_424 --
--3
+\N
 
 -- !TestMathFunctions_425 --
-\N
+3
 
 -- !TestMathFunctions_426 --
-3
+-3
 
 -- !TestMathFunctions_427 --
--3
+\N
 
 -- !TestMathFunctions_428 --
-\N
+3
 
 -- !TestMathFunctions_429 --
-3
+-3
 
 -- !TestMathFunctions_430 --
--3
+\N
 
 -- !TestMathFunctions_431 --
-\N
+3
 
 -- !TestMathFunctions_432 --
-3
+-3
 
 -- !TestMathFunctions_433 --
--3
-
--- !TestMathFunctions_434 --
 \N
 
--- !TestMathFunctions_435 --
+-- !TestMathFunctions_434 --
 3000000000
 
--- !TestMathFunctions_436 --
+-- !TestMathFunctions_435 --
 -3000000000
 
--- !TestMathFunctions_437 --
+-- !TestMathFunctions_436 --
 3
+
+-- !TestMathFunctions_437 --
+-3
 
 -- !TestMathFunctions_438 --
--3
-
--- !TestMathFunctions_439 --
 3
 
--- !TestMathFunctions_440 --
+-- !TestMathFunctions_439 --
 -3
 
--- !TestMathFunctions_441 --
+-- !TestMathFunctions_440 --
 4
+
+-- !TestMathFunctions_441 --
+-4
 
 -- !TestMathFunctions_442 --
 -4
@@ -1329,22 +1329,22 @@
 -4
 
 -- !TestMathFunctions_444 --
--4
+3.0
 
 -- !TestMathFunctions_445 --
-3.0
+-3.0
 
 -- !TestMathFunctions_446 --
--3.0
-
--- !TestMathFunctions_447 --
 3.0
 
--- !TestMathFunctions_448 --
+-- !TestMathFunctions_447 --
 -3.0
 
--- !TestMathFunctions_449 --
+-- !TestMathFunctions_448 --
 4.0
+
+-- !TestMathFunctions_449 --
+-4.0
 
 -- !TestMathFunctions_450 --
 -4.0
@@ -1353,10 +1353,10 @@
 -4.0
 
 -- !TestMathFunctions_452 --
--4.0
+\N
 
 -- !TestMathFunctions_453 --
-\N
+3
 
 -- !TestMathFunctions_454 --
 3
@@ -1371,37 +1371,37 @@
 3
 
 -- !TestMathFunctions_458 --
-3
+-3
 
 -- !TestMathFunctions_459 --
 -3
 
 -- !TestMathFunctions_460 --
--3
+3
 
 -- !TestMathFunctions_461 --
-3
-
--- !TestMathFunctions_462 --
 3000000000
 
--- !TestMathFunctions_463 --
+-- !TestMathFunctions_462 --
 -3000000000
 
--- !TestMathFunctions_464 --
+-- !TestMathFunctions_463 --
 3
+
+-- !TestMathFunctions_464 --
+-3
 
 -- !TestMathFunctions_465 --
--3
-
--- !TestMathFunctions_466 --
 3
 
--- !TestMathFunctions_467 --
+-- !TestMathFunctions_466 --
 -3
 
--- !TestMathFunctions_468 --
+-- !TestMathFunctions_467 --
 4
+
+-- !TestMathFunctions_468 --
+-4
 
 -- !TestMathFunctions_469 --
 -4
@@ -1410,13 +1410,13 @@
 -4
 
 -- !TestMathFunctions_471 --
--4
+0
 
 -- !TestMathFunctions_472 --
 0
 
 -- !TestMathFunctions_473 --
-0
+3
 
 -- !TestMathFunctions_474 --
 3
@@ -1428,22 +1428,22 @@
 3
 
 -- !TestMathFunctions_477 --
-3
+3.0
 
 -- !TestMathFunctions_478 --
-3.0
+-3.0
 
 -- !TestMathFunctions_479 --
--3.0
-
--- !TestMathFunctions_480 --
 3.0
 
--- !TestMathFunctions_481 --
+-- !TestMathFunctions_480 --
 -3.0
 
--- !TestMathFunctions_482 --
+-- !TestMathFunctions_481 --
 4.0
+
+-- !TestMathFunctions_482 --
+-4.0
 
 -- !TestMathFunctions_483 --
 -4.0
@@ -1452,196 +1452,196 @@
 -4.0
 
 -- !TestMathFunctions_485 --
--4.0
+3
 
 -- !TestMathFunctions_486 --
-3
+-3
 
 -- !TestMathFunctions_487 --
 -3
 
 -- !TestMathFunctions_488 --
--3
-
--- !TestMathFunctions_489 --
 \N
 
--- !TestMathFunctions_490 --
+-- !TestMathFunctions_489 --
 3
 
--- !TestMathFunctions_491 --
+-- !TestMathFunctions_490 --
 3000000000
 
--- !TestMathFunctions_492 --
+-- !TestMathFunctions_491 --
 -3000000000
+
+-- !TestMathFunctions_492 --
+\N
 
 -- !TestMathFunctions_493 --
 \N
 
 -- !TestMathFunctions_494 --
-\N
-
--- !TestMathFunctions_495 --
 3.0
 
--- !TestMathFunctions_496 --
+-- !TestMathFunctions_495 --
 -3.0
 
--- !TestMathFunctions_497 --
+-- !TestMathFunctions_496 --
 3.5
 
--- !TestMathFunctions_498 --
+-- !TestMathFunctions_497 --
 -3.5
 
--- !TestMathFunctions_499 --
+-- !TestMathFunctions_498 --
 3.5
+
+-- !TestMathFunctions_499 --
+-3.5
 
 -- !TestMathFunctions_500 --
 -3.5
 
 -- !TestMathFunctions_501 --
--3.5
-
--- !TestMathFunctions_502 --
 -4.0
 
--- !TestMathFunctions_503 --
+-- !TestMathFunctions_502 --
 3.0
 
--- !TestMathFunctions_504 --
+-- !TestMathFunctions_503 --
 -3.0
 
--- !TestMathFunctions_505 --
+-- !TestMathFunctions_504 --
 3.5
 
--- !TestMathFunctions_506 --
+-- !TestMathFunctions_505 --
 -3.5
 
--- !TestMathFunctions_507 --
+-- !TestMathFunctions_506 --
 3.5
+
+-- !TestMathFunctions_507 --
+-3.5
 
 -- !TestMathFunctions_508 --
 -3.5
 
 -- !TestMathFunctions_509 --
--3.5
-
--- !TestMathFunctions_510 --
 -4.0
 
--- !TestMathFunctions_511 --
+-- !TestMathFunctions_510 --
 10
 
--- !TestMathFunctions_512 --
+-- !TestMathFunctions_511 --
 -10
 
--- !TestMathFunctions_513 --
+-- !TestMathFunctions_512 --
 10
+
+-- !TestMathFunctions_513 --
+-10
 
 -- !TestMathFunctions_514 --
 -10
 
 -- !TestMathFunctions_515 --
--10
-
--- !TestMathFunctions_516 --
 10
 
--- !TestMathFunctions_517 --
+-- !TestMathFunctions_516 --
 20
+
+-- !TestMathFunctions_517 --
+0
 
 -- !TestMathFunctions_518 --
 0
 
 -- !TestMathFunctions_519 --
-0
-
--- !TestMathFunctions_520 --
 100
 
--- !TestMathFunctions_521 --
+-- !TestMathFunctions_520 --
 0
 
--- !TestMathFunctions_522 --
+-- !TestMathFunctions_521 --
 -100
 
--- !TestMathFunctions_523 --
+-- !TestMathFunctions_522 --
 0
+
+-- !TestMathFunctions_523 --
+100
 
 -- !TestMathFunctions_524 --
 100
 
 -- !TestMathFunctions_525 --
-100
+0
 
 -- !TestMathFunctions_526 --
-0
+-100
 
 -- !TestMathFunctions_527 --
 -100
 
 -- !TestMathFunctions_528 --
--100
+0
 
 -- !TestMathFunctions_529 --
-0
-
--- !TestMathFunctions_530 --
 30000
 
--- !TestMathFunctions_531 --
+-- !TestMathFunctions_530 --
 0
 
--- !TestMathFunctions_532 --
+-- !TestMathFunctions_531 --
 -30000
 
--- !TestMathFunctions_533 --
+-- !TestMathFunctions_532 --
 0
+
+-- !TestMathFunctions_533 --
+100
 
 -- !TestMathFunctions_534 --
-100
+-100
 
 -- !TestMathFunctions_535 --
--100
-
--- !TestMathFunctions_536 --
 100
 
--- !TestMathFunctions_537 --
+-- !TestMathFunctions_536 --
 -100
 
--- !TestMathFunctions_538 --
+-- !TestMathFunctions_537 --
 12400
 
--- !TestMathFunctions_539 --
+-- !TestMathFunctions_538 --
 12300
 
--- !TestMathFunctions_540 --
+-- !TestMathFunctions_539 --
 2000000000
 
--- !TestMathFunctions_541 --
+-- !TestMathFunctions_540 --
 0
 
--- !TestMathFunctions_542 --
+-- !TestMathFunctions_541 --
 4000000000
 
--- !TestMathFunctions_543 --
+-- !TestMathFunctions_542 --
 -4000000000
 
--- !TestMathFunctions_544 --
+-- !TestMathFunctions_543 --
 9223372036854775800
 
--- !TestMathFunctions_545 --
+-- !TestMathFunctions_544 --
 9200000000000000000
 
--- !TestMathFunctions_546 --
+-- !TestMathFunctions_545 --
 9000000000000000000
 
--- !TestMathFunctions_547 --
+-- !TestMathFunctions_546 --
 -9200000000000000000
 
--- !TestMathFunctions_548 --
+-- !TestMathFunctions_547 --
 -9000000000000000000
+
+-- !TestMathFunctions_548 --
+\N
 
 -- !TestMathFunctions_549 --
 \N
@@ -1686,88 +1686,88 @@
 \N
 
 -- !TestMathFunctions_563 --
-\N
+2
 
 -- !TestMathFunctions_564 --
-2
+-1
 
 -- !TestMathFunctions_565 --
--1
+5
 
 -- !TestMathFunctions_566 --
-5
+-1
 
 -- !TestMathFunctions_567 --
--1
+\N
 
 -- !TestMathFunctions_568 --
-\N
+2
 
 -- !TestMathFunctions_569 --
-2
+-1
 
 -- !TestMathFunctions_570 --
--1
+5
 
 -- !TestMathFunctions_571 --
-5
+-1
 
 -- !TestMathFunctions_572 --
--1
+\N
 
 -- !TestMathFunctions_573 --
-\N
+2
 
 -- !TestMathFunctions_574 --
-2
+-1
 
 -- !TestMathFunctions_575 --
--1
-
--- !TestMathFunctions_576 --
 5
 
--- !TestMathFunctions_577 --
+-- !TestMathFunctions_576 --
 -1
 
--- !TestMathFunctions_578 --
+-- !TestMathFunctions_577 --
 \N
+
+-- !TestMathFunctions_578 --
+20000000000
 
 -- !TestMathFunctions_579 --
-20000000000
+-10000000000
 
 -- !TestMathFunctions_580 --
--10000000000
-
--- !TestMathFunctions_581 --
 5000000000
 
--- !TestMathFunctions_582 --
+-- !TestMathFunctions_581 --
 -10000000000
 
--- !TestMathFunctions_583 --
+-- !TestMathFunctions_582 --
 \N
+
+-- !TestMathFunctions_583 --
+-1.5
 
 -- !TestMathFunctions_584 --
--1.5
+\N
 
 -- !TestMathFunctions_585 --
-\N
-
--- !TestMathFunctions_586 --
 2.3
 
--- !TestMathFunctions_587 --
+-- !TestMathFunctions_586 --
 -1.5
 
--- !TestMathFunctions_588 --
+-- !TestMathFunctions_587 --
 \N
 
--- !TestMathFunctions_589 --
+-- !TestMathFunctions_588 --
 20000000000
 
--- !TestMathFunctions_590 --
+-- !TestMathFunctions_589 --
 2
+
+-- !TestMathFunctions_590 --
+2.0
 
 -- !TestMathFunctions_591 --
 2.0
@@ -1776,103 +1776,103 @@
 2.0
 
 -- !TestMathFunctions_593 --
-2.0
+\N
 
 -- !TestMathFunctions_594 --
 \N
 
 -- !TestMathFunctions_595 --
-\N
+2.0
 
 -- !TestMathFunctions_596 --
-2.0
+1
 
 -- !TestMathFunctions_597 --
 1
 
 -- !TestMathFunctions_598 --
-1
+-2
 
 -- !TestMathFunctions_599 --
--2
+1
 
 -- !TestMathFunctions_600 --
-1
+-1
 
 -- !TestMathFunctions_601 --
--1
+\N
 
 -- !TestMathFunctions_602 --
-\N
+1
 
 -- !TestMathFunctions_603 --
-1
+-2
 
 -- !TestMathFunctions_604 --
--2
+1
 
 -- !TestMathFunctions_605 --
-1
+-1
 
 -- !TestMathFunctions_606 --
--1
+\N
 
 -- !TestMathFunctions_607 --
-\N
+1
 
 -- !TestMathFunctions_608 --
-1
-
--- !TestMathFunctions_609 --
 -2
 
--- !TestMathFunctions_610 --
+-- !TestMathFunctions_609 --
 1
 
--- !TestMathFunctions_611 --
+-- !TestMathFunctions_610 --
 -1
 
--- !TestMathFunctions_612 --
+-- !TestMathFunctions_611 --
 \N
 
--- !TestMathFunctions_613 --
+-- !TestMathFunctions_612 --
 10000000000
 
--- !TestMathFunctions_614 --
+-- !TestMathFunctions_613 --
 -20000000000
 
--- !TestMathFunctions_615 --
+-- !TestMathFunctions_614 --
 20000000000
 
--- !TestMathFunctions_616 --
+-- !TestMathFunctions_615 --
 -10000000000
 
--- !TestMathFunctions_617 --
+-- !TestMathFunctions_616 --
 \N
+
+-- !TestMathFunctions_617 --
+1.5
 
 -- !TestMathFunctions_618 --
-1.5
-
--- !TestMathFunctions_619 --
 \N
 
--- !TestMathFunctions_620 --
+-- !TestMathFunctions_619 --
 1.5
+
+-- !TestMathFunctions_620 --
+-2.3
 
 -- !TestMathFunctions_621 --
 -2.3
 
 -- !TestMathFunctions_622 --
--2.3
+\N
 
 -- !TestMathFunctions_623 --
-\N
+1
 
 -- !TestMathFunctions_624 --
 1
 
 -- !TestMathFunctions_625 --
-1
+1.0
 
 -- !TestMathFunctions_626 --
 1.0
@@ -1881,23 +1881,20 @@
 1.0
 
 -- !TestMathFunctions_628 --
-1.0
+\N
 
 -- !TestMathFunctions_629 --
 \N
 
 -- !TestMathFunctions_630 --
-\N
-
--- !TestMathFunctions_631 --
 1.0
 
--- !TestMathFunctions_632 --
+-- !TestMathFunctions_631 --
 3
 
--- !TestMathFunctions_633 --
+-- !TestMathFunctions_632 --
 2
 
--- !TestMathFunctions_634 --
+-- !TestMathFunctions_633 --
 0
 
