@@ -85,7 +85,7 @@ Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _init_profile(profile);
     // Delete existing files
     if (_file_opts->delete_existing_files) {
-        RETURN_IF_ERROR(delete_dir());
+        RETURN_IF_ERROR(_delete_dir());
     }
     return _create_next_file_writer();
 }
@@ -348,7 +348,7 @@ Status VFileResultWriter::_fill_result_block() {
     return Status::OK();
 }
 
-Status VFileResultWriter::delete_dir() {
+Status VFileResultWriter::_delete_dir() {
     // get dir of file_path
     std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
     switch (_storage_type) {

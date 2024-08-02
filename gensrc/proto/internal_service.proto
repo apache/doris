@@ -714,15 +714,6 @@ message POutfileWriteSuccessResult {
     optional PStatus status = 1;
 }
 
-message PExportDeleteExistFilesRequest {
-    optional bytes result_file_sink_options = 1;
-    optional int32 storage_type = 2;
-}
-
-message PExportDeleteExistFilesResult {
-   optional PStatus status = 1;
-}
-
 message PJdbcTestConnectionRequest {
     optional bytes jdbc_table = 1;
     optional int32 jdbc_table_type = 2;
@@ -1023,6 +1014,5 @@ service PBackendService {
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
-    rpc export_delete_exist_files(PExportDeleteExistFilesRequest) returns (PExportDeleteExistFilesResult);
 };
 
