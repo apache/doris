@@ -434,6 +434,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
             tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
             rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        } else if (fileSplit instanceof HiveSplit) {
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
         }
 
         setScanParams(rangeDesc, fileSplit);
