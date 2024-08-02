@@ -165,7 +165,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 }
 
 void S3FileReader::_collect_profile_before_close() {
-    // nothing
+    if (_profile != nullptr) {
+        // nothing
+    }
 }
 
 } // namespace io
