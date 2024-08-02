@@ -1172,7 +1172,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-
+            boolean originalSkipAuth = ctx.isSkipAuth();
             try {
                 // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
                 // create_priv of newTable, and select_priv of existedTable, and priv check has done in
@@ -1184,7 +1184,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
                 createTable(parsedCreateTableStmt);
             } finally {
-                ctx.setSkipAuth(false);
+                ctx.setSkipAuth(originalSkipAuth);
             }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "

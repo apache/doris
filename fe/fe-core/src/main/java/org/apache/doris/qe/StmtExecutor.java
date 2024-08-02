@@ -2508,6 +2508,7 @@ public class StmtExecutor {
     }
 
     private void handleIotStmt() {
+        boolean originalSkipAuth = context.isSkipAuth();
         context.setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
@@ -2519,7 +2520,7 @@ public class StmtExecutor {
                 handleOverwritePartition(iotStmt);
             }
         } finally {
-            context.setSkipAuth(false);
+            context.setSkipAuth(originalSkipAuth);
         }
     }
 
