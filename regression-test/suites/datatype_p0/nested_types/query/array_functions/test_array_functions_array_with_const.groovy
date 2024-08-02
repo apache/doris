@@ -29,12 +29,11 @@ suite("test_array_functions_array_with_const", "p0") {
 //    order_qt_sql "SELECT array_with_constant(number, []) FROM numbers limit 10;"
     order_qt_old_sql "SELECT array_with_constant(2, 'qwerty'), array_with_constant(0, -1), array_with_constant(1, 1);"
     //  -- { serverError }
-    try {
+    test {
         sql """ 
                 SELECT array_with_constant(-231.37104, -138); 
                 """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Array size can not be negative in function:array_with_constant"))
+        exception("errCode = 2")
     }
 
 
