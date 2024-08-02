@@ -610,21 +610,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            try {
-                setStatData(column, data, columnStatisticBuilder, count);
-            } catch (AnalysisException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-                return Optional.empty();
-            }
+            setStatData(column, data, columnStatisticBuilder, count);
         }
 
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
-            throws AnalysisException {
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count) {
         long ndv = 0;
         long nulls = 0;
         double colSize = 0;
