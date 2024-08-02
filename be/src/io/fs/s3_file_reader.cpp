@@ -128,7 +128,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     while (retry_count <= max_retries) {
         s3_file_reader_read_counter << 1;
         auto outcome = client->GetObject(request);
-        // _s3_stats.total_get_request_counter++;
         if (!outcome.IsSuccess()) {
             auto error = outcome.GetError();
             if (error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
@@ -137,8 +136,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 int wait_time = std::min(base_wait_time * (1 << retry_count),
                                          max_wait_time); // Exponential backoff
                 std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
-                // _s3_stats.too_many_request_err_counter++;
-                // _s3_stats.too_many_request_sleep_time_ms += wait_time;
                 total_sleep_time += wait_time;
                 continue;
             } else {
@@ -155,7 +152,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
                                          *bytes_read, bytes_req);
         }
-        // _s3_stats.total_bytes_read += bytes_req;
         s3_bytes_read_total << bytes_req;
         s3_bytes_per_read << bytes_req;
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
@@ -169,25 +165,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 }
 
 void S3FileReader::_collect_profile_before_close() {
-    if (_profile != nullptr) {
-	/*
-        const char* s3_profile_name = "S3Profile";
-        ADD_TIMER(_profile, s3_profile_name);
-        RuntimeProfile::Counter* total_get_request_counter =
-                ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, s3_profile_name);
-        RuntimeProfile::Counter* too_many_request_err_counter =
-                ADD_CHILD_COUNTER(_profile, "TooManyRequestErr", TUnit::UNIT, s3_profile_name);
-        RuntimeProfile::Counter* too_many_request_sleep_time = ADD_CHILD_COUNTER(
-                _profile, "TooManyRequestSleepTime", TUnit::TIME_MS, s3_profile_name);
-        RuntimeProfile::Counter* total_bytes_read =
-                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, s3_profile_name);
-
-        COUNTER_UPDATE(total_get_request_counter, _s3_stats.total_get_request_counter);
-        COUNTER_UPDATE(too_many_request_err_counter, _s3_stats.too_many_request_err_counter);
-        COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
-        COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
-	*/
-    }
+    // nothing
 }
 
 } // namespace io
