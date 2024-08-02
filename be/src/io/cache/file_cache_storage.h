@@ -24,6 +24,20 @@ namespace doris::io {
 
 class BlockFileCache;
 
+using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
+
+struct FileWriterMapKeyHash {
+    std::size_t operator()(const FileWriterMapKey& w) const {
+        char* v1 = (char*)&w.first.value_;
+        char* v2 = (char*)&w.second;
+        char buf[24];
+        memcpy(buf, v1, 16);
+        memcpy(buf + 16, v2, 8);
+        std::string_view str(buf, 24);
+        return std::hash<std::string_view> {}(str);
+    }
+};
+
 // The interface is for organizing datas in disk
 class FileCacheStorage {
 public:
@@ -46,6 +60,7 @@ public:
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
+    virtual void clear() = 0;
 };
 
 } // namespace doris::io

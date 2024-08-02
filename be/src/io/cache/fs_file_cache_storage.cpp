@@ -638,6 +638,24 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     }
 }
 
+void FSFileCacheStorage::clear() {
+    std::stringstream ss;
+    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " delete dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        return ss.str();
+    }
+    st = global_local_filesystem()->create_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " create dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        return ss.str();
+    }
+}
+
 FSFileCacheStorage::~FSFileCacheStorage() {
     if (_cache_background_load_thread.joinable()) {
         _cache_background_load_thread.join();

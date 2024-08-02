@@ -38,6 +38,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/mem_file_cache_storage.h"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
@@ -50,37 +51,37 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size),
           _max_query_cache_size(cache_settings.max_query_cache_size) {
-    _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
+    _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(get_base_path().c_str(),
                                                                      "file_cache_cache_size", 0);
     _cur_ttl_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_size", 0);
+            get_base_path().c_str(), "file_cache_ttl_cache_size", 0);
     _cur_normal_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_element_count", 0);
+            get_base_path().c_str(), "file_cache_normal_queue_element_count", 0);
     _cur_ttl_cache_lru_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_size", 0);
+            get_base_path().c_str(), "file_cache_ttl_cache_lru_queue_size", 0);
     _cur_ttl_cache_lru_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_element_count", 0);
+            get_base_path().c_str(), "file_cache_ttl_cache_lru_queue_element_count", 0);
     _cur_normal_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_cache_size", 0);
+            get_base_path().c_str(), "file_cache_normal_queue_cache_size", 0);
     _cur_index_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_element_count", 0);
+            get_base_path().c_str(), "file_cache_index_queue_element_count", 0);
     _cur_index_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_cache_size", 0);
+            get_base_path().c_str(), "file_cache_index_queue_cache_size", 0);
     _cur_disposable_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_element_count", 0);
+            get_base_path().c_str(), "file_cache_disposable_queue_element_count", 0);
     _cur_disposable_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_cache_size", 0);
+            get_base_path().c_str(), "file_cache_disposable_queue_cache_size", 0);
 
     _queue_evict_size_metrics[0] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_evict_size");
+            get_base_path().c_str(), "file_cache_index_queue_evict_size");
     _queue_evict_size_metrics[1] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_evict_size");
+            get_base_path().c_str(), "file_cache_normal_queue_evict_size");
     _queue_evict_size_metrics[2] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_evict_size");
+            get_base_path().c_str(), "file_cache_disposable_queue_evict_size");
     _queue_evict_size_metrics[3] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
+            get_base_path().c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_total_evict_size");
+            get_base_path().c_str(), "file_cache_total_evict_size");
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -206,7 +207,11 @@ Status BlockFileCache::initialize() {
 Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(!_is_initialized);
     _is_initialized = true;
-    _storage = std::make_unique<FSFileCacheStorage>();
+    if (config::use_in_memory_file_cache) {
+        _storage = std::make_unique<MemFileCacheStorage>();
+    } else {
+        _storage = std::make_unique<FSFileCacheStorage>();
+    }
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_thread = std::thread(&BlockFileCache::run_background_operation, this);
 
@@ -409,7 +414,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 std::string BlockFileCache::clear_file_cache_async() {
-    LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
+    LOG(INFO) << "start clear_file_cache_async, path=" << get_base_path();
     int64_t num_cells_all = 0;
     int64_t num_cells_to_delete = 0;
     int64_t num_files_all = 0;
@@ -430,7 +435,7 @@ std::string BlockFileCache::clear_file_cache_async() {
         }
     }
     std::stringstream ss;
-    ss << "finish clear_file_cache_async, path=" << _cache_base_path
+    ss << "finish clear_file_cache_async, path=" << get_base_path()
        << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
        << " num_cells_to_delete=" << num_cells_to_delete;
     auto msg = ss.str();
@@ -452,7 +457,7 @@ void BlockFileCache::recycle_deleted_blocks() {
     std::condition_variable cond;
     auto start_time = steady_clock::time_point();
     if (_async_clear_file_cache) {
-        LOG_INFO("Start clear file cache async").tag("path", _cache_base_path);
+        LOG_INFO("Start clear file cache async").tag("path", get_base_path());
         auto remove_file_block = [&cache_lock, this](FileBlockCell* cell) {
             std::lock_guard segment_lock(cell->file_block->_mutex);
             remove(cell->file_block, cache_lock, segment_lock);
@@ -530,7 +535,7 @@ void BlockFileCache::recycle_deleted_blocks() {
             _async_clear_file_cache = false;
             auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
             LOG_INFO("End clear file cache async")
-                    .tag("path", _cache_base_path)
+                    .tag("path", get_base_path())
                     .tag("use_time", static_cast<int64_t>(use_time.count()));
         }
     }
@@ -741,7 +746,7 @@ size_t BlockFileCache::try_release() {
         std::lock_guard lc(cell->file_block->_mutex);
         remove(file_block, l, lc);
     }
-    LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << _cache_base_path;
+    LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << get_base_path();
     return trash.size();
 }
 
@@ -1458,7 +1463,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
     int64_t space_released = 0;
     size_t old_capacity = 0;
     std::stringstream ss;
-    ss << "finish reset_capacity, path=" << _cache_base_path;
+    ss << "finish reset_capacity, path=" << get_base_path();
     auto start_time = steady_clock::time_point();
     {
         std::lock_guard cache_lock(_mutex);
@@ -1504,7 +1509,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
         _capacity = new_capacity;
     }
     auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
-    LOG(INFO) << "Finish tag deleted block. path=" << _cache_base_path
+    LOG(INFO) << "Finish tag deleted block. path=" << get_base_path()
               << " use_time=" << static_cast<int64_t>(use_time.count());
     ss << " old_capacity=" << old_capacity << " new_capacity=" << new_capacity;
     LOG(INFO) << ss.str();
@@ -1518,7 +1523,7 @@ void BlockFileCache::check_disk_resource_limit() {
     std::pair<int, int> percent;
     int ret = disk_used_percentage(_cache_base_path, &percent);
     if (ret != 0) {
-        LOG_ERROR("").tag("file cache path", _cache_base_path).tag("error", strerror(errno));
+        LOG_ERROR("").tag("file cache path", get_base_path()).tag("error", strerror(errno));
         return;
     }
     auto [capacity_percentage, inode_percentage] = percent;
@@ -1737,22 +1742,10 @@ std::string BlockFileCache::clear_file_cache_directly() {
     std::stringstream ss;
     auto start = steady_clock::now();
     std::lock_guard cache_lock(_mutex);
-    LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
+    LOG_INFO("start clear_file_cache_directly").tag("path", get_base_path());
 
-    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " delete dir failed: " << st;
-        LOG(WARNING) << ss.str();
-        return ss.str();
-    }
-    st = global_local_filesystem()->create_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " create dir failed: " << st;
-        LOG(WARNING) << ss.str();
-        return ss.str();
-    }
+    _storage->clear();
+
     int64_t num_files = _files.size();
     int64_t cache_size = _cur_cache_size;
     int64_t index_queue_size = _index_queue.get_elements_num(cache_lock);
@@ -1769,7 +1762,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _disposable_queue.clear(cache_lock);
     _ttl_queue.clear(cache_lock);
     ss << "finish clear_file_cache_directly"
-       << " path=" << _cache_base_path
+       << " path=" << get_base_path()
        << " time_elapsed=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
        << " num_files=" << num_files << " cache_size=" << cache_size
        << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size

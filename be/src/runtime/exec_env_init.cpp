@@ -412,7 +412,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
         std::vector<std::thread> file_cache_init_threads;
 
         std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
+        for (auto& cache_path : cache_paths) { //TODO(zhengyu): need refractor for in-memory cache
             if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
                 LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
                 continue;

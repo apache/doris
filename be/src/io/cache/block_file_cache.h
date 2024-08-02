@@ -72,7 +72,9 @@ public:
     // it maybe hang the io/system
     size_t try_release();
 
-    [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
+    [[nodiscard]] const std::string& get_base_path() const {
+        return (config::use_in_memory_file_cache ? "in-memory" : _cache_base_path);
+    }
 
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
