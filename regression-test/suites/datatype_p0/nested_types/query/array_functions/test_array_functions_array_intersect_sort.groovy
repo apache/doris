@@ -58,19 +58,17 @@ suite("test_array_functions_array_intersect_sort", "p0") {
     order_qt_old_sql "SELECT array_sort(array_intersect([1, 1], [2, 1], [2, 2], [2, 2, 2]));"
 
     // nereids not support array_intersect with one argument
-    try {
+    test {
         sql """
                 SELECT array_sort(array_intersect([]));
                 """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("No matching function with signature: array_intersect(ARRAY<NULL_TYPE>)"))
+        exception("errCode = 2")
     }
-    try {
+    test {
         sql """
                 SELECT array_sort(array_intersect([1, 2, 3]));
                 """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("No matching function with signature: array_intersect(ARRAY<TINYINT>)"))
+         exception("errCode = 2")
     }
 
     // nereids

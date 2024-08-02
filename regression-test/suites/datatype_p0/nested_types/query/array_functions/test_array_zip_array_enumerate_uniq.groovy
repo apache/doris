@@ -21,20 +21,18 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
     sql "set enable_nereids_planner=false;"
 //     ========== array-zip ==========
 //     wrong case
-    try {
+    test {
         sql """
                SELECT array_zip();
                 """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("errCode = 2, detailMessage = Unexpected exception: 0"))
+        exception("errCode = 2")
     }
 
-    try {
+    test {
         sql """
                SELECT array_zip(['a', 'b', 'c'], ['d', 'e', 'f', 'd']);
                 """
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("function array_zip's 2-th argument should have same offsets with first argument"))
+        exception("errCode = 2")
     }
 
     // ============= array_enumerate_uniq =========
