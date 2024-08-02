@@ -3945,6 +3945,7 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 
 void Tablet::clear_cache() {
     std::shared_lock rlock(get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     static auto recycle_segment_cache = [](const auto& rowset_map) {
         for (auto& [_, rowset] : rowset_map) {
             rowset->clear_cache();

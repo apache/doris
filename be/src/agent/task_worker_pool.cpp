@@ -1363,7 +1363,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
             profile->pretty_print(&ss);
-            LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
+            LOG(WARNING) << "create tablet " << create_tablet_req.tablet_id << " cost(s) "
+                         << elapsed_time / 1e9 << std::endl
+                         << ss.str();
         }
     });
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
