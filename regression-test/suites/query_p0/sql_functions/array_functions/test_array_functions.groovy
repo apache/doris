@@ -337,6 +337,23 @@ suite("test_array_functions") {
             (12, 1.200, 1.200000000  , 1.200, 1.20000, 1.200000000, [1.200000000, 1.200000000]); """
 
     qt_sql """ select array_position(kadcml, kdcmls1), kadcml, kdcmls1 from fn_test;"""
+    sql """ DROP TABLE IF EXISTS ARRAY_BIGINT_DATA;"""
+    sql """ CREATE TABLE IF NOT EXISTS `ARRAY_BIGINT_DATA` (
+              `id` INT NULL,
+              `data` ARRAY<BIGINT> NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    sql """ INSERT INTO ARRAY_BIGINT_DATA VALUES (0, [-1, 0, 1, 2, -9223372036854775808, 9223372036854775807, 1]);"""
+    sql """ INSERT INTO ARRAY_BIGINT_DATA VALUES (1, []);"""
+
+    test {
+     sql """ select array_enumerate_uniq((select data from ARRAY_BIGINT_DATA where id = 0), (select data from ARRAY_BIGINT_DATA where id = 1), (select data from ARRAY_BIGINT_DATA where id = 1));"""
+     exception ("A subquery should not return Array/Map/Struct type")
+    }
     // test large size of array
     test {
         sql """ select sequence(1, 10000000000); """
