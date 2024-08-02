@@ -180,13 +180,12 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
 }
 
 OrcReader::~OrcReader() {
-    _collect_profile_on_close();
     if (_obj_pool && _obj_pool.get()) {
         _obj_pool->clear();
     }
 }
 
-void OrcReader::_collect_profile_on_close() {
+void OrcReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         COUNTER_UPDATE(_orc_profile.read_time, _statistics.fs_read_time);
         COUNTER_UPDATE(_orc_profile.read_calls, _statistics.fs_read_calls);
@@ -198,6 +197,10 @@ void OrcReader::_collect_profile_on_close() {
         COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+
+        if (_file_input_stream != nullptr) {
+            _file_input_stream->collect_profile_before_close();
+        }
     }
 }
 
@@ -1271,16 +1274,15 @@ Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
 }
 
 template <bool is_filter>
-Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
-                                              const ColumnPtr& doris_column,
+Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                               const DataTypePtr& data_type,
                                               const orc::Type* orc_column_type,
                                               orc::ColumnVectorBatch* cvb, size_t num_values) {
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto* nullable_column =
+                reinterpret_cast<ColumnNullable*>(doris_column->assume_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& map_data_column = nullable_column->get_null_map_data();
         auto origin_size = map_data_column.size();
@@ -1291,9 +1293,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 map_data_column[origin_size + i] = !cvb_nulls[i];
             }
         } else {
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = false;
-            }
+            memset(map_data_column.data() + origin_size, 0, num_values);
         }
     } else {
         if (cvb->hasNulls) {
@@ -1303,6 +1303,16 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         data_column = doris_column->assume_mutable();
     }
 
+    return _fill_doris_data_column<is_filter>(col_name, data_column, data_type, orc_column_type,
+                                              cvb, num_values);
+}
+
+template <bool is_filter>
+Status OrcReader::_fill_doris_data_column(const std::string& col_name,
+                                          MutableColumnPtr& data_column,
+                                          const DataTypePtr& data_type,
+                                          const orc::Type* orc_column_type,
+                                          orc::ColumnVectorBatch* cvb, size_t num_values) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
 #define DISPATCH(FlatType, CppType, OrcColumnType) \
@@ -1343,9 +1353,11 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                                                 cvb, num_values);
     case TypeIndex::Array: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected list, actual {}", col_name,
+                    orc_column_type->getKind());
         }
-        auto* orc_list = down_cast<orc::ListVectorBatch*>(cvb);
+        auto* orc_list = dynamic_cast<orc::ListVectorBatch*>(cvb);
         auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
         auto& orc_offsets = orc_list->offsets;
         size_t element_size = 0;
@@ -1355,15 +1367,17 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
+        std::string element_name = col_name + ".element";
         return _orc_column_to_doris_column<is_filter>(
-                col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
+                element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
     }
     case TypeIndex::Map: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
+                                         col_name, orc_column_type->getKind());
         }
-        auto* orc_map = down_cast<orc::MapVectorBatch*>(cvb);
+        auto* orc_map = dynamic_cast<orc::MapVectorBatch*>(cvb);
         auto& doris_map = static_cast<ColumnMap&>(*data_column);
         size_t element_size = 0;
         RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
@@ -1376,33 +1390,64 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
-        const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
-        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(col_name, doris_key_column,
+        ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
+        ColumnPtr& doris_value_column = doris_map.get_values_ptr();
+        std::string key_col_name = col_name + ".key";
+        std::string value_col_name = col_name + ".value";
+        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(key_col_name, doris_key_column,
                                                                doris_key_type, orc_key_type,
                                                                orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<is_filter>(col_name, doris_value_column,
+        return _orc_column_to_doris_column<is_filter>(value_col_name, doris_value_column,
                                                       doris_value_type, orc_value_type,
                                                       orc_map->elements.get(), element_size);
     }
     case TypeIndex::Struct: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected struct, actual {}", col_name,
+                    orc_column_type->getKind());
         }
-        auto* orc_struct = down_cast<orc::StructVectorBatch*>(cvb);
+        auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
-        if (orc_struct->fields.size() != doris_struct.tuple_size()) {
-            return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
-        }
+        std::map<int, int> read_fields;
+        std::set<int> missing_fields;
         const DataTypeStruct* doris_struct_type =
                 reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
-            orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
-            const orc::Type* orc_type = orc_column_type->getSubtype(i);
-            const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
-            const DataTypePtr& doris_type = doris_struct_type->get_element(i);
+            bool is_missing_col = true;
+            for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
+                if (boost::iequals(doris_struct_type->get_name_by_position(i),
+                                   orc_column_type->getFieldName(j))) {
+                    read_fields[i] = j;
+                    is_missing_col = false;
+                    break;
+                }
+            }
+            if (is_missing_col) {
+                missing_fields.insert(i);
+            }
+        }
+
+        for (int missing_field : missing_fields) {
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
+            if (!doris_field->is_nullable()) {
+                return Status::InternalError(
+                        "Child field of '{}' is not nullable, but is missing in orc file",
+                        col_name);
+            }
+            reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
+                    ->insert_null_elements(num_values);
+        }
+
+        for (auto read_field : read_fields) {
+            orc::ColumnVectorBatch* orc_field = orc_struct->fields[read_field.second];
+            const orc::Type* orc_type = orc_column_type->getSubtype(read_field.second);
+            std::string field_name =
+                    col_name + "." + orc_column_type->getFieldName(read_field.second);
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(read_field.first);
+            const DataTypePtr& doris_type = doris_struct_type->get_element(read_field.first);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
-                    col_name, doris_field, doris_type, orc_type, orc_field, num_values));
+                    field_name, doris_field, doris_type, orc_type, orc_field, num_values));
         }
         return Status::OK();
     }
@@ -2247,6 +2292,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;
@@ -2271,6 +2319,12 @@ void ORCFileInputStream::beforeReadStripe(
         _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
     } else {
         _file_reader = _inner_reader;
+    }
+}
+
+void ORCFileInputStream::_collect_profile_before_close() {
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
     }
 }
 

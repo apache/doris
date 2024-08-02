@@ -66,6 +66,7 @@ import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
@@ -207,7 +208,21 @@ public class AnalysisManager implements Writable {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
+    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException, AnalysisException {
+        // Using auto analyzer if user specifies.
+        if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+            StatisticsAutoCollector autoCollector = Env.getCurrentEnv().getStatisticsAutoCollector();
+            if (autoCollector.skip(stmt.getTable())) {
+                return;
+            }
+            List<AnalysisInfo> jobs = new ArrayList<>();
+            autoCollector.createAnalyzeJobForTbl(stmt.getDb(), jobs, stmt.getTable());
+            AnalysisInfo job = autoCollector.getReAnalyzeRequiredPart(jobs.get(0));
+            if (job != null) {
+                Env.getCurrentEnv().getStatisticsAutoCollector().createSystemAnalysisJob(job);
+            }
+            return;
+        }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
         if (jobInfo == null) {
             return;
@@ -309,10 +324,13 @@ public class AnalysisManager implements Writable {
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
             Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
 
+        Set<String> dummyPartitions = Sets.newHashSet();
+        // validateAndGetPartitions is to be deprecated, for now, use dummy partition for empty partitions.
+        dummyPartitions.add("Dummy Partition");
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
                 .collect(Collectors.toMap(
                         columnName -> columnName,
-                        columnName -> new HashSet<>(partitionNames == null ? Collections.emptySet() : partitionNames)
+                        columnName -> new HashSet<>(partitionNames == null ? dummyPartitions : partitionNames)
                 ));
 
         if (analysisType == AnalysisType.HISTOGRAM) {
@@ -405,6 +423,8 @@ public class AnalysisManager implements Writable {
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
         infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0);
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
+        infoBuilder.setRowCount(rowCount);
         return infoBuilder.build();
     }
 

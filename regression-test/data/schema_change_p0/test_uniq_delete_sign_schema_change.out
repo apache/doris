@@ -15,13 +15,13 @@
 4	4	4	4	0	6
 
 -- !sql --
-k1	INT	Yes	true	\N	
-value1	INT	Yes	false	\N	REPLACE
-value2	INT	Yes	false	\N	REPLACE
-value3	INT	Yes	false	\N	REPLACE
-value4	INT	Yes	false	\N	REPLACE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
+k1	int	Yes	true	\N	
+value1	int	Yes	false	\N	REPLACE
+value2	int	Yes	false	\N	REPLACE
+value3	int	Yes	false	\N	REPLACE
+value4	int	Yes	false	\N	REPLACE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	REPLACE
+__DORIS_VERSION_COL__	bigint	No	false	0	REPLACE
 
 -- !sql --
 1	1	1	1	\N	1	7
@@ -46,11 +46,11 @@ __DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
 6	6	6	6	6	0	9
 
 -- !sql --
-k1	INT	Yes	true	\N	
-value2	INT	Yes	false	\N	REPLACE
-value4	INT	Yes	false	\N	REPLACE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
+k1	int	Yes	true	\N	
+value2	int	Yes	false	\N	REPLACE
+value4	int	Yes	false	\N	REPLACE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	REPLACE
+__DORIS_VERSION_COL__	bigint	No	false	0	REPLACE
 
 -- !sql --
 1	1	\N	1	7

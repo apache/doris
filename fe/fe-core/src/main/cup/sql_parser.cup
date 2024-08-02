@@ -4166,7 +4166,12 @@ show_param ::=
     /* show table stats */
     | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames, cached);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames, cached, null);
+    :}
+    /* show index stats */
+    | KW_INDEX KW_STATS table_name:tbl ident:id
+    {:
+        RESULT = new ShowTableStatsStmt(tbl, null, false, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -6946,8 +6951,12 @@ timestamp_arithmetic_expr ::=
       // This function should not fully qualified
       throw new Exception("interval should not be qualified by database name");
     }
-
-    RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) || 
+         "date_ceil".equalsIgnoreCase(functionName.getFunction())) {
+       RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+    } else {
+       RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    }
   :}
   | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:

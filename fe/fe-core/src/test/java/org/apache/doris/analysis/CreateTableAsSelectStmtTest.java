@@ -83,9 +83,9 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "as select * from `test`.`decimal_table`";
         createTableAsSelect(selectFromDecimal);
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `amount_decimal` "
-                        + "DECIMAL" + "(10, 2) NOT NULL\n"
+                        + "decimal" + "(10,2) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -96,7 +96,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
         String selectFromDecimal1 =
@@ -106,7 +107,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         if (Config.enable_decimal_conversion) {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n"
-                            + "  `_col0` DECIMAL(38, 2) NULL\n"
+                            + "  `_col0` decimal(38,2) NULL\n"
                             + ") ENGINE=OLAP\n"
                             + "DUPLICATE KEY(`_col0`)\n"
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
@@ -117,13 +118,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
-                            + "\"enable_single_replica_compaction\" = \"false\"\n"
+                            + "\"enable_single_replica_compaction\" = \"false\",\n"
+                            + "\"enable_mow_light_delete\" = \"false\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         } else {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n"
-                            + "  `_col0` decimal(27, 9) NULL\n"
+                            + "  `_col0` decimal(27,9) NULL\n"
                             + ") ENGINE=OLAP\n"
                             + "DUPLICATE KEY(`_col0`)\n"
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
@@ -134,7 +136,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
-                            + "\"enable_single_replica_compaction\" = \"false\"\n"
+                            + "\"enable_single_replica_compaction\" = \"false\",\n"
+                            + "\"enable_mow_light_delete\" = \"false\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         }
@@ -157,8 +160,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromVarchar);
         ShowResultSet showResultSet = showCreateTableByName("select_varchar");
         Assertions.assertEquals("CREATE TABLE `select_varchar` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -169,7 +172,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -182,7 +186,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet1 = showCreateTableByName("select_function_1");
         Assertions.assertEquals(
                 "CREATE TABLE `select_function_1` (\n"
-                        + "  `_col0` BIGINT NULL\n"
+                        + "  `_col0` bigint NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`_col0`)\n"
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
@@ -193,7 +197,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
 
@@ -204,11 +209,11 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet2 = showCreateTableByName("select_function_2");
         Assertions.assertEquals(
                 "CREATE TABLE `select_function_2` (\n"
-                        + "  `_col0` BIGINT NULL,\n"
-                        + "  `_col1` BIGINT NULL,\n"
-                        + "  `_col2` BIGINT NULL,\n"
-                        + "  `_col3` BIGINT NULL,\n"
-                        + "  `_col4` BIGINT NULL\n"
+                        + "  `_col0` bigint NULL,\n"
+                        + "  `_col1` bigint NULL,\n"
+                        + "  `_col2` bigint NULL,\n"
+                        + "  `_col3` bigint NULL,\n"
+                        + "  `_col4` bigint NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`_col0`, `_col1`, `_col2`)\n"
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
@@ -219,7 +224,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -231,7 +237,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectAlias1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_alias_1");
         Assertions.assertEquals("CREATE TABLE `select_alias_1` (\n"
-                + "  `amount` BIGINT NULL\n"
+                + "  `amount` bigint NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(`amount`)\n"
                 + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
@@ -242,15 +248,16 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
-                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                + "\"enable_mow_light_delete\" = \"false\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") "
                 + "as select userId as alias_name, username from `test`.`varchar_table`";
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTableByName("select_alias_2");
         Assertions.assertEquals("CREATE TABLE `select_alias_2` (\n"
-                        + "  `alias_name` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `alias_name` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`alias_name`)\n"
                         + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n"
@@ -261,7 +268,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -274,9 +282,9 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTableByName("select_join");
         Assertions.assertEquals("CREATE TABLE `select_join` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL,\n"
-                        + "  `status` INT NOT NULL\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL,\n"
+                        + "  `status` int NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -287,7 +295,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromJoin1 = "create table `test`.`select_join1` PROPERTIES(\"replication_num\" = \"1\") "
@@ -296,10 +305,10 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_join1");
         Assertions.assertEquals("CREATE TABLE `select_join1` (\n"
-                        + "  `userId1` VARCHAR(255) NOT NULL,\n"
-                        + "  `userId2` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL,\n"
-                        + "  `status` INT NOT NULL\n"
+                        + "  `userId1` varchar(255) NOT NULL,\n"
+                        + "  `userId2` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL,\n"
+                        + "  `status` int NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId1`)\n"
                         + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n"
@@ -310,7 +319,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
     }
@@ -324,9 +334,9 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTableByName("select_name");
         Assertions.assertEquals("CREATE TABLE `select_name` (\n"
-                        + "  `user` VARCHAR(255) NOT NULL,\n"
-                        + "  `testname` VARCHAR(255) NOT NULL,\n"
-                        + "  `userstatus` INT NOT NULL\n"
+                        + "  `user` varchar(255) NOT NULL,\n"
+                        + "  `testname` varchar(255) NOT NULL,\n"
+                        + "  `userstatus` int NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`user`)\n"
                         + "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n"
@@ -337,7 +347,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -350,7 +361,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("select_union");
         Assertions.assertEquals(
                 "CREATE TABLE `select_union` (\n"
-                        + "  `userId` VARCHAR(255) NULL\n"
+                        + "  `userId` varchar(255) NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -361,7 +372,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");", showResultSet.getResultRows().get(0).get(1));
     }
 
@@ -373,7 +385,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("select_cte");
         Assertions.assertEquals(
                 "CREATE TABLE `select_cte` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL\n"
+                        + "  `userId` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -384,7 +396,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromCteAndUnion = "create table `test`.`select_cte_union` PROPERTIES(\"replication_num\" = \"1\")"
@@ -392,7 +405,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromCteAndUnion);
         ShowResultSet showResultSet1 = showCreateTableByName("select_cte_union");
         Assertions.assertEquals("CREATE TABLE `select_cte_union` (\n"
-                + "  `id` TINYINT NULL\n"
+                + "  `id` tinyint NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
@@ -403,7 +416,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
-                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                + "\"enable_mow_light_delete\" = \"false\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
     }
 
@@ -415,8 +429,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromPartition);
         ShowResultSet showResultSet = showCreateTableByName("selectPartition");
         Assertions.assertEquals("CREATE TABLE `selectPartition` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "PARTITION BY LIST(`userId`)\n"
@@ -429,7 +443,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -441,7 +456,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(createSql);
         ShowResultSet showResultSet = showCreateTableByName("test_default_timestamp");
         Assertions.assertEquals("CREATE TABLE `test_default_timestamp` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
                         + "  `date` datetime"
                         + " NULL DEFAULT CURRENT_TIMESTAMP\n"
                         + ") ENGINE=OLAP\n"
@@ -454,7 +469,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -467,7 +483,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("test_agg_value");
         Assertions.assertEquals(
                 "CREATE TABLE `test_agg_value` (\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`username`)\n"
                         + "DISTRIBUTED BY HASH(`username`) BUCKETS 10\n"
@@ -478,7 +494,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -491,8 +508,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("test_use_key_type");
         Assertions.assertEquals(
                 "CREATE TABLE `test_use_key_type` (\n"
-                        + "  `userId` VARCHAR(255) NOT NULL,\n"
-                        + "  `username` VARCHAR(255) NOT NULL\n"
+                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "UNIQUE KEY(`userId`)\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
@@ -503,7 +520,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -540,8 +558,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
             createStmts.add(createTableStmts.get(0));
             if (tbl.getName().equals("qs1")) {
                 Assert.assertEquals("CREATE TABLE `qs1` (\n"
-                                + "  `k1` INT NULL,\n"
-                                + "  `k2` INT NULL\n"
+                                + "  `k1` int NULL,\n"
+                                + "  `k2` int NULL\n"
                                 + ") ENGINE=OLAP\n"
                                 + "DUPLICATE KEY(`k1`, `k2`)\n"
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
@@ -552,13 +570,14 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
-                                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                                + "\"enable_mow_light_delete\" = \"false\"\n"
                                 + ");",
                         createTableStmts.get(0));
             } else {
                 Assert.assertEquals("CREATE TABLE `qs2` (\n"
-                                + "  `k1` INT NULL,\n"
-                                + "  `k2` INT NULL\n"
+                                + "  `k1` int NULL,\n"
+                                + "  `k2` int NULL\n"
                                 + ") ENGINE=OLAP\n"
                                 + "DUPLICATE KEY(`k1`, `k2`)\n"
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
@@ -569,7 +588,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
-                                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                                + "\"enable_mow_light_delete\" = \"false\"\n"
                                 + ");",
                         createTableStmts.get(0));
             }
@@ -587,9 +607,9 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         String showStr = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertEquals(
                 "CREATE TABLE `varchar_len1` (\n"
-                        + "  `_col0` VARCHAR(65533) NULL,\n"
-                        + "  `_col1` VARCHAR(65533) NULL,\n"
-                        + "  `userId` VARCHAR(255) NOT NULL\n"
+                        + "  `_col0` varchar(65533) NULL,\n"
+                        + "  `_col1` varchar(65533) NULL,\n"
+                        + "  `userId` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`_col0`)\n"
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
@@ -600,7 +620,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_light_delete\" = \"false\"\n"
                         + ");",
                 showStr);
     }

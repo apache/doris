@@ -574,7 +574,8 @@ public class CreateTableStmt extends DdlStmt {
 
         for (ColumnDef columnDef : columnDefs) {
             Column col = columnDef.toColumn();
-            if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (keysDesc != null && (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS
+                    || keysDesc.getKeysType() == KeysType.DUP_KEYS)) {
                 if (!col.isKey()) {
                     col.setAggregationTypeImplicit(true);
                 }

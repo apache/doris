@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * if we have a column with decimalv3 type and set enable_decimal_conversion = false.
@@ -64,10 +65,15 @@ public class SimplifyDecimalV3Comparison extends AbstractExpressionRewriteRule {
         BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(trailingZerosValue);
+        try {
+            trailingZerosValue = trailingZerosValue.setScale(scale, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException e) {
+            return cp;
+        }
+
         Expression castChild = left.child();
         Preconditions.checkState(castChild.getDataType() instanceof DecimalV3Type);
         DecimalV3Type leftType = (DecimalV3Type) castChild.getDataType();
-
         if (scale <= leftType.getScale() && precision - scale <= leftType.getPrecision() - leftType.getScale()) {
             // precision and scale of literal all smaller than left, we don't need the cast
             DecimalV3Literal newRight = new DecimalV3Literal(

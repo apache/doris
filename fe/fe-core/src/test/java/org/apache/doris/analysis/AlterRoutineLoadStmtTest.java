@@ -220,7 +220,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("max_batch_size should between 100MB and 1GB"));
+                Assert.assertTrue(e.getMessage().contains("max_batch_size should between 100MB and 10GB"));
             } catch (UserException e) {
                 Assert.fail();
             }

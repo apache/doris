@@ -553,6 +553,7 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
+            originalExpr = new ArrayList<>(resultExprs);
         } else {
             if (needToSql) {
                 originalExpr = new ArrayList<>();

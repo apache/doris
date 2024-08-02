@@ -2364,7 +2364,6 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
-        result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
 
@@ -2449,5 +2448,18 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
         return fn;
+    }
+
+    // eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
+    // second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
+    public static FunctionCallExpr functionWithIntervalConvert(String functionName, Expr str, Expr interval,
+            String timeUnitIdent) throws AnalysisException {
+        String newFunctionName = timeUnitIdent + "_" + functionName.split("_")[1];
+        List<Expr> params = new ArrayList<>();
+        Expr defaultDatetime = new DateLiteral(0001, 01, 01, 0, 0, 0, 0, Type.DATETIMEV2);
+        params.add(str);
+        params.add(interval);
+        params.add(defaultDatetime);
+        return new FunctionCallExpr(newFunctionName, params);
     }
 }

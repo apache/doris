@@ -487,6 +487,8 @@ DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
+// timeout for try_lock migration lock
+DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
@@ -655,9 +657,9 @@ DECLARE_Bool(enable_metric_calculator);
 // max consumer num in one data consumer group, for routine load
 DECLARE_mInt32(max_consumer_num_per_group);
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DECLARE_Int32(routine_load_thread_pool_size);
+DECLARE_Int32(max_routine_load_thread_pool_size);
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -828,6 +830,8 @@ DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_String(delete_bitmap_dynamic_agg_cache_limit);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
@@ -1175,10 +1179,6 @@ DECLARE_mBool(exit_on_exception);
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
-// Dir of default timezone files
-DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
-
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
 DECLARE_Int32(be_thrift_max_pkg_bytes);
@@ -1208,6 +1208,13 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+// When meet s3 429 error, the "get" request will
+// sleep s3_read_base_wait_time_ms (*1, *2, *3, *4) ms
+// get try again.
+// The max sleep time is s3_read_max_wait_time_ms
+// and the max retry time is max_s3_client_retry
+DECLARE_mInt32(s3_read_base_wait_time_ms);
+DECLARE_mInt32(s3_read_max_wait_time_ms);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
@@ -1224,6 +1231,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+
+DECLARE_mBool(ignore_schema_change_check);
 
 #ifdef BE_TEST
 // test s3

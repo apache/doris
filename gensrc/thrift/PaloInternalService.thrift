@@ -260,6 +260,7 @@ struct TQueryOptions {
 
   92: optional bool enable_parquet_filter_by_min_max = true
   93: optional bool enable_orc_filter_by_min_max = true
+  116: optional bool enable_no_need_read_data_opt = true;
 }
 
 

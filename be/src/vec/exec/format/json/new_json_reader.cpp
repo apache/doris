@@ -1251,7 +1251,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
             bool valid = true;
             cur = (*_array_iter).get_object();
             // extract root
-            if (_parsed_json_root.size() != 0) {
+            if (!_parsed_from_json_root && _parsed_json_root.size() != 0) {
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
@@ -1413,6 +1413,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         const size_t column_index = _column_index(name_ref, key_index++);
         if (UNLIKELY(ssize_t(column_index) < 0)) {
             // This key is not exist in slot desc, just ignore
+            continue;
+        }
+        if (_seen_columns[column_index]) {
             continue;
         }
         simdjson::ondemand::value val = field.value();
@@ -1665,6 +1668,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
                 fmt::format_to(error_msg, "{}", st.to_string());
                 return return_quality_error(error_msg, std::string((char*)json_str, *size));
             }
+            _parsed_from_json_root = true;
         } catch (simdjson::simdjson_error& e) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",
@@ -1791,6 +1795,15 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc,
 
     *valid = true;
     return Status::OK();
+}
+
+void NewJsonReader::_collect_profile_before_close() {
+    if (_line_reader != nullptr) {
+        _line_reader->collect_profile_before_close();
+    }
+    if (_file_reader != nullptr) {
+        _file_reader->collect_profile_before_close();
+    }
 }
 
 } // namespace doris::vectorized

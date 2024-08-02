@@ -354,4 +354,19 @@ suite("test_array_functions") {
      sql """ select array_enumerate_uniq((select data from ARRAY_BIGINT_DATA where id = 0), (select data from ARRAY_BIGINT_DATA where id = 1), (select data from ARRAY_BIGINT_DATA where id = 1));"""
      exception ("A subquery should not return Array/Map/Struct type")
     }
+    // test large size of array
+    test {
+        sql """ select sequence(1, 10000000000); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql """ select sequence(1, 10000000000, 2); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 }

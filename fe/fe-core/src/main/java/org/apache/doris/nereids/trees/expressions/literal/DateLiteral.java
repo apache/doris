@@ -145,17 +145,6 @@ public class DateLiteral extends Literal {
         return punctuations.contains(c);
     }
 
-    private static void replacePunctuation(String s, StringBuilder sb, char c, int idx) {
-        if (idx >= sb.length()) {
-            return;
-        }
-        if (isPunctuation(sb.charAt(idx))) {
-            sb.setCharAt(idx, c);
-        } else {
-            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
-        }
-    }
-
     static String normalize(String s) {
         // merge consecutive space
         s = s.replaceAll(" +", " ");

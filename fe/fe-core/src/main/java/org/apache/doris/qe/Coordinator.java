@@ -309,7 +309,7 @@ public class Coordinator implements CoordInterface {
 
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
@@ -337,7 +337,7 @@ public class Coordinator implements CoordInterface {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
-        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
@@ -1001,6 +1001,7 @@ public class Coordinator implements CoordInterface {
             } catch (InterruptedException e) {
                 exception = e;
                 code = TStatusCode.INTERNAL_ERROR;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (TimeoutException e) {
                 exception = e;
                 errMsg = String.format(
@@ -1008,6 +1009,7 @@ public class Coordinator implements CoordInterface {
                                             operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
                 LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             }
 
             try {
