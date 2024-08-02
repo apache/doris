@@ -145,18 +145,20 @@ private:
 #undef DISPATCH
         case TYPE_FLOAT:
             if constexpr (std::is_same_v<CppType, float>) {
-                if (col_schema->physical_type != tparquet::Type::FLOAT) return false;
+                if (col_schema->physical_type != tparquet::Type::FLOAT) {
+                    return false;
+                }
                 min_value = *reinterpret_cast<const CppType*>(encoded_min.data());
                 max_value = *reinterpret_cast<const CppType*>(encoded_max.data());
                 if (std::isnan(min_value) || std::isnan(max_value)) {
                     return false;
                 }
                 // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
-                if (std::signbit(min_value) == 0 && min_value == 0.0f) {
-                    min_value = -0.0f;
+                if (std::signbit(min_value) == 0 && min_value == 0.0F) {
+                    min_value = -0.0F;
                 }
-                if (std::signbit(max_value) != 0 && max_value == -0.0f) {
-                    max_value = 0.0f;
+                if (std::signbit(max_value) != 0 && max_value == -0.0F) {
+                    max_value = 0.0F;
                 }
                 break;
             } else {
@@ -164,7 +166,9 @@ private:
             }
         case TYPE_DOUBLE:
             if constexpr (std::is_same_v<CppType, float>) {
-                if (col_schema->physical_type != tparquet::Type::DOUBLE) return false;
+                if (col_schema->physical_type != tparquet::Type::DOUBLE) {
+                    return false;
+                }
                 min_value = *reinterpret_cast<const CppType*>(encoded_min.data());
                 max_value = *reinterpret_cast<const CppType*>(encoded_max.data());
                 if (std::isnan(min_value) || std::isnan(max_value)) {

@@ -25,7 +25,7 @@ namespace doris {
 namespace vectorized {
 class ParquetVersionTest : public testing::Test {
 public:
-    ParquetVersionTest() {}
+    ParquetVersionTest() = default;
 };
 
 TEST_F(ParquetVersionTest, test_version_parser) {

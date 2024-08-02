@@ -25,7 +25,7 @@ namespace doris {
 namespace vectorized {
 class ParquetCorruptStatisticsTest : public testing::Test {
 public:
-    ParquetCorruptStatisticsTest() {}
+    ParquetCorruptStatisticsTest() = default;
 };
 
 TEST_F(ParquetCorruptStatisticsTest, test_only_applies_to_binary) {

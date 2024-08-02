@@ -942,8 +942,8 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         // Min-max of statistic is plain-encoded value
         if (statistic.__isset.min_value && statistic.__isset.max_value) {
             ColumnOrderName columnOrder =
-                    col_schema->physical_type == tparquet::Type::INT96
-                            //                                                          || col_schema->parquet_schema.logical_type.__isset.INTERVAL
+                    col_schema->physical_type == tparquet::Type::INT96 ||
+                                    col_schema->parquet_schema.logicalType.__isset.UNKNOWN
                             ? ColumnOrderName::UNDEFINED
                             : ColumnOrderName::TYPE_DEFINED_ORDER;
             if ((statistic.min_value != statistic.max_value) &&
@@ -960,8 +960,10 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
                 SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
                 bool sort_orders_match = SortOrder::SIGNED == sort_order;
                 if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
-                                                                col_schema->physical_type) ||
-                    (!sort_orders_match && !max_equals_min)) {
+                                                                col_schema->physical_type)) {
+                    LOG(WARNING) << "Ignoring corrupt statistics in " << _file_description.path;
+                    ignore_min_max_stats = true;
+                } else if (!sort_orders_match && !max_equals_min) {
                     ignore_min_max_stats = true;
                 }
             } else {
@@ -1048,7 +1050,7 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
     tparquet::Type::type physical_type = parquet_schema.type;
     const tparquet::LogicalType& logical_type = parquet_schema.logicalType;
 
-    // Use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
+    // Assume string type is SortOrder::SIGNED, use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
     if (logical_type.__isset.STRING && (physical_type == tparquet::Type::BYTE_ARRAY ||
                                         physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY)) {
         return SortOrder::SIGNED;
@@ -1060,8 +1062,6 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
         } else {
             return SortOrder::UNSIGNED;
         }
-        //        } else if (logical_type.__isset.INTERVAL) {
-        //            return SortOrder::UNKNOWN;
     } else if (logical_type.__isset.DATE) {
         return SortOrder::SIGNED;
     } else if (logical_type.__isset.ENUM) {
@@ -1074,8 +1074,6 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
         return SortOrder::UNSIGNED;
     } else if (logical_type.__isset.DECIMAL) {
         return SortOrder::UNKNOWN;
-        //        } else if (logical_type.__isset.MAPKEYVALUE) {
-        //            return SortOrder::UNKNOWN;
     } else if (logical_type.__isset.MAP) {
         return SortOrder::UNKNOWN;
     } else if (logical_type.__isset.LIST) {
@@ -1084,6 +1082,8 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
         return SortOrder::SIGNED;
     } else if (logical_type.__isset.TIMESTAMP) {
         return SortOrder::SIGNED;
+    } else if (logical_type.__isset.UNKNOWN) {
+        return SortOrder::UNKNOWN;
     } else {
         switch (physical_type) {
         case tparquet::Type::BOOLEAN:
