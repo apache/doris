@@ -293,10 +293,10 @@ public class CreateTableInfo {
 
         //check datev1 and decimalv2
         for (ColumnDefinition columnDef : columns) {
-            String columnName = columnDef.getName().toLowerCase();
-            if (columnName.startsWith("__DORIS_") && columnName.endsWith("_SIGN__")) {
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_") && columnNameUpperCase.endsWith("_SIGN__")) {
                 throw new AnalysisException(
-                        "Disable to create table column with name __DORIS_[.]*_SIGN__: " + columnName);
+                        "Disable to create table column with name __DORIS_[.]*_SIGN__: " + columnNameUpperCase);
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
