@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors.ContainsAggregateCheckerContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -52,17 +51,14 @@ public class OneRowRelationExtractAggregate extends OneAnalysisRuleFactory {
     public Rule build() {
         return RuleType.ONE_ROW_RELATION_EXTRACT_AGGREGATE.build(
                 logicalOneRowRelation().then(relation -> {
-                    ContainsAggregateCheckerContext context = new ContainsAggregateCheckerContext();
                     List<NamedExpression> outputs = relation.getOutputs();
-                    outputs = outputs
+                    boolean needGlobalAggregate = outputs
                             .stream()
-                            .map(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, context))
-                            .map(NamedExpression.class::cast)
-                            .collect(ImmutableList.toImmutableList());
-                    if (context.needAggregate) {
+                            .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+                    if (needGlobalAggregate) {
                         LogicalRelation newRelation = new LogicalOneRowRelation(relation.getRelationId(),
                                 ImmutableList.of());
-                        return new LogicalAggregate<>(ImmutableList.of(), outputs, newRelation);
+                        return new LogicalAggregate<>(ImmutableList.of(), relation.getOutputs(), newRelation);
                     } else {
                         return relation;
                     }

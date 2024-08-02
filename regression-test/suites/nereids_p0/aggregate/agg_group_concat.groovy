@@ -27,7 +27,9 @@ suite("agg_group_concat") {
     sql """
         CREATE TABLE IF NOT EXISTS `agg_group_concat_table` (
             `kint` int(11) not null,
+            `kbint` int(11) not null,
             `kstr` string not null,
+            `kstr2` string not null,
             `kastr` array<string> not null
         ) engine=olap
         DISTRIBUTED BY HASH(`kint`) BUCKETS 4
@@ -36,9 +38,12 @@ suite("agg_group_concat") {
 
     sql """
         INSERT INTO `agg_group_concat_table` VALUES 
-        ( 1, 'string1', ['s11', 's12', 's13'] ),
-        ( 1, 'string2', ['s21', 's22', 's23'] ),
-        ( 2, 'string3', ['s31', 's32', 's33'] );
+        ( 1, 1, 'string1', 'string3', ['s11', 's12', 's13'] ),
+        ( 1, 2, 'string2', 'string1', ['s21', 's22', 's23'] ),
+        ( 2, 3, 'string3', 'string2', ['s31', 's32', 's33'] ),
+        ( 1, 1, 'string1', 'string3', ['s11', 's12', 's13'] ),
+        ( 1, 2, 'string2', 'string1', ['s21', 's22', 's23'] ),
+        ( 2, 3, 'string3', 'string2', ['s31', 's32', 's33'] );
     """
 
     multi_sql """
@@ -72,7 +77,28 @@ suite("agg_group_concat") {
 
     sql """select multi_distinct_sum(kint) from agg_group_concat_table;"""
 
-    // these 2 should work, uncomment these after fixing bug in be
-    // sql """select group_concat(distinct kstr order by kint) from agg_group_concat_table;"""
-    // sql """select multi_distinct_group_concat(kstr order by kint) from agg_group_concat_table;"""
+    sql """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table;"""
+    sql """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
+    sql """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table;"""
+    sql """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table;"""
+
+    sql """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
+    sql """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
+    sql """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kbint;"""
+    sql """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kbint;"""
+
+    sql """select group_concat(distinct kstr order by kbint), group_concat(distinct kstr2 order by kint) from agg_group_concat_table group by kint;"""
+    sql """select multi_distinct_group_concat(kstr order by kbint), multi_distinct_group_concat(kstr2 order by kint) from agg_group_concat_table group by kint;"""
+    sql """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kint;"""
+    sql """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kint;"""
+
+    sql """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
+    sql """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
+    sql """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table;"""
+    sql """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table;"""
+
+    sql """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
+    sql """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
+    sql """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table group by kbint;"""
+    sql """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table group by kbint;"""
 }

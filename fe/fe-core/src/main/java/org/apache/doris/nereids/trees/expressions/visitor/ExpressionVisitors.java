@@ -18,15 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 
-import com.google.common.collect.Lists;
-
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,48 +33,28 @@ public class ExpressionVisitors {
     public static final ContainsAggregateChecker CONTAINS_AGGREGATE_CHECKER = new ContainsAggregateChecker();
     public static final ExpressionMapReplacer EXPRESSION_MAP_REPLACER = new ExpressionMapReplacer();
 
-    /**
-     * ContainsAggregateCheckerContext
-     */
-    public static class ContainsAggregateCheckerContext {
-        public boolean needAggregate = false;
-    }
-
-    private static class ContainsAggregateChecker extends DefaultExpressionRewriter<ContainsAggregateCheckerContext> {
-
+    private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
         @Override
-        public Expression visitWindow(WindowExpression windowExpression, ContainsAggregateCheckerContext context) {
-            Expression function = windowExpression.getFunction();
-            List<Expression> functionChildren = new ArrayList<>();
-            for (Expression child : function.children()) {
-                functionChildren.add(child.accept(this, context));
+        public Boolean visit(Expression expr, Void context) {
+            boolean needAggregate = false;
+            for (Expression child : expr.children()) {
+                needAggregate = needAggregate || child.accept(this, context);
             }
-            Expression newFunction = function.withChildren(functionChildren);
-
-            List<Expression> partitionKeys = windowExpression.getPartitionKeys();
-            List<Expression> newPartitionKeys = new ArrayList<>();
-            for (Expression key : partitionKeys) {
-                newPartitionKeys.add(key.accept(this, context));
-            }
-
-            List<OrderExpression> orderKeys = windowExpression.getOrderKeys();
-            List<OrderExpression> newOrderKeys = new ArrayList<>();
-            for (OrderExpression orderKey : orderKeys) {
-                newOrderKeys.add((OrderExpression) orderKey
-                        .withChildren(Lists.newArrayList(orderKey.child().accept(this, context))));
-            }
-
-            return windowExpression.withFunctionPartitionKeysOrderKeys(newFunction, newPartitionKeys, newOrderKeys);
+            return needAggregate;
         }
 
         @Override
-        public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
-                                                 ContainsAggregateCheckerContext context) {
-            context.needAggregate = true;
-            if (aggregateFunction instanceof MultiDistinction) {
-                return ((MultiDistinction) aggregateFunction).withMustUseMultiDistinctAgg(true);
+        public Boolean visitWindow(WindowExpression windowExpression, Void context) {
+            boolean needAggregate = false;
+            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
+                needAggregate = needAggregate || child.accept(this, context);
             }
-            return aggregateFunction;
+            return needAggregate;
+        }
+
+        @Override
+        public Boolean visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
+            return true;
         }
     }
 
