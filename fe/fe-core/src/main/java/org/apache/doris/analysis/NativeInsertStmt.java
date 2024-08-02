@@ -1242,8 +1242,9 @@ public class NativeInsertStmt extends InsertStmt {
                     for (Expr expr : row) {
                         if (!(expr instanceof LiteralExpr)) {
                             if (LOG.isDebugEnabled()) {
-                                LOG.debug("group commit is off for table: {}, because not literal expr, "
-                                        + "expr: {}, row: {}", targetTable.getName(), expr, row);
+                                LOG.debug("group commit is off for query_id: {}, table: {}, because not literal expr, "
+                                                + "expr: {}, row: {}", DebugUtil.printId(ctx.queryId()),
+                                        targetTable.getName(), expr, row);
                             }
                             return;
                         }
@@ -1265,8 +1266,10 @@ public class NativeInsertStmt extends InsertStmt {
                         for (SelectListItem item : items) {
                             if (item.getExpr() != null && !(item.getExpr() instanceof LiteralExpr)) {
                                 if (LOG.isDebugEnabled()) {
-                                    LOG.debug("group commit is off for table: {}, because not literal expr, "
-                                            + "expr: {}, row: {}", targetTable.getName(), item.getExpr(), item);
+                                    LOG.debug("group commit is off for query_id: {}, for table: {}, "
+                                                    + "because not literal expr, expr: {}, row: {}",
+                                            DebugUtil.printId(ctx.queryId()), targetTable.getName(), item.getExpr(),
+                                            item);
                                 }
                                 return;
                             }
@@ -1279,8 +1282,8 @@ public class NativeInsertStmt extends InsertStmt {
             if (LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
                     if (pair.first.getAsBoolean() == false) {
-                        LOG.debug("group commit is off for table: {}, because: {}", targetTable.getName(),
-                                pair.second.get());
+                        LOG.debug("group commit is off for query_id: {}, for table: {}, because: {}",
+                                DebugUtil.printId(ctx.queryId()), targetTable.getName(), pair.second.get());
                         break;
                     }
                 }
