@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
