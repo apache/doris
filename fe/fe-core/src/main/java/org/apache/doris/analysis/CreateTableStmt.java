@@ -319,6 +319,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            String columnName = columnDef.getName();
+            if (columnName.startsWith("__DORIS_") && columnName.endsWith("_SIGN__")) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Disable to create table column with name __DORIS_[.]*_SIGN__: " + columnName);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }

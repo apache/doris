@@ -18,7 +18,7 @@ import org.apache.doris.regression.util.JdbcUtils
 // under the License.
 
 suite("test_show_create_table_and_views_nereids", "show") {
-    def shouldNotShowHiddenColumns = {
+    def shouldNotShowHiddenColumnsAndCreateWithHiddenColumns = {
         connect {
             multi_sql """
             drop table if exists test_show_create_table_no_hidden_column;
@@ -28,6 +28,11 @@ suite("test_show_create_table_and_views_nereids", "show") {
 
             def result = JdbcUtils.executeToMapArray(context.getConnection(),  "show create table test_show_create_table_no_hidden_column")
             assertTrue(!result[0].get("Create Table").toString().contains("__DORIS_DELETE_SIGN__"))
+
+            test {
+                sql "create table table_with_hidden_sign(id int, __DORIS_DELETE_SIGN__ int) distributed by hash(id) properties('replication_num'='1')"
+                exception "Disable to create table column with name __DORIS_"
+            }
         }
     }()
 
