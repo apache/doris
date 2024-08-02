@@ -90,6 +90,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     private boolean enableMemTableOnSinkNode = false;
     private int batchSize = 0;
 
+    protected long autoProfileThresholdMs = 0;
+
     // for log replay and unit test
     public BrokerLoadJob() {
         super(EtlJobType.BROKER);
@@ -108,6 +110,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
+            autoProfileThresholdMs = ConnectContext.get().getSessionVariable().autoProfileThresholdMs;
         }
     }
 
@@ -116,8 +119,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(type, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
-            enableProfile = true;
+        if (ConnectContext.get() != null) {
+            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
+            autoProfileThresholdMs = ConnectContext.get().getSessionVariable().autoProfileThresholdMs;
         }
     }
 
@@ -226,7 +230,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize);
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize, autoProfileThresholdMs);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

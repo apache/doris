@@ -140,9 +140,10 @@ public class EnvFactory {
     // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile,
+                                         long autoProfileThresholdMs) {
         return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
-                            enableProfile);
+                            enableProfile, autoProfileThresholdMs);
     }
 
     public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,

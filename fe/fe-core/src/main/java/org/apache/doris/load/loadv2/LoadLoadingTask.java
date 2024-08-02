@@ -85,13 +85,16 @@ public class LoadLoadingTask extends LoadTask {
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
+    private long autoProfileThresholdMs = 0;
+
     public LoadLoadingTask(Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
+            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
+            long autoProfileThresholdMs) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -114,6 +117,7 @@ public class LoadLoadingTask extends LoadTask {
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         this.batchSize = batchSize;
+        this.autoProfileThresholdMs = autoProfileThresholdMs;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -149,7 +153,7 @@ public class LoadLoadingTask extends LoadTask {
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enabelProfile);
+                enabelProfile, autoProfileThresholdMs);
         if (enabelProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }

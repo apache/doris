@@ -17,6 +17,7 @@
 
 #include "runtime/query_context.h"
 
+#include <bits/types/struct_timespec.h>
 #include <fmt/core.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
@@ -363,7 +364,7 @@ void QueryContext::add_fragment_profile(
 #endif
 
     std::lock_guard<std::mutex> l(_profile_mutex);
-    LOG_INFO("Query X add fragment profile, query {}, fragment {}, pipeline profile count {} ",
+    LOG_INFO("Add fragment profile, query {}, fragment {}, pipeline profile count {} ",
              print_id(this->_query_id), fragment_id, pipeline_profiles.size());
 
     _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
@@ -375,9 +376,19 @@ void QueryContext::add_fragment_profile(
 
 void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO(
-            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map.size());
+    if (this->_query_options.__isset.auto_profile_threshold_ms) {
+        long auto_profile_threshold_ms = this->_query_options.auto_profile_threshold_ms;
+        // unit of elapse_time is nanosecond
+        if (_query_watcher.elapsed_time() / 1000.0 < auto_profile_threshold_ms * 1000.0) {
+            LOG_INFO(
+                    "Query {} elapsed_time {}ms, less than auto_profile_threshold_ms {}ms, "
+                    "skip report profile",
+                    print_id(_query_id), _query_watcher.elapsed_time() / (1000.0 * 1000.0),
+                    auto_profile_threshold_ms);
+
+            return;
+        }
+    }
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
