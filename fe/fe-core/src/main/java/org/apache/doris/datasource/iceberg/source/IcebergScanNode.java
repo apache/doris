@@ -75,6 +75,7 @@ import org.apache.iceberg.util.TableScanUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -209,12 +210,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
-        long rowCount = getCountFromSnapshot();
-        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT) && rowCount >= 0) {
-            this.rowCount = rowCount;
-            return new ArrayList<>();
-        }
-
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
@@ -266,6 +261,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }));
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
+        }
+
+        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
+        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() >= 0) {
+            // we can create a special empty split and skip the plan process
+            return splits.isEmpty() ? splits : Collections.singletonList(splits.get(0));
         }
 
         selectedPartitionNum = partitionPathSet.size();
