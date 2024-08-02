@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog.authorizer.ranger.cache;
 
-import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
@@ -69,12 +68,6 @@ public abstract class CatalogCacheAccessController implements CatalogAccessContr
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         getProxyController().checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
-    }
-
-    @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
-            ResourceTypeEnum type) {
-        return getProxyController().checkCloudPriv(currentUser, resourceName, wanted, type);
     }
 
     @Override
