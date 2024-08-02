@@ -293,7 +293,7 @@ public class CreateTableInfo {
 
         //check datev1 and decimalv2
         for (ColumnDefinition columnDef : columns) {
-            String columnName = columnDef.getName();
+            String columnName = columnDef.getName().toLowerCase();
             if (columnName.startsWith("__DORIS_") && columnName.endsWith("_SIGN__")) {
                 throw new AnalysisException(
                         "Disable to create table column with name __DORIS_[.]*_SIGN__: " + columnName);
