@@ -489,7 +489,6 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
-                case MATERIALIZED_VIEW:
                     return "VIEW";
                 case OLAP:
                 case MYSQL:
@@ -505,6 +504,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
+                case MATERIALIZED_VIEW:
                     return "BASE TABLE";
                 default:
                     return null;
