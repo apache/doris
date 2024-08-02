@@ -111,7 +111,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                relation.getBaseTables();
+                relation.getBaseTablesOneLevel();
                 minTimes = 0;
                 result = baseTables;
 
