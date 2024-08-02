@@ -2508,7 +2508,7 @@ public class StmtExecutor {
     }
 
     private void handleIotStmt() {
-        ConnectContext.get().setSkipAuth(true);
+        context.setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
             if (iotStmt.getPartitionNames().size() == 0) {
@@ -2519,7 +2519,7 @@ public class StmtExecutor {
                 handleOverwritePartition(iotStmt);
             }
         } finally {
-            ConnectContext.get().setSkipAuth(false);
+            context.setSkipAuth(false);
         }
     }
 
