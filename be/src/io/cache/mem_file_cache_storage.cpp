@@ -52,7 +52,7 @@ Status MemFileCacheStorage::append(const FileCacheKey& key, const Slice& value) 
     }
     // TODO(zhengyu): allocate in mempool
     auto mem_block =
-            MemBlock { std::shared_ptr<char>(new char[value.size], std::default_delete<char[]>()) };
+            MemBlock {std::shared_ptr<char>(new char[value.size], std::default_delete<char[]>())};
     DCHECK(mem_block.addr != nullptr);
     _cache_map[map_key] = mem_block;
     char* dst = mem_block.addr.get();
@@ -73,10 +73,10 @@ Status MemFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, S
     auto map_key = std::make_pair(key.hash, key.offset);
     auto iter = _cache_map.find(map_key);
     if (iter == _cache_map.end()) {
-            LOG_WARNING("key not found in cache map")
-                    .tag("hash", key.hash.to_string())
-                    .tag("offset", key.offset);
-            return Status::IOError("key not found in in-memory cache map when read");
+        LOG_WARNING("key not found in cache map")
+                .tag("hash", key.hash.to_string())
+                .tag("offset", key.offset);
+        return Status::IOError("key not found in in-memory cache map when read");
     }
     auto mem_block = iter->second;
     DCHECK(mem_block.addr != nullptr);
@@ -99,7 +99,7 @@ Status MemFileCacheStorage::remove(const FileCacheKey& key) {
         return Status::IOError("key not found in in-memory cache map when remove");
     }
     _cache_map.erase(iter);
-    
+
     return Status::OK();
 }
 
