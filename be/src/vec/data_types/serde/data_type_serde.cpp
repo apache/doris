@@ -18,6 +18,7 @@
 
 #include "runtime/descriptors.h"
 #include "vec/columns/column.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -40,6 +41,22 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
         serdes.push_back(slot->get_data_type_ptr()->get_serde());
     }
     return serdes;
+}
+
+void DataTypeSerDe::convert_variant_map_to_rapidjson(
+        const vectorized::VariantMap& map, rapidjson::Value& target,
+        rapidjson::Document::AllocatorType& allocator) {
+    target.SetObject();
+    for (const auto& item : map) {
+        if (item.second.is_null()) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(item.first.data(), item.first.size());
+        rapidjson::Value val;
+        convert_field_to_rapidjson(item.second, val, allocator);
+        target.AddMember(key, val, allocator);
+    }
 }
 
 void DataTypeSerDe::convert_array_to_rapidjson(const vectorized::Array& array,
@@ -74,6 +91,11 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
     case vectorized::Field::Types::Array: {
         const vectorized::Array& array = field.get<Array>();
         convert_array_to_rapidjson(array, target, allocator);
+        break;
+    }
+    case vectorized::Field::Types::VariantMap: {
+        const vectorized::VariantMap& map = field.get<VariantMap>();
+        convert_variant_map_to_rapidjson(map, target, allocator);
         break;
     }
     default:

@@ -71,6 +71,7 @@
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -81,10 +82,12 @@
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
@@ -92,6 +95,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/array/function_array_index.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -2326,7 +2330,6 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             RETURN_IF_ERROR(_next_batch_internal(block));
-            RETURN_IF_ERROR(_fill_missing_columns(block));
 
             // reverse block row order if read_orderby_key_reverse is true for key topn
             // it should be processed for all success _next_batch_internal
@@ -2404,7 +2407,78 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
 }
 
+vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*>
+SegmentIterator::_get_nested_array_offsets_columns(const vectorized::Block& block) {
+    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*> offsets;
+    for (size_t i = 0; i < block.columns(); ++i) {
+        auto cid = _schema->column_id(i);
+        const auto* column_desc = _schema->column(cid);
+        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
+            column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            offsets.add(*column_desc->path(),
+                        &vectorized::check_and_get_column<vectorized::ColumnArray>(
+                                 remove_nullable(block.get_by_position(i).column).get())
+                                 ->get_offsets());
+            LOG(INFO) << "fuck";
+        }
+    }
+    return offsets;
+}
+
 Status SegmentIterator::_fill_missing_columns(vectorized::Block* block) {
+    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*> offsets =
+            _get_nested_array_offsets_columns(*block);
+    for (size_t i = 0; i < block->columns(); ++i) {
+        auto cid = _schema->column_id(i);
+        const auto* column_desc = _schema->column(cid);
+        int64_t current_size = block->get_by_position(i).column->size();
+        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
+            current_size < block->rows()) {
+            const auto* leaf = offsets.get_leaf_of_the_same_nested(
+                    *column_desc->path(), [](const auto& node) { return node.data->size(); },
+                    current_size);
+            if (!leaf) {
+                VLOG_DEBUG << "Not found any subcolumns column_desc: "
+                           << column_desc->path()->get_path() << ", current_size: " << current_size
+                           << ", block_rows: " << block->rows();
+                block->get_by_position(i).column->assume_mutable()->insert_many_defaults(
+                        block->rows() - current_size);
+                continue;
+            }
+            LOG(INFO) << "fuck";
+            const vectorized::ColumnArray::Offsets64* offset = leaf->data;
+            int64_t nested_padding_size = offset->back() - (*offset)[current_size - 1];
+            auto nested_column =
+                    vectorized::check_and_get_data_type<vectorized::DataTypeArray>(
+                            remove_nullable(block->get_by_position(i).type).get())
+                            ->get_nested_type()
+                            ->create_column_const_with_default_value(nested_padding_size);
+            auto nested_new_offset = vectorized::ColumnArray::ColumnOffsets::create();
+            nested_new_offset->reserve(block->rows() - current_size);
+            for (size_t i = current_size; i < block->rows(); ++i) {
+                nested_new_offset->get_data().push_back_without_reserve(
+                        (*offset)[i] - (*offset)[current_size - 1]);
+            }
+            vectorized::ColumnPtr nested_padding_column =
+                    vectorized::ColumnArray::create(nested_column, std::move(nested_new_offset));
+            if (block->get_by_position(i).column->is_nullable()) {
+                nested_padding_column = vectorized::make_nullable(nested_padding_column);
+            }
+            block->get_by_position(i).column->assume_mutable()->insert_range_from(
+                    *nested_padding_column, 0, nested_padding_column->size());
+        }
+    }
+
+#ifndef NDEBUG
+    // check offsets aligned
+    for (size_t i = 0; i < block->columns(); ++i) {
+        auto cid = _schema->column_id(i);
+        const auto* column_desc = _schema->column(cid);
+        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
+            column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        }
+    }
+#endif
     return Status::OK();
 }
 
@@ -2671,6 +2745,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+
+    RETURN_IF_ERROR(_fill_missing_columns(block));
 
 #ifndef NDEBUG
     size_t rows = block->rows();

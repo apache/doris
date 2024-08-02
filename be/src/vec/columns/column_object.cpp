@@ -1868,42 +1868,12 @@ ColumnObject::Subcolumn ColumnObject::Subcolumn::cut(size_t start, size_t length
 
 const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
         const Subcolumns::NodePtr& entry) const {
-    if (!entry->path.has_nested_part()) {
-        return nullptr;
-    }
-
-    size_t old_size = entry->data.size();
-    const auto* current_node = subcolumns.find_leaf(entry->path);
-    const Subcolumns::Node* leaf = nullptr;
-
-    while (current_node) {
-        /// Try to find the first Nested up to the current node.
-        const auto* node_nested = Subcolumns::find_parent(
-                current_node, [](const auto& candidate) -> bool { return candidate.is_nested(); });
-
-        if (!node_nested) {
-            break;
-        }
-
-        /// Find the leaf with subcolumn that contains values
-        /// for the last rows.
-        /// If there are no leaves, skip current node and find
-        /// the next node up to the current.
-        leaf = Subcolumns::find_leaf(node_nested, [&](const auto& candidate) {
-            return candidate.data.size() > old_size;
-        });
-
-        if (leaf) {
-            break;
-        }
-
-        current_node = node_nested->parent;
-    }
-
+    const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
+            entry->path, [](const Subcolumns::Node& node) { return node.data.size(); },
+            entry->data.size());
     if (leaf && is_nothing(leaf->data.get_least_common_typeBase())) {
         return nullptr;
     }
-
     return leaf;
 }
 

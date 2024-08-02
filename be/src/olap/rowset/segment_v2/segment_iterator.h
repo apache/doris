@@ -46,6 +46,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -225,6 +226,8 @@ private:
     void _vec_init_char_column_id(vectorized::Block* block);
     bool _has_char_type(const Field& column_desc);
 
+    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*>
+    _get_nested_array_offsets_columns(const vectorized::Block& block);
     Status _fill_missing_columns(vectorized::Block* block);
 
     uint32_t segment_id() const { return _segment->id(); }

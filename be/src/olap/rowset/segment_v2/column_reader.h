@@ -742,7 +742,7 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("Not supported read_by_rowids");
+        return Status::OK();
     }
 
     ordinal_t get_current_ordinal() const override {
