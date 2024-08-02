@@ -74,7 +74,7 @@ func defaultConfig() config {
 
 func (c *config) Validate() error {
 	if len(c.HttpHosts) != 0 {
-		c.Hosts = HttpHosts
+		c.Hosts = c.HttpHosts
 	}
 	if len(c.Hosts) == 0 {
 		return errors.New("no http_hosts configured")
