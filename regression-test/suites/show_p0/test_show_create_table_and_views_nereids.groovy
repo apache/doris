@@ -1,3 +1,5 @@
+import org.apache.doris.regression.util.JdbcUtils
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +18,19 @@
 // under the License.
 
 suite("test_show_create_table_and_views_nereids", "show") {
+    def shouldNotShowHiddenColumns = {
+        connect {
+            multi_sql """
+            drop table if exists test_show_create_table_no_hidden_column;
+            create table test_show_create_table_no_hidden_column(id int, name varchar(50)) unique key(id) distributed by hash(id) properties('replication_num'='1');
+            set show_hidden_columns=true;
+            """
+
+            def result = JdbcUtils.executeToMapArray(context.getConnection(),  "show create table test_show_create_table_no_hidden_column")
+            assertTrue(!result[0].get("Create Table").toString().contains("__DORIS_DELETE_SIGN__"))
+        }
+    }()
+
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
