@@ -433,9 +433,13 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else {
+                } else if constexpr (!std::is_same_v<uint8_t, ToFieldType>) {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                    }
+                } else {
+                    for (int i = 0; i < size; ++i) {
+                        vec_to[i] = static_cast<bool>(vec_from[i]);
                     }
                 }
             }
