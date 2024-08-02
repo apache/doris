@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -37,7 +38,6 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -69,15 +69,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return;
         }
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)
-                || partitionNames == null || partitionNames.isEmpty()) {
-            if (partitionNames == null) {
-                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
-                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
-            }
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            LOG.warn("Table {}.{}.{}, partitionNames for column {} is null or empty. ColToPartitions:[{}]",
+                    info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
+            throw new RuntimeException();
+        }
+        if (info.rowCount == 0 && tableSample != null) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
-            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
+            ColStatsData colStatsData = new ColStatsData(statsId);
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
+            job.appendBuf(this, Collections.singletonList(colStatsData));
             return;
         }
         if (tableSample != null) {

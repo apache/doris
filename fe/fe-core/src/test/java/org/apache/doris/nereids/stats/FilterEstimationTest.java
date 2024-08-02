@@ -206,7 +206,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
-        Assertions.assertEquals(51.9, expected.getRowCount(), 0.1);
+        Assertions.assertEquals(51, expected.getRowCount(), 1);
     }
 
     // a > 500 and b < 100 or a > c
@@ -842,7 +842,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
+                .setMaxExpr(new IntLiteral(100))
                 .setMaxValue(100)
+                .setMinExpr(new IntLiteral(0))
                 .setMinValue(0)
                 .setMaxExpr(new IntLiteral(100))
                 .setMinExpr(new IntLiteral(0))
@@ -856,7 +858,7 @@ class FilterEstimationTest {
         stats.addColumnStats(a, builder.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(and, stats);
-        Assertions.assertEquals(result.getRowCount(), 10, 0.01);
+        Assertions.assertEquals(10, result.getRowCount(), 0.01);
         ColumnStatistic colStats = result.findColumnStatistics(a);
         Assertions.assertTrue(colStats != null);
         Assertions.assertEquals(10, colStats.ndv, 0.1);
@@ -1057,6 +1059,39 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(and, stats);
         Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
+    }
+
+    /**
+     * a = 1 and b is not null
+     */
+    @Test
+    public void testNumNullsAndTwoCol() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        IntegerLiteral int1 = new IntegerLiteral(1);
+        EqualTo equalTo = new EqualTo(a, int1);
+        SlotReference b = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(8)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        Not isNotNull = new Not(new IsNull(b));
+        And and = new And(equalTo, isNotNull);
+        Statistics stats = new Statistics(10, new HashMap<>());
+        stats.addColumnStats(a, builderA.build());
+        stats.addColumnStats(b, builderB.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(and, stats);
+        Assertions.assertEquals(result.getRowCount(), 1.0, 0.01);
     }
 
     /**

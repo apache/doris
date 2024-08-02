@@ -321,8 +321,8 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     if (status.ok()) {
         // change all rowset ids because they maybe its id same with local rowset
         auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->partition_id(),
-                _tablet->schema_hash());
+                local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->table_id(),
+                _tablet->partition_id(), _tablet->schema_hash());
         if (!olap_st.ok()) {
             LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                          << ", tablet_id=" << _tablet->tablet_id() << ", error=" << olap_st;
@@ -583,7 +583,12 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     }
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
-    std::filesystem::remove_all(clone_dir_path);
+    std::error_code ec;
+    std::filesystem::remove_all(clone_dir_path, ec);
+    if (ec) {
+        LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
+        return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
+    }
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->full_name() << ", clone_dir=" << clone_dir;
     return res;

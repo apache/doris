@@ -200,7 +200,7 @@ public class InferFiltersRuleTest {
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
-        Assert.assertTrue(planString, planString.contains("CAST(`tb3`.`k1` AS INT)"));
+        Assert.assertTrue(planString, planString.contains("CAST(`tb3`.`k1` AS int)"));
     }
 
     @Test
@@ -280,7 +280,7 @@ public class InferFiltersRuleTest {
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString, planString.contains("`tb1`.`k1` = 1"));
-        Assert.assertTrue(planString, planString.contains("CAST(`tb3`.`k1` AS INT) = 1"));
+        Assert.assertTrue(planString, planString.contains("CAST(`tb3`.`k1` AS int) = 1"));
     }
 
     @Test

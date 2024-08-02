@@ -22,7 +22,8 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_exception") {
-    
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tableName = "outfile_exception_test"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -70,8 +71,8 @@ suite("test_outfile_exception") {
             into outfile "s3://ftw-datalake-test/test_outfile/exp_"
             format as parquet
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "https://${s3Endpoint}",
+                "s3.region" = "${s3Region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -89,8 +90,8 @@ suite("test_outfile_exception") {
             into outfile "s3://ftw-datalake-test/test_outfile/exp_"
             format as orc
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "https://${s3Endpoint}",
+                "s3.region" = "${s3Region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -108,8 +109,8 @@ suite("test_outfile_exception") {
             into outfile "s3://ftw-datalake-test/test_outfile/exp_"
             format as csv
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "https://${s3Endpoint}",
+                "s3.region" = "${s3Region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -127,8 +128,8 @@ suite("test_outfile_exception") {
             into outfile "s3://ftw-datalake-test/test_outfile/exp_"
             format as csv_with_names
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "https://${s3Endpoint}",
+                "s3.region" = "${s3Region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );
@@ -146,8 +147,8 @@ suite("test_outfile_exception") {
             into outfile "s3://ftw-datalake-test/test_outfile/exp_"
             format as csv_with_names_and_types
             properties(
-                "s3.endpoint" = "https://cos.ap-beijing.myqcloud.com",
-                "s3.region" = "ap-beijing",
+                "s3.endpoint" = "https://${s3Endpoint}",
+                "s3.region" = "${s3Region}",
                 "s3.access_key"= "xx",
                 "s3.secret_key" = "yy"
             );

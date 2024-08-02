@@ -44,7 +44,7 @@ suite("test_external_resource_mysql", "p2") {
                 "user"="${extMysqlUser}",
                 "password"="${extMysqlPassword}",
                 "jdbc_url"="jdbc:mysql://${extMysqlHost}:${extMysqlPort}/ssb?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=Asia/Shanghai&useSSL=false",
-                "driver_url"="https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/jdbc_drivers/mysql-connector-java-8.0.25.jar",
+                "driver_url"="https://${getS3BucketName()}.${getS3Endpoint()}/jdbc_drivers/mysql-connector-java-8.0.25.jar",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """

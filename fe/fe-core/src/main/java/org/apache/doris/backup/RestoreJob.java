@@ -82,6 +82,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -738,7 +739,8 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } else {
-                    remoteView.resetIdsForRestore(env);
+                    String srcDbName = backupMeta.getDbName();
+                    remoteView.resetIdsForRestore(env, srcDbName, db.getFullName());
                     restoredTbls.add(remoteView);
                 }
             }
@@ -1080,8 +1082,9 @@ public class RestoreJob extends AbstractJob {
 
     // reset remote partition.
     // reset all id in remote partition, but DO NOT modify any exist catalog objects.
-    private Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
-                                               String clusterName, ReplicaAllocation replicaAlloc) {
+    @VisibleForTesting
+    protected Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
+                                                 String clusterName, ReplicaAllocation replicaAlloc) {
         Preconditions.checkState(localTbl.getPartition(partName) == null);
         Partition remotePart = remoteTbl.getPartition(partName);
         Preconditions.checkNotNull(remotePart);
@@ -1091,6 +1094,7 @@ public class RestoreJob extends AbstractJob {
 
         // generate new partition id
         long newPartId = env.getNextId();
+        long oldPartId = remotePart.getId();
         remotePart.setIdForRestore(newPartId);
 
         // indexes
@@ -1110,6 +1114,9 @@ public class RestoreJob extends AbstractJob {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
+        remotePart.setNextVersion(visibleVersion + 1);
+        LOG.info("reset partition {} for restore, visible version: {}, old partition id: {}",
+                newPartId, visibleVersion, oldPartId);
 
         // tablets
         Map<Tag, Integer> nextIndexs = Maps.newHashMap();

@@ -276,7 +276,7 @@ public class AnalysisManagerTest {
         new MockUp<OlapTable>() {
 
             int count = 0;
-            int[] rowCount = new int[]{100, 100, 200, 200, 1, 1};
+            int[] rowCount = new int[]{100, 200, 1, 0, 0, 100};
 
             final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
@@ -296,22 +296,43 @@ public class AnalysisManagerTest {
 
         };
         OlapTable olapTable = new OlapTable();
+        TableStatsMeta stats0 = new TableStatsMeta(
+                50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                .setColName("col1").setRowCount(100).build(), olapTable);
+        stats0.newPartitionLoaded.set(true);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats0));
+
         TableStatsMeta stats1 = new TableStatsMeta(
                 50, new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
-                .setColName("col1").build(), olapTable);
-        stats1.updatedRows.addAndGet(50);
-
+                .setColName("col1").setRowCount(100).build(), olapTable);
+        stats1.updatedRows.addAndGet(70);
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
+
         TableStatsMeta stats2 = new TableStatsMeta(
                 190, new AnalysisInfoBuilder()
-                .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
+                .setColToPartitions(new HashMap<>()).setColName("col1").setRowCount(200).build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 
         TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
-                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1").build(), olapTable);
+                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1")
+                .setRowCount(0).build(), olapTable);
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
 
+        TableStatsMeta stats4 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1")
+                .setRowCount(1).build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats4));
+
+        TableStatsMeta stats5 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1")
+                .setRowCount(0).build(), olapTable);
+        Assertions.assertFalse(olapTable.needReAnalyzeTable(stats5));
+
+        TableStatsMeta stats6 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1")
+                .setRowCount(30).build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats6));
     }
 
     @Test

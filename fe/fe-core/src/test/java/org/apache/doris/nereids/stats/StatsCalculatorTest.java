@@ -42,6 +42,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -49,6 +51,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -61,7 +64,6 @@ import java.util.Map;
 import java.util.Optional;
 
 public class StatsCalculatorTest {
-
     private Group newGroup() {
         GroupExpression groupExpression = new GroupExpression(new FakePlan());
         Group group = new Group(null, groupExpression, null);
@@ -250,6 +252,20 @@ public class StatsCalculatorTest {
 
     @Test
     public void testOlapScan(@Mocked ConnectContext context) {
+        ConnectContext connectContext = ConnectContext.get();
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        new Expectations() {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = connectContext;
+
+                connectContext.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+            }
+        };
+
         long tableId1 = 0;
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0),

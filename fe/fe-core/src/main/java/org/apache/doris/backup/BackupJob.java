@@ -402,7 +402,7 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        backupMeta = new BackupMeta(db.getName(), copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -568,6 +568,13 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
+
+            if (env.getEditLog().exceedMaxJournalSize(this)) {
+                status = new Status(ErrCode.COMMON_ERROR, "backupJob is too large ");
+                return;
+            }
+
+
             snapshotFinishedTime = System.currentTimeMillis();
             state = BackupJobState.UPLOAD_SNAPSHOT;
 
@@ -666,7 +673,8 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+        String createTimeStr = TimeUtils.longToTimeString(createTime,
+                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),

@@ -41,6 +41,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -348,6 +349,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         builder.taskState("FINISHED");
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
+        builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);
         return builder.build();

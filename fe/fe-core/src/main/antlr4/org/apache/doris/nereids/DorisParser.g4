@@ -26,7 +26,7 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : statement (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
@@ -197,6 +197,7 @@ hintStatement
 
 hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    | constant
     ;
     
 updateAssignment

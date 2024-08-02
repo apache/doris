@@ -58,6 +58,13 @@ public:
     virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
 
 protected:
+    void _collect_profile_before_close() override {
+        if (_file_format_reader != nullptr) {
+            _file_format_reader->collect_profile_before_close();
+        }
+    }
+
+protected:
     std::string _table_format;                          // hudi, iceberg
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };

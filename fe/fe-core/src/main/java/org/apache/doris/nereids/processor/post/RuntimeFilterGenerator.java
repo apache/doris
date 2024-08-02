@@ -391,6 +391,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
                 SlotReference origSlot = null;
                 origSlot = (SlotReference) target;
+                if (aliasTransferMap.get(origSlot) == null) {
+                    continue;
+                }
                 Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
                 if (!checkCanPushDownFromJoinType(join, ctx, olapScanSlot)) {
                     continue;

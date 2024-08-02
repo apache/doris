@@ -443,6 +443,8 @@ DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DEFINE_mInt32(migration_task_timeout_secs, "300");
+// timeout for try_lock migration lock
+DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -604,9 +606,9 @@ DEFINE_Bool(enable_metric_calculator, "true");
 // max consumer num in one data consumer group, for routine load
 DEFINE_mInt32(max_consumer_num_per_group, "3");
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DEFINE_Int32(routine_load_thread_pool_size, "10");
+DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -777,6 +779,12 @@ DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
 // s3 config
 DEFINE_mInt32(max_remote_storage_count, "10");
+// The default delete bitmap cache is set to 100MB,
+// which can be insufficient and cause performance issues when the amount of user data is large.
+// To mitigate the problem of an inadequate cache,
+// we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "0.5%");
+DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
 // If the dependent kafka broker version older than 0.10.0.0,
@@ -790,7 +798,7 @@ DEFINE_String(kafka_debug, "disable");
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DEFINE_Int32(routine_load_consumer_pool_size, "10");
+DEFINE_Int32(routine_load_consumer_pool_size, "1024");
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1121,10 +1129,6 @@ DEFINE_Bool(exit_on_exception, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
-// Dir of default timezone files
-DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
-DEFINE_Bool(use_doris_tzfile, "false");
-
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
 DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
@@ -1156,6 +1160,9 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
 
+DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
+DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
 DEFINE_mString(ca_cert_file_paths,
@@ -1171,6 +1178,8 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+
+DEFINE_mBool(ignore_schema_change_check, "false");
 
 // clang-format off
 #ifdef BE_TEST
