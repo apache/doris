@@ -312,6 +312,17 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
+        String[] sqls = sqlStr.split(";")
+        def result = new ArrayList<Object>();
+        for (String query : sqls) {
+            if (!query.trim().isEmpty()) {
+                result.add(sql(query, isOrder));
+            }
+        }
+        return result
+    }
+
     List<List<Object>> insert_into_sql_impl(Connection conn, String sqlStr, int num) {
         logger.info("insert into " + num + " records")
         def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
