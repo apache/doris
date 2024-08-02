@@ -1068,6 +1068,7 @@ public class StmtExecutor {
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
                 InsertOverwriteTableStmt parsedStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+                parsedStmt.analyze(analyzer);
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
@@ -2506,13 +2507,19 @@ public class StmtExecutor {
     }
 
     private void handleIotStmt() {
-        InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-        if (iotStmt.getPartitionNames().size() == 0) {
-            // insert overwrite table
-            handleOverwriteTable(iotStmt);
-        } else {
-            // insert overwrite table with partition
-            handleOverwritePartition(iotStmt);
+        boolean originalSkipAuth = context.isSkipAuth();
+        context.setSkipAuth(true);
+        try {
+            InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+            if (iotStmt.getPartitionNames().size() == 0) {
+                // insert overwrite table
+                handleOverwriteTable(iotStmt);
+            } else {
+                // insert overwrite table with partition
+                handleOverwritePartition(iotStmt);
+            }
+        } finally {
+            context.setSkipAuth(originalSkipAuth);
         }
     }
 
