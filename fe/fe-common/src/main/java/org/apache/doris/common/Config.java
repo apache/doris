@@ -2730,6 +2730,13 @@ public class Config extends ConfigBase {
             "SHould abort txn by checking conflick txn in schema change"})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
+    @ConfField(mutable = true, description = {
+            "内表自动收集时间间隔，当某一列上次收集时间距离当前时间大于该值，则会触发一次新的收集，0表示不会触发。",
+            "Columns that have not been collected within the specified interval will trigger automatic analyze. "
+                + "0 means not trigger."
+    })
+    public static long auto_analyze_interval_seconds = 0;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

@@ -94,7 +94,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
     @SerializedName(value = "partitionIndexTabletMap")
-    private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
+    protected Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
     // partition id -> (shadow index id -> shadow index))
     @SerializedName(value = "partitionIndexMap")
     protected Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
@@ -755,7 +755,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        postProcessShadowIndex();
+        onCancel();
 
         return true;
     }
@@ -903,7 +903,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
         cancelInternal();
         // try best to drop shadow index
-        postProcessShadowIndex();
+        onCancel();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
@@ -1006,7 +1006,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void commitShadowIndex() throws AlterCancelException {}
 
     // try best to drop shadow index, when job is cancelled in cloud mode
-    protected void postProcessShadowIndex() {}
+    protected void onCancel() {}
 
     // try best to drop origin index in cloud mode
     protected void postProcessOriginIndex() {}

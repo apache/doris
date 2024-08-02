@@ -361,9 +361,6 @@ private:
     // delete tablet with io error process function
     void _disk_stat_monitor_thread_callback();
 
-    // clean file descriptors cache
-    void _cache_clean_callback();
-
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
 
@@ -527,9 +524,6 @@ private:
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
-
-    bool _clear_segment_cache = false;
-    bool _clear_page_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
 

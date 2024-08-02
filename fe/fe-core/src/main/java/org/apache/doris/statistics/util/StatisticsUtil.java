@@ -224,6 +224,7 @@ public class StatisticsUtil {
         sessionVariable.enablePushDownMinMaxOnUnique = true;
         sessionVariable.enablePushDownStringMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
+        sessionVariable.enableMaterializedViewRewrite = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -980,6 +981,14 @@ public class StatisticsUtil {
         if (column == null) {
             return false;
         }
+        try {
+            if (!table.getDatabase().getCatalog().enableAutoAnalyze()) {
+                return false;
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to get catalog property. {}", t.getMessage());
+            return false;
+        }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
         // Table never been analyzed, need analyze.
@@ -993,6 +1002,12 @@ public class StatisticsUtil {
         ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column.first, column.second);
         // Column never been analyzed, need analyze.
         if (columnStatsMeta == null) {
+            return true;
+        }
+        // Column hasn't been analyzed for longer than config interval.
+        if (Config.auto_analyze_interval_seconds > 0
+                && System.currentTimeMillis() - columnStatsMeta.updatedTime
+                        > Config.auto_analyze_interval_seconds * 1000) {
             return true;
         }
         // Partition table partition stats never been collected.
