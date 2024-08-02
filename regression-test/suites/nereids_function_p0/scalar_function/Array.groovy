@@ -623,6 +623,11 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
     order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
     order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
+    // make a large size of array element, expect to throw error
+    test  {
+        sql "select array_range(kint, 1000000000) from fn_test"
+        exception ('Array size exceeds the limit 1000000')
+    }
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"
@@ -1279,6 +1284,28 @@ suite("nereids_scalar_fn_Array") {
 
     // with array empty
     qt_array_empty_fe """select array()"""
-    sql """ set debug_skip_fold_constant=true; """
-    qt_array_empty_be """select array()"""
+    // make large error size
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 }

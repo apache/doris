@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_array_zip_array_enumerate_uniq", "p0") {
+    sql "set enable_nereids_planner=false;"
 //     ========== array-zip ==========
 //     wrong case
     try {
@@ -49,6 +50,25 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
             [444444, 555555, 666666]);"""
     order_qt_old_sql """SELECT array_enumerate_uniq(array(STDDEV_SAMP(910947.571364)), array(NULL)) from numbers;"""
     //order_qt_sql """ SELECT max(array_join(arr)) FROM (SELECT array_enumerate_uniq(group_array(DIV(number, 54321)) AS nums, group_array(cast(DIV(number, 98765) as string))) AS arr FROM (SELECT number FROM numbers LIMIT 1000000) GROUP BY bitmap_hash(number) % 100000);"""
+
+    sql """ DROP TABLE IF EXISTS ARRAY_BIGINT_DATA;"""
+    sql """ CREATE TABLE IF NOT EXISTS `ARRAY_BIGINT_DATA` (
+              `id` INT NULL,
+              `data` ARRAY<BIGINT> NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    sql """ INSERT INTO ARRAY_BIGINT_DATA VALUES (0, [-1, 0, 1, 2, -9223372036854775808, 9223372036854775807, 1]);"""
+    sql """ INSERT INTO ARRAY_BIGINT_DATA VALUES (1, []);"""
+
+    test {
+     sql """ select array_enumerate_uniq((select data from ARRAY_BIGINT_DATA where id = 0), (select data from ARRAY_BIGINT_DATA where id = 1), (select data from ARRAY_BIGINT_DATA where id = 1));"""
+     exception ("A subquery should not return Array/Map/Struct type")
+    }
+
 
     // nereids
     sql "set enable_nereids_planner=true;"
@@ -87,6 +107,11 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
             [444444, 555555, 666666]);"""
     order_qt_nereid_sql """SELECT array_enumerate_uniq(array(STDDEV_SAMP(910947.571364)), array(NULL)) from numbers;"""
 //    //order_qt_sql """ SELECT max(array_join(arr)) FROM (SELECT array_enumerate_uniq(group_array(DIV(number, 54321)) AS nums, group_array(cast(DIV(number, 98765) as string))) AS arr FROM (SELECT number FROM numbers LIMIT 1000000) GROUP BY bitmap_hash(number) % 100000);"""
+
+    test {
+     sql """ select array_enumerate_uniq((select data from ARRAY_BIGINT_DATA where id = 0), (select data from ARRAY_BIGINT_DATA where id = 1), (select data from ARRAY_BIGINT_DATA where id = 1));"""
+     exception ("lengths of all arrays of function array_enumerate_uniq must be equal")
+    }
 
     // array_shuffle
     // do not check result, since shuffle result is random

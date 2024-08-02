@@ -3945,6 +3945,7 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 
 void Tablet::clear_cache() {
     std::shared_lock rlock(get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     static auto recycle_segment_cache = [](const auto& rowset_map) {
         for (auto& [_, rowset] : rowset_map) {
             rowset->clear_cache();
@@ -4103,6 +4104,42 @@ Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, i
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }
+    return Status::OK();
+}
+
+Status Tablet::show_nested_index_file(std::string* json_meta) {
+    Version v(0, max_version_unlocked().second);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get all rowsets
+        if (v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+    rapidjson::Value tabletIdValue(tablet_id());
+    doc.AddMember("tablet_id", tabletIdValue, allocator);
+
+    rapidjson::Value rowsets_value(rapidjson::kArrayType);
+
+    for (const auto& rs : rowsets) {
+        rapidjson::Value rowset_value(rapidjson::kObjectType);
+
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        RETURN_IF_ERROR(rowset->show_nested_index_file(&rowset_value, allocator));
+        rowsets_value.PushBack(rowset_value, allocator);
+    }
+    doc.AddMember("rowsets", rowsets_value, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+    *json_meta = std::string(buffer.GetString());
+
     return Status::OK();
 }
 
