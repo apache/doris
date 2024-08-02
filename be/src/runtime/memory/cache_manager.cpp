@@ -48,24 +48,22 @@ int64_t CacheManager::for_each_cache_prune_stale(RuntimeProfile* profile) {
     return 0;
 }
 
-int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
-    if (need_prune(&_last_prune_all_timestamp, "all")) {
+int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile, bool force) {
+    if (force || need_prune(&_last_prune_all_timestamp, "all")) {
         return for_each_cache_prune_stale_wrap(
-                [](CachePolicy* cache_policy) { cache_policy->prune_all(false); }, profile);
+                [force](CachePolicy* cache_policy) { cache_policy->prune_all(force); }, profile);
     }
     return 0;
 }
 
-void CacheManager::clear_once() {
+int64_t CacheManager::cache_prune_all(CachePolicy::CacheType type, bool force) {
     std::lock_guard<std::mutex> l(_caches_lock);
-    for (const auto& pair : _caches) {
-        pair.second->prune_all(true);
+    auto* cache_policy = _caches[type];
+    if (!cache_policy->enable_prune()) {
+        return -1;
     }
-}
-
-void CacheManager::clear_once(CachePolicy::CacheType type) {
-    std::lock_guard<std::mutex> l(_caches_lock);
-    _caches[type]->prune_all(true); // will print log
+    cache_policy->prune_all(force);
+    return cache_policy->profile()->get_counter("FreedMemory")->value();
 }
 
 } // namespace doris
