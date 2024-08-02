@@ -43,5 +43,6 @@ suite("test_array_functions_of_array_countEqual") {
     sql """ INSERT INTO ${tableName} VALUES(10, [1, 2, 3, 4, 5, 5, 5]) """
 
     qt_select "select *,countEqual(k2, 1),countEqual(k2, 5),countEqual(k2, NULL) from ${tableName} order by k1"
+    qt_select "select 7=countEqual(k2, 7) from ${tableName} order by k1"
 
 }
