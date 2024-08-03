@@ -18,7 +18,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_char	char(15)	char(15)	Yes	false	\N	NONE	true		
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
-
+											
 mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
 		mva_SUM__CAST(`c_int` AS bigint)	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
 		mva_MAX__`c_int`	int	int	Yes	false	\N	MAX	true	`c_int`	
@@ -67,7 +67,7 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_char	char(15)	char(15)	Yes	false	\N	NONE	true		
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
-
+											
 mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
 		mva_SUM__CAST(`c_int` AS bigint)	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
 		mva_MAX__`c_int`	bigint	bigint	Yes	false	\N	MAX	true	`c_int`	
