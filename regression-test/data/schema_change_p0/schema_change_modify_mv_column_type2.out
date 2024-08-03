@@ -9,8 +9,8 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_largeint	largeint	largeint	Yes	false	\N	NONE	true		
 		c_float	float	float	Yes	false	\N	NONE	true		
 		c_double	double	double	Yes	false	\N	NONE	true		
-		c_decimal	decimal(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
-		c_decimalv3	decimal(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimal	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimalv3	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
 		c_date	date	datev2	Yes	false	\N	NONE	true		
 		c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
 		c_datev2	date	datev2	Yes	false	\N	NONE	true		
@@ -58,8 +58,8 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_largeint	largeint	largeint	Yes	false	\N	NONE	true		
 		c_float	float	float	Yes	false	\N	NONE	true		
 		c_double	double	double	Yes	false	\N	NONE	true		
-		c_decimal	decimal(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
-		c_decimalv3	decimal(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimal	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimalv3	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
 		c_date	date	datev2	Yes	false	\N	NONE	true		
 		c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
 		c_datev2	date	datev2	Yes	false	\N	NONE	true		
