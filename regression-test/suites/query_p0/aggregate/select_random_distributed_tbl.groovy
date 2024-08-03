@@ -41,8 +41,9 @@ suite("select_random_distributed_tbl") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    
+    sql 'set enable_fold_constant_by_be=true'
     sql """ insert into ${tableName} values(1,"a",1,1,1,avg_state(1),hll_hash(1),bitmap_hash(1),to_quantile_state(1, 2048)) """
+    sql 'set enable_fold_constant_by_be=false'
     sql """ insert into ${tableName} values(1,"a",2,2,2,avg_state(2),hll_hash(2),bitmap_hash(2),to_quantile_state(2, 2048)) """
     sql """ insert into ${tableName} values(1,"a",3,3,3,avg_state(3),hll_hash(3),bitmap_hash(3),to_quantile_state(3, 2048)) """
     sql """ insert into ${tableName} values(2,"b",4,4,4,avg_state(4),hll_hash(4),bitmap_hash(4),to_quantile_state(4, 2048)) """
