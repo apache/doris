@@ -296,7 +296,7 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
         // we have to do some special treatment for the second elem of json path.
         // If the key is not found in json object, simdjson::NO_SUCH_FIELD would be returned.
         if (i == 1) {
-            if(col == "*") {
+            if (col == "*") {
                 // There shoud return entire json obj for this pattern, $.*
                 tvalue = *reinterpret_cast<simdjson::ondemand::value*>(&obj);
                 break;

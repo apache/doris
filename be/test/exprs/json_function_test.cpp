@@ -23,6 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include <string>
+
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "gtest/gtest_pred_impl.h"
@@ -127,8 +128,7 @@ TEST_F(JsonFunctionTest, json_path_test) {
     }
 }
 TEST_F(JsonFunctionTest, extract_from_object_test) {
-    std::string json_raw_data(
-            "{\"a\":\"a1\", \"b\":\"b1\", \"c\":\"c1\"}");
+    std::string json_raw_data(R"({"a":"a1", "b":"b1", "c":"c1"})");
     json_raw_data.reserve(json_raw_data.size() + simdjson::SIMDJSON_PADDING);
 
     simdjson::ondemand::parser parser;
