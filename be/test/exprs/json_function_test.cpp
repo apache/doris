@@ -23,7 +23,7 @@
 #include <rapidjson/writer.h>
 
 #include <string>
-
+#include "common/status.h"
 #include "exprs/json_functions.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -125,6 +125,29 @@ TEST_F(JsonFunctionTest, json_path_test) {
         EXPECT_EQ(res6->Size(), 1);
         EXPECT_TRUE(wrap_explicitly);
     }
+}
+TEST_F(JsonFunctionTest, extract_from_object_test) {
+    std::string json_raw_data(
+            "{\"a\":\"a1\", \"b\":\"b1\", \"c\":\"c1\"}");
+    json_raw_data.reserve(json_raw_data.size() + simdjson::SIMDJSON_PADDING);
+
+    simdjson::ondemand::parser parser;
+    simdjson::ondemand::document doc;
+    parser.iterate(json_raw_data).get(doc);
+
+    simdjson::ondemand::object obj;
+
+    EXPECT_EQ(simdjson::error_code::SUCCESS, doc.get_object().get(obj));
+
+    std::vector<JsonPath> path;
+    JsonFunctions::parse_json_paths("$.*", &path);
+
+    simdjson::ondemand::value val;
+    Status status = JsonFunctions::extract_from_object(obj, path, &val);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    std::string_view res = simdjson::to_json_string(val);
+
+    EXPECT_EQ(json_raw_data, res.data());
 }
 
 } // namespace doris
