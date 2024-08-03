@@ -220,7 +220,8 @@ protected:
 
     bool check_data_read_with_delete_bitmap(TabletSchemaSPtr tablet_schema,
                                             DeleteBitmapPtr delete_bitmap, RowsetSharedPtr rowset,
-                                            int expect_total_rows, int rows_mark_deleted) {
+                                            int expect_total_rows, int rows_mark_deleted,
+                                            bool skip_value_check = false) {
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
         // use this type to avoid cache from other ut
@@ -261,7 +262,10 @@ protected:
                     uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
                     uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
                     EXPECT_EQ(100 * v3 + k2, k1);
-                    EXPECT_TRUE(v3 % 3 != 0); // all v3%3==0 is deleted
+                    if (!skip_value_check) {
+                        // all v3%3==0 is deleted in all segments with an even number of ids.
+                        EXPECT_TRUE(k2 % 2 != 0 || v3 % 3 != 0);
+                    }
                     num_rows_read++;
                 }
                 output_block->clear();
@@ -334,8 +338,8 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
                             {rowset_id, i, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
                 } else {
-                    // mark delete every 3 rows
-                    if (rid % 3 == 0) {
+                    // mark delete every 3 rows, for segments that seg_id is even number
+                    if (i % 2 == 0 && rid % 3 == 0) {
                         writer_context.mow_context->delete_bitmap->add(
                                 {rowset_id, i, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                         rows_mark_deleted++;
@@ -353,7 +357,11 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         for (auto entry : delete_bitmap->delete_bitmap) {
             total_cardinality1 += entry.second.cardinality();
         }
-        EXPECT_EQ(num_segments, delete_bitmap->delete_bitmap.size());
+        if (delete_ratio == "full") {
+            EXPECT_EQ(num_segments, delete_bitmap->delete_bitmap.size());
+        } else {
+            EXPECT_EQ(num_segments / 2 + num_segments % 2, delete_bitmap->delete_bitmap.size());
+        }
         EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back(fmt::format("{}_0.dat", raw_rsid));
@@ -372,8 +380,12 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
             }
             total_cardinality2 += entry.second.cardinality();
         }
-        // 7 segments + 1 sentinel mark
-        EXPECT_EQ(8, delete_bitmap->delete_bitmap.size());
+        if (delete_ratio == "full") {
+            // 7 segments + 1 sentinel mark
+            EXPECT_EQ(8, delete_bitmap->delete_bitmap.size());
+        } else {
+            EXPECT_EQ(5, delete_bitmap->delete_bitmap.size());
+        }
         EXPECT_EQ(total_cardinality1, total_cardinality2);
     }
 
@@ -420,16 +432,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -448,16 +460,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -476,16 +488,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -504,16 +516,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -572,16 +584,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -607,11 +619,10 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         ls.push_back("20048_5.dat"); // oooooooo
         ls.push_back("20048_6.dat"); // O
         EXPECT_TRUE(check_dir(ls));
-        // 7 segments + 1 sentinel mark
-        EXPECT_EQ(8, delete_bitmap->delete_bitmap.size());
+        EXPECT_EQ(6, delete_bitmap->delete_bitmap.size());
     }
     EXPECT_TRUE(check_data_read_with_delete_bitmap(tablet_schema, delete_bitmap, rowset,
-                                                   total_written_rows, rows_mark_deleted));
+                                                   total_written_rows, rows_mark_deleted, true));
 }
 
 TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
@@ -652,16 +663,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -680,16 +691,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -708,16 +719,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -736,16 +747,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -764,16 +775,16 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
             vectorized::Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 100 + i;
-                uint32_t k2 = i;
+                uint32_t k1 = rid * 100 + segid;
+                uint32_t k2 = segid;
                 uint32_t k3 = rid;
                 uint32_t seq = 0;
                 columns[0]->insert_data((const char*)&k1, sizeof(k1));
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (segid % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, segid, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -846,8 +857,8 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                 columns[1]->insert_data((const char*)&k2, sizeof(k2));
                 columns[2]->insert_data((const char*)&k3, sizeof(k3));
                 columns[3]->insert_data((const char*)&seq, sizeof(seq));
-                // mark delete every 3 rows
-                if (rid % 3 == 0) {
+                // mark delete every 3 rows, for segments that seg_id is even number
+                if (i % 2 == 0 && rid % 3 == 0) {
                     writer_context.mow_context->delete_bitmap->add(
                             {rowset_id, i, DeleteBitmap::TEMP_VERSION_COMMON}, rid);
                     rows_mark_deleted++;
@@ -860,7 +871,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
             sleep(1);
         }
 
-        EXPECT_EQ(num_segments, delete_bitmap->delete_bitmap.size());
+        EXPECT_EQ(num_segments / 2 + num_segments % 2, delete_bitmap->delete_bitmap.size());
         EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("20050_0.dat");
@@ -872,7 +883,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
         ls.push_back("20050_6.dat");
         ls.push_back("20050_7.dat");
         EXPECT_TRUE(check_dir(ls));
-        EXPECT_EQ(num_segments, delete_bitmap->delete_bitmap.size());
+        EXPECT_EQ(num_segments / 2 + num_segments % 2, delete_bitmap->delete_bitmap.size());
 
         EXPECT_FALSE(static_cast<BetaRowsetWriter*>(rowset_writer.get())->is_segcompacted());
     }
