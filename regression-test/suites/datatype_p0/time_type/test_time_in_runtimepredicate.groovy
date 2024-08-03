@@ -20,7 +20,7 @@ suite("test_time_in_runtimepredicate") {
     def tbName = "test_time_in_runtimepredicate"
     sql """ DROP TABLE IF EXISTS test_time_in_runtimepredicate """
     sql """
-       create table test_time_in_runtimepredicate(a date, b datetime, c int) properties ("replication_allocation" = "tag.location.default: 1");
+       create table test_time_in_runtimepredicate(a date, b datetime, c int) DISTRIBUTED BY RANDOM BUCKETS AUTO properties ("replication_allocation" = "tag.location.default: 1");
       """
     sql """insert into test_time_in_runtimepredicate values ("2023-12-18", "2023-12-18 01:47:22", 1),  ("2023-12-18", "2023-12-18 02:47:22", 2) ,  ("2023-12-17", "2023-12-18 00:47:22", 3), ("2023-12-20", "2023-12-18 00:47:22", 4) , ("2023-12-20", "2023-12-18 00:47:22", 5);"""
 
