@@ -133,8 +133,9 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << fmt::format("open tablets channel of index {}, tablets num: {} timeout(s): {}",
-                             _index_id, request.tablets().size(), request.load_channel_timeout_s());
+    LOG(INFO) << fmt::format("open tablets channel {}, tablets num: {} timeout(s): {}",
+                             _key.to_string(), request.tablets().size(),
+                             request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
