@@ -293,7 +293,6 @@ private:
 // Registers /threadz with the debug webserver.
 void register_thread_display_page(WebPageHandler* web_page_handler);
 
-
 // A singleton class that tracks all live threads, and groups them together for easy
 // auditing. Used only by Thread.
 class ThreadMgr {
