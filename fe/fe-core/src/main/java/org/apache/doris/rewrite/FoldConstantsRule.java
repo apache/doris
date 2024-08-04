@@ -412,6 +412,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
                                         scalarType.getScale());
                             } else if (ttype == TPrimitiveType.DATETIMEV2) {
                                 type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                            } else if (ttype == TPrimitiveType.TIMESTAMP) {
+                                type = ScalarType.createTimestampType(scalarType.getScale());
                             } else if (ttype == TPrimitiveType.DECIMAL32
                                     || ttype == TPrimitiveType.DECIMAL64
                                     || ttype == TPrimitiveType.DECIMAL128I

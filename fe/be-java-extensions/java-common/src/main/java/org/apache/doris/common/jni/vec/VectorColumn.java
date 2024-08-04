@@ -365,6 +365,7 @@ public class VectorColumn {
                 return appendDate(LocalDate.MIN);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return appendDateTime(LocalDateTime.MIN);
             case CHAR:
             case VARCHAR:
@@ -1371,6 +1372,7 @@ public class VectorColumn {
                 return new LocalDate[size];
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return new LocalDateTime[size];
             case CHAR:
             case VARCHAR:

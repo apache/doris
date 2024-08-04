@@ -97,7 +97,8 @@ enum TPrimitiveType {
   AGG_STATE,
   DECIMAL256,
   IPV4,
-  IPV6
+  IPV6,
+  TIMESTAMP
 }
 
 enum TTypeNodeType {

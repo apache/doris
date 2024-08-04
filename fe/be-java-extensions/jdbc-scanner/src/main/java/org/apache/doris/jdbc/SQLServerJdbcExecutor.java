@@ -103,6 +103,7 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
                         input -> ((Date) input).toLocalDate(), LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return createConverter(
                         input -> ((Timestamp) input).toLocalDateTime(), LocalDateTime.class);
             case STRING:

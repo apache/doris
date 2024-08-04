@@ -81,6 +81,7 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1, LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
             case CHAR:
             case VARCHAR:

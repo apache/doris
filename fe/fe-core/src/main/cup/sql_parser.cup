@@ -6845,7 +6845,11 @@ type ::=
   | KW_DATETIMEV2 LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIMEV2
-  {: RESULT = ScalarType.createDatetimeV2Type(0); :}
+  {: RESULT = ScalarType.createDatetimeV2Type(0); :}  
+  | KW_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createTimestampType(precision.intValue()); :}
+  | KW_TIMESTAMP
+  {: RESULT = ScalarType.createTimestampType(0); :}
   | KW_IPV4
   {: RESULT = Type.IPV4; :}
   | KW_IPV6

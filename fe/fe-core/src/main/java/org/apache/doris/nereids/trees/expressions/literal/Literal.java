@@ -338,6 +338,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             }
             case DATETIME: return new DateTimeLiteral(stringValue);
             case DATETIMEV2: return new DateTimeV2Literal(stringValue);
+            case TIMESTAMP: return new DateTimeV2Literal(stringValue);
             case JSONB: return new JsonLiteral(stringValue);
             case IPV4: return new IPv4Literal(stringValue);
             case IPV6: return new IPv6Literal(stringValue);

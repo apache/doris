@@ -517,6 +517,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
     COLUMN_TYPE_DECIMAL256 = 20;
+    COLUMN_TYPE_TIMESTAMP = 21;
 }
 
 message PMinMaxFilter {

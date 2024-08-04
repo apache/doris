@@ -49,6 +49,7 @@ public class ColumnType {
         DATEV2(4),
         DATETIME(8),
         DATETIMEV2(8),
+        TIMESTAMP(8),
         CHAR(-1),
         VARCHAR(-1),
         BINARY(-1),
@@ -169,6 +170,10 @@ public class ColumnType {
 
     public boolean isDateTimeV2() {
         return type == Type.DATETIMEV2;
+    }
+
+    public boolean isTimestamp() {
+        return type == Type.TIMESTAMP;
     }
 
     public boolean isPrimitive() {

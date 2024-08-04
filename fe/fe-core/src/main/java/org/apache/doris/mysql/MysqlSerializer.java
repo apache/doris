@@ -284,7 +284,8 @@ public class MysqlSerializer {
             case DATE:
                 return 10;
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP: {
                 if (type.getPrimitiveType().isTimeType()) {
                     return 10;
                 } else {
@@ -329,6 +330,7 @@ public class MysqlSerializer {
             case DECIMAL256:
             case TIMEV2:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return ((ScalarType) type).decimalScale();
             case FLOAT:
             case DOUBLE:

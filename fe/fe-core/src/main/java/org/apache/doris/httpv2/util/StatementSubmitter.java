@@ -209,7 +209,9 @@ public class StatementSubmitter {
                 for (int i = 1; i <= colNum && (!isCopyStmt || i <= copyResult.length); ++i) {
                     String type = rs.getMetaData().getColumnTypeName(i);
                     if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
-                            || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type)) {
+                            || "DATEV2".equalsIgnoreCase(type)
+                            || "DATETIMEV2".equalsIgnoreCase(type)
+                            || "TIMESTAMP".equalsIgnoreCase(type)) {
                         row.add(rs.getString(i));
                     } else {
                         row.add(rs.getObject(i));

@@ -814,6 +814,9 @@ public class CreateFunctionStmt extends DdlStmt {
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
+            case TIMESTAMP:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMP);
+                break;
             case DECIMALV2:
             case DECIMAL128:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)

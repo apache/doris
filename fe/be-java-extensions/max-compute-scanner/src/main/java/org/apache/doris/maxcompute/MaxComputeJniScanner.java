@@ -221,6 +221,7 @@ public class MaxComputeJniScanner extends JniScanner {
                 break;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 odpsType = TypeInfoFactory.DATETIME;
                 break;
             case DATE:

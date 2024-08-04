@@ -282,6 +282,7 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:

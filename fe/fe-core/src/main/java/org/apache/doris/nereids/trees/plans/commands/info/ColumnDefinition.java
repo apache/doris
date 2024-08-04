@@ -616,7 +616,8 @@ public class ColumnDefinition {
                 }
             }
             case TIMEV2:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
                 // precision: [1, 27]

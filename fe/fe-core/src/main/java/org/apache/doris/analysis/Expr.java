@@ -2503,6 +2503,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return Type.DECIMAL256;
         } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMESTAMP) {
+            return Type.TIMESTAMP;
         } else if (originType.getPrimitiveType() == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {

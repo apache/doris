@@ -393,6 +393,12 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
                                 ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
+                    } else if (column.getDataType() == PrimitiveType.TIMESTAMP) {
+                        DateLiteral dateLiteral = new DateLiteral(value,
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_TIMESTAMP_SCALE));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value,
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_TIMESTAMP_SCALE)));
                     }
                     LiteralExpr.create(value, column.getType());
                 } catch (AnalysisException e) {
@@ -407,7 +413,8 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
                         if (column.getDataType() == PrimitiveType.DATE
                                 || column.getDataType() == PrimitiveType.DATETIME
                                 || column.getDataType() == PrimitiveType.DATEV2
-                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
+                                || column.getDataType() == PrimitiveType.DATETIMEV2
+                                || column.getDataType() == PrimitiveType.TIMESTAMP) {
                             DateLiteral dateLiteral = new DateLiteral(value,
                                     column.getType());
                             value = dateLiteral.getStringValue();

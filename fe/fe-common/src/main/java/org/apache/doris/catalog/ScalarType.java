@@ -47,6 +47,9 @@ public class ScalarType extends Type {
     // We use a fixed-length decimal type to represent a date time.
     public static final int DATETIME_PRECISION = 18;
 
+    // We use a fixed-length decimal type to represent a date time.
+    public static final int TIMESTAMP_PRECISION = 18;
+
     // SQL allows the engine to pick the default precision. We pick the largest
     // precision that is supported by the smallest decimal type in the BE (4 bytes).
     public static final int DEFAULT_PRECISION = 9;
@@ -80,6 +83,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL256_PRECISION = 76;
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
+    public static final int MAX_TIMESTAMP_SCALE = 6;
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
     private long byteSize = -1;
@@ -145,6 +149,8 @@ public class ScalarType extends Type {
                 return createDecimalType(precision, scale);
             case DATETIMEV2:
                 return createDatetimeV2Type(scale);
+            case TIMESTAMP:
+                return createTimestampType(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
             default:
@@ -200,6 +206,8 @@ public class ScalarType extends Type {
                 return DATEV2;
             case DATETIMEV2:
                 return DEFAULT_DATETIMEV2;
+            case TIMESTAMP:
+                return DEFAULT_TIMESTAMP;
             case TIMEV2:
                 return TIMEV2;
             case TIME:
@@ -276,6 +284,8 @@ public class ScalarType extends Type {
                 return DATEV2;
             case "DATETIMEV2":
                 return DATETIMEV2;
+            case "TIMESTAMP":
+                return TIMESTAMP;
             case "TIME":
                 return TIME;
             case "DECIMAL":
@@ -437,6 +447,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createTimestampType(int scale) {
+        ScalarType type = new ScalarType(PrimitiveType.TIMESTAMP);
+        type.precision = TIMESTAMP_PRECISION;
+        type.scale = scale;
+        return type;
+    }
+
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeV2Type(int scale) {
         ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
@@ -516,6 +533,7 @@ public class ScalarType extends Type {
                 }
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP:
             default:
                 return type;
         }
@@ -594,6 +612,8 @@ public class ScalarType extends Type {
             return "decimalv3(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
+        } else  if (type == PrimitiveType.TIMESTAMP) {
+            return "timestamp(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
@@ -659,6 +679,9 @@ public class ScalarType extends Type {
                 break;
             case DATETIMEV2:
                 stringBuilder.append("datetimev2").append("(").append(scale).append(")");
+                break;
+            case TIMESTAMP:
+                stringBuilder.append("timestamp").append("(").append(scale).append(")");
                 break;
             case TIME:
                 stringBuilder.append("time");
@@ -737,7 +760,9 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP: {
+
                 if (precision < scale) {
                     throw new IllegalArgumentException(
                             String.format("given precision %d is out of scale bound %d", precision, scale));
@@ -762,7 +787,8 @@ public class ScalarType extends Type {
     }
 
     public int decimalPrecision() {
-        Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2
+                || type == PrimitiveType.TIMESTAMP
                 || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
                 || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
                 || type == PrimitiveType.DECIMAL256);
@@ -771,6 +797,7 @@ public class ScalarType extends Type {
 
     public int decimalScale() {
         Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+                || type == PrimitiveType.TIMESTAMP
                 || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
                 || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
                 || type == PrimitiveType.DECIMAL256);
@@ -940,7 +967,8 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2
+                || type == PrimitiveType.TIMESTAMP || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -1198,7 +1226,8 @@ public class ScalarType extends Type {
             thrift.setLen(len);
         }
         if (type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()
-                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMP
+                || type == PrimitiveType.TIMEV2) {
             thrift.setPrecision(precision);
             thrift.setScale(scale);
         }

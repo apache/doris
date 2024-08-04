@@ -340,6 +340,7 @@ public abstract class DataType {
             case DOUBLE: return DoubleType.INSTANCE;
             case NULL_TYPE: return NullType.INSTANCE;
             case DATETIMEV2: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
+            case TIMESTAMP: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;

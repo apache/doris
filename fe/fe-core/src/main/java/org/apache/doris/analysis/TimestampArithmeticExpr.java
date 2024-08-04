@@ -153,6 +153,9 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATETIMEV2) {
             return Type.DATETIMEV2;
         }
+        if (t1 == PrimitiveType.TIMESTAMP) {
+            return Type.TIMESTAMP;
+        }
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         }
@@ -251,6 +254,9 @@ public class TimestampArithmeticExpr extends Expr {
             }
             if (dateType.isDateV2() && timeUnit.isDateTime()) {
                 dateType = Type.DATETIMEV2;
+            }
+            if (dateType.isTimestamp() && timeUnit.isTimestamp()) {
+                dateType = Type.TIMESTAMP;
             }
             // The first child must return a timestamp or null.
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
@@ -478,6 +484,13 @@ public class TimestampArithmeticExpr extends Expr {
         }
 
         public boolean isDateTime() {
+            if (this == HOUR || this == MINUTE || this == SECOND || this == MICROSECOND) {
+                return true;
+            }
+            return false;
+        }
+
+        public boolean isTimestamp() {
             if (this == HOUR || this == MINUTE || this == SECOND || this == MICROSECOND) {
                 return true;
             }

@@ -98,6 +98,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP:
                 literalExpr = new DateLiteral(value, type);
                 break;
             case IPV4:
@@ -227,6 +228,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return DateLiteral.createMinValue(type);
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);

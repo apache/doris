@@ -96,8 +96,10 @@ public abstract class Type {
                     ScalarType.DEFAULT_SCALE);
     public static final ScalarType DEFAULT_DECIMALV3 = DEFAULT_DECIMAL32;
     public static final ScalarType DEFAULT_DATETIMEV2 = ScalarType.createDatetimeV2Type(0);
-    public static final ScalarType DATETIMEV2 = DEFAULT_DATETIMEV2;
     public static final ScalarType DATETIMEV2_WITH_MAX_SCALAR = ScalarType.createDatetimeV2Type(6);
+    public static final ScalarType DATETIMEV2 = DEFAULT_DATETIMEV2;
+    public static final ScalarType DEFAULT_TIMESTAMP = ScalarType.createTimestampType(0);
+    public static final ScalarType TIMESTAMP = DEFAULT_TIMESTAMP;
     public static final ScalarType DEFAULT_TIMEV2 = ScalarType.createTimeV2Type(0);
     public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
     public static final ScalarType DECIMAL32 = DEFAULT_DECIMAL32;
@@ -154,6 +156,7 @@ public abstract class Type {
         typeMap.put("DATE", Type.DATE);
         typeMap.put("DATEV2", Type.DATEV2);
         typeMap.put("DATETIMEV2", Type.DATETIMEV2);
+        typeMap.put("TIMESTAMP", Type.TIMESTAMP);
         typeMap.put("DATETIME", Type.DATETIME);
         typeMap.put("DECIMAL32", Type.DECIMAL32);
         typeMap.put("DECIMAL64", Type.DECIMAL64);
@@ -201,6 +204,7 @@ public abstract class Type {
         numericDateTimeTypes.add(DATETIME);
         numericDateTimeTypes.add(DATEV2);
         numericDateTimeTypes.add(DATETIMEV2);
+        numericDateTimeTypes.add(TIMESTAMP);
         numericDateTimeTypes.add(TIME);
         numericDateTimeTypes.add(TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
@@ -215,6 +219,7 @@ public abstract class Type {
         trivialTypes.add(DATETIME);
         trivialTypes.add(DATEV2);
         trivialTypes.add(DATETIMEV2);
+        trivialTypes.add(TIMESTAMP);
         trivialTypes.add(IPV4);
         trivialTypes.add(IPV6);
         trivialTypes.add(TIME);
@@ -241,6 +246,7 @@ public abstract class Type {
         arraySubTypes.add(DATETIME);
         arraySubTypes.add(DATEV2);
         arraySubTypes.add(DATETIMEV2);
+        arraySubTypes.add(TIMESTAMP);
         arraySubTypes.add(IPV4);
         arraySubTypes.add(IPV6);
         arraySubTypes.add(CHAR);
@@ -271,6 +277,7 @@ public abstract class Type {
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
         mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(TIMESTAMP);
         mapSubTypes.add(IPV4);
         mapSubTypes.add(IPV6);
         mapSubTypes.add(CHAR);
@@ -297,6 +304,7 @@ public abstract class Type {
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
         structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIMESTAMP);
         structSubTypes.add(IPV4);
         structSubTypes.add(IPV6);
         structSubTypes.add(CHAR);
@@ -311,6 +319,8 @@ public abstract class Type {
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
             org.joda.time.LocalDate.class);
     public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
+            org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
+    public static final Set<Class> TIMESTAMP_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
             org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
     public static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
             new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
@@ -329,6 +339,7 @@ public abstract class Type {
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.TIMESTAMP, TIMESTAMP_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
@@ -520,6 +531,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATETIMEV2);
     }
 
+    public boolean isTimestamp() {
+        return isScalarType(PrimitiveType.TIMESTAMP);
+    }
+
     public boolean isTimeV2() {
         return isScalarType(PrimitiveType.TIMEV2);
     }
@@ -645,7 +660,7 @@ public abstract class Type {
 
     public boolean isDateType() {
         return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME)
-                || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+                || isScalarType(PrimitiveType.DATEV2);
     }
 
     public boolean isDateOrDateTime() {
@@ -1020,6 +1035,8 @@ public abstract class Type {
                 return Type.DATEV2;
             case DATETIMEV2:
                 return Type.DATETIMEV2;
+            case TIMESTAMP:
+                return Type.TIMESTAMP;
             case TIMEV2:
                 return Type.TIMEV2;
             case DECIMALV2:
@@ -1128,6 +1145,10 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
                     type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.TIMESTAMP) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createTimestampType(scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.TIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
@@ -1276,6 +1297,7 @@ public abstract class Type {
             case DECIMAL128:
             case DECIMAL256:
             case DATETIMEV2:
+            case TIMESTAMP:
             case TIMEV2:
                 return t.decimalPrecision();
             default:
@@ -1306,6 +1328,7 @@ public abstract class Type {
             case DOUBLE:
                 return 15;
             case DATETIMEV2:
+            case TIMESTAMP:
             case TIMEV2:
             case DECIMALV2:
             case DECIMAL32:
@@ -1401,6 +1424,7 @@ public abstract class Type {
         compatibilityMatrix[BOOLEAN.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BOOLEAN.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BOOLEAN.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1430,6 +1454,7 @@ public abstract class Type {
         compatibilityMatrix[TINYINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TINYINT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1459,6 +1484,7 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[SMALLINT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1491,6 +1517,7 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][DATEV2.ordinal()] = PrimitiveType.INT;
         compatibilityMatrix[INT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[INT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1524,6 +1551,7 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[BIGINT.ordinal()][DATEV2.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[BIGINT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.BIGINT;
+        compatibilityMatrix[BIGINT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[BIGINT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1549,6 +1577,7 @@ public abstract class Type {
         compatibilityMatrix[LARGEINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.LARGEINT;
         compatibilityMatrix[LARGEINT.ordinal()][DATEV2.ordinal()] = PrimitiveType.LARGEINT;
         compatibilityMatrix[LARGEINT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.LARGEINT;
+        compatibilityMatrix[LARGEINT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.LARGEINT;
         compatibilityMatrix[LARGEINT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1573,6 +1602,7 @@ public abstract class Type {
         compatibilityMatrix[FLOAT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[FLOAT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1610,6 +1640,7 @@ public abstract class Type {
         compatibilityMatrix[DOUBLE.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DOUBLE;
+        compatibilityMatrix[DOUBLE.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[DOUBLE.ordinal()][TIMEV2.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[DOUBLE.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1618,6 +1649,7 @@ public abstract class Type {
         compatibilityMatrix[DATE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIME;
         compatibilityMatrix[DATE.ordinal()][DATEV2.ordinal()] = PrimitiveType.DATEV2;
         compatibilityMatrix[DATE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[DATE.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.TIMESTAMP;
         compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
@@ -1640,6 +1672,7 @@ public abstract class Type {
         compatibilityMatrix[DATEV2.ordinal()][DATE.ordinal()] = PrimitiveType.DATEV2;
         compatibilityMatrix[DATEV2.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIMEV2;
         compatibilityMatrix[DATEV2.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[DATEV2.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.TIMESTAMP;
         compatibilityMatrix[DATEV2.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATEV2.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATEV2.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
@@ -1661,6 +1694,7 @@ public abstract class Type {
         // DATETIME
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[DATETIME.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.TIMESTAMP;
         compatibilityMatrix[DATETIME.ordinal()][DATEV2.ordinal()] = PrimitiveType.DATETIMEV2;
         compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
@@ -1682,6 +1716,7 @@ public abstract class Type {
         // DATETIMEV2
         compatibilityMatrix[DATETIMEV2.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[DATETIMEV2.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.TIMESTAMP;
         compatibilityMatrix[DATETIMEV2.ordinal()][DATEV2.ordinal()] = PrimitiveType.DATETIMEV2;
         compatibilityMatrix[DATETIMEV2.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
@@ -1700,11 +1735,32 @@ public abstract class Type {
         compatibilityMatrix[DATETIMEV2.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIMEV2.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
 
+        // TIMESTAMP
+        compatibilityMatrix[TIMESTAMP.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DATEV2.ordinal()] = PrimitiveType.DATETIMEV2;
+        compatibilityMatrix[TIMESTAMP.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL64;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.DECIMAL64;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.DECIMAL128;
+        compatibilityMatrix[TIMESTAMP.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.DECIMAL256;
+        compatibilityMatrix[TIMESTAMP.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIMESTAMP.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
         // We can convert some but not all string values to timestamps.
         // CHAR
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = PrimitiveType.VARCHAR;
         compatibilityMatrix[CHAR.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[CHAR.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1731,6 +1787,7 @@ public abstract class Type {
         compatibilityMatrix[VARCHAR.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[VARCHAR.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
@@ -1746,6 +1803,7 @@ public abstract class Type {
         compatibilityMatrix[STRING.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[STRING.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1787,6 +1845,7 @@ public abstract class Type {
         compatibilityMatrix[VARIANT.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARIANT.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARIANT.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[VARIANT.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARIANT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARIANT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARIANT.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
@@ -1799,6 +1858,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMALV2.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][DATEV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMALV2;
+        compatibilityMatrix[DECIMALV2.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1817,6 +1877,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL32.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][DATEV2.ordinal()] = PrimitiveType.DECIMAL32;
         compatibilityMatrix[DECIMAL32.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL32;
+        compatibilityMatrix[DECIMAL32.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.DECIMAL32;
         compatibilityMatrix[DECIMAL32.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1851,6 +1912,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL128.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][DATEV2.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL128;
+        compatibilityMatrix[DECIMAL128.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1868,6 +1930,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL256.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL256.ordinal()][DATEV2.ordinal()] = PrimitiveType.DECIMAL256;
         compatibilityMatrix[DECIMAL256.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL256;
+        compatibilityMatrix[DECIMAL256.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.DECIMAL256;
         compatibilityMatrix[DECIMAL256.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL256.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL256.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1881,6 +1944,7 @@ public abstract class Type {
         compatibilityMatrix[HLL.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[HLL.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1903,6 +1967,7 @@ public abstract class Type {
         compatibilityMatrix[BITMAP.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BITMAP.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BITMAP.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1916,6 +1981,7 @@ public abstract class Type {
         compatibilityMatrix[QUANTILE_STATE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[QUANTILE_STATE.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1932,6 +1998,7 @@ public abstract class Type {
         compatibilityMatrix[TIME.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIME.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
 
@@ -1953,6 +2020,7 @@ public abstract class Type {
         compatibilityMatrix[IPV4.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV4.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV4.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV4.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV4.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV4.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1968,6 +2036,7 @@ public abstract class Type {
         compatibilityMatrix[IPV6.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV6.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV6.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][TIMESTAMP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV6.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV6.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[IPV6.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -2020,6 +2089,7 @@ public abstract class Type {
             case DATEV2:
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
             case TIME:
             case TIMEV2:
             case CHAR:
@@ -2201,6 +2271,8 @@ public abstract class Type {
             return t2;
         } else if (t2.isDateV2() || t1.isDateV2()) {
             return Type.DATETIMEV2;
+        } else if (t2.isTimestamp()) {
+            return Type.TIMESTAMP;
         } else {
             return Type.DATETIME;
         }
@@ -2217,6 +2289,7 @@ public abstract class Type {
             case DATEV2:
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return Type.BIGINT;
             case LARGEINT:
                 return Type.LARGEINT;

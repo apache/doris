@@ -63,7 +63,8 @@ public abstract class ColumnParser implements Serializable {
                 || columnType.equalsIgnoreCase("DATEV2")) {
             return new DateParser();
         } else if (columnType.equalsIgnoreCase("DATETIME")
-                || columnType.equalsIgnoreCase("DATETIMEV2")) {
+                || columnType.equalsIgnoreCase("DATETIMEV2")
+                || columnType.equalsIgnoreCase("TIMESTAMP")) {
             return new DatetimeParser();
         } else if (columnType.equalsIgnoreCase("STRING")
                 || columnType.equalsIgnoreCase("TEXT")) {

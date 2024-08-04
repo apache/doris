@@ -74,6 +74,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1, LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -88,6 +89,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
         switch (columnType.getType()) {
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return createConverter(input -> {
                     if (input instanceof Timestamp) {
                         return ((Timestamp) input).toLocalDateTime();

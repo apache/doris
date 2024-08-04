@@ -51,7 +51,8 @@ public class DB2JdbcExecutor extends BaseJdbcExecutor {
                     || outputTable.getColumnType(i).getType() == Type.DATEV2) {
                 block.add(new Date[batchSizeNum]);
             } else if (outputTable.getColumnType(i).getType() == Type.DATETIME
-                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2) {
+                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2
+                    || outputTable.getColumnType(i).getType() == Type.TIMESTAMP) {
                 block.add(new Timestamp[batchSizeNum]);
             } else {
                 block.add(outputTable.getColumn(i).newObjectContainerArray(batchSizeNum));
@@ -76,6 +77,7 @@ public class DB2JdbcExecutor extends BaseJdbcExecutor {
             case DATEV2:
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return resultSet.getObject(columnIndex + 1);
             case CHAR:
             case VARCHAR:
@@ -98,6 +100,7 @@ public class DB2JdbcExecutor extends BaseJdbcExecutor {
                         input -> ((Date) input).toLocalDate(), LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return createConverter(
                         input -> ((Timestamp) input).toLocalDateTime(), LocalDateTime.class);
             case CHAR:

@@ -512,9 +512,10 @@ public class ColumnDef {
             switch (primitiveType) {
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMP:
                     break;
                 default:
-                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
+                    throw new AnalysisException("Types other than DATETIME, DATETIMEV2 and TIMESTAMP "
                             + "cannot use current_timestamp as the default value");
             }
         } else if (null != defaultValueExprDef
@@ -580,6 +581,7 @@ public class ColumnDef {
                 break;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 if (defaultValueExprDef == null) {
                     new DateLiteral(defaultValue, scalarType);
                 } else {

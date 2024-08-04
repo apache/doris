@@ -461,6 +461,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 preparedStatement.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
                 break;
             case DATETIMEV2:
+            case TIMESTAMP:
                 preparedStatement.setTimestamp(
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
@@ -512,6 +513,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 preparedStatement.setNull(parameterIndex, Types.DATE);
                 break;
             case DATETIMEV2:
+            case TIMESTAMP:
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case CHAR:

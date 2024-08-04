@@ -419,6 +419,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         case DATETIME:
                         case DATEV2:
                         case DATETIMEV2:
+                        case TIMESTAMP:
                             literal = DateLiteral.read(in);
                             break;
                         case CHAR:
@@ -434,7 +435,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     }
                 }
             }
-            if (type != PrimitiveType.DATETIMEV2) {
+            if (type != PrimitiveType.DATETIMEV2 || type != PrimitiveType.TIMESTAMP) {
                 literal.setType(Type.fromPrimitiveType(type));
             }
             if (type.isDateV2Type()) {
@@ -564,7 +565,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     if (key instanceof MaxLiteral) {
                         key = MaxLiteral.MAX_VALUE;
                     }
-                    if (type != PrimitiveType.DATETIMEV2) {
+                    if (type != PrimitiveType.DATETIMEV2 || type != PrimitiveType.TIMESTAMP) {
                         key.setType(Type.fromPrimitiveType(type));
                     }
                     if (type.isDateV2Type()) {
@@ -628,7 +629,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         case DATE:
                         case DATETIME:
                         case DATEV2:
-                        case DATETIMEV2: {
+                        case DATETIMEV2:
+                        case TIMESTAMP: {
                             String value = typeAndKey.get(1).getAsString();
                             try {
                                 literal = new DateLiteral(value, Type.fromPrimitiveType(type));
@@ -654,7 +656,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                                     "type[" + type.name() + "] not supported: ");
                     }
                 }
-                if (type != PrimitiveType.DATETIMEV2) {
+                if (type != PrimitiveType.DATETIMEV2 || type != PrimitiveType.TIMESTAMP) {
                     literal.setType(Type.fromPrimitiveType(type));
                 }
 

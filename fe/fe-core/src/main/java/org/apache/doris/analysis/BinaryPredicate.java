@@ -389,6 +389,9 @@ public class BinaryPredicate extends Predicate {
                 } else {
                     return Type.DATETIMEV2;
                 }
+            } else if (getChild(1).getType().isTimestamp()
+                    && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
+                return Type.TIMESTAMP;
             } else if (getChild(0).getType().isDatetimeV2()
                     && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
                 return getChild(0).getType();

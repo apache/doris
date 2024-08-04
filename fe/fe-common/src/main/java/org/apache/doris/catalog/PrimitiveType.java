@@ -67,6 +67,7 @@ public enum PrimitiveType {
     AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
+    TIMESTAMP("TIMESTAMP", 8, TPrimitiveType.TIMESTAMP, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
 
@@ -88,6 +89,7 @@ public enum PrimitiveType {
     private static final int DATE_INDEX_LEN = 3;
     private static final int DATEV2_INDEX_LEN = 4;
     private static final int DATETIME_INDEX_LEN = 8;
+    private static final int TIMESTAMP_INDEX_LEN = 8;
     private static final int VARCHAR_INDEX_LEN = 20;
     private static final int STRING_INDEX_LEN = 20;
     private static final int DECIMAL_INDEX_LEN = 12;
@@ -101,6 +103,7 @@ public enum PrimitiveType {
         builder.add(DECIMAL128);
         builder.add(DECIMAL256);
         builder.add(DATETIMEV2);
+        builder.add(TIMESTAMP);
         typeWithPrecision = builder.build();
     }
 
@@ -125,6 +128,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DATETIME);
         builder.put(NULL_TYPE, DATEV2);
         builder.put(NULL_TYPE, DATETIMEV2);
+        builder.put(NULL_TYPE, TIMESTAMP);
         builder.put(NULL_TYPE, IPV4);
         builder.put(NULL_TYPE, IPV6);
         builder.put(NULL_TYPE, DECIMALV2);
@@ -153,6 +157,7 @@ public enum PrimitiveType {
         builder.put(BOOLEAN, DATETIME);
         builder.put(BOOLEAN, DATEV2);
         builder.put(BOOLEAN, DATETIMEV2);
+        builder.put(BOOLEAN, TIMESTAMP);
         builder.put(BOOLEAN, IPV4);
         builder.put(BOOLEAN, IPV6);
         builder.put(BOOLEAN, DECIMALV2);
@@ -175,6 +180,7 @@ public enum PrimitiveType {
         builder.put(TINYINT, DATETIME);
         builder.put(TINYINT, DATEV2);
         builder.put(TINYINT, DATETIMEV2);
+        builder.put(TINYINT, TIMESTAMP);
         builder.put(TINYINT, IPV4);
         builder.put(TINYINT, IPV6);
         builder.put(TINYINT, DECIMALV2);
@@ -199,6 +205,7 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DATETIME);
         builder.put(SMALLINT, DATEV2);
         builder.put(SMALLINT, DATETIMEV2);
+        builder.put(SMALLINT, TIMESTAMP);
         builder.put(SMALLINT, IPV4);
         builder.put(SMALLINT, IPV6);
         builder.put(SMALLINT, DECIMALV2);
@@ -223,6 +230,7 @@ public enum PrimitiveType {
         builder.put(INT, DATETIME);
         builder.put(INT, DATEV2);
         builder.put(INT, DATETIMEV2);
+        builder.put(INT, TIMESTAMP);
         builder.put(INT, IPV4);
         builder.put(INT, IPV6);
         builder.put(INT, DECIMALV2);
@@ -247,6 +255,7 @@ public enum PrimitiveType {
         builder.put(BIGINT, DATETIME);
         builder.put(BIGINT, DATEV2);
         builder.put(BIGINT, DATETIMEV2);
+        builder.put(BIGINT, TIMESTAMP);
         builder.put(BIGINT, IPV4);
         builder.put(BIGINT, IPV6);
         builder.put(BIGINT, DECIMALV2);
@@ -271,6 +280,7 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DATETIME);
         builder.put(LARGEINT, DATEV2);
         builder.put(LARGEINT, DATETIMEV2);
+        builder.put(LARGEINT, TIMESTAMP);
         builder.put(LARGEINT, IPV4);
         builder.put(LARGEINT, IPV6);
         builder.put(LARGEINT, DECIMALV2);
@@ -295,6 +305,7 @@ public enum PrimitiveType {
         builder.put(FLOAT, DATETIME);
         builder.put(FLOAT, DATEV2);
         builder.put(FLOAT, DATETIMEV2);
+        builder.put(FLOAT, TIMESTAMP);
         builder.put(FLOAT, IPV4);
         builder.put(FLOAT, IPV6);
         builder.put(FLOAT, DECIMALV2);
@@ -319,6 +330,7 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DATETIME);
         builder.put(DOUBLE, DATEV2);
         builder.put(DOUBLE, DATETIMEV2);
+        builder.put(DOUBLE, TIMESTAMP);
         builder.put(DOUBLE, IPV4);
         builder.put(DOUBLE, IPV6);
         builder.put(DOUBLE, DECIMALV2);
@@ -343,6 +355,7 @@ public enum PrimitiveType {
         builder.put(DATE, DATETIME);
         builder.put(DATE, DATEV2);
         builder.put(DATE, DATETIMEV2);
+        builder.put(DATE, TIMESTAMP);
         builder.put(DATE, DECIMALV2);
         builder.put(DATE, DECIMAL32);
         builder.put(DATE, DECIMAL64);
@@ -363,6 +376,7 @@ public enum PrimitiveType {
         builder.put(DATETIME, DATETIME);
         builder.put(DATETIME, DATEV2);
         builder.put(DATETIME, DATETIMEV2);
+        builder.put(DATETIME, TIMESTAMP);
         builder.put(DATETIME, DECIMALV2);
         builder.put(DATETIME, DECIMAL32);
         builder.put(DATETIME, DECIMAL64);
@@ -383,6 +397,7 @@ public enum PrimitiveType {
         builder.put(DATEV2, DATETIME);
         builder.put(DATEV2, DATEV2);
         builder.put(DATEV2, DATETIMEV2);
+        builder.put(DATEV2, TIMESTAMP);
         builder.put(DATEV2, DECIMALV2);
         builder.put(DATEV2, DECIMAL32);
         builder.put(DATEV2, DECIMAL64);
@@ -403,6 +418,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DATETIME);
         builder.put(DATETIMEV2, DATEV2);
         builder.put(DATETIMEV2, DATETIMEV2);
+        builder.put(DATETIMEV2, TIMESTAMP);
         builder.put(DATETIMEV2, DECIMALV2);
         builder.put(DATETIMEV2, DECIMAL32);
         builder.put(DATETIMEV2, DECIMAL64);
@@ -410,6 +426,27 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DECIMAL256);
         builder.put(DATETIMEV2, VARCHAR);
         builder.put(DATETIMEV2, STRING);
+        // timestamp
+        builder.put(TIMESTAMP, BOOLEAN);
+        builder.put(TIMESTAMP, TINYINT);
+        builder.put(TIMESTAMP, SMALLINT);
+        builder.put(TIMESTAMP, INT);
+        builder.put(TIMESTAMP, BIGINT);
+        builder.put(TIMESTAMP, LARGEINT);
+        builder.put(TIMESTAMP, FLOAT);
+        builder.put(TIMESTAMP, DOUBLE);
+        builder.put(TIMESTAMP, DATE);
+        builder.put(TIMESTAMP, DATETIME);
+        builder.put(TIMESTAMP, DATEV2);
+        builder.put(TIMESTAMP, DATETIMEV2);
+        builder.put(TIMESTAMP, TIMESTAMP);
+        builder.put(TIMESTAMP, DECIMALV2);
+        builder.put(TIMESTAMP, DECIMAL32);
+        builder.put(TIMESTAMP, DECIMAL64);
+        builder.put(TIMESTAMP, DECIMAL128);
+        builder.put(TIMESTAMP, DECIMAL256);
+        builder.put(TIMESTAMP, VARCHAR);
+        builder.put(TIMESTAMP, STRING);
         // Char
         builder.put(CHAR, BOOLEAN);
         builder.put(CHAR, TINYINT);
@@ -424,6 +461,7 @@ public enum PrimitiveType {
         builder.put(CHAR, DATETIME);
         builder.put(CHAR, DATEV2);
         builder.put(CHAR, DATETIMEV2);
+        builder.put(CHAR, TIMESTAMP);
         builder.put(CHAR, DECIMALV2);
         builder.put(CHAR, DECIMAL32);
         builder.put(CHAR, DECIMAL64);
@@ -446,6 +484,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DATETIME);
         builder.put(VARCHAR, DATEV2);
         builder.put(VARCHAR, DATETIMEV2);
+        builder.put(VARCHAR, TIMESTAMP);
         builder.put(VARCHAR, IPV4);
         builder.put(VARCHAR, IPV6);
         builder.put(VARCHAR, DECIMALV2);
@@ -473,6 +512,7 @@ public enum PrimitiveType {
         builder.put(STRING, DATETIME);
         builder.put(STRING, DATEV2);
         builder.put(STRING, DATETIMEV2);
+        builder.put(STRING, TIMESTAMP);
         builder.put(STRING, IPV4);
         builder.put(STRING, IPV6);
         builder.put(STRING, DECIMALV2);
@@ -669,6 +709,7 @@ public enum PrimitiveType {
         supportedTypes.add(TIME);
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
+        supportedTypes.add(TIMESTAMP);
         supportedTypes.add(TIMEV2);
         supportedTypes.add(IPV4);
         supportedTypes.add(IPV6);
@@ -755,6 +796,8 @@ public enum PrimitiveType {
                 return DATEV2;
             case DATETIMEV2:
                 return DATETIMEV2;
+            case TIMESTAMP:
+                return TIMESTAMP;
             case IPV4:
                 return IPV4;
             case IPV6:
@@ -873,7 +916,7 @@ public enum PrimitiveType {
     }
 
     public boolean isDateV2Type() {
-        return (this == DATEV2 || this == DATETIMEV2);
+        return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMP);
     }
 
     public boolean isArrayType() {
@@ -974,6 +1017,8 @@ public enum PrimitiveType {
                     return MysqlColType.MYSQL_TYPE_DATETIME;
                 }
             }
+            case TIMESTAMP:
+                return MysqlColType.MYSQL_TYPE_TIMESTAMP;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
@@ -999,6 +1044,8 @@ public enum PrimitiveType {
             case DATETIME:
             case DATETIMEV2:
                 return DATETIME_INDEX_LEN;
+            case TIMESTAMP:
+                return TIMESTAMP_INDEX_LEN;
             case VARCHAR:
                 return VARCHAR_INDEX_LEN;
             case CHAR:

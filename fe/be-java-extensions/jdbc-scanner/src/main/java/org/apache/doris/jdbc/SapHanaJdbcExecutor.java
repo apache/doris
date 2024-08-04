@@ -88,6 +88,7 @@ public class SapHanaJdbcExecutor extends BaseJdbcExecutor {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case TIMESTAMP:
             case DATETIMEV2:
             case CHAR:
             case VARCHAR:

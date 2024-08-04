@@ -312,6 +312,7 @@ public class OutFileClause {
                 orcType = "date";
                 break;
             case DATETIMEV2:
+            case TIMESTAMP:
                 orcType = "timestamp";
                 break;
             case CHAR:
@@ -430,6 +431,7 @@ public class OutFileClause {
                     checkOrcType(schema.second, "date", true, resultType.getPrimitiveType().toString());
                     break;
                 case DATETIMEV2:
+                case TIMESTAMP:
                     checkOrcType(schema.second, "timestamp", true, resultType.getPrimitiveType().toString());
                     break;
                 case CHAR:

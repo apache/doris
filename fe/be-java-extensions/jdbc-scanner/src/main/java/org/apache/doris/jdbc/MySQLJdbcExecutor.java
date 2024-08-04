@@ -130,6 +130,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     return resultSet.getObject(columnIndex + 1, LocalDate.class);
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMP:
                     return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
                 case CHAR:
                 case VARCHAR:
@@ -215,7 +216,8 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                     throw new IllegalArgumentException("Cannot convert " + item + " to LocalDate.");
                 }
             }).collect(Collectors.toList());
-        } else if (columnType.getType() == Type.DATETIME || columnType.getType() == Type.DATETIMEV2) {
+        } else if (columnType.getType() == Type.DATETIME || columnType.getType() == Type.DATETIMEV2
+                    || columnType.getType() == Type.TIMESTAMP) {
             List<?> list = gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof String) {
@@ -278,6 +280,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 }.getType();
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return new TypeToken<List<LocalDateTime>>() {
                 }.getType();
             case CHAR:

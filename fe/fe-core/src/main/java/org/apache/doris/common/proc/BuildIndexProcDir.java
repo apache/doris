@@ -84,6 +84,9 @@ public class BuildIndexProcDir implements ProcDirInterface {
                 case DATETIMEV2:
                     type = subExpr.getChild(1).getType();
                     break;
+                case TIMESTAMP:
+                    type = subExpr.getChild(1).getType();
+                    break;
                 default:
                     throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
             }

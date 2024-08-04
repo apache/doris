@@ -45,7 +45,8 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
             VectorTable outputTable) {
         for (int i = 0; i < columnCount; ++i) {
             if (outputTable.getColumnType(i).getType() == Type.DATETIME
-                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2) {
+                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2
+                    || outputTable.getColumnType(i).getType() == Type.TIMESTAMP) {
                 block.add(new Timestamp[batchSizeNum]);
             } else if (outputTable.getColumnType(i).getType() == Type.ARRAY) {
                 block.add(new Object[batchSizeNum]);
@@ -82,6 +83,7 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1, LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return resultSet.getObject(columnIndex + 1, Timestamp.class);
             case CHAR:
             case VARCHAR:
@@ -108,6 +110,7 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
         switch (columnType.getType()) {
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return createConverter(
                         input -> ((Timestamp) input).toLocalDateTime(), java.time.LocalDateTime.class);
             case ARRAY:
@@ -135,7 +138,8 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 return result;
             }
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP: {
                 List<LocalDateTime> result = Lists.newArrayList();
                 for (Object element : array) {
                     result.add(element != null ? ((Timestamp) element).toLocalDateTime() : null);

@@ -430,6 +430,7 @@ public class HiveMetaStoreClientHelper {
                 return TypeInfoFactory.dateTypeInfo;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP:
                 return TypeInfoFactory.timestampTypeInfo;
             case CHAR:
                 return TypeInfoFactory.charTypeInfo;

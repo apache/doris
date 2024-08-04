@@ -978,6 +978,7 @@ primitiveColType:
     | type=TIME
     | type=DATEV2
     | type=DATETIMEV2
+    | type=TIMESTAMP
     | type=DATEV1
     | type=DATETIMEV1
     | type=BITMAP

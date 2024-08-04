@@ -686,6 +686,19 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.TIMESTAMP, Type.BOOLEAN),
+                Type.INT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
 
         // retention vectorization
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
@@ -745,6 +758,20 @@ public class FunctionSet<T> {
                 "",
                 true, false, true, true));
 
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+                Lists.newArrayList(Type.STRING, Type.TIMESTAMP, Type.BOOLEAN),
+                Type.BOOLEAN,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
         // sequenceCount
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
@@ -776,6 +803,20 @@ public class FunctionSet<T> {
 
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
+                Type.BIGINT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+                Lists.newArrayList(Type.STRING, Type.TIMESTAMP, Type.BOOLEAN),
                 Type.BIGINT,
                 Type.VARCHAR,
                 true,

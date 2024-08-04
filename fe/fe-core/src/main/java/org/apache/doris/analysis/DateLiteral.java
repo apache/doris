@@ -89,6 +89,10 @@ public class DateLiteral extends LiteralExpr {
             = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
     private static final DateLiteral MAX_DATETIMEV2
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
+    private static final DateLiteral MIN_TIMESTAMP
+            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.TIMESTAMP);
+    private static final DateLiteral MAX_TIMESTAMP
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.TIMESTAMP);
     private static final int DATEKEY_LENGTH = 8;
     private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
@@ -207,6 +211,7 @@ public class DateLiteral extends LiteralExpr {
         DATE(1),
 
         DATETIMEV2(2),
+        TIMESTAMP(2),
         DATEV2(3);
 
         private final int value;
@@ -239,11 +244,17 @@ public class DateLiteral extends LiteralExpr {
             } else {
                 copy(MIN_DATETIME);
             }
-        } else {
+        } else if (type.equals(Type.DATETIMEV2)) {
             if (isMax) {
                 copy(MAX_DATETIMEV2);
             } else {
                 copy(MIN_DATETIMEV2);
+            }
+        } else {
+            if (isMax) {
+                copy(MAX_TIMESTAMP);
+            } else {
+                copy(MIN_TIMESTAMP);
             }
         }
         analysisDone();
@@ -289,6 +300,8 @@ public class DateLiteral extends LiteralExpr {
             this.type = Type.DATEV2;
         } else if (type.equals(Type.DATETIMEV2)) {
             this.type = Type.DATETIMEV2;
+        } else if (type.equals(Type.TIMESTAMP)) {
+            this.type = Type.TIMESTAMP;
         } else {
             throw new AnalysisException("Error date literal type : " + type);
         }
@@ -349,7 +362,8 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
+                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType())
+                || type.getPrimitiveType().equals(Type.TIMESTAMP.getPrimitiveType()));
         this.type = type;
         analysisDone();
     }
@@ -463,8 +477,9 @@ public class DateLiteral extends LiteralExpr {
                 if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
-                if (timePart.length == 0 && type != null && (type.equals(Type.DATETIME) || type.equals(
-                        Type.DATETIMEV2))) {
+                if (timePart.length == 0 && type != null && (type.equals(Type.DATETIME)
+                        || type.equals(Type.DATETIMEV2)
+                        || type.equals(Type.TIMESTAMP))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
@@ -578,6 +593,9 @@ public class DateLiteral extends LiteralExpr {
             case DATETIMEV2:
                 return year == 0 && month == 1 && day == 1
                     && this.getStringValue().compareTo(MIN_DATETIMEV2.getStringValue()) == 0;
+            case TIMESTAMP:
+                return year == 0 && month == 1 && day == 1
+                    && this.getStringValue().compareTo(MIN_TIMESTAMP.getStringValue()) == 0;
             default:
                 return false;
         }
@@ -609,7 +627,7 @@ public class DateLiteral extends LiteralExpr {
             buffer = ByteBuffer.allocate(4);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(value);
-        } else if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMP) {
             long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                     | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
             buffer = ByteBuffer.allocate(8);
@@ -764,7 +782,7 @@ public class DateLiteral extends LiteralExpr {
     public String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
-        } else if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMP) {
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
                     year, month, day, hour, minute, second);
             if (microsecond == 0) {
@@ -882,6 +900,24 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIMEV2;
     }
 
+    private void fromPackedTimestamp(long packedTime) {
+        microsecond = (packedTime % (1L << 20));
+        long ymdhms = (packedTime >> 20);
+        long ymd = ymdhms >> 17;
+        day = ymd % (1 << 5);
+        long ym = ymd >> 5;
+        month = ym % (1 << 4);
+        year = ym >> 4;
+
+        long hms = ymdhms % (1 << 17);
+        second = hms % (1 << 6);
+        minute = (hms >> 6) % (1 << 6);
+        hour = (hms >> 12);
+        // set default date literal type to DATETIME
+        // date literal read from meta will set type by flag bit;
+        this.type = Type.TIMESTAMP;
+    }
+
     private void fromPackedDateV2(long packedTime) {
         day = packedTime % (1 << 5);
         long ym = packedTime >> 5;
@@ -922,6 +958,9 @@ public class DateLiteral extends LiteralExpr {
         } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
             fromPackedDatetimeV2(in.readLong());
             this.type = ScalarType.createDatetimeV2Type(in.readInt());
+        } else if (dateLiteralType == DateLiteralType.TIMESTAMP.value()) {
+            fromPackedTimestamp(in.readLong());
+            this.type = ScalarType.createTimestampType(in.readInt());
         } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
             fromPackedDateV2(in.readLong());
             this.type = Type.DATEV2;

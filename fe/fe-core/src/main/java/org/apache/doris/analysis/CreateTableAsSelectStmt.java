@@ -106,6 +106,10 @@ public class CreateTableAsSelectStmt extends DdlStmt implements NotFallbackInPar
                     Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATETIMEV2);
                     queryStmt.getResultExprs().set(i, castExpr);
                 }
+                if (queryStmt.getResultExprs().get(i).getType().isTimestamp()) {
+                    Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.TIMESTAMP);
+                    queryStmt.getResultExprs().set(i, castExpr);
+                }
             }
             if (Config.enable_decimal_conversion && queryStmt.getResultExprs().get(i).getType().isDecimalV2()) {
                 int precision = queryStmt.getResultExprs().get(i).getType().getPrecision();
