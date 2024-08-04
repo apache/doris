@@ -349,7 +349,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
-    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+        (_allow_delete_in_cumu_compaction &&
+         compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION)) {
         for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
