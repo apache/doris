@@ -29,10 +29,10 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
 #include "http/web_page_handler.h"
-#include "util/metrics.h"
+#include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 
 namespace doris {
 

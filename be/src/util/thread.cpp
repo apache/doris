@@ -61,19 +61,18 @@
 #include "http/web_page_handler.h"
 #include "runtime/thread_context.h"
 #include "util/debug/sanitizer_scopes.h"
+#include "util/doris_metrics.h"
 #include "util/easy_json.h"
+#include "util/metrics.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
-#include "util/metrics.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 __thread Thread* Thread::_tls = nullptr;
 
-
-// Singleton instance of ThreadMgr. Only visible in this file, used only by Thread.
+// Singleton instance of ThreadMgr.
 // // The Thread class adds a reference to thread_manager while it is supervising a thread so
 // // that a race between the end of the process's main thread (and therefore the destruction
 // // of thread_manager) and the end of a thread that tries to remove itself from the
@@ -89,13 +88,13 @@ static void init_threadmgr() {
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_cpu_total, MetricUnit::NOUNIT);
 
-void ThreadMgr::ThreadDescriptor::register_metric(){
+void ThreadMgr::ThreadDescriptor::register_metric() {
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-        std::string("thread.") + _name, {{"name", _name}});
+            std::string("thread.") + _name, {{"name", _name}});
     DOUBLE_COUNTER_METRIC_REGISTER(_metric_entity, thread_cpu_total);
 }
 
-void ThreadMgr::ThreadDescriptor::deregister_metric(){
+void ThreadMgr::ThreadDescriptor::deregister_metric() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
 }
 
@@ -255,7 +254,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
     }
 }
 
-void ThreadMgr::update_threads_metrics(){
+void ThreadMgr::update_threads_metrics() {
     std::vector<ThreadDescriptor> descriptors_to_update;
     {
         std::unique_lock<std::mutex> l(_lock);

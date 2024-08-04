@@ -67,9 +67,9 @@
 #include "util/network_util.h"
 #include "util/perf_counters.h"
 #include "util/system_metrics.h"
+#include "util/thread.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
-#include "util/thread.h"
 
 namespace doris {
 namespace {
