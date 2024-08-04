@@ -316,6 +316,15 @@ bool Compaction::handle_ordered_data_compaction() {
     return st.ok();
 }
 
+int64_t Compaction::merge_way_num() {
+    int64_t way_num = 0;
+    for (auto&& rowset : _input_rowsets) {
+        way_num += rowset->rowset_meta()->get_merge_way_num();
+    }
+
+    return way_num;
+}
+
 Status Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
@@ -363,6 +372,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                                _tablet->enable_unique_key_merge_on_write())) {
         stats.rowid_conversion = &_rowid_conversion;
     }
+    int64_t way_num = merge_way_num();
 
     Status res;
     {
@@ -370,12 +380,14 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         if (vertical_compaction) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
                                                  _input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &stats);
+                                                 get_avg_segment_rows(), way_num, &stats);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
                                          _input_rs_readers, _output_rs_writer.get(), &stats);
         }
     }
+
+    _tablet->last_compaction_status = res;
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
