@@ -53,10 +53,10 @@ public class GroupCommitManager {
 
     private Set<Long> blockedTableIds = new HashSet<>();
 
-    // Table id to BE id map. Only for group commit.
-    private Map<Long, Long> tableToBeMap = new ConcurrentHashMap<>();
-    // BE id to pressure map. Only for group commit.
-    private Map<Long, SlidingWindowCounter> tablePressureMap = new ConcurrentHashMap<>();
+    // Encoded <Cluster and Table id> to BE id map. Only for group commit.
+    private final Map<String, Long> tableToBeMap = new ConcurrentHashMap<>();
+    // Table id to pressure map. Only for group commit.
+    private final Map<Long, SlidingWindowCounter> tableToPressureMap = new ConcurrentHashMap<>();
 
     public boolean isBlock(long tableId) {
         return blockedTableIds.contains(tableId);
@@ -237,8 +237,8 @@ public class GroupCommitManager {
 
     private long selectBackendForLocalGroupCommitInternal(long tableId) throws LoadException {
         LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
-                tablePressureMap.toString());
-        Long cachedBackendId = getCachedBackend(tableId);
+                tableToPressureMap.toString());
+        Long cachedBackendId = getCachedBackend(null, tableId);
         if (cachedBackendId != null) {
             return cachedBackendId;
         }
@@ -249,7 +249,7 @@ public class GroupCommitManager {
         }
 
         // If the cached backend is not active or decommissioned, select a random new backend.
-        Long randomBackendId = getRandomBackend(tableId, backends);
+        Long randomBackendId = getRandomBackend(null, tableId, backends);
         if (randomBackendId != null) {
             return randomBackendId;
         }
@@ -261,25 +261,35 @@ public class GroupCommitManager {
     }
 
     @Nullable
-    private Long getCachedBackend(long tableId) {
+    private Long getCachedBackend(String cluster, long tableId) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
-        if (tableToBeMap.containsKey(tableId)) {
-            if (tablePressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(tableToBeMap.get(tableId));
-                if (backend.isAlive() && !backend.isDecommissioned()) {
+        if (tableToBeMap.containsKey(encode(cluster, tableId))) {
+            if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
+                // There are multiple threads getting cached backends for the same table.
+                // Maybe one thread removes the tableId from the tableToBeMap.
+                // Another thread gets the same tableId but can not find this tableId.
+                // So another thread needs to get the random backend.
+                Long backendId = tableToBeMap.get(encode(cluster, tableId));
+                Backend backend;
+                if (backendId != null) {
+                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                } else {
+                    return null;
+                }
+                if (backend.isActive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
-                    tableToBeMap.remove(tableId);
+                    tableToBeMap.remove(encode(cluster, tableId));
                 }
             } else {
-                tableToBeMap.remove(tableId);
+                tableToBeMap.remove(encode(cluster, tableId));
             }
         }
         return null;
     }
 
     @Nullable
-    private Long getRandomBackend(long tableId, List<Backend> backends) {
+    private Long getRandomBackend(String cluster, long tableId, List<Backend> backends) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
@@ -315,10 +325,10 @@ public class GroupCommitManager {
     }
 
     public void updateLoadDataInternal(long tableId, long receiveData) {
-        if (tablePressureMap.containsKey(tableId)) {
-            tablePressureMap.get(tableId).add(receiveData);
+        if (tableToPressureMap.containsKey(tableId)) {
+            tableToPressureMap.get(tableId).add(receiveData);
             LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
-                    tablePressureMap.toString());
+                    tableToPressureMap.toString());
         } else {
             LOG.warn("can not find backend id: {}", tableId);
         }
