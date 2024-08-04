@@ -65,12 +65,13 @@
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
+#include "util/metrics.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
-class ThreadMgr;
-
 __thread Thread* Thread::_tls = nullptr;
+
 
 // Singleton instance of ThreadMgr. Only visible in this file, used only by Thread.
 // // The Thread class adds a reference to thread_manager while it is supervising a thread so
@@ -82,78 +83,26 @@ static std::shared_ptr<ThreadMgr> thread_manager;
 // Controls the single (lazy) initialization of thread_manager.
 static std::once_flag once;
 
-// A singleton class that tracks all live threads, and groups them together for easy
-// auditing. Used only by Thread.
-class ThreadMgr {
-public:
-    ThreadMgr() : _threads_started_metric(0), _threads_running_metric(0) {}
+static void init_threadmgr() {
+    thread_manager.reset(new ThreadMgr());
+}
 
-    ~ThreadMgr() {
-        std::unique_lock<std::mutex> lock(_lock);
-        _thread_categories.clear();
-    }
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_cpu_total, MetricUnit::NOUNIT);
 
-    static void set_thread_name(const std::string& name, int64_t tid);
+void ThreadMgr::ThreadDescriptor::register_metric(){
+    _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+        std::string("thread.") + _name, {{"name", _name}});
+    DOUBLE_COUNTER_METRIC_REGISTER(_metric_entity, thread_cpu_total);
+}
 
-#ifndef __APPLE__
-    static void set_idle_sched(int64_t tid);
+void ThreadMgr::ThreadDescriptor::deregister_metric(){
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+}
 
-    static void set_thread_nice_value(int64_t tid);
-#endif
-
-    // not the system TID, since pthread_t is less prone to being recycled.
-    void add_thread(const pthread_t& pthread_id, const std::string& name,
-                    const std::string& category, int64_t tid);
-
-    // Removes a thread from the supplied category. If the thread has
-    // already been removed, this is a no-op.
-    void remove_thread(const pthread_t& pthread_id, const std::string& category);
-
-    void display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
-
-private:
-    // Container class for any details we want to capture about a thread
-    // TODO: Add start-time.
-    // TODO: Track fragment ID.
-    class ThreadDescriptor {
-    public:
-        ThreadDescriptor() {}
-        ThreadDescriptor(std::string category, std::string name, int64_t thread_id)
-                : _name(std::move(name)), _category(std::move(category)), _thread_id(thread_id) {}
-
-        const std::string& name() const { return _name; }
-        const std::string& category() const { return _category; }
-        int64_t thread_id() const { return _thread_id; }
-
-    private:
-        std::string _name;
-        std::string _category;
-        int64_t _thread_id;
-    };
-
-    void summarize_thread_descriptor(const ThreadDescriptor& desc, EasyJson* ej) const;
-
-    // A ThreadCategory is a set of threads that are logically related.
-    // TODO: unordered_map is incompatible with pthread_t, but would be more
-    // efficient here.
-    typedef std::map<const pthread_t, ThreadDescriptor> ThreadCategory;
-
-    // All thread categories, keyed on the category name.
-    typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
-
-    // Protects _thread_categories and thread metrics.
-    mutable std::mutex _lock;
-
-    // All thread categories that ever contained a thread, even if empty
-    ThreadCategoryMap _thread_categories;
-
-    // Counters to track all-time total number of threads, and the
-    // current number of running threads.
-    uint64_t _threads_started_metric;
-    uint64_t _threads_running_metric;
-
-    DISALLOW_COPY_AND_ASSIGN(ThreadMgr);
-};
+ThreadMgr* ThreadMgr::instance() {
+    std::call_once(once, init_threadmgr);
+    return thread_manager.get();
+}
 
 void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     if (tid == getpid()) {
@@ -220,7 +169,9 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         std::unique_lock<std::mutex> l(_lock);
-        _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
+        ThreadDescriptor descriptor(category, name, tid);
+        descriptor.register_metric();
+        _thread_categories[category][pthread_id] = descriptor;
         _threads_running_metric++;
         _threads_started_metric++;
     }
@@ -234,7 +185,10 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
         std::unique_lock<std::mutex> l(_lock);
         auto category_it = _thread_categories.find(category);
         DCHECK(category_it != _thread_categories.end());
-        category_it->second.erase(pthread_id);
+        auto descriptor_it = category_it->second.find(pthread_id);
+        DCHECK(descriptor_it != category_it->second.end());
+        descriptor_it->second.deregister_metric();
+        category_it->second.erase(descriptor_it);
         _threads_running_metric--;
     }
     ANNOTATE_IGNORE_SYNC_END();
@@ -301,6 +255,21 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
     }
 }
 
+void ThreadMgr::update_threads_metrics(){
+    std::vector<ThreadDescriptor> descriptors_to_update;
+    {
+        std::unique_lock<std::mutex> l(_lock);
+        for (const auto& category : _thread_categories) {
+            for (const auto& elem : category.second) {
+                descriptors_to_update.emplace_back(elem.second);
+            }
+        }
+    }
+    for (auto desc : descriptors_to_update) {
+        desc.update_metric();
+    }
+}
+
 void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc,
                                             EasyJson* ej) const {
     ThreadStats stats;
@@ -314,6 +283,16 @@ void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& d
     thread["user_sec"] = static_cast<double>(stats.user_ns) / 1e9;
     thread["kernel_sec"] = static_cast<double>(stats.kernel_ns) / 1e9;
     thread["iowait_sec"] = static_cast<double>(stats.iowait_ns) / 1e9;
+}
+
+void ThreadMgr::ThreadDescriptor::update_metric() {
+    ThreadStats stats;
+    Status status = get_thread_stats(thread_id(), &stats);
+    if (status.ok()) {
+        double user_sec = static_cast<double>(stats.user_ns) / 1e9;
+        double kernel_sec = static_cast<double>(stats.kernel_ns) / 1e9;
+        thread_cpu_total->set_value(user_sec + kernel_sec);
+    }
 }
 
 Thread::~Thread() {
@@ -520,10 +499,6 @@ void Thread::finish_thread(void* arg) {
     // following here!
 
     ThreadLocalHandle::del_thread_local_if_count_is_zero();
-}
-
-void Thread::init_threadmgr() {
-    thread_manager.reset(new ThreadMgr());
 }
 
 ThreadJoiner::ThreadJoiner(Thread* thr)

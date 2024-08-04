@@ -299,6 +299,9 @@ public:
 #define INT_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntCounter*)(entity->register_metric<IntCounter>(&METRIC_##metric))
 
+#define DOUBLE_COUNTER_METRIC_REGISTER(entity, metric) \
+    metric = (DoubleCounter*)(entity->register_metric<DoubleCounter>(&METRIC_##metric))
+
 #define INT_GAUGE_METRIC_REGISTER(entity, metric) \
     metric = (IntGauge*)(entity->register_metric<IntGauge>(&METRIC_##metric))
 

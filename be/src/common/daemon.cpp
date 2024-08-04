@@ -69,6 +69,7 @@
 #include "util/system_metrics.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
+#include "util/thread.h"
 
 namespace doris {
 namespace {
@@ -366,6 +367,8 @@ void Daemon::calculate_metrics_thread() {
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
             update_rowsets_and_segments_num_metrics();
+
+            ThreadMgr::instance()->update_threads_metrics();
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }

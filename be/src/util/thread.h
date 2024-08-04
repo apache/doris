@@ -30,8 +30,12 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
+#include "http/web_page_handler.h"
+#include "util/metrics.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
+
 class WebPageHandler;
 
 class Thread : public RefCountedThreadSafe<Thread> {
@@ -230,8 +234,6 @@ private:
     // Invoked when the user-supplied function finishes or in the case of an
     // abrupt exit (i.e. pthread_exit()). Cleans up after supervise_thread().
     static void finish_thread(void* arg);
-
-    static void init_threadmgr();
 };
 
 // Utility to join on a thread, printing warning messages if it
@@ -290,5 +292,88 @@ private:
 
 // Registers /threadz with the debug webserver.
 void register_thread_display_page(WebPageHandler* web_page_handler);
+
+
+// A singleton class that tracks all live threads, and groups them together for easy
+// auditing. Used only by Thread.
+class ThreadMgr {
+public:
+    static ThreadMgr* instance();
+
+    ThreadMgr() : _threads_started_metric(0), _threads_running_metric(0) {}
+    ~ThreadMgr() {
+        std::unique_lock<std::mutex> lock(_lock);
+        _thread_categories.clear();
+    }
+
+    static void set_thread_name(const std::string& name, int64_t tid);
+
+#ifndef __APPLE__
+    static void set_idle_sched(int64_t tid);
+
+    static void set_thread_nice_value(int64_t tid);
+#endif
+
+    // not the system TID, since pthread_t is less prone to being recycled.
+    void add_thread(const pthread_t& pthread_id, const std::string& name,
+                    const std::string& category, int64_t tid);
+
+    // Removes a thread from the supplied category. If the thread has
+    // already been removed, this is a no-op.
+    void remove_thread(const pthread_t& pthread_id, const std::string& category);
+
+    void display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
+    void update_threads_metrics();
+
+private:
+    // Container class for any details we want to capture about a thread
+    // TODO: Add start-time.
+    // TODO: Track fragment ID.
+    class ThreadDescriptor {
+    public:
+        ThreadDescriptor() {}
+        ThreadDescriptor(std::string category, std::string name, int64_t thread_id)
+                : _name(std::move(name)), _category(std::move(category)), _thread_id(thread_id) {}
+
+        const std::string& name() const { return _name; }
+        const std::string& category() const { return _category; }
+        int64_t thread_id() const { return _thread_id; }
+
+        void register_metric();
+        void update_metric();
+        void deregister_metric();
+
+    private:
+        std::string _name;
+        std::string _category;
+        int64_t _thread_id;
+
+        std::shared_ptr<MetricEntity> _metric_entity;
+        DoubleCounter* thread_cpu_total = nullptr;
+    };
+
+    void summarize_thread_descriptor(const ThreadDescriptor& desc, EasyJson* ej) const;
+
+    // A ThreadCategory is a set of threads that are logically related.
+    // TODO: unordered_map is incompatible with pthread_t, but would be more
+    // efficient here.
+    typedef std::map<const pthread_t, ThreadDescriptor> ThreadCategory;
+
+    // All thread categories, keyed on the category name.
+    typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
+
+    // Protects _thread_categories and thread metrics.
+    mutable std::mutex _lock;
+
+    // All thread categories that ever contained a thread, even if empty
+    ThreadCategoryMap _thread_categories;
+
+    // Counters to track all-time total number of threads, and the
+    // current number of running threads.
+    uint64_t _threads_started_metric;
+    uint64_t _threads_running_metric;
+
+    DISALLOW_COPY_AND_ASSIGN(ThreadMgr);
+};
 
 } //namespace doris
