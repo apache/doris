@@ -347,8 +347,11 @@ public class GlobalTransactionMgr implements Writable {
 
     // for http cancel stream load api
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction(label, reason);
+        Long txnId = getTransactionId(dbId, label);
+        if (txnId == null) {
+            throw new AnalysisException("txn with label " + label + " does not exist");
+        }
+        abortTransaction(dbId, txnId, reason);
     }
 
     public void abortTransaction2PC(Long dbId, long transactionId, List<Table> tableList) throws UserException {
