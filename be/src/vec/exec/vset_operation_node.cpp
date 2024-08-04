@@ -421,8 +421,10 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         if (_build_not_ignore_null[i]) {
-            block.get_by_position(result_col_id).column =
-                    make_nullable(block.get_by_position(result_col_id).column);
+            auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
+            block.insert(
+                    {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
+            result_col_id = block.columns() - 1;
         }
         const auto* column = block.get_by_position(result_col_id).column.get();
         raw_ptrs[i] = column;
