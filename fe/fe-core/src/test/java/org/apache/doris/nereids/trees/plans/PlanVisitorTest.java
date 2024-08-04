@@ -173,6 +173,58 @@ public class PlanVisitorTest extends TestWithFeService {
     }
 
     @Test
+    public void testCollectWhenView() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("SELECT view1.* FROM "
+                                + "view1 "
+                                + "LEFT JOIN table3 ON table3.c1 = view1.c1 "
+                                + "WHERE view1.c1 IN (SELECT c1 FROM table2) OR table3.c1 < 10",
+                        nereidsPlanner -> {
+                            PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(physicalPlan);
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Random);
+                            // Check get tables
+                            TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
+                                    Sets.newHashSet(TableType.OLAP), true);
+                            physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
+                            Set<String> expectedTables = new HashSet<>();
+                            expectedTables.add("table1");
+                            expectedTables.add("table2");
+                            expectedTables.add("table3");
+                            Assertions.assertEquals(
+                                    collectorContext.getCollectedTables().stream()
+                                            .map(TableIf::getName)
+                                            .collect(Collectors.toSet()),
+                                    expectedTables);
+
+                            // view is expended by rewrite rules automatically, So also get tables from view
+                            collectorContext = new TableCollector.TableCollectorContext(
+                                    Sets.newHashSet(TableType.OLAP), false);
+                            physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
+                            expectedTables = new HashSet<>();
+                            expectedTables.add("table1");
+                            expectedTables.add("table2");
+                            expectedTables.add("table3");
+                            Assertions.assertEquals(
+                                    collectorContext.getCollectedTables().stream()
+                                            .map(TableIf::getName)
+                                            .collect(Collectors.toSet()),
+                                    expectedTables);
+                        });
+    }
+
+    @Test
     public void test3() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
