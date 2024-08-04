@@ -52,6 +52,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaUserScanner::_s_user_columns = {
         {"max_updates", TYPE_BIGINT, sizeof(int64_t), false},
         {"max_connections", TYPE_BIGINT, sizeof(int64_t), false},
         {"max_user_connections", TYPE_BIGINT, sizeof(int64_t), false},
+        {"max_user_ip_connections", TYPE_BIGINT, sizeof(int64_t), false},
         {"plugin", TYPE_CHAR, sizeof(StringRef), false},
         {"authentication_string", TYPE_VARCHAR, sizeof(StringRef), false},
         {"password_policy.expiration_seconds", TYPE_VARCHAR, sizeof(StringRef), false},

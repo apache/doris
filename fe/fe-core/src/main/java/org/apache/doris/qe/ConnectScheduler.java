@@ -47,6 +47,7 @@ public class ConnectScheduler {
     private final AtomicInteger nextConnectionId;
     private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
     private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
+    private final Map<String, AtomicInteger> connByUserIp = Maps.newConcurrentMap();
     private final Map<String, Integer> flightToken2ConnectionId = Maps.newConcurrentMap();
 
     // valid trace id -> query id
@@ -95,10 +96,19 @@ public class ConnectScheduler {
             return false;
         }
         // Check user
-        connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
-        AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        String qualifiedUser = ctx.getQualifiedUser();
+        String userIpKey = qualifiedUser + ":" + ctx.getRemoteIP();
+        connByUser.putIfAbsent(qualifiedUser, new AtomicInteger(0));
+        connByUserIp.putIfAbsent(userIpKey, new AtomicInteger(0));
+        AtomicInteger conns = connByUser.get(qualifiedUser);
+        AtomicInteger ipConns = connByUserIp.get(userIpKey);
+        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(qualifiedUser)) {
             conns.decrementAndGet();
+            numberConnection.decrementAndGet();
+            return false;
+        }
+        if (ipConns.incrementAndGet() > ctx.getEnv().getAuth().getMaxIpConn(qualifiedUser)) {
+            ipConns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
         }

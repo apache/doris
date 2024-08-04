@@ -60,6 +60,7 @@ public class UserPropertyTest {
         UserProperty prop2 = UserProperty.read(in);
 
         Assert.assertEquals(100, prop2.getMaxConn());
+        Assert.assertEquals(100, prop2.getMaxIpConn());
         Assert.assertEquals(2, prop2.getMaxQueryInstances());
         Assert.assertEquals(8, prop2.getParallelFragmentExecInstanceNum());
         Assert.assertEquals(Lists.newArrayList("r1", "r2"),

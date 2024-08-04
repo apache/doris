@@ -1138,6 +1138,15 @@ public class Auth implements Writable {
         }
     }
 
+    public long getMaxIpConn(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getMaxIpConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public int getQueryTimeout(String qualifiedUser) {
         readLock();
         try {
@@ -2090,7 +2099,7 @@ public class Auth implements Writable {
             for (List<User> users : nameToUsers.values()) {
                 for (User user : users) {
                     if (!user.isSetByDomainResolver()) {
-                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(33, ""));
                         UserIdentity userIdent = user.getUserIdentity();
                         userInfo.set(0, userIdent.getHost());
                         userInfo.set(1, userIdent.getQualifiedUser());
@@ -2158,10 +2167,11 @@ public class Auth implements Writable {
 
                         // Set password policy info
                         userInfo.set(21, String.valueOf(getMaxConn(userIdent.getQualifiedUser())));
+                        userInfo.set(22, String.valueOf(getMaxIpConn(userIdent.getQualifiedUser())));
                         List<List<String>> passWordPolicyInfo = getPasswdPolicyInfo(userIdent);
                         if (passWordPolicyInfo.size() == 8) {
                             for (int i = 0; i < passWordPolicyInfo.size(); i++) {
-                                userInfo.set(24 + i, passWordPolicyInfo.get(i).get(1));
+                                userInfo.set(25 + i, passWordPolicyInfo.get(i).get(1));
                             }
                         }
                         userInfos.add(userInfo);

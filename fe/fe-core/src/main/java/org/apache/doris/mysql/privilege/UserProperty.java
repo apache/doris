@@ -65,6 +65,7 @@ public class UserProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(UserProperty.class);
     // advanced properties
     public static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
+    public static final String PROP_MAX_USER_IP_CONNECTIONS = "max_user_ip_connections";
     public static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
     public static final String PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PROP_RESOURCE_TAGS = "resource_tags";
@@ -123,6 +124,7 @@ public class UserProperty implements Writable {
 
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_IP_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
@@ -157,6 +159,10 @@ public class UserProperty implements Writable {
 
     public long getMaxConn() {
         return this.commonProperties.getMaxConn();
+    }
+
+    public long getMaxIpConn() {
+        return this.commonProperties.getMaxIpConn();
     }
 
     public int getQueryTimeout() {
@@ -207,6 +213,7 @@ public class UserProperty implements Writable {
     public void update(List<Pair<String, String>> properties, boolean isReplay) throws UserException {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
+        long newMaxIpConn = this.commonProperties.getMaxIpConn();
         long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
         int newParallelFragmentExecInstanceNum = this.commonProperties.getParallelFragmentExecInstanceNum();
         String sqlBlockRules = this.commonProperties.getSqlBlockRules();
@@ -229,18 +236,13 @@ public class UserProperty implements Writable {
             String[] keyArr = key.split("\\" + SetUserPropertyVar.DOT_SEPARATOR);
             if (keyArr[0].equalsIgnoreCase(PROP_MAX_USER_CONNECTIONS)) {
                 // set property "max_user_connections" = "1000"
-                if (keyArr.length != 1) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " format error");
-                }
-
-                try {
-                    newMaxConn = Long.parseLong(value);
-                } catch (NumberFormatException e) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not number");
-                }
-
-                if (newMaxConn <= 0 || newMaxConn > 10000) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must between 1 and 10000");
+                newMaxConn = getConn(key, value, keyArr);
+            } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_USER_IP_CONNECTIONS)) {
+                // set property "max_user_ip_connections" = "1000"
+                newMaxIpConn = getConn(key, value, keyArr);
+                if (newMaxIpConn > newMaxConn) {
+                    throw new DdlException(
+                            PROP_MAX_USER_IP_CONNECTIONS + " should not be larger than " + PROP_MAX_USER_CONNECTIONS);
                 }
             } else if (keyArr[0].equalsIgnoreCase(PROP_LOAD_CLUSTER)) {
                 updateLoadCluster(keyArr, value, newDppConfigs);
@@ -254,7 +256,7 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
                 if (keyArr.length != 1) {
                     throw new DdlException(DEFAULT_CLOUD_CLUSTER + " format error");
@@ -372,6 +374,7 @@ public class UserProperty implements Writable {
 
         // set
         this.commonProperties.setMaxConn(newMaxConn);
+        this.commonProperties.setMaxIpConn(newMaxIpConn);
         this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
         this.commonProperties.setParallelFragmentExecInstanceNum(newParallelFragmentExecInstanceNum);
         this.commonProperties.setSqlBlockRules(sqlBlockRules);
@@ -388,6 +391,23 @@ public class UserProperty implements Writable {
         }
         clusterToDppConfig = newDppConfigs;
         defaultCloudCluster = newDefaultCloudCluster;
+    }
+
+    private long getConn(String key, String value, String[] keyArr) throws DdlException {
+        if (keyArr.length != 1) {
+            throw new DdlException(key + " format error");
+        }
+        long conn;
+        try {
+            conn = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new DdlException(key + " is not number");
+        }
+
+        if (conn <= 0 || conn > 10000) {
+            throw new DdlException(key + " is not valid, must between 1 and 10000");
+        }
+        return conn;
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
@@ -493,6 +513,9 @@ public class UserProperty implements Writable {
 
         // max user connections
         result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(commonProperties.getMaxConn())));
+
+        // max user ip connections
+        result.add(Lists.newArrayList(PROP_MAX_USER_IP_CONNECTIONS, String.valueOf(commonProperties.getMaxIpConn())));
 
         // max query instance
         result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES,
