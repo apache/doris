@@ -56,6 +56,8 @@ public:
                     vector<TTabletInfo>* tablet_infos);
     ~EngineCloneTask() {}
 
+    bool is_new_tablet() const { return _is_new_tablet; }
+
 private:
     Status _do_clone();
 
@@ -72,7 +74,7 @@ private:
                                         const vector<Version>& missing_versions,
                                         bool* allow_incremental_clone);
 
-    Status _set_tablet_info(bool is_new_tablet);
+    Status _set_tablet_info();
 
     // Download tablet files from
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
@@ -95,7 +97,7 @@ private:
     int64_t _copy_size;
     int64_t _copy_time_ms;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
+    bool _is_new_tablet = false;
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
