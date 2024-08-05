@@ -166,9 +166,10 @@ public:
             col.resize(num_rows);
             auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
-                assert_cast<const Derived*>(this)->create(place);
-                DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
-                assert_cast<const Derived*>(this)->add(place, columns, i, arena);
+                assert_cast<const Derived*, TypeCheck::Disable>(this)->create(place);
+                DEFER({ assert_cast<const Derived*, TypeCheck::Disable>(this)->destroy(place); });
+                assert_cast<const Derived*, TypeCheck::Disable>(this)->add(place, columns, i,
+                                                                           arena);
                 data[i] = std::move(this->data(place).value);
             }
         } else {
@@ -304,7 +305,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
@@ -367,12 +368,12 @@ public:
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
-                const auto& column =
-                        assert_cast<const ColVecType&>(nullable_column.get_nested_column());
+                const auto& column = assert_cast<const ColVecType&, TypeCheck::Disable>(
+                        nullable_column.get_nested_column());
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }

@@ -571,7 +571,8 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
                                     uint8* __restrict filter) const {
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
+    const auto& cmp_base =
+            assert_cast<const ColumnStr<T>&, TypeCheck::Disable>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);

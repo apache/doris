@@ -25,6 +25,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
@@ -69,13 +70,14 @@ private:
 
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
-            const auto* dict_col = assert_cast<const vectorized::ColumnDictI32*>(&column);
+            const auto* dict_col =
+                    assert_cast<const vectorized::ColumnDictI32*, TypeCheck::Disable>(&column);
             new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
                     dict_col, null_map, sel, size);
         } else {
             const auto& data =
-                    assert_cast<const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
-                            &column)
+                    assert_cast<const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*,
+                                TypeCheck::Disable>(&column)
                             ->get_data();
             new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
                                                                     sel, size, data.size() != size);

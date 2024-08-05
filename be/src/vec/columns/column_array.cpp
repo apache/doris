@@ -233,7 +233,7 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
 
 int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
     // since column type is complex, we can't use this function
-    const auto& rhs = assert_cast<const ColumnArray&>(rhs_);
+    const auto& rhs = assert_cast<const ColumnArray&, TypeCheck::Disable>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);

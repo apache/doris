@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -576,8 +577,8 @@ struct Trim2Impl {
         const auto& rcol =
                 assert_cast<const ColumnConst*>(block.get_by_position(arguments[1]).column.get())
                         ->get_data_column_ptr();
-        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
-            if (const auto* col_right = assert_cast<const ColumnString*>(rcol.get())) {
+        if (const auto* col = check_and_get_column<const ColumnString>(column.get())) {
+            if (const auto* col_right = check_and_get_column<const ColumnString>(rcol.get())) {
                 auto col_res = ColumnString::create();
                 const auto* remove_str_raw = col_right->get_chars().data();
                 const ColumnString::Offset remove_str_size = col_right->get_offsets()[0];

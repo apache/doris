@@ -429,7 +429,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 (*vec_null_map_to)[i] = true;
             }
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                auto* column_string = assert_cast<ColumnString*, TypeCheck::Disable>(col_res.get());
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
             src_offset = src_next_offset;

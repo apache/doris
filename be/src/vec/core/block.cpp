@@ -518,7 +518,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             if (data[i].column) {
                 if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                     assert(allow_null_mismatch);
-                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                    s = assert_cast<const DataTypeNullable*, TypeCheck::Disable>(data[i].type.get())
                                 ->get_nested_type()
                                 ->to_string(*data[i].column, row_num);
                 } else {

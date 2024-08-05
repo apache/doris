@@ -136,14 +136,16 @@ public:
 
         if (left_const) {
             left_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*>(col_left.column.get())->get_data_column_ptr());
+                    assert_cast<const ColumnConst*, TypeCheck::Disable>(col_left.column.get())
+                            ->get_data_column_ptr());
         } else {
             left_column = check_and_get_column<const ColumnNullable>(col_left.column);
         }
 
         if (right_const) {
             right_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*>(col_right.column.get())->get_data_column_ptr());
+                    assert_cast<const ColumnConst*, TypeCheck::Disable>(col_right.column.get())
+                            ->get_data_column_ptr());
         } else {
             right_column = check_and_get_column<const ColumnNullable>(col_right.column);
         }

@@ -53,8 +53,8 @@ public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col = assert_cast<const ColumnBitmap&, TypeCheck::Disable>(*columns[0]);
+        const auto& data_col = assert_cast<const ColVecData&, TypeCheck::Disable>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
 
         if constexpr (IsNumber<T>) {
@@ -71,7 +71,7 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             for (int idx = 2; idx < argument_size; ++idx) {
-                const auto& col = assert_cast<const ColVecData&>(*columns[idx]);
+                const auto& col = assert_cast<const ColVecData&, TypeCheck::Disable>(*columns[idx]);
                 if constexpr (IsNumber<T>) {
                     bitmap.add_key(col.get_element(row_num));
                 }
@@ -202,8 +202,8 @@ public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col = assert_cast<const ColumnBitmap&, TypeCheck::Disable>(*columns[0]);
+        const auto& data_col = assert_cast<const ColVecData&, TypeCheck::Disable>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
         std::string update_key = data_col.get_data_at(row_num).to_string();
         bitmap_expr_cal.update(update_key, bitmap_value);
@@ -212,7 +212,7 @@ public:
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
             DCHECK(argument_size > 1);
-            const auto& col = assert_cast<const ColVecData&>(*columns[2]);
+            const auto& col = assert_cast<const ColVecData&, TypeCheck::Disable>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;
@@ -306,7 +306,7 @@ struct OrthBitmapUnionCountData {
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {}
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& column = assert_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& column = assert_cast<const ColumnBitmap&, TypeCheck::Disable>(*columns[0]);
         value |= column.get_data()[row_num];
     }
     void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }

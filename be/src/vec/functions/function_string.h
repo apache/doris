@@ -3155,9 +3155,12 @@ public:
 
         for (int i = 0; i < input_rows_count; ++i) {
             StringRef origin_str =
-                    assert_cast<const ColumnString*>(col_origin.get())->get_data_at(i);
-            StringRef old_str = assert_cast<const ColumnString*>(col_old.get())->get_data_at(i);
-            StringRef new_str = assert_cast<const ColumnString*>(col_new.get())->get_data_at(i);
+                    assert_cast<const ColumnString*, TypeCheck::Disable>(col_origin.get())
+                            ->get_data_at(i);
+            StringRef old_str = assert_cast<const ColumnString*, TypeCheck::Disable>(col_old.get())
+                                        ->get_data_at(i);
+            StringRef new_str = assert_cast<const ColumnString*, TypeCheck::Disable>(col_new.get())
+                                        ->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());
@@ -3694,8 +3697,8 @@ public:
                     continue;
                 }
                 if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[j])) {
-                    auto str_column =
-                            assert_cast<const ColumnString*>(&(const_column->get_data_column()));
+                    auto str_column = assert_cast<const ColumnString*, TypeCheck::Disable>(
+                            &(const_column->get_data_column()));
                     auto data_item = str_column->get_data_at(0);
                     memcpy_small_allow_read_write_overflow15(
                             &res_data[res_offset[i - 1]] + current_length, data_item.data,
