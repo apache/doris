@@ -73,7 +73,7 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            Pair<WindowExpression, Long> windowFuncPair = window.checkAndGetValidWindowFunc(filter, Long.MAX_VALUE);
+            Pair<WindowExpression, Long> windowFuncPair = window.getPushDownWindowFuncAndLimit(filter, Long.MAX_VALUE);
             if (windowFuncPair == null) {
                 return filter;
             } else if (windowFuncPair.second == -1) {

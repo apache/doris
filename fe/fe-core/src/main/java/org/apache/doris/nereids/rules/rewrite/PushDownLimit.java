@@ -77,7 +77,7 @@ public class PushDownLimit implements RewriteRuleFactory {
                                 return limit;
                             }
                             Pair<WindowExpression, Long> windowFuncLongPair = window
-                                    .checkAndGetValidWindowFunc(null, partitionLimit);
+                                    .getPushDownWindowFuncAndLimit(null, partitionLimit);
                             if (windowFuncLongPair == null) {
                                 return limit;
                             }
@@ -96,7 +96,7 @@ public class PushDownLimit implements RewriteRuleFactory {
                                 return limit;
                             }
                             Pair<WindowExpression, Long> windowFuncLongPair = window
-                                    .checkAndGetValidWindowFunc(null, partitionLimit);
+                                    .getPushDownWindowFuncAndLimit(null, partitionLimit);
                             if (windowFuncLongPair == null) {
                                 return limit;
                             }

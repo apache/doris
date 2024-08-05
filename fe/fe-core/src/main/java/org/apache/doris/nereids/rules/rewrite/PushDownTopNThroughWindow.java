@@ -55,7 +55,7 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
                 Pair<WindowExpression, Long> windowFuncLongPair = window
-                        .checkAndGetValidWindowFunc(null, partitionLimit);
+                        .getPushDownWindowFuncAndLimit(null, partitionLimit);
                 if (windowFuncLongPair == null) {
                     return topn;
                 }
@@ -78,7 +78,7 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
                 Pair<WindowExpression, Long> windowFuncLongPair = window
-                        .checkAndGetValidWindowFunc(null, partitionLimit);
+                        .getPushDownWindowFuncAndLimit(null, partitionLimit);
                 if (windowFuncLongPair == null) {
                     return topn;
                 }

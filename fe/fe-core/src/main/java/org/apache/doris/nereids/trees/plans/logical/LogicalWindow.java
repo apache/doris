@@ -181,6 +181,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     /**
+     * Get push down window function candidate and corresponding partition limit.
      *
      * @param filter
      *              For partition topN filter cases, it means the topN filter;
@@ -194,7 +195,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      *              else return the chosen window function and the chosen partition limit.
      *              A special limit -1 means the case can be optimized as empty relation.
      */
-    public Pair<WindowExpression, Long> checkAndGetValidWindowFunc(LogicalFilter<?> filter, long partitionLimit) {
+    public Pair<WindowExpression, Long> getPushDownWindowFuncAndLimit(LogicalFilter<?> filter, long partitionLimit) {
         if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
             return null;
         }
