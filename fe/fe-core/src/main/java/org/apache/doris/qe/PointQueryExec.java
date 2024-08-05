@@ -169,7 +169,7 @@ public class PointQueryExec implements CoordInterface {
     }
 
     @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason, String errorMsg) {
         // Do nothing
     }
 
