@@ -178,6 +178,9 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
+        _timeout = request.query_options.execution_timeout;
+    }
     _num_instances = request.local_params.size();
     _total_instances = request.__isset.total_instances ? request.total_instances : _num_instances;
     _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
