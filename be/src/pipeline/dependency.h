@@ -649,15 +649,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-class AsyncWriterDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id)
-            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
-    ~AsyncWriterDependency() override = default;
-};
-
 using SetHashTableVariants =
         std::variant<std::monostate,
                      vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
