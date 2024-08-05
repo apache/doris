@@ -34,7 +34,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -1841,11 +1840,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                         return false;
                     }
 
-                    Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
-                            infoService, visibleVersion, replicaAlloc, aliveBeIds);
-                    if (statusPair.first != TabletStatus.HEALTHY) {
+                    TabletStatus status = tablet.getHealth(infoService, visibleVersion,
+                            replicaAlloc, aliveBeIds).status;
+                    if (status != TabletStatus.HEALTHY) {
                         LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
-                                id, tablet.getId(), statusPair.first, tablet.getReplicas());
+                                id, tablet.getId(), status, tablet.getReplicas());
                         return false;
                     }
                 }
@@ -2482,6 +2481,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
+    public boolean isUniqKeyMergeOnWrite() {
+        return getKeysType() == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite();
+    }
+
     public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
@@ -2573,8 +2576,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        return keysType == KeysType.DUP_KEYS
-                || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite());
+        return keysType == KeysType.DUP_KEYS || isUniqKeyMergeOnWrite();
     }
 
     public void initAutoIncrementGenerator(long dbId) {
