@@ -38,6 +38,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -181,8 +182,8 @@ Status CloudStorageEngine::open() {
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    // TODO(plat1ko): Use file cache disks number?
-    _memtable_flush_executor->init(1);
+    // Use file cache disks number
+    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
