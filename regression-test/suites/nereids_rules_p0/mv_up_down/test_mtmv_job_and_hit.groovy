@@ -18,9 +18,9 @@
 suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
 
     String db = context.config.getDbNameByFile(context.file)
-    String orders_tb = "orders"
-    String lineitem_tb = "lineitem"
-    String mtmv_name = "test_mv"
+    String orders_tb = "up_down_mtmv_orders"
+    String lineitem_tb = "up_down_mtmv_lineitem"
+    String mtmv_name = "up_down_mtmv_test_mv"
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -72,7 +72,7 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
 
     // insert and refresh mtmv
     def job_name = getJobName(db, mtmv_name)
-    waitingMTMVTaskFinished(job_name)
+    waitingMTMVTaskFinishedByMvName(mtmv_name)
     def select_count2 = sql """select count(*) from ${mtmv_name}"""
     logger.info("select_count2: " + select_count2)
     assertTrue(select_count2[0][0] != select_count1[0][0])
@@ -127,7 +127,7 @@ suite("test_upgrade_downgrade_compatibility_mtmv","p0,mtmv,restart_fe") {
         """
 
     job_name = getJobName(db, mtmv_name)
-    waitingMTMVTaskFinished(job_name)
+    waitingMTMVTaskFinishedByMvName(mtmv_name)
 
     def select_count3 = sql """select count(*) from ${mtmv_name}"""
     logger.info("select_count3: " + select_count3)
