@@ -1615,7 +1615,7 @@ public class SessionVariable implements Serializable, Writable {
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
-    public boolean enablePreparedStmtAuditLog = true;
+    public boolean enablePreparedStmtAuditLog = false;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
