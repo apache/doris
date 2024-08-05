@@ -99,10 +99,6 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = baseSnapshotIf;
 
-                mtmv.getPartitionName(anyLong);
-                minTimes = 0;
-                result = "name1";
-
                 mtmv.getRefreshSnapshot();
                 minTimes = 0;
                 result = refreshSnapshot;
@@ -122,10 +118,6 @@ public class MTMVPartitionUtilTest {
                 baseOlapTable.getPartitionSnapshot(anyString);
                 minTimes = 0;
                 result = baseSnapshotIf;
-
-                baseOlapTable.getPartitionName(anyLong);
-                minTimes = 0;
-                result = "name1";
 
                 refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
                 minTimes = 0;

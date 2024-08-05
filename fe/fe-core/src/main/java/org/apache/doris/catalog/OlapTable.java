@@ -2919,16 +2919,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return new MTMVVersionSnapshot(visibleVersion);
     }
 
-    @Override
-    public String getPartitionName(long partitionId) throws AnalysisException {
-        readLock();
-        try {
-            return getPartitionOrAnalysisException(partitionId).getName();
-        } finally {
-            readUnlock();
-        }
-    }
-
     private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
             throws RpcException {
         long startAt = System.nanoTime();

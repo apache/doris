@@ -55,6 +55,8 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -247,7 +249,7 @@ public class HiveMetaStoreCache {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
-        Map<String, Long> partitionNameToIdMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
@@ -636,7 +638,6 @@ public class HiveMetaStoreCache {
         HivePartitionValues copy = partitionValues.copy();
         Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
         Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-        Map<Long, String> partitionIdToNameMapBefore = copy.getPartitionIdToNameMap();
         Map<Long, List<UniqueId>> idToUniqueIdsMap = copy.getIdToUniqueIdsMap();
         Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
         long idx = copy.getNextPartitionId();
@@ -650,7 +651,6 @@ public class HiveMetaStoreCache {
             idToPartitionItemBefore.put(partitionId, listPartitionItem);
             idToPartitionItem.put(partitionId, listPartitionItem);
             partitionNameToIdMapBefore.put(partitionName, partitionId);
-            partitionIdToNameMapBefore.put(partitionId, partitionName);
         }
         Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
@@ -1088,8 +1088,7 @@ public class HiveMetaStoreCache {
     @Data
     public static class HivePartitionValues {
         private long nextPartitionId;
-        private Map<String, Long> partitionNameToIdMap;
-        private Map<Long, String> partitionIdToNameMap;
+        private BiMap<String, Long> partitionNameToIdMap;
         private Map<Long, List<UniqueId>> idToUniqueIdsMap;
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
@@ -1108,7 +1107,7 @@ public class HiveMetaStoreCache {
                 Map<Range<PartitionKey>, UniqueId> rangeToId,
                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
                 long nextPartitionId,
-                Map<String, Long> partitionNameToIdMap,
+                BiMap<String, Long> partitionNameToIdMap,
                 Map<Long, List<UniqueId>> idToUniqueIdsMap,
                 Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap,
                 Map<Long, List<String>> partitionValuesMap) {
@@ -1118,7 +1117,6 @@ public class HiveMetaStoreCache {
             this.singleColumnRangeMap = singleColumnRangeMap;
             this.nextPartitionId = nextPartitionId;
             this.partitionNameToIdMap = partitionNameToIdMap;
-            this.partitionIdToNameMap = transferToIdName(partitionNameToIdMap);
             this.idToUniqueIdsMap = idToUniqueIdsMap;
             this.singleUidToColumnRangeMap = singleUidToColumnRangeMap;
             this.partitionValuesMap = partitionValuesMap;
@@ -1127,8 +1125,7 @@ public class HiveMetaStoreCache {
         public HivePartitionValues copy() {
             HivePartitionValues copy = new HivePartitionValues();
             copy.setNextPartitionId(nextPartitionId);
-            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : Maps.newHashMap(partitionNameToIdMap));
-            copy.setPartitionIdToNameMap(partitionIdToNameMap == null ? null : Maps.newHashMap(partitionIdToNameMap));
+            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
             copy.setIdToUniqueIdsMap(idToUniqueIdsMap == null ? null : Maps.newHashMap(idToUniqueIdsMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
@@ -1142,14 +1139,6 @@ public class HiveMetaStoreCache {
                 copy.setSingleColumnRangeMap(copySingleColumnRangeMap);
             }
             return copy;
-        }
-
-        private Map<Long, String> transferToIdName(Map<String, Long> partitionNameToIdMap) {
-            if (partitionNameToIdMap == null) {
-                return null;
-            }
-            return partitionNameToIdMap.entrySet().stream()
-                    .collect(Collectors.toMap(entry -> entry.getValue(), entry -> entry.getKey()));
         }
     }
 }
