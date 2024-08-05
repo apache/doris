@@ -740,14 +740,17 @@ public class StructInfo {
             if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
                 return catalogRelation;
             }
-            // todo Support other type partition table
             if (catalogRelation instanceof LogicalOlapScan) {
+                // Handle olap table
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
+                Set<Partition> tablePartitions = targetTablePartitionMap.get(relatedPartitionTable);
                 for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
-                    Set<Partition> partitions = targetTablePartitionMap.computeIfAbsent(relatedPartitionTable,
-                            key -> new HashSet<>());
-                    partitions.add(logicalOlapScan.getTable().getPartition(partitionId));
+                    tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId));
                 }
+            } else {
+                // todo Support other type partition table
+                // Not support to partition check now, support later.
+                targetTablePartitionMap.clear();
             }
             return catalogRelation;
         }
