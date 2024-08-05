@@ -49,4 +49,9 @@ suite("fold_constant_by_be") {
     qt_sql "explain select sleep(sign(1)*100);"
     sql 'set query_timeout=12;'
     qt_sql "select sleep(sign(1)*10);"
+
+    def res3 = sql " select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ( CASE NULLIF ( - 34, 20 ) WHEN - 56 THEN NULL WHEN - 104 THEN count(*) END ); "
+    def res4 = sql " select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ( CASE NULLIF ( - 34, 20 ) WHEN - 56 THEN NULL WHEN - 104 THEN count(*) END ); "
+    log.info("result: {}, {}", res3, res4)
+    assertEquals(res3[0][0], res4[0][0])
 }

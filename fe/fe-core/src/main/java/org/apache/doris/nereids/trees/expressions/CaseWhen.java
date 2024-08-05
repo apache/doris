@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -132,7 +133,7 @@ public class CaseWhen extends Expression {
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) instanceof WhenClause) {
                 whenClauseList.add((WhenClause) children.get(i));
-            } else if (children.size() - 1 == i) {
+            } else if ((children.size() - 1 == i || children.get(i) instanceof Literal) && defaultValue == null) {
                 defaultValue = children.get(i);
             } else {
                 throw new AnalysisException("The children format needs to be [WhenClause+, DefaultValue?]");
