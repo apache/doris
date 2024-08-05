@@ -1191,6 +1191,9 @@ lucene::util::bkd::relation InvertedIndexVisitor<QT>::compare(std::vector<uint8_
 Status InvertedIndexIterator::read_from_inverted_index(
         const std::string& column_name, const void* query_value, InvertedIndexQueryType query_type,
         uint32_t segment_num_rows, std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try) {
+    DBUG_EXECUTE_IF("return_inverted_index_bypass", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
+    });
     if (UNLIKELY(_reader == nullptr)) {
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }

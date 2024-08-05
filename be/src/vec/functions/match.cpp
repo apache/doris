@@ -286,6 +286,8 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
     std::vector<std::string> query_tokens;
+    auto analyzer = create_analyzer(inverted_index_ctx);
+    inverted_index_ctx->analyzer = analyzer.get();
     doris::segment_v2::InvertedIndexReader::get_analyse_result(
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
             doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
