@@ -66,6 +66,7 @@ class KeyCoder;
 class TypeInfo;
 struct OlapReaderStatistics;
 class RuntimeState;
+class StorageReadOptions;
 
 namespace segment_v2 {
 
@@ -73,6 +74,7 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
+
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
@@ -83,7 +85,7 @@ public:
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+    virtual Status new_iterator(const StorageReadOptions& opts,
                                 std::unique_ptr<InvertedIndexIterator>* iterator) = 0;
     virtual Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                          const std::string& column_name, const void* query_value,
@@ -165,7 +167,7 @@ public:
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~FullTextIndexReader() override = default;
 
-    Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+    Status new_iterator(const StorageReadOptions& opts,
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
@@ -196,7 +198,7 @@ public:
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+    Status new_iterator(const StorageReadOptions& opts,
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                  const std::string& column_name, const void* query_value,
@@ -255,7 +257,7 @@ public:
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~BkdIndexReader() override = default;
 
-    Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+    Status new_iterator(const StorageReadOptions& opts,
                         std::unique_ptr<InvertedIndexIterator>* iterator) override;
 
     Status query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -360,9 +362,9 @@ class InvertedIndexIterator {
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
 public:
-    InvertedIndexIterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+    InvertedIndexIterator(const StorageReadOptions& opts,
                           std::shared_ptr<InvertedIndexReader> reader)
-            : _stats(stats), _runtime_state(runtime_state), _reader(std::move(reader)) {}
+            : _opts(opts), _reader(std::move(reader)) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
@@ -372,9 +374,7 @@ public:
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
-                            lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(_stats, cache_handle, dir);
-    }
+                            lucene::store::Directory* dir = nullptr);
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
     [[nodiscard]] const std::map<string, string>& get_index_properties() const;
@@ -382,9 +382,10 @@ public:
 
     const InvertedIndexReaderPtr& reader() { return _reader; }
 
+    static inline thread_local const StorageReadOptions* _tls_opts = nullptr;
+
 private:
-    OlapReaderStatistics* _stats = nullptr;
-    RuntimeState* _runtime_state = nullptr;
+    const StorageReadOptions& _opts;
     std::shared_ptr<InvertedIndexReader> _reader;
 };
 

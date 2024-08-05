@@ -23,6 +23,8 @@
 #include "inverted_index_desc.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "olap/iterators.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
@@ -230,7 +232,17 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
-    if (!_handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx).ok()) {
+
+    Status res;
+    if (InvertedIndexIterator::_tls_opts) {
+        res = _handle->_reader->read_at(_pos, result, &bytes_read,
+                                        &InvertedIndexIterator::_tls_opts->io_ctx);
+    } else {
+        io::IOContext _io_ctx;
+        _io_ctx.reader_type = ReaderType::READER_QUERY;
+        res = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
+    }
+    if (!res.ok()) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     bufferLength = len;

@@ -42,6 +42,7 @@
 
 #include "gutil/integral_types.h"
 #include "inverted_index_query_type.h"
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 
 #ifdef __clang__
@@ -323,9 +324,9 @@ Status InvertedIndexReader::match_index_search(
     return Status::OK();
 }
 
-Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+Status FullTextIndexReader::new_iterator(const StorageReadOptions& opts,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(stats, runtime_state, shared_from_this());
+    *iterator = InvertedIndexIterator::create_unique(opts, shared_from_this());
     return Status::OK();
 }
 
@@ -450,9 +451,8 @@ void FullTextIndexReader::setup_analyzer_use_stopwords(
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(
-        OlapReaderStatistics* stats, RuntimeState* runtime_state,
-        std::unique_ptr<InvertedIndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(stats, runtime_state, shared_from_this());
+        const StorageReadOptions& opts, std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(opts, shared_from_this());
     return Status::OK();
 }
 
@@ -583,9 +583,9 @@ InvertedIndexReaderType StringTypeInvertedIndexReader::type() {
     return InvertedIndexReaderType::STRING_TYPE;
 }
 
-Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+Status BkdIndexReader::new_iterator(const StorageReadOptions& opts,
                                     std::unique_ptr<InvertedIndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(stats, runtime_state, shared_from_this());
+    *iterator = InvertedIndexIterator::create_unique(opts, shared_from_this());
     return Status::OK();
 }
 
@@ -1212,11 +1212,11 @@ Status InvertedIndexIterator::read_from_inverted_index(
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }
     if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
-        if (_runtime_state != nullptr &&
-            _runtime_state->query_options().inverted_index_skip_threshold > 0 &&
-            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+        if (_opts.runtime_state != nullptr &&
+            _opts.runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+            _opts.runtime_state->query_options().inverted_index_skip_threshold < 100) {
             auto query_bkd_limit_percent =
-                    _runtime_state->query_options().inverted_index_skip_threshold;
+                    _opts.runtime_state->query_options().inverted_index_skip_threshold;
             uint32_t hit_count = 0;
             RETURN_IF_ERROR(
                     try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
@@ -1228,8 +1228,13 @@ Status InvertedIndexIterator::read_from_inverted_index(
         }
     }
 
-    RETURN_IF_ERROR(
-            _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));
+    Defer defer {[&] { _tls_opts = nullptr; }};
+    if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+        _tls_opts = &_opts;
+    }
+
+    RETURN_IF_ERROR(_reader->query(_opts.stats, _opts.runtime_state, column_name, query_value,
+                                   query_type, bit_map));
     return Status::OK();
 }
 
@@ -1243,9 +1248,15 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& co
         query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
         query_type == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(_reader->try_query(_stats, column_name, query_value, query_type, count));
+        RETURN_IF_ERROR(
+                _reader->try_query(_opts.stats, column_name, query_value, query_type, count));
     }
     return Status::OK();
+}
+
+Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                                               lucene::store::Directory* dir) {
+    return _reader->read_null_bitmap(_opts.stats, cache_handle, dir);
 }
 
 InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() const {
