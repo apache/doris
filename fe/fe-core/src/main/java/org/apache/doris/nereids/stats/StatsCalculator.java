@@ -307,7 +307,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private long computeDeltaRowCount(OlapScan olapScan, SlotReference slot) {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-        tableMeta.getRowCount(selectedIndex);
         long deltaRowCount = 0;
         if (tableMeta != null) {
             ColStatsMeta colMeta = tableMeta.findColumnStatsMeta(
@@ -403,10 +402,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeOlapScan(LogicalOlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId());
-        if (tableRowCount == -1) {
+        if (tableRowCount <= 0) {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-            tableRowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+            if (tableMeta != null) {
+                tableRowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+            } else {
+                tableRowCount = 1;
+            }
         }
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
@@ -447,7 +450,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         // build Stats for olapScan
-        // if slot is not slotReference or is invisible, use UNKNOWN
+        // if slot is invisible, use UNKNOWN
         List<SlotReference> visibleOutputSlots = new ArrayList<>();
         for (Slot slot : olapScan.getOutput()) {
             if (isVisibleSlotReference(slot)) {
@@ -460,7 +463,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (!olapScan.getSelectedPartitionIds().isEmpty()) {
             // partition pruned
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-            // if partition row count is not available, fallback to table stats
             if (selectedPartitionsRowCount > 0) {
                 List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
                 olapScan.getSelectedPartitionIds().forEach(id -> {
@@ -476,18 +478,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 checkIfUnknownStatsUsedAsKey(builder);
                 builder.setRowCount(selectedPartitionsRowCount);
             } else {
-                // fall back to table level
-                double estSelectedPartitionsRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
+                // if partition row count is invalid (-1), fallback to table stats
+                // suppose all partitions have the same row count
+                double estimatedSelectedPartitionsRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
                         / Math.max(1, olapTable.getPartitions().size());
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache = getColumnStatsFromTableCache(olapScan, slot);
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(estSelectedPartitionsRowCount);
+                    colStatsBuilder.setCount(estimatedSelectedPartitionsRowCount);
                     adjustColStats(olapScan, slot, colStatsBuilder);
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(estSelectedPartitionsRowCount);
+                builder.setRowCount(estimatedSelectedPartitionsRowCount);
             }
         } else {
             // get table level stats
@@ -1040,6 +1043,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
+        double tableRowCount = catalogRelation.getTable().getRowCount();
+
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
@@ -1061,19 +1066,28 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
 
-        double rowCount = catalogRelation.getTable().getRowCountForNereids();
-        for (SlotReference slot : slotSet) {
-            ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-            if (cache.isUnKnown) {
-                colStatsBuilder.setCount(rowCount);
+        if (tableRowCount <= 0) {
+            // try to get row count from col stats
+            for (SlotReference slot : slotSet) {
+                ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
+                tableRowCount = Math.max(cache.count, tableRowCount);
             }
+        }
+
+        for (SlotReference slot : slotSet) {
+            ColumnStatistic cache;
+            if (ConnectContext.get() != null && ! ConnectContext.get().getSessionVariable().enableStats) {
+                cache = ColumnStatistic.UNKNOWN;
+            } else {
+                cache = getColumnStatsFromTableCache(catalogRelation, slot);
+            }
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
+            colStatsBuilder.setCount(tableRowCount);
             adjustColStats(catalogRelation, slot, colStatsBuilder);
-            rowCount = Math.max(rowCount, colStatsBuilder.getCount());
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
-        return builder.setRowCount(rowCount).build();
+        return builder.setRowCount(tableRowCount).build();
     }
 
     private Statistics computeTopN(TopN topN) {
