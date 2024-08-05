@@ -175,44 +175,50 @@ public class BackupJob extends AbstractJob {
             return false;
         }
         OlapTable tbl = (OlapTable) table;
-        if (tbl.getId() != task.getTableId()) {
-            return false;
-        }
-        Partition partition = tbl.getPartition(task.getPartitionId());
-        if (partition == null) {
-            return false;
-        }
-        MaterializedIndex index = partition.getIndex(task.getIndexId());
-        if (index == null) {
-            return false;
-        }
-        Tablet tablet = index.getTablet(task.getTabletId());
-        if (tablet == null) {
-            return false;
-        }
-        Replica replica = chooseReplica(tablet, task.getVersion());
-        if (replica == null) {
-            return false;
-        }
+        tbl.readLock();
+        try {
+            if (tbl.getId() != task.getTableId()) {
+                return false;
+            }
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                return false;
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                return false;
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            if (tablet == null) {
+                return false;
+            }
+            Replica replica = chooseReplica(tablet, task.getVersion());
+            if (replica == null) {
+                return false;
+            }
 
-        //clear old task
-        AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
-        unfinishedTaskIds.remove(task.getTabletId());
-        taskProgress.remove(task.getTabletId());
-        taskErrMsg.remove(task.getTabletId());
+            //clear old task
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
+            unfinishedTaskIds.remove(task.getTabletId());
+            taskProgress.remove(task.getTabletId());
+            taskErrMsg.remove(task.getTabletId());
 
-        SnapshotTask newTask = new SnapshotTask(null, replica.getBackendId(), task.getTabletId(),
-                task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
-                task.getIndexId(), task.getTabletId(),
-                task.getVersion(),
-                task.getSchemaHash(), timeoutMs, false /* not restore task */);
-        AgentBatchTask batchTask = new AgentBatchTask();
-        batchTask.addTask(newTask);
-        unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendId(), task.getTabletId(),
+                    task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
+                    task.getIndexId(), task.getTabletId(),
+                    task.getVersion(),
+                    task.getSchemaHash(), timeoutMs, false /* not restore task */);
+            AgentBatchTask batchTask = new AgentBatchTask();
+            batchTask.addTask(newTask);
+            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
 
-        //send task
-        AgentTaskQueue.addTask(newTask);
-        AgentTaskExecutor.submit(batchTask);
+            //send task
+            AgentTaskQueue.addTask(newTask);
+            AgentTaskExecutor.submit(batchTask);
+
+        } finally {
+            tbl.readUnlock();
+        }
 
         return true;
     }
@@ -231,12 +237,11 @@ public class BackupJob extends AbstractJob {
                 cancelInternal();
             }
 
-            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING) {
-                if (!tryNewTabletSnapshotTask(task)) {
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
+                    && !tryNewTabletSnapshotTask(task)) {
                     status = new Status(ErrCode.NOT_FOUND,
                             "make snapshot failed, failed to ge tablet, table will be droped or truncated");
                     cancelInternal();
-                }
             }
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {

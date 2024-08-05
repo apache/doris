@@ -48,10 +48,17 @@ suite("test_backup_cancelled", "backup_cancelled") {
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
+    result = sql_return_maparray """show tablets from ${dbName}.${tableName}"""
+    assertNotNull(result)
+    def tabletId = null
+    for (def res : result) {
+        tabletId = res.TabletId
+        break
+    }
 
     // test failed to get tablet when truncate or drop table
 
-    GetDebugPoint().enableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure", [execute:3]);
+    GetDebugPoint().enableDebugPointForAllBEs("SnapshotManager::make_snapshot.inject_failure", [tablet_id:"${tabletId}", execute:3]);
 
 
     sql """
@@ -70,7 +77,7 @@ suite("test_backup_cancelled", "backup_cancelled") {
 
     // test missing versions when compaction or balance
 
-    GetDebugPoint().enableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure", [execute:1]);
+    GetDebugPoint().enableDebugPointForAllBEs("Tablet::capture_consistent_versions.inject_failure", [tablet_id:"${tabletId}", execute:1]);
 
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName_1}
