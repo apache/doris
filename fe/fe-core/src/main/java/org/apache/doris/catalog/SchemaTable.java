@@ -459,11 +459,18 @@ public class SchemaTable extends Table {
                     .column("QUERY_ID", ScalarType.createVarchar(256))
                     .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                     .column("FE",
-                            ScalarType.createVarchar(64)).build()))
+                            ScalarType.createVarchar(64)).build(), true))
             .build();
+
+    private boolean fetchAllFe = false;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);
+    }
+
+    protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema, boolean fetchAllFe) {
+        this(id, name, type, baseSchema);
+        this.fetchAllFe = fetchAllFe;
     }
 
     @Override
@@ -477,6 +484,14 @@ public class SchemaTable extends Table {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public static boolean isShouldFetchAllFe(String schemaTableName) {
+        Table table = TABLE_MAP.get(schemaTableName);
+        if (table != null && table instanceof SchemaTable) {
+            return ((SchemaTable) table).fetchAllFe;
+        }
+        return false;
     }
 
     /**
