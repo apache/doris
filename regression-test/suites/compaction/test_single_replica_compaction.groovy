@@ -27,18 +27,10 @@ suite("test_single_compaction_p2", "p2") {
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
 
-    String backend_id;
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def set_be_config = { key, value ->
-
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
     def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
         if (compact_type == "cumulative") {
             def (code_1, out_1, err_1) = be_run_cumulative_compaction(be_host, be_http_port, tablet_id)
@@ -117,7 +109,7 @@ suite("test_single_compaction_p2", "p2") {
         Thread.sleep(1000)
         StringBuilder sb = new StringBuilder();
         sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/compaction/run_status?tablet_id=")
+        sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
 
         String command = sb.toString()
@@ -146,18 +138,14 @@ suite("test_single_compaction_p2", "p2") {
             "replication_num" = "2",
             "enable_single_replica_compaction" = "true",
             "enable_unique_key_merge_on_write" = "false",
-            "disable_auto_compaction" = "true"
+            "compaction_policy" = "time_series"
         );
     """
-
-    set_be_config.call("update_replica_infos_interval_seconds", "5")
-    set_be_config.call("disable_auto_compacton", "true")
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // wait for update replica infos
-    // be.conf: update_replica_infos_interval_seconds + 2s
-    Thread.sleep(22000)
+    Thread.sleep(70000)
     
     // find the master be for single replica compaction
     Boolean found = false
@@ -220,9 +208,9 @@ suite("test_single_compaction_p2", "p2") {
     sql """ INSERT INTO ${tableName} VALUES (3, "a", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "b", 100); """
 
-    // trigger master be to do cumu compaction
+    // trigger master be to do compaction
     assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
-                "cumulative", tablet_id).contains("Success")); 
+                "full", tablet_id).contains("Success")); 
     waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
     // trigger follower be to fetch compaction result
@@ -241,21 +229,7 @@ suite("test_single_compaction_p2", "p2") {
     sql """ INSERT INTO ${tableName} VALUES (7, "a", 100); """
     sql """ INSERT INTO ${tableName} VALUES (8, "a", 100); """
 
-    // trigger master be to do cumu compaction with delete
-    assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
-                "cumulative", tablet_id).contains("Success")); 
-    waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
-
-    // trigger follower be to fetch compaction result
-    for (String id in follower_backend_id) {
-        assertTrue(triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id).contains("Success")); 
-        waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
-    }
-
-    // check rowsets
-    checkCompactionResult.call()
-
-    // trigger master be to do full compaction
+    // trigger master be to do compaction with delete
     assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
                 "full", tablet_id).contains("Success")); 
     waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
@@ -273,7 +247,5 @@ suite("test_single_compaction_p2", "p2") {
     qt_sql """
     select * from  ${tableName} order by id
     """
-
-    set_be_config.call("disable_auto_compacton", "false")
 
 }

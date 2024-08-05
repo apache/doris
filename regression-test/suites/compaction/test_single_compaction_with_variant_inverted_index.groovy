@@ -154,7 +154,6 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // wait for update replica infos
-    // be.conf: update_replica_infos_interval_seconds + 2s
     Thread.sleep(72000)
     
     // find the master be for single replica compaction

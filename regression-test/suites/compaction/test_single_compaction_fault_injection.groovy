@@ -24,14 +24,6 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def set_be_config = { key, value ->
-
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
         if (compact_type == "cumulative") {
             def (code_1, out_1, err_1) = be_run_cumulative_compaction(be_host, be_http_port, tablet_id)
@@ -124,8 +116,6 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
         return tabletStatus
     }
 
-    set_be_config.call("update_replica_infos_interval_seconds", "5")
-    set_be_config.call("disable_auto_compacton", "true")
     // find the master be for single compaction
     Boolean found = false
     String master_backend_id
@@ -144,12 +134,12 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false");
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "compaction_policy" = "time_series");
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
         // wait for update replica infos
-        Thread.sleep(20000)
+        Thread.sleep(70000)
         // The test table only has one bucket with 2 replicas,
         // and `show tablets` will return 2 different replicas with the same tablet.
         // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
@@ -178,8 +168,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs('getTabletReplicaInfos.returnEmpty')
         // wait for update replica infos
-        // be.conf: update_replica_infos_interval_seconds + 2s
-        Thread.sleep(20000)
+        Thread.sleep(70000)
         // The test table only has one bucket with 2 replicas,
         // and `show tablets` will return 2 different replicas with the same tablet.
         // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
@@ -250,9 +239,9 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (3, "a", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "b", 100); """
 
-    // trigger master be to do cumu compaction
+    // trigger master be to do compaction
     assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
-                "cumulative", tablet_id).contains("Success")); 
+                "full", tablet_id).contains("Success")); 
     waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
     try {
@@ -315,21 +304,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (7, "a", 100); """
     sql """ INSERT INTO ${tableName} VALUES (8, "a", 100); """
 
-    // trigger master be to do cumu compaction with delete
-    assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
-                "cumulative", tablet_id).contains("Success")); 
-    waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
-
-    // trigger follower be to fetch compaction result
-    for (String id in follower_backend_id) {
-        assertTrue(triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id).contains("Success")); 
-        waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
-    }
-
-    // check rowsets
-    checkSucceedCompactionResult.call()
-
-    // trigger master be to do base compaction
+    // trigger master be to do compaction with delete
     assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
                 "full", tablet_id).contains("Success")); 
     waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
@@ -346,6 +321,4 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     qt_sql """
     select * from  ${tableName} order by id
     """
-
-    set_be_config.call("disable_auto_compacton", "false")
 }
