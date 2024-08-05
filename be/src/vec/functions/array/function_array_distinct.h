@@ -258,7 +258,7 @@ private:
     if (which.is_##NAME()) {                                                             \
         return _execute_number<TYPE>(src_column, src_offsets, dest_column, dest_offsets, \
                                      src_null_map, dest_null_map);                       \
-    } else
+    }
 
         WhichDataType which(remove_nullable(nested_type));
         EXECUTE_NUMBER(ColumnUInt8, uint8)
