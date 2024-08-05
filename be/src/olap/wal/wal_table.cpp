@@ -91,7 +91,8 @@ Status WalTable::_relay_wal_one_by_one() {
         auto msg = st.msg();
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
-            msg.find("LabelAlreadyUsedException") != msg.npos) {
+            (msg.find("LabelAlreadyUsedException") != msg.npos &&
+             (msg.find("[COMMITTED]") != msg.npos || msg.find("[VISIBLE]") != msg.npos))) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
                       << ", st=" << st.to_string();
             // delete wal
@@ -163,8 +164,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     request.__set_auth_code(0); // this is a fake, fe not check it now
     request.__set_db_id(db_id);
     request.__set_label(label);
-    std::string reason = "relay wal with label " + label;
-    request.__set_reason(reason);
+    request.__set_reason("relay wal with label " + label);
     TLoadTxnRollbackResult result;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     auto st = ThriftRpcHelper::rpc<FrontendServiceClient>(
