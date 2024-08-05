@@ -401,6 +401,10 @@ public class SystemInfoService {
                 .values().stream().filter(Backend::isComputeNode).collect(Collectors.toList());
     }
 
+    public List<Backend> getAllClusterBackends() {
+        return new ArrayList<>(getAllClusterBackendsNoException().values());
+    }
+
     // return num of backends that from different hosts
     public int getStorageBackendNumFromDiffHosts(boolean aliveOnly) {
         Set<String> hosts = Sets.newHashSet();

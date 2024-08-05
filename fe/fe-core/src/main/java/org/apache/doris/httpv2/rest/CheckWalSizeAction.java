@@ -61,27 +61,29 @@ public class CheckWalSizeAction extends RestBaseController {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         String hostPorts = request.getParameter(HOST_PORTS);
+        List<Backend> backends = new ArrayList<>();
+        String[] hostPortArr;
+        List<HostInfo> hostInfos = new ArrayList<>();
         if (Strings.isNullOrEmpty(hostPorts)) {
-            return ResponseEntityBuilder.badRequest("No host:port specified");
-        }
-
-        String[] hostPortArr = hostPorts.split(",");
-        if (hostPortArr.length == 0) {
-            return ResponseEntityBuilder.badRequest("No host:port specified");
-        }
-
-        List<HostInfo> hostInfos = Lists.newArrayList();
-        for (String hostPort : hostPortArr) {
-            try {
-                HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-                hostInfos.add(hostInfo);
-            } catch (AnalysisException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
+            backends = Env.getCurrentSystemInfo().getAllClusterBackends();
+        } else {
+            hostPortArr = hostPorts.split(",");
+            if (hostPortArr.length == 0) {
+                return ResponseEntityBuilder.badRequest("No host:port specified");
+            }
+            hostInfos = Lists.newArrayList();
+            for (String hostPort : hostPortArr) {
+                try {
+                    HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+                    hostInfos.add(hostInfo);
+                } catch (AnalysisException e) {
+                    return ResponseEntityBuilder.badRequest(e.getMessage());
+                }
             }
         }
 
         try {
-            List<Backend> backends = getBackends(hostInfos);
+            backends = backends.isEmpty() ? getBackends(hostInfos) : backends;
             List<String> backendsList = new ArrayList<>();
             for (Backend backend : backends) {
                 long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
