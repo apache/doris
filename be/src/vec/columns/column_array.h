@@ -213,7 +213,8 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void clear() override {
