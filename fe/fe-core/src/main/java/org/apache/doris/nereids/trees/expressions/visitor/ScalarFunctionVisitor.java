@@ -82,6 +82,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -704,6 +705,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAtan2(Atan2 atan2, C context) {
         return visitScalarFunction(atan2, context);
+    }
+
+    default R visitAutoPartitionName(AutoPartitionName autoPartitionName, C context) {
+        return visitScalarFunction(autoPartitionName, context);
     }
 
     default R visitBin(Bin bin, C context) {
