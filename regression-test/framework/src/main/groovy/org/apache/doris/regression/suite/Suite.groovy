@@ -1683,6 +1683,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void wait_cluster_change() {
+        sleep(20000)
+    }
+
     public void resetConnection() {
         context.resetConnection()
     }
