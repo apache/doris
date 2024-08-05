@@ -303,7 +303,7 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
-
+    public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
@@ -1545,6 +1545,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
+
+    @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
+    public int dphyperLimit = 1000;
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
