@@ -63,7 +63,12 @@ struct AtomicWrapper {
 
     AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
 
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
+    AtomicWrapper& operator=(const AtomicWrapper& other) {
+        if (this != &other) {
+            _value.store(other._a.load());
+        }
+        return *this;
+    }
 };
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
