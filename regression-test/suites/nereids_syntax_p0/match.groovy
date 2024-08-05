@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -185,6 +187,12 @@ suite("match") {
 
         contains("INNER JOIN")
     }
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
 
     order_qt_match_join """
         select *
