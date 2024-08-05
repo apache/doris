@@ -1471,7 +1471,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     default:
-        return Status::InternalError("Unsupported exec type in pipelineX: {}",
+        return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(tnode.node_type));
     }
 
