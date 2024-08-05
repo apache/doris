@@ -79,6 +79,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
         }
     }
 
+    // Find large memory allocation not catch exception
+    if (size > 990000 && !doris::enable_thread_catch_bad_alloc) {
+        LOG(INFO) << "There is a large allocation " << size << ", not catch exception. "
+                  << doris::get_stack_trace();
+    }
+
     if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
