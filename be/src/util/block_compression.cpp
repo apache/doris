@@ -252,13 +252,43 @@ public:
     // hadoop use block compression for lz4
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
     Status compress(const Slice& input, faststring* output) override {
-        // TODO: zero copy in here
-        faststring buf;
-        RETURN_IF_ERROR(Lz4BlockCompression::compress(input, &buf));
-        output->resize(buf.size() + 8);
-        BigEndian::Store32(output->data(), input.get_size());
-        BigEndian::Store32(output->data() + 4, buf.size());
-        memcpy(output->data() + 8, buf.data(), buf.size());
+        // TODO: config lz4_buffer_size
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/Lz4Codec.java
+        size_t lz4_buffer_size = 64 * 1024;
+        size_t overhead = lz4_buffer_size / 255 + 6;
+        size_t max_input_size = lz4_buffer_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<faststring> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(Lz4BlockCompression::compress(input, &output_data));
+            out_len += output_data.size();
+            buffers.push_back(std::move(output_data));
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, input.get_size());
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            BigEndian::Store32(output_buffer, buffer.size());
+            output_buffer += 4;
+            memcpy(output_buffer, buffer.data(), buffer.size());
+            output_buffer += buffer.size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
         return Status::OK();
     }
 
@@ -768,13 +798,43 @@ public:
     // hadoop use block compression for snappy
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
     Status compress(const Slice& input, faststring* output) override {
-        // TODO: zero copy in here
-        faststring buf;
-        RETURN_IF_ERROR(SnappyBlockCompression::compress(input, &buf));
-        output->resize(buf.size() + 8);
-        BigEndian::Store32(output->data(), input.get_size());
-        BigEndian::Store32(output->data() + 4, buf.size());
-        memcpy(output->data() + 8, buf.data(), buf.size());
+        // TODO: config snappy_buffer_size
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/SnappyCodec.java
+        size_t snappy_buffer_size = 64 * 1024;
+        size_t overhead = snappy_buffer_size / 6 + 32;
+        size_t max_input_size = snappy_buffer_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<faststring> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(SnappyBlockCompression::compress(input, &output_data));
+            out_len += output_data.size();
+            buffers.push_back(std::move(output_data));
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, input.get_size());
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            BigEndian::Store32(output_buffer, buffer.size());
+            output_buffer += 4;
+            memcpy(output_buffer, buffer.data(), buffer.size());
+            output_buffer += buffer.size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
         return Status::OK();
     }
 
