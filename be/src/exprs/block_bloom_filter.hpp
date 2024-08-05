@@ -124,6 +124,39 @@ public:
         return false;
     }
 
+#ifdef __ARM_NEON
+    void make_find_mask(uint32_t key, uint32x4_t* masks) const noexcept {
+        uint32x4_t hash_data_1 = vdupq_n_u32(key);
+        uint32x4_t hash_data_2 = vdupq_n_u32(key);
+
+        uint32x4_t rehash_1 = vld1q_u32(&kRehash[0]);
+        uint32x4_t rehash_2 = vld1q_u32(&kRehash[4]);
+
+        //  masks[i] = key * kRehash[i];
+        hash_data_1 = vmulq_u32(rehash_1, hash_data_1);
+        hash_data_2 = vmulq_u32(rehash_2, hash_data_2);
+        //  masks[i] = masks[i] >> shift_num;
+        hash_data_1 = vshrq_n_u32(hash_data_1, shift_num);
+        hash_data_2 = vshrq_n_u32(hash_data_2, shift_num);
+
+        const uint32x4_t ones = vdupq_n_u32(1);
+
+        // masks[i] = 0x1 << masks[i];
+        masks[0] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_1));
+        masks[1] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_2));
+    }
+#else
+    void make_find_mask(uint32_t key, uint32_t* masks) const noexcept {
+        for (int i = 0; i < kBucketWords; ++i) {
+            masks[i] = key * kRehash[i];
+
+            masks[i] = masks[i] >> shift_num;
+
+            masks[i] = 0x1 << masks[i];
+        }
+    }
+#endif
+
     // Computes the logical OR of this filter with 'other' and stores the result in this
     // filter.
     // Notes:
@@ -163,7 +196,8 @@ private:
     // log2(number of bits in a BucketWord)
     static constexpr int kLogBucketWordBits = 5;
     static constexpr BucketWord kBucketWordMask = (1 << kLogBucketWordBits) - 1;
-
+    // (>> 27) is equivalent to (mod 32)
+    static constexpr auto shift_num = ((1 << kLogBucketWordBits) - kLogBucketWordBits);
     // log2(number of bytes in a bucket)
     static constexpr int kLogBucketByteSize = 5;
     // Bucket size in bytes.
