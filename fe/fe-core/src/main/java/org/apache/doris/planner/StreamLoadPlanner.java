@@ -144,12 +144,19 @@ public class StreamLoadPlanner {
         boolean negative = taskInfo.getNegative();
         // get partial update related info
         boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Only unique key merge on write support partial update");
+        if (isPartialUpdate && (!destTable.getKeysType().isAggregationFamily() || (
+                destTable.getKeysType() == KeysType.UNIQUE_KEYS && !destTable.getEnableUniqueKeyMergeOnWrite()))) {
+            throw new UserException("Only unique key merge on write or agg key support partial update");
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
+                if (destTable.getKeysType() == KeysType.AGG_KEYS && !col.isKey()
+                        && col.getAggregationType() != AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new UserException(
+                            "Column type should be REPLACE_IF_NOT_NULL on agg key partial update ,now column "
+                                    + col.getName() + " type is " + col.getAggregationType());
+                }
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
                     partialUpdateInputColumns.add(col.getName());

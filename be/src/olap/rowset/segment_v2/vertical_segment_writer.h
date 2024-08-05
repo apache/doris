@@ -212,6 +212,8 @@ private:
 
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    std::vector<std::shared_ptr<vectorized::Block>> _full_blocks;
 };
 
 } // namespace segment_v2
