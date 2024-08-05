@@ -870,14 +870,13 @@ public:
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
         output->resize(max_len);
-        Slice s(*output);
-        // TODO: compress bzip2
-        auto bzres = BZ2_bzBuffToBuffCompress((char*)s.data, (unsigned int*)(&s.size),
-                                              (char*)input.data, input.size, 1, 0, 0);
+        uint32_t size = output->size();
+        auto bzres = BZ2_bzBuffToBuffCompress((char*)output->data(), &size, (char*)input.data,
+                                              input.size, 9, 0, 0);
         if (bzres != BZ_OK) {
             return Status::InternalError("Fail to do Bzip2 compress, ret={}", bzres);
         }
-        output->resize(s.size);
+        output->resize(size);
         return Status::OK();
     }
 
@@ -923,8 +922,8 @@ public:
     }
 
     size_t max_compressed_len(size_t len) override {
-        // one-time overhead of six bytes for the entire stream plus five bytes per 16 KB block
-        return len + 6 + 5 * ((len >> 14) + 1);
+        // TODO: make sure the max_compressed_len for bzip2
+        return len * 2;
     }
 };
 
@@ -1168,6 +1167,9 @@ public:
     ~GzipBlockCompression() override = default;
 
     Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+
         z_stream z_strm = {};
         z_strm.zalloc = Z_NULL;
         z_strm.zfree = Z_NULL;
