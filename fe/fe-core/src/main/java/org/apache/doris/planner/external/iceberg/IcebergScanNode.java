@@ -80,7 +80,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -215,6 +214,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
+        long rowCount = getCountFromSnapshot();
+        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT) && rowCount >= 0) {
+            this.rowCount = rowCount;
+            return new ArrayList<>();
+        }
+
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
@@ -265,12 +270,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             }));
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
-        }
-
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
-            // we can create a special empty split and skip the plan process
-            return Collections.singletonList(splits.get(0));
         }
 
         readPartitionNum = partitionPathSet.size();
@@ -428,7 +427,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         // empty table
         if (snapshot == null) {
-            return -1;
+            return 0;
         }
 
         Map<String, String> summary = snapshot.summary();
@@ -445,10 +444,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.toThrift(planNode);
         if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT)) {
             long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot > 0) {
+            if (countFromSnapshot >= 0) {
                 planNode.setPushDownCount(countFromSnapshot);
             }
         }
+    }
+
+    @Override
+    public long getPushDownCount() {
+        return getCountFromSnapshot();
     }
 
     @Override
