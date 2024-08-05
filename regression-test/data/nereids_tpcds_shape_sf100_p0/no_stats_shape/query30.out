@@ -7,16 +7,16 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[wr_returning_addr_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[wr_returned_date_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[wr_returned_date_sk]
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[wr_returning_addr_sk]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1
 --------------------PhysicalProject
-----------------------filter((date_dim.d_year = 2002))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
+------------------filter((date_dim.d_year = 2002))
+--------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
