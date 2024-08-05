@@ -961,7 +961,7 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
                 bool sort_orders_match = SortOrder::SIGNED == sort_order;
                 if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
                                                                 col_schema->physical_type)) {
-                    LOG(WARNING) << "Ignoring corrupt statistics in " << _file_description.path;
+                    VLOG_DEBUG << "Ignoring corrupt statistics in " << _file_description.path;
                     ignore_min_max_stats = true;
                 } else if (!sort_orders_match && !max_equals_min) {
                     ignore_min_max_stats = true;

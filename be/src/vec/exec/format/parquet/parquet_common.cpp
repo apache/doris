@@ -451,7 +451,7 @@ bool CorruptStatistics::should_ignore_statistics(const std::string& created_by,
 
     if (created_by.empty()) {
         // created_by is not populated
-        LOG(WARNING)
+        VLOG_DEBUG
                 << "Ignoring statistics because created_by is null or empty! See PARQUET-251 and "
                    "PARQUET-297";
         return true;
@@ -461,10 +461,10 @@ bool CorruptStatistics::should_ignore_statistics(const std::string& created_by,
     std::unique_ptr<ParsedVersion> parsed_version;
     status = VersionParser::parse(created_by, &parsed_version);
     if (!status.ok()) {
-        LOG(WARNING) << "Ignoring statistics because created_by could not be parsed (see "
-                        "PARQUET-251)."
-                        " CreatedBy: "
-                     << created_by << ", msg: " << status.msg();
+        VLOG_DEBUG << "Ignoring statistics because created_by could not be parsed (see "
+                      "PARQUET-251)."
+                      " CreatedBy: "
+                   << created_by << ", msg: " << status.msg();
         return true;
     }
 
@@ -474,25 +474,25 @@ bool CorruptStatistics::should_ignore_statistics(const std::string& created_by,
     }
 
     if ((!parsed_version->version().has_value()) || parsed_version->version().value().empty()) {
-        LOG(WARNING) << "Ignoring statistics because created_by did not contain a semver (see "
-                        "PARQUET-251): "
-                     << created_by;
+        VLOG_DEBUG << "Ignoring statistics because created_by did not contain a semver (see "
+                      "PARQUET-251): "
+                   << created_by;
         return true;
     }
 
     std::unique_ptr<SemanticVersion> semantic_version;
     status = SemanticVersion::parse(parsed_version->version().value(), &semantic_version);
     if (!status.ok()) {
-        LOG(WARNING) << "Ignoring statistics because created_by could not be parsed (see "
-                        "PARQUET-251)."
-                        " CreatedBy: "
-                     << created_by << ", msg: " << status.msg();
+        VLOG_DEBUG << "Ignoring statistics because created_by could not be parsed (see "
+                      "PARQUET-251)."
+                      " CreatedBy: "
+                   << created_by << ", msg: " << status.msg();
         return true;
     }
     if (semantic_version->compare_to(PARQUET_251_FIXED_VERSION) < 0 &&
         !(semantic_version->compare_to(CDH_5_PARQUET_251_FIXED_START) >= 0 &&
           semantic_version->compare_to(CDH_5_PARQUET_251_FIXED_END) < 0)) {
-        LOG(WARNING)
+        VLOG_DEBUG
                 << "Ignoring statistics because this file was created prior to the fixed version, "
                    "see PARQUET-251";
         return true;
