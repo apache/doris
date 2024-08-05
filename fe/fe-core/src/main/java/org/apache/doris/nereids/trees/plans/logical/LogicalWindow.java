@@ -181,7 +181,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     /**
-     * check and get valid window function and partition limit value
+     *
+     * @param filter
+     *              For partition topN filter cases, it means the topN filter;
+     *              For partition limit cases, it will be null.
+     * @param partitionLimit
+     *              For partition topN filter cases, it means the filter boundary,
+     *                  e.g, 100 for the case rn <= 100;
+     *              For partition limit cases, it means the limit.
+     * @return
+     *              Return null means invalid cases or the opt option is disabled,
+     *              else return the chosen window function and the chosen partition limit.
+     *              A special limit -1 means the case can be optimized as empty relation.
      */
     public Pair<WindowExpression, Long> checkAndGetValidWindowFunc(LogicalFilter<?> filter, long partitionLimit) {
         if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
@@ -204,11 +215,11 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         long chosenRowNumberPartitionLimit = Long.MAX_VALUE;
         boolean hasRowNumber = false;
         for (NamedExpression windowExpr : windowExpressions) {
-            WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-            if (windowFunc == null || windowExpr.children().size() != 1
+            if (windowExpr == null || windowExpr.children().size() != 1
                     || !(windowExpr.child(0) instanceof WindowExpression)) {
                 continue;
             }
+            WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
 
             // Check the window function name.
             if (!(windowFunc.getFunction() instanceof RowNumber
@@ -243,21 +254,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 Set<Expression> conjuncts = filter.getConjuncts();
                 Set<Expression> relatedConjuncts = extractRelatedConjuncts(conjuncts, windowExpr.getExprId());
                 for (Expression conjunct : relatedConjuncts) {
-                    Preconditions.checkArgument(conjunct instanceof BinaryOperator);
+                    // Pre-checking has been done in former extraction
                     BinaryOperator op = (BinaryOperator) conjunct;
-                    Expression leftChild = op.children().get(0);
                     Expression rightChild = op.children().get(1);
-
-                    Preconditions.checkArgument(leftChild instanceof SlotReference
-                            && rightChild instanceof IntegerLikeLiteral);
-
                     long limitVal = ((IntegerLikeLiteral) rightChild).getLongValue();
                     // Adjust the value for 'limitVal' based on the comparison operators.
                     if (conjunct instanceof LessThan) {
                         limitVal--;
                     }
                     if (limitVal < 0) {
+                        // Set return limit value as -1 for indicating a empty relation opt case
                         chosenPartitionLimit = -1;
+                        chosenRowNumberPartitionLimit = -1;
                         break;
                     }
                     if (hasPartitionLimit) {

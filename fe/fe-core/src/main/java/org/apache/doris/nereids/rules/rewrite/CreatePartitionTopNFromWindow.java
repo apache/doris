@@ -66,8 +66,7 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
             LogicalWindow<Plan> window = filter.child();
 
             // We have already done such optimization rule, so just ignore it.
-            if (filter.getConjuncts().isEmpty()
-                    || window.child(0) instanceof LogicalPartitionTopN
+            if (window.child(0) instanceof LogicalPartitionTopN
                     || (window.child(0) instanceof LogicalFilter
                     && window.child(0).child(0) != null
                     && window.child(0).child(0) instanceof LogicalPartitionTopN)) {
@@ -78,6 +77,7 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
             if (windowFuncPair == null) {
                 return filter;
             } else if (windowFuncPair.second == -1) {
+                // limit -1 indicating a empty relation case
                 return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
             } else {
                 Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncPair.first,
