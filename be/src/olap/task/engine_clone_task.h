@@ -101,3 +101,4 @@ private:
 }; // EngineTask
 
 } // namespace doris
+#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
