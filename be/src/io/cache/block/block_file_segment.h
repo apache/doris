@@ -35,6 +35,7 @@
 #include "io/cache/block/block_file_cache.h"
 #include "io/fs/file_writer.h"
 #include "util/slice.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -45,7 +46,7 @@ class FileReader;
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;
 
-class FileBlock {
+class FileBlock : public std::enable_shared_from_this<FileBlock> {
     friend class LRUFileCache;
     friend struct FileBlocksHolder;
 
@@ -73,6 +74,9 @@ public:
 
     FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache, State download_state,
               CacheType cache_type);
+
+    FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache, State download_state,
+              CacheType cache_type, bool is_merged_file);
 
     ~FileBlock();
 
@@ -105,6 +109,11 @@ public:
     size_t offset() const { return range().left; }
 
     State wait();
+
+    /// Write the cached data asynchronously
+    Status async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length);
+
+    void async_remove();
 
     // append data to cache file
     Status append(Slice data);
@@ -144,6 +153,8 @@ public:
 
     State state_unlock(std::lock_guard<std::mutex>&) const;
 
+    void remove_merged_file();
+
     FileBlock& operator=(const FileBlock&) = delete;
     FileBlock(const FileBlock&) = delete;
 
@@ -158,6 +169,8 @@ private:
     void complete_unlocked(std::lock_guard<std::mutex>& segment_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock);
+
+    ThreadPool* _async_write_pool;
 
     const Range _segment_range;
 
@@ -190,6 +203,8 @@ private:
 
     std::atomic<bool> _is_downloaded {false};
     CacheType _cache_type;
+    Status _status = Status::OK();
+    bool _is_merged_file = false;
 };
 
 struct FileBlocksHolder {

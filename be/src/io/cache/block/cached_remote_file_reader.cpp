@@ -18,11 +18,9 @@
 #include "io/cache/block/cached_remote_file_reader.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <string.h>
 
-#include <algorithm>
 #include <list>
 #include <vector>
 
@@ -32,10 +30,11 @@
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/io_common.h"
-#include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/common/typeid_cast.h"
 
 namespace doris {
 namespace io {
@@ -44,6 +43,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
                                                const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
     _is_doris_table = opts.is_doris_table;
+    _is_remote_oss = typeid_cast<io::S3FileReader*>(_remote_file_reader.get()) != nullptr;
     if (_is_doris_table) {
         _cache_key = IFileCache::hash(path().filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
@@ -71,6 +71,14 @@ CachedRemoteFileReader::~CachedRemoteFileReader() {
 }
 
 Status CachedRemoteFileReader::close() {
+    if (_num_write_blocks > 0 && !_is_doris_table) {
+        // try to merge small blocks for external table
+        // can't merge the blocks for internal table
+        Status st = _cache->async_merge(_cache_key);
+        if (!st) {
+            LOG(WARNING) << "Failed to merge small blocks: " << st;
+        }
+    }
     return _remote_file_reader->close();
 }
 
@@ -84,17 +92,22 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
         if (IFileCache::read_only()) [[unlikely]] {
             return std::make_pair(offset, read_size);
         }
-        align_left = (left / config::file_cache_max_file_segment_size) *
-                     config::file_cache_max_file_segment_size;
-        align_right = (right / config::file_cache_max_file_segment_size + 1) *
-                      config::file_cache_max_file_segment_size;
+        // internal table should have large block size,
+        // because it's tablet is compacted with larger IO size,
+        // and write the cache block when writing table, not reading.
+        align_left =
+                (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
+        align_right = (right / config::file_cache_each_block_size + 1) *
+                      config::file_cache_each_block_size;
     } else {
-        size_t segment_size =
-                std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
-                         (size_t)config::file_cache_max_file_segment_size);
-        segment_size = BitUtil::next_power_of_two(segment_size);
-        align_left = (left / segment_size) * segment_size;
-        align_right = (right / segment_size + 1) * segment_size;
+        // larger block size for oss(default 1MB)
+        // smaller block size for hdfs(default 4KB)
+        // to make better performance, and minimize the unnecessary reading of extra data in hdfs
+        size_t min_size = _is_remote_oss ? config::file_cache_each_block_size
+                                         : config::file_cache_hdfs_block_size;
+        size_t segment_size = std::max(read_size, min_size);
+        align_left = left;
+        align_right = left + segment_size;
     }
     align_right = align_right < size() ? align_right : size();
     size_t align_size = align_right - align_left;
@@ -149,7 +162,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
         empty_start = empty_segments.front()->range().left;
         empty_end = empty_segments.back()->range().right;
         size_t size = empty_end - empty_start + 1;
-        std::unique_ptr<char[]> buffer(new char[size]);
+        std::shared_ptr<char[]> buffer(new char[size]);
         {
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
@@ -160,12 +173,12 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
                 continue;
             }
             SCOPED_RAW_TIMER(&stats.local_write_timer);
-            char* cur_ptr = buffer.get() + segment->range().left - empty_start;
             size_t segment_size = segment->range().size();
-            RETURN_IF_ERROR(segment->append(Slice(cur_ptr, segment_size)));
-            RETURN_IF_ERROR(segment->finalize_write());
+            RETURN_IF_ERROR(segment->async_write(buffer, segment->range().left - empty_start,
+                                                 segment_size));
             stats.bytes_write_into_file_cache += segment_size;
         }
+        _num_write_blocks = empty_segments.size();
         // copy from memory directly
         size_t right_offset = offset + result.size - 1;
         if (empty_start <= right_offset && empty_end >= offset) {

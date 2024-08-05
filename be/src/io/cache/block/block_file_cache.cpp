@@ -89,6 +89,10 @@ std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
     return fmt::format("{}/{}{}", get_path_in_local_cache(key), offset, cache_type_to_string(type));
 }
 
+std::string IFileCache::get_merged_path(const Key& key, size_t offset) const {
+    return fmt::format("{}/{}{}", get_path_in_local_cache(key), offset, "_merged");
+}
+
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
     auto key_str = key.to_string();
     if constexpr (USE_CACHE_VERSION2) {
@@ -222,7 +226,6 @@ void IFileCache::init() {
               << ", resource hard limit is: " << limit.rlim_max
               << ", config file_cache_max_file_reader_cache_size is: "
               << config::file_cache_max_file_reader_cache_size;
-    return;
 }
 
 } // namespace io

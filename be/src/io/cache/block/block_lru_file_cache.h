@@ -129,6 +129,18 @@ private:
 
     size_t try_release() override;
 
+    std::pair<size_t, size_t> try_merge() override;
+
+    Status async_merge(const Key& key) override;
+
+    /// Find the continuous segment files for a remote file
+    /// Return the offsets of the continuous files.
+    std::vector<std::vector<size_t>> find_continuous_cells(const FileBlocksByOffset& segments);
+
+    std::pair<size_t, size_t> merge_continuous_cells(
+            const std::unordered_map<Key, std::vector<std::vector<size_t>>, HashCachedFileKey>&
+                    merged_files);
+
     LRUFileCache::LRUQueue& get_queue(CacheType type);
     const LRUFileCache::LRUQueue& get_queue(CacheType type) const;
 

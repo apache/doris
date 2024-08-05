@@ -50,6 +50,18 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         json["released_elements"] = released;
         *json_metrics = json.ToString();
         return Status::OK();
+    } else if (operation == "merge") {
+        std::pair<size_t, size_t> origin_to_merge(0, 0);
+        if (req->param("base_path") != "") {
+            origin_to_merge = io::FileCacheFactory::instance()->try_merge(req->param("base_path"));
+        } else {
+            origin_to_merge = io::FileCacheFactory::instance()->try_merge();
+        }
+        EasyJson json;
+        json["origin_small_elements"] = origin_to_merge.first;
+        json["output_merged_elements"] = origin_to_merge.second;
+        *json_metrics = json.ToString();
+        return Status::OK();
     }
     return Status::InternalError("invalid operation: {}", operation);
 }
