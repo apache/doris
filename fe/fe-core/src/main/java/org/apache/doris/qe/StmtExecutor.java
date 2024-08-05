@@ -366,14 +366,14 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad(options)));
+                row.addColBuilder().setValue("\"" + expr.getStringValueForStreamLoad(options) + "\"");
             } else {
                 String stringValue = expr.getStringValueForStreamLoad(options);
                 if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
                         "\"")) {
-                    row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
+                    row.addColBuilder().setValue("\"" + stringValue + "\"");
                 } else {
-                    row.addColBuilder().setValue(String.format("%s", stringValue));
+                    row.addColBuilder().setValue(stringValue);
                 }
             }
         }

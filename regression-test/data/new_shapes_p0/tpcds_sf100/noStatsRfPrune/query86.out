@@ -15,14 +15,14 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=()
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+--------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
 ------------------------------------PhysicalProject
---------------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
+----------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
+------------------------------------PhysicalOlapScan[date_dim]
 
