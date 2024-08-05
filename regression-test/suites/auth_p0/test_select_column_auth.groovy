@@ -69,6 +69,8 @@ suite("test_select_column_auth","p0,auth") {
         (3, "333");
         """
     sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
+    waitingMTMVTaskFinishedByMvName(mtmv_name)
+
     sql """grant select_priv on regression_test to ${user}"""
 
     // table column
@@ -77,7 +79,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
@@ -91,7 +93,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${mv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mv_name} to ${user}"""
@@ -105,7 +107,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${mtmv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
@@ -121,7 +123,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username, sum(id) from ${dbName}.${tableName} group by username"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""

@@ -627,6 +627,14 @@ public class DatabaseTransactionMgr {
 
                         int successReplicaNum = tabletSuccReplicas.size();
                         if (successReplicaNum < loadRequiredReplicaNum) {
+                            long now = System.currentTimeMillis();
+                            long lastLoadFailedTime = tablet.getLastLoadFailedTime();
+                            tablet.setLastLoadFailedTime(now);
+                            if (now - lastLoadFailedTime >= 5000L) {
+                                Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
+                                        tablet, db.getId(), table, partition, index, 0);
+                            }
+
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
@@ -1391,6 +1399,9 @@ public class DatabaseTransactionMgr {
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
                             loadRequiredReplicaNum, allowPublishOneSucc, newVersion, tabletSuccReplicas,
                             tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
+                    }
                 }
             }
         }
@@ -2726,6 +2737,9 @@ public class DatabaseTransactionMgr {
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
                             loadRequiredReplicaNum, allowPublishOneSucc, maxVersion, tabletSuccReplicas,
                             tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
+                    }
                 }
             }
         }

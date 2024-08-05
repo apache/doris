@@ -169,7 +169,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         database.getId(), olapTableSink.getDstTable(), analyzer));
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
                 List<TOlapTableLocationParam> locationParams = olapTableSink
-                        .createLocation(olapTableSink.getDstTable());
+                        .createLocation(database.getId(), olapTableSink.getDstTable());
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
             }

@@ -104,6 +104,10 @@ std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatur
 
 std::atomic_ulong s_report_version(time(nullptr) * 10000);
 
+void increase_report_version() {
+    s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
+
 // FIXME(plat1ko): Paired register and remove task info
 bool register_task_info(const TTaskType::type task_type, int64_t signature) {
     if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
@@ -214,7 +218,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -290,7 +294,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -1534,7 +1538,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                 .tag("tablet_id", create_tablet_req.tablet_id)
                 .error(status);
     } else {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
         // get path hash of the created tablet
         TabletSharedPtr tablet;
         {
@@ -1629,7 +1633,7 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     } else {
         LOG_WARNING("failed to execute push task")
@@ -1675,7 +1679,7 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         auto& tablet_info = finish_task_request.finish_tablet_infos.emplace_back();
         // Just need tablet_id
         tablet_info.tablet_id = push_req.tablet_id;
@@ -1972,6 +1976,10 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", clone_req.tablet_id);
+        if (engine_task.is_new_tablet()) {
+            increase_report_version();
+            finish_task_request.__set_report_version(s_report_version);
+        }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     }
 

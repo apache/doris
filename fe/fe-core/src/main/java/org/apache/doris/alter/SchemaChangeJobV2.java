@@ -79,6 +79,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -94,7 +95,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
     @SerializedName(value = "partitionIndexTabletMap")
-    protected Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
+    private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
     // partition id -> (shadow index id -> shadow index))
     @SerializedName(value = "partitionIndexMap")
     protected Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
@@ -480,14 +481,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
                             Column newColumn = indexColumnMap.get(
                                     SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                            if (newColumn.getType() != column.getType()) {
-                                try {
-                                    SlotRef slot = new SlotRef(destSlotDesc);
-                                    slot.setCol(column.getName());
-                                    defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
-                                } catch (AnalysisException e) {
-                                    throw new AlterCancelException(e.getMessage());
-                                }
+                            if (!Objects.equals(newColumn.getType(), column.getType())) {
+                                SlotRef slot = new SlotRef(destSlotDesc);
+                                slot.setCol(column.getName());
+                                defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
                             }
                         }
                     }
@@ -510,6 +507,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
 
             } // end for partitions
+        } catch (AnalysisException e) {
+            throw new AlterCancelException(e.getMessage());
         } finally {
             tbl.readUnlock();
         }
@@ -755,7 +754,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        onCancel();
+        postProcessShadowIndex();
 
         return true;
     }
@@ -903,7 +902,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
         cancelInternal();
         // try best to drop shadow index
-        onCancel();
+        postProcessShadowIndex();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
@@ -1006,7 +1005,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void commitShadowIndex() throws AlterCancelException {}
 
     // try best to drop shadow index, when job is cancelled in cloud mode
-    protected void onCancel() {}
+    protected void postProcessShadowIndex() {}
 
     // try best to drop origin index in cloud mode
     protected void postProcessOriginIndex() {}
