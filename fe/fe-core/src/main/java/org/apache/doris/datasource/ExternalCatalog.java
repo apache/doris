@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.security.authentication.Authenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -78,6 +79,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -156,6 +158,23 @@ public abstract class ExternalCatalog
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    /**
+     * get authenticator for catalog
+     * return a dummy authenticator by default
+     */
+    public synchronized Authenticator getAuthenticator() {
+        return new Authenticator() {
+            @Override
+            public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+                try {
+                    return action.run();
+                } catch (Exception e) {
+                    throw new IOException(e);
+                }
+            }
+        };
     }
 
     /**
