@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -371,6 +373,20 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 leftRowCount += 1e-3;
             }
         }
+        if (!physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()
+                && !(RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(physicalHashJoin.getJoinType()))
+                && !physicalHashJoin.isMarkJoin()
+                && buildStats.getWidthInJoinCluster() == 1) {
+            // we prefer join order: A-B-filter(C) to A-filter(C)-B,
+            // since filter(C) may generate effective RF to B, and RF(C->B) makes RF(B->A) more effective.
+            double filterFactor = computeFilterFactor(buildStats);
+            if (filterFactor > 1.0) {
+                double bonus = filterFactor * probeStats.getWidthInJoinCluster();
+                if (leftRowCount > bonus) {
+                    leftRowCount -= bonus;
+                }
+            }
+        }
 
         /*
         pattern1: L join1 (Agg1() join2 Agg2())
@@ -426,6 +442,23 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor + outputRowCount,
                         rightRowCount, 0
         );
+    }
+
+    private double computeFilterFactor(Statistics stats) {
+        double factor = 1.0;
+        double maxBaseTableRowCount = 0.0;
+        for (Expression expr : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(expr);
+            if (colStats.isUnKnown) {
+                maxBaseTableRowCount = Math.max(maxBaseTableRowCount, colStats.count);
+            } else {
+                break;
+            }
+        }
+        if (maxBaseTableRowCount != 0) {
+            factor = Math.max(1, Math.min(2, maxBaseTableRowCount / stats.getRowCount()));
+        }
+        return factor;
     }
 
     /*
