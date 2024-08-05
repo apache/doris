@@ -1281,6 +1281,9 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
+
+    // with array empty
+    qt_array_empty_fe """select array()"""
     // make large error size
     test {
         sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
@@ -1305,5 +1308,4 @@ suite("nereids_scalar_fn_Array") {
             logger.info(exception.message)
         }
     }
-
 }
