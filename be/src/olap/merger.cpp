@@ -248,7 +248,7 @@ Status Merger::vertical_compact_one_group(
         std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
         CompactionSampleInfo* sample_info) {
     // build tablet reader
-    VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+    LOG(INFO) << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     vectorized::VerticalBlockReader reader(row_source_buf);
     TabletReader::ReaderParams reader_params;
     reader_params.is_key_column_group = is_key;
@@ -265,6 +265,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.set_read_source(std::move(read_source));
 
     reader_params.version = dst_rowset_writer->version();
+    LOG(INFO) << "reader_params.version:" << reader_params.version;
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(tablet_schema);
@@ -329,6 +330,8 @@ Status Merger::vertical_compact_one_group(
         stats_output->output_rows = output_rows;
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
+        LOG(INFO) << "output_rows:" << output_rows << ",merged_rows:" << reader.merged_rows()
+                  << ",filtered_rows:" << reader.filtered_rows();
     }
     RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
 
@@ -462,7 +465,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
-        VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
+        LOG(INFO) << "i:" << i << ",row source size: " << row_sources_buf.total_size();
         bool is_key = (i == 0);
         int64_t batch_size = config::compaction_batch_size != -1
                                      ? config::compaction_batch_size
@@ -478,7 +481,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     }
 
     // finish compact, build output rowset
-    VLOG_NOTICE << "finish compact groups";
+    LOG(INFO) << "finish compact groups";
     RETURN_IF_ERROR(dst_rowset_writer->final_flush());
 
     return Status::OK();

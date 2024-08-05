@@ -455,6 +455,8 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
              _keys_type == KeysType::AGG_KEYS)) {
             // skip cur row, copy pre ctx
             ++_merged_rows;
+            LOG(INFO) << "++_merged_rows";
+            LOG(INFO) << "_merged_rows:" << _merged_rows;
             if (pre_ctx) {
                 RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                 pre_ctx = nullptr;

@@ -205,6 +205,8 @@ Status Compaction::merge_input_rowsets() {
 
     COUNTER_UPDATE(_merged_rows_counter, _stats.merged_rows);
     COUNTER_UPDATE(_filtered_rows_counter, _stats.filtered_rows);
+    LOG(INFO) << "tablet:" << _tablet->tablet_id() << ",_stats.merged_rows:" << _stats.merged_rows
+              << ",_stats.filtered_rows:" << _stats.filtered_rows;
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",

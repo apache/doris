@@ -193,6 +193,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 _indexs.emplace_back(current->pos);
                 _block_addrs.emplace_back(current->block_ptr());
                 ++merged_rows;
+                LOG(INFO) << "++merged_rows";
+                LOG(INFO) << "merged_rows:" << merged_rows;
             }
 
             if (!next_heap(current)) {

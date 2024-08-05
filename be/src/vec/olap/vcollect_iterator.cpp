@@ -738,6 +738,8 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
 
     if (_skip_same && _cur_child->is_same()) {
         _reader->_merged_rows++;
+        LOG(INFO) << "_reader->_merged_rows++";
+        LOG(INFO) << "_reader->_merged_rows:" << _reader->_merged_rows;
         _cur_child->set_same(false);
         return _merge_next(ref);
     }

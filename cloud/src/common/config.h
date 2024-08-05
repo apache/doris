@@ -201,4 +201,8 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+CONF_Bool(enable_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "2");
+CONF_Int32(txn_lazy_commit_worker_num, "8");
+CONF_Int32(txn_lazy_max_rowsets_per_batch, "256");
 } // namespace doris::cloud::config

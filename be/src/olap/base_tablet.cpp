@@ -1367,20 +1367,20 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
-                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
-                                      << " src loaction: |" << src.rowset_id << "|"
-                                      << src.segment_id << "|" << src.row_id
-                                      << " version: " << cur_version;
+                        LOG(INFO) << "Can't find rowid, may be deleted by the delete_handler, "
+                                  << " src loaction: |" << src.rowset_id << "|" << src.segment_id
+                                  << "|" << src.row_id << " version: " << cur_version;
                         if (missed_rows) {
                             missed_rows->insert(src);
                         }
+                        LOG(INFO) << "missed_rows size:" << missed_rows->size();
                         continue;
                     }
-                    VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
-                               << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
-                               << " src location: |" << src.rowset_id << "|" << src.segment_id
-                               << "|" << src.row_id << " start version: " << start_version
-                               << "end version" << end_version;
+                    LOG(INFO) << "calc_compaction_output_rowset_delete_bitmap dst location: |"
+                              << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
+                              << " src location: |" << src.rowset_id << "|" << src.segment_id << "|"
+                              << src.row_id << " start version: " << start_version << "end version"
+                              << end_version;
                     if (location_map) {
                         (*location_map)[rowset].emplace_back(src, dst);
                     }
