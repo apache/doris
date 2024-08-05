@@ -95,7 +95,6 @@ private:
     std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
     std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>>
             _finish_dependencies;
-    std::condition_variable _cv;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };

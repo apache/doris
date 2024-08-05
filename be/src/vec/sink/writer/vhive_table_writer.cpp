@@ -30,8 +30,10 @@ namespace doris {
 namespace vectorized {
 
 VHiveTableWriter::VHiveTableWriter(const TDataSink& t_sink,
-                                   const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), _t_sink(t_sink) {
+                                   const VExprContextSPtrs& output_expr_ctxs,
+                                   std::shared_ptr<pipeline::Dependency> dep,
+                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.hive_table_sink);
 }
 
