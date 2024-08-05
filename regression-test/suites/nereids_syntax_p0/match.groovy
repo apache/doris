@@ -175,6 +175,12 @@ suite("match") {
         SELECT * FROM test_nereids_match_select WHERE name match_phrase 'zhang' and selfComment match_phrase 'want go outside';
     """
 
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
+
     explain {
         sql """
         select *
@@ -187,12 +193,6 @@ suite("match") {
 
         contains("INNER JOIN")
     }
-
-    def variables = sql "show variables"
-    def variableString = variables.stream()
-            .map { it.toString() }
-            .collect(Collectors.joining("\n"))
-    logger.info("Variables:\n${variableString}")
 
     order_qt_match_join """
         select *
