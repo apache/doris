@@ -102,19 +102,7 @@ public:
             return false;
         }
         const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-#ifdef __AVX2__
-        const __m256i mask = make_mark(hash);
-        const __m256i bucket = reinterpret_cast<__m256i*>(_directory)[bucket_idx];
-        // We should return true if 'bucket' has a one wherever 'mask' does. _mm256_testc_si256
-        // takes the negation of its first argument and ands that with its second argument. In
-        // our case, the result is zero everywhere iff there is a one in 'bucket' wherever
-        // 'mask' is one. testc returns 1 if the result is 0 everywhere and returns 0 otherwise.
-        const bool result = _mm256_testc_si256(bucket, mask);
-        _mm256_zeroupper();
-        return result;
-#else
         return bucket_find(bucket_idx, hash);
-#endif
     }
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
