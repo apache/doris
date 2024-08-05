@@ -316,6 +316,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
+                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
@@ -362,6 +363,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
+                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_LOAD_START:
