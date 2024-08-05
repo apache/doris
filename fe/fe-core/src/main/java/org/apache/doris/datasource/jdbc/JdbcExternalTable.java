@@ -21,15 +21,22 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
+import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -37,6 +44,8 @@ import java.util.Optional;
  */
 public class JdbcExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalTable.class);
+
+    public static final String ROW_COUNT_SQL = "SELECT COUNT(1) FROM `${ctlName}`.`${dbName}`.`${tblName}`";
 
     private JdbcTable jdbcTable;
 
@@ -97,5 +106,21 @@ public class JdbcExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
+    }
+
+    @Override
+    public long fetchRowCount() {
+        Map<String, String> params = new HashMap<>();
+        params.put("ctlName", catalog.getName());
+        params.put("dbName", dbName);
+        params.put("tblName", name);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, false)) {
+            ResultRow resultRow;
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            String sql = stringSubstitutor.replace(ROW_COUNT_SQL);
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            resultRow = stmtExecutor.executeInternalQuery().get(0);
+            return Long.parseLong(resultRow.get(0));
+        }
     }
 }
