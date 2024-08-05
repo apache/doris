@@ -37,6 +37,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
@@ -85,13 +86,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                     AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {
-                        dfsFileSystem = authenticator.doAs(() -> {
-                            try {
-                                return FileSystem.get(new Path(remotePath).toUri(), conf);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
+                        dfsFileSystem = authenticator.doAs(() -> FileSystem.get(new Path(remotePath).toUri(), conf));
                     } catch (Exception e) {
                         throw new UserException(e);
                     }
@@ -394,7 +389,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "only allow rename in same file system");
             }
-            FileSystem fileSystem = nativeFileSystem(destPath);
+            FileSystem fileSystem = rawFileSystem();
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
             boolean isRenameSuccess = authenticator.doAs(() -> fileSystem.rename(srcfilePath, destfilePath));
@@ -480,5 +475,43 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;
+    }
+
+    public FileSystem rawFileSystem() throws IOException {
+        if (dfsFileSystem == null) {
+            synchronized (this) {
+                if (dfsFileSystem == null) {
+                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    for (Map.Entry<String, String> propEntry : properties.entrySet()) {
+                        conf.set(propEntry.getKey(), propEntry.getValue());
+                    }
+                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
+                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
+                    dfsFileSystem = authenticator.doAs(() -> FileSystem.get(conf));
+                    operations = new HDFSFileOperations(dfsFileSystem);
+                }
+            }
+        }
+        return authenticator.doAs(() -> dfsFileSystem);
+    }
+
+    public FileStatus[] listStatus(Path f, PathFilter filter) throws IOException {
+        return authenticator.doAs(() -> rawFileSystem().listStatus(f, filter));
+    }
+
+    public RemoteIterator<FileStatus> listStatusIterator(Path p) throws IOException {
+        return authenticator.doAs(() -> rawFileSystem().listStatusIterator(p));
+    }
+
+    public FileStatus getFileStatus(Path f) throws IOException {
+        return authenticator.doAs(() -> rawFileSystem().getFileStatus(f));
+    }
+
+    public boolean delete(Path p, boolean recursion) throws IOException {
+        return authenticator.doAs(() -> rawFileSystem().delete(p, recursion));
+    }
+
+    public boolean mkdirs(Path p) throws IOException {
+        return authenticator.doAs(() -> rawFileSystem().mkdirs(p));
     }
 }

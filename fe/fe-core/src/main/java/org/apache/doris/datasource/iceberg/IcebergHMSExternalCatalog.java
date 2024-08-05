@@ -18,11 +18,11 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.iceberg.hive.IcebergHiveCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.hive.HiveCatalog;
 
 import java.util.Map;
 
@@ -38,7 +38,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_HMS;
-        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        IcebergHiveCatalog hiveCatalog = new IcebergHiveCatalog();
         hiveCatalog.setConf(getConfiguration());
         // initialize hive catalog
         Map<String, String> catalogProperties = catalogProperty.getProperties();

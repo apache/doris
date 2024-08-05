@@ -15,23 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg.dlf;
+package org.apache.doris.common.security.authentication;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.metastore.IMetaStoreClient;
-import org.apache.iceberg.ClientPool;
-import org.apache.iceberg.hive.HiveTableOperations;
-import org.apache.iceberg.io.FileIO;
-import shade.doris.hive.org.apache.thrift.TException;
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
-public class DLFTableOperations extends HiveTableOperations {
+public interface Authenticator {
 
-    public DLFTableOperations(Configuration conf,
-                              ClientPool<IMetaStoreClient, TException> metaClients,
-                              FileIO fileIO,
-                              String catalogName,
-                              String database,
-                              String table) {
-        super(conf, metaClients, fileIO, catalogName, database, table);
+    <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException;
+
+    default <T> void doAsNoReturn(Runnable action) throws IOException {
+        doAs(() -> {
+            action.run();
+            return null;
+        });
     }
 }
