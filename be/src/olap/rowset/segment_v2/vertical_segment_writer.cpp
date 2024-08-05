@@ -98,16 +98,16 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
-    _num_key_columns = _tablet_schema->num_key_columns();
+    _num_sort_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
     if (_tablet_schema->cluster_key_idxes().empty()) {
-        DCHECK(_num_key_columns >= _num_short_key_columns)
+        DCHECK(_num_sort_key_columns >= _num_short_key_columns)
                 << ", table_id=" << _tablet_schema->table_id()
-                << ", num_key_columns=" << _num_key_columns
+                << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
                 << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
     }
-    for (size_t cid = 0; cid < _num_key_columns; ++cid) {
+    for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
         _key_index_size.push_back(column.index_length());
@@ -127,7 +127,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_key_columns = _tablet_schema->cluster_key_idxes().size();
+            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
                 const auto& column = _tablet_schema->column(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
@@ -367,7 +367,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         if (!status.ok()) {
             return status;
         }
-        if (cid < _num_key_columns) {
+        if (cid < _num_sort_key_columns) {
             key_columns.push_back(column);
         } else if (_tablet_schema->has_sequence_col() &&
                    cid == _tablet_schema->sequence_col_idx()) {
@@ -896,7 +896,7 @@ Status VerticalSegmentWriter::write_batch() {
                     }
                 }
             } else {
-                if (cid < _num_key_columns) {
+                if (cid < _num_sort_key_columns) {
                     key_columns.push_back(column);
                 }
             }
@@ -1044,8 +1044,9 @@ Status VerticalSegmentWriter::_generate_short_key_index(
 
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-    assert(_key_index_size.size() == _num_key_columns);
-    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
+    assert(_key_index_size.size() == _num_sort_key_columns);
+    assert(key_columns.size() == _num_sort_key_columns &&
+           _key_coders.size() == _num_sort_key_columns);
     return _full_encode_keys(_key_coders, key_columns, pos);
 }
 
