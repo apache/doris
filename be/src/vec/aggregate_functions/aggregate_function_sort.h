@@ -126,13 +126,16 @@ private:
     }
 
 public:
-    AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
+    AggregateFunctionSort(AggregateFunctionPtr nested_func, const DataTypes& arguments,
                           const SortDescription& sort_desc, const RuntimeState* state)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(arguments),
-              _nested_func(nested_func),
+              _nested_func(std::move(nested_func)),
               _arguments(arguments),
               _sort_desc(sort_desc),
               _state(state) {
+        if (auto f = _nested_func->transmit_to_stable(); f) {
+            _nested_func = f;
+        }
         for (const auto& type : _arguments) {
             _block.insert({type, ""});
         }
@@ -158,7 +161,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
-        auto place = const_cast<AggregateDataPtr>(targetplace);
+        auto* place = const_cast<AggregateDataPtr>(targetplace);
+        Arena arena;
         if (!this->data(place).block.is_empty_column()) {
             this->data(place).sort();
 
@@ -167,9 +171,10 @@ public:
                 arguments_nested.emplace_back(
                         this->data(place).block.get_by_position(i).column.get());
             }
+
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),
                                                  get_nested_place(place), arguments_nested.data(),
-                                                 nullptr);
+                                                 &arena);
         }
 
         _nested_func->insert_result_into(get_nested_place(place), to);
