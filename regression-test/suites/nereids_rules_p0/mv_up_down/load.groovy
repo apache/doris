@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_downgrade_prepare_mtmv","p0,mtmv,restart_fe,") {
+suite("test_upgrade_downgrade_prepare_mtmv","p0,mtmv,restart_fe") {
 
     String db = context.config.getDbNameByFile(context.file)
-    String orders_tb = "orders"
-    String lineitem_tb = "lineitem"
-    String mtmv_name = "test_mv"
+    String orders_tb = "up_down_mtmv_orders"
+    String lineitem_tb = "up_down_mtmv_lineitem"
+    String mtmv_name = "up_down_mtmv_test_mv"
     sql "use ${db}"
 
 
@@ -123,6 +123,6 @@ suite("test_upgrade_downgrade_prepare_mtmv","p0,mtmv,restart_fe,") {
         """
 
     def job_name = getJobName(db, mtmv_name)
-    waitingMTMVTaskFinished(job_name)
+    waitingMTMVTaskFinishedByMvName(mtmv_name)
 
 }
