@@ -130,16 +130,23 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
             }
         } else {
             if (duration >= 10 * _group_commit_interval_ms) {
-                std::stringstream ss;
-                ss << "[";
-                for (auto& id : _load_ids) {
-                    ss << id.to_string() << ", ";
+                auto last_print_duration =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - _last_print_time)
+                                .count();
+                if (last_print_duration >= 10000) {
+                    _last_print_time = std::chrono::steady_clock::now();
+                    std::stringstream ss;
+                    ss << "[";
+                    for (auto& id : _load_ids) {
+                        ss << id.to_string() << ", ";
+                    }
+                    ss << "]";
+                    LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                              << ", label=" << label << ", instance_id=" << load_instance_id
+                              << ", duration=" << duration << ", load_ids=" << ss.str()
+                              << ", runtime_state=" << runtime_state;
                 }
-                ss << "]";
-                LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
-                          << ", label=" << label << ", instance_id=" << load_instance_id
-                          << ", duration=" << duration << ", load_ids=" << ss.str()
-                          << ", runtime_state=" << runtime_state;
             }
         }
         _get_cond.wait_for(l, std::chrono::milliseconds(
@@ -391,12 +398,21 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
                     { status = Status::InternalError(""); });
     if (status.ok()) {
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
+                        { status = Status::InternalError(""); });
         // commit txn
         TLoadTxnCommitRequest request;
         request.__set_auth_code(0); // this is a fake, fe not check it now
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
+        request.__set_groupCommit(true);
+        request.__set_receiveBytes(state->num_bytes_load_total());
+        if (_exec_env->master_info()->__isset.backend_id) {
+            request.__set_backendId(_exec_env->master_info()->backend_id);
+        } else {
+            LOG(WARNING) << "_exec_env->master_info not set backend_id";
+        }
         if (state) {
             request.__set_commitInfos(state->tablet_commit_infos());
         }

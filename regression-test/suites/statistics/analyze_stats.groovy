@@ -164,7 +164,73 @@ suite("test_analyze") {
         exception = e
     }
 
-    // Test sample agg table value column. Min max is N/A when zone map is not available.
+    // Test partition load data for the first time.
+    sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+    """
+
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (1, '1', '1')"""
+    def partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    assertEquals(partition_result[0][0], "1")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (101, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test(id) with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (102, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (2, '2', '2')"""
+    sql """insert into partition_test values (3, '3', '3')"""
+    sql """insert into partition_test values (4, '4', '4')"""
+    sql """insert into partition_test values (5, '5', '5')"""
+    sql """insert into partition_test values (6, '6', '6')"""
+    sql """insert into partition_test values (7, '7', '7')"""
+    sql """insert into partition_test values (8, '8', '8')"""
+    sql """insert into partition_test values (9, '9', '9')"""
+    sql """insert into partition_test values (10, '10', '10')"""
+    sql """insert into partition_test values (103, '1', '1')"""
+    sql """insert into partition_test values (104, '1', '1')"""
+    sql """insert into partition_test values (105, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (201, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    partition_result = sql """show column stats partition_test(id)"""
+    assertEquals("id", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+    partition_result = sql """show column stats partition_test(name)"""
+    assertEquals("name", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+    partition_result = sql """show column stats partition_test(comment)"""
+    assertEquals("comment", partition_result[0][0])
+    assertEquals("15.0", partition_result[0][2])
+
+    // Test sample agg table value column
     sql """
      CREATE TABLE `agg_table_test` (
       `id` BIGINT NOT NULL,
@@ -183,6 +249,43 @@ suite("test_analyze") {
     logger.info("show column agg_table_test(name) stats: " + agg_result)
     assertEquals(agg_result[0][7], "N/A")
     assertEquals(agg_result[0][8], "N/A")
+
+    // Continue test partition load data for the first time.
+    def reported = false;
+    for (int i = 0; i < 10; i++) {
+        def data_result = sql """show data from partition_test"""
+        logger.info("show data from partition_test: " + data_result)
+        if (data_result[0][4] == '16') {
+            reported = true;
+            break;
+        }
+        sleep(1000)
+    }
+    if (!reported) {
+        logger.info("partition_test row count is not reported.")
+    } else {
+        sql """analyze table partition_test PROPERTIES("use.auto.analyzer"="true")"""
+        for (int i = 0; i < 10; i++) {
+            def auto_analyze_result = sql """show auto analyze partition_test"""
+            logger.info("show auto analyze partition_test result : " + auto_analyze_result)
+            if (auto_analyze_result[0][9] == 'FINISHED') {
+                logger.info("Auto analyze finished.")
+                auto_analyze_result = sql """show table stats partition_test"""
+                assertEquals(auto_analyze_result[0][6], "false")
+                auto_analyze_result = sql """show column stats partition_test(id)"""
+                assertEquals("id", auto_analyze_result[0][0])
+                assertEquals("16.0", auto_analyze_result[0][2])
+                auto_analyze_result = sql """show column stats partition_test(name)"""
+                assertEquals("name", auto_analyze_result[0][0])
+                assertEquals("16.0", auto_analyze_result[0][2])
+                auto_analyze_result = sql """show column stats partition_test(comment)"""
+                assertEquals("comment", auto_analyze_result[0][0])
+                assertEquals("16.0", auto_analyze_result[0][2])
+                break
+            }
+            sleep(1000)
+        }
+    }
 
     def a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
@@ -2595,42 +2698,6 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("\'name1\'", result[0][7])
     assertEquals("\'name3\'", result[0][8])
 
-    // Test partititon load data for the first time.
-    sql """
-     CREATE TABLE `partition_test` (
-      `id` INT NOT NULL,
-      `name` VARCHAR(25) NOT NULL,
-      `comment` VARCHAR(152) NULL
-      ) ENGINE=OLAP
-      DUPLICATE KEY(`id`)
-      COMMENT 'OLAP'
-      PARTITION BY RANGE(`id`)
-      (PARTITION p1 VALUES [("0"), ("100")),
-       PARTITION p2 VALUES [("100"), ("200")),
-       PARTITION p3 VALUES [("200"), ("300")))
-      DISTRIBUTED BY HASH(`id`) BUCKETS 1
-      PROPERTIES (
-       "replication_num" = "1");
-     """
-
-    sql """analyze table partition_test with sync"""
-    sql """insert into partition_test values (1, '1', '1')"""
-    def partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "true")
-    assertEquals(partition_result[0][0], "1")
-    sql """analyze table partition_test with sync"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-    sql """insert into partition_test values (101, '1', '1')"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "true")
-    sql """analyze table partition_test(id) with sync"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-    sql """insert into partition_test values (102, '1', '1')"""
-    partition_result = sql """show table stats partition_test"""
-    assertEquals(partition_result[0][6], "false")
-
     // Test sample string type min max
     sql """
      CREATE TABLE `string_min_max` (
@@ -2646,6 +2713,7 @@ PARTITION `p599` VALUES IN (599)
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
     sql """analyze table string_min_max with sync"""
+
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=NONE"
@@ -2656,19 +2724,21 @@ PARTITION `p599` VALUES IN (599)
         contains "pushAggOp=MINMAX"
     }
 
+    sql """set forbid_unknown_col_stats=true"""
+
     // Test alter
     sql """
-      CREATE TABLE alter_test(
-       `id`      int NOT NULL,
-       `name`     VARCHAR(25) NOT NULL
-      )ENGINE=OLAP
-      DUPLICATE KEY(`id`)
-      COMMENT "OLAP"
-      DISTRIBUTED BY HASH(`id`) BUCKETS 1
-      PROPERTIES (
-       "replication_num" = "1"
-      );
-   """
+    CREATE TABLE alter_test(
+            `id`      int NOT NULL,
+            `name`     VARCHAR(25) NOT NULL
+    )ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+            "replication_num" = "1"
+    );
+    """
     sql """ANALYZE TABLE alter_test WITH SYNC"""
     def alter_result = sql """show table stats alter_test"""
     assertEquals("false", alter_result[0][7])
@@ -2710,17 +2780,17 @@ PARTITION `p599` VALUES IN (599)
     sql """CREATE DATABASE IF NOT EXISTS trigger"""
     sql """USE trigger"""
     sql """
-     CREATE TABLE if not exists trigger_test(
-      `id`      int NOT NULL,
-      `name`    VARCHAR(152)
-     )ENGINE=OLAP
-     DUPLICATE KEY(`id`)
-     COMMENT "OLAP"
-     DISTRIBUTED BY HASH(`id`) BUCKETS 1
-     PROPERTIES (
-      "replication_num" = "1"
-     );
-   """
+    CREATE TABLE if not exists trigger_test(
+            `id`      int NOT NULL,
+            `name`    VARCHAR(152)
+    )ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+            "replication_num" = "1"
+    );
+    """
     // Test sample empty table
     def result_sample = sql """analyze table trigger_test with sample percent 10 with sync"""
     result_sample = sql """show column stats trigger_test"""
@@ -2797,43 +2867,43 @@ PARTITION `p599` VALUES IN (599)
 
     // Test inject stats avg_size.
     sql """CREATE TABLE `date_dim` (
-          `d_date_sk` BIGINT NOT NULL,
-          `d_date_id` CHAR(16) NOT NULL,
-          `d_date` DATE NULL,
-          `d_month_seq` INT NULL,
-          `d_week_seq` INT NULL,
-          `d_quarter_seq` INT NULL,
-          `d_year` INT NULL,
-          `d_dow` INT NULL,
-          `d_moy` INT NULL,
-          `d_dom` INT NULL,
-          `d_qoy` INT NULL,
-          `d_fy_year` INT NULL,
-          `d_fy_quarter_seq` INT NULL,
-          `d_fy_week_seq` INT NULL,
-          `d_day_name` CHAR(9) NULL,
-          `d_quarter_name` CHAR(6) NULL,
-          `d_holiday` CHAR(1) NULL,
-          `d_weekend` CHAR(1) NULL,
-          `d_following_holiday` CHAR(1) NULL,
-          `d_first_dom` INT NULL,
-          `d_last_dom` INT NULL,
-          `d_same_day_ly` INT NULL,
-          `d_same_day_lq` INT NULL,
-          `d_current_day` CHAR(1) NULL,
-          `d_current_week` CHAR(1) NULL,
-          `d_current_month` CHAR(1) NULL,
-          `d_current_quarter` CHAR(1) NULL,
-          `d_current_year` CHAR(1) NULL
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`d_date_sk`)
-        DISTRIBUTED BY HASH(`d_date_sk`) BUCKETS 12
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1")
+    `d_date_sk` BIGINT NOT NULL,
+    `d_date_id` CHAR(16) NOT NULL,
+    `d_date` DATE NULL,
+    `d_month_seq` INT NULL,
+    `d_week_seq` INT NULL,
+    `d_quarter_seq` INT NULL,
+    `d_year` INT NULL,
+    `d_dow` INT NULL,
+    `d_moy` INT NULL,
+    `d_dom` INT NULL,
+    `d_qoy` INT NULL,
+    `d_fy_year` INT NULL,
+    `d_fy_quarter_seq` INT NULL,
+    `d_fy_week_seq` INT NULL,
+    `d_day_name` CHAR(9) NULL,
+    `d_quarter_name` CHAR(6) NULL,
+    `d_holiday` CHAR(1) NULL,
+    `d_weekend` CHAR(1) NULL,
+    `d_following_holiday` CHAR(1) NULL,
+    `d_first_dom` INT NULL,
+    `d_last_dom` INT NULL,
+    `d_same_day_ly` INT NULL,
+    `d_same_day_lq` INT NULL,
+    `d_current_day` CHAR(1) NULL,
+    `d_current_week` CHAR(1) NULL,
+    `d_current_month` CHAR(1) NULL,
+    `d_current_quarter` CHAR(1) NULL,
+    `d_current_year` CHAR(1) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`d_date_sk`)
+    DISTRIBUTED BY HASH(`d_date_sk`) BUCKETS 12
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1")
     """
 
     sql """
-        alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='521779')
+    alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='521779')
     """
 
     alter_result = sql """show column cached stats date_dim"""
@@ -2844,6 +2914,34 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("0.0", alter_result[0][4])
     assertEquals("521779.0", alter_result[0][5])
     assertEquals("7.142863009760572", alter_result[0][6])
+
+    // Test analyze after new empty partition created.
+    sql """CREATE TABLE `part` (
+        `id` INT NULL,
+        `colint` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`id`)
+        (PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")))
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """analyze table part with sync;"""
+    sql """Insert into part values (1, 1), (10001, 10001);"""
+    sql """analyze table part with sync;"""
+    sleep(1000)
+    sql """alter table part add partition p3 VALUES [("20000"), ("30000"));"""
+    sql """analyze table part with sync;"""
+    sql """analyze table part with sync;"""
+    def new_part_result = sql """show column stats part(id)"""
+    assertEquals("2.0", new_part_result[0][2])
+    new_part_result = sql """show column stats part(colint)"""
+    assertEquals("2.0", new_part_result[0][2])
 
 
     sql """DROP DATABASE IF EXISTS trigger"""

@@ -62,6 +62,7 @@ public:
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _group_commit_interval_ms(group_commit_interval_ms),
               _start_time(std::chrono::steady_clock::now()),
+              _last_print_time(_start_time),
               _group_commit_data_bytes(group_commit_data_bytes),
               _all_block_queues_bytes(all_block_queues_bytes) {};
 
@@ -112,6 +113,7 @@ private:
     // commit by time interval, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
     std::chrono::steady_clock::time_point _start_time;
+    std::chrono::steady_clock::time_point _last_print_time;
     // commit by data size
     int64_t _group_commit_data_bytes;
     int64_t _data_bytes = 0;

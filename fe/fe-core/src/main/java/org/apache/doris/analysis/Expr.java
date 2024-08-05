@@ -55,6 +55,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -71,6 +72,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -272,7 +274,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Function fn;
 
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
-    private boolean isConstant;
+    private Supplier<Boolean> isConstant = Suppliers.memoize(() -> false);
 
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
@@ -455,7 +457,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Preconditions.checkState(!isAnalyzed);
         // We need to compute the const-ness as the last step, since analysis may change
         // the result, e.g. by resolving function.
-        isConstant = isConstantImpl();
+        isConstant = Suppliers.memoize(this::isConstantImpl);
         isAnalyzed = true;
     }
 
@@ -1348,7 +1350,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public final boolean isConstant() {
         if (isAnalyzed) {
-            return isConstant;
+            return isConstant.get();
         }
         return isConstantImpl();
     }
@@ -2567,7 +2569,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     // In this case, agg output must be materialized whether outer query block required or not.
                     if (f.getFunctionName().getFunction().equals("count")) {
                         for (Expr expr : funcExpr.children) {
-                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                            if (expr.isConstant() && !(expr instanceof LiteralExpr)) {
                                 return true;
                             }
                         }

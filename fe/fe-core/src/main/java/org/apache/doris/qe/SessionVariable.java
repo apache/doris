@@ -390,6 +390,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -450,7 +451,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
     public static final String GROUP_COMMIT = "group_commit";
+
+    public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -551,6 +555,10 @@ public class SessionVariable implements Serializable, Writable {
             = "create_table_partition_max_num";
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
 
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
@@ -1028,7 +1036,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 2048;
+    private int runtimeBloomFilterMinSize = 1048576;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -1426,6 +1434,11 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
 
+    // Whether enable no need read data opt in segment_iterator.
+    @VariableMgr.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = {
+            "是否启用no_need_read_data opt。", "Set whether to enable no_need_read_data opt."})
+    public boolean enableNoNeedReadDataOpt = true;
+
     // Whether enable pushdown minmax to scan node of unique table.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
         "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
@@ -1595,6 +1608,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";
 
+    @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
+    public boolean enablePreparedStmtAuditLog = true;
+
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
                     + "则使用跳表来优化交集操作。",
@@ -1758,10 +1774,24 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveParquetUseColumnNames = true;
+
+
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveOrcUseColumnNames = true;
+
     @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
+
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -3048,20 +3078,21 @@ public class SessionVariable implements Serializable, Writable {
     public Set<String> getDisableNereidsRuleNames() {
         String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
         String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
-        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
-                .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+        return Arrays.stream(disableNereidsRules.split(","))
+                .map(rule -> rule.trim().toUpperCase(Locale.ROOT))
+                .filter(rule -> !rule.isEmpty()
+                        && !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
                         && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
     public BitSet getDisableNereidsRules() {
         BitSet bitSet = new BitSet();
-        for (String ruleName : disableNereidsRules.split(",[\\s]*")) {
+        for (String ruleName : disableNereidsRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
             if (ruleName.isEmpty()) {
                 continue;
             }
-            ruleName = ruleName.toUpperCase(Locale.ROOT);
             RuleType ruleType = RuleType.valueOf(ruleName);
             if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
                 continue;
@@ -3238,6 +3269,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
     }
 
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -3335,6 +3374,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+        tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -3376,6 +3416,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
 
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
         }
@@ -3411,6 +3453,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }
@@ -3702,6 +3746,15 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
     }
 
+    public void disableConstantFoldingByBEOnce() throws DdlException {
+        if (!enableFoldConstantByBe) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
+    }
+
     public void disableNereidsPlannerOnce() throws DdlException {
         if (!enableNereidsPlanner) {
             return;
@@ -3887,6 +3940,10 @@ public class SessionVariable implements Serializable, Writable {
             return "sync_mode";
         }
         return groupCommit;
+    }
+
+    public boolean isEnablePreparedStmtAuditLog() {
+        return enablePreparedStmtAuditLog;
     }
 
     public boolean isEnableMaterializedViewRewrite() {

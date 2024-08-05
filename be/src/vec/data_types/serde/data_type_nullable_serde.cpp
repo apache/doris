@@ -127,6 +127,28 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    auto& col = static_cast<ColumnNullable&>(column);
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+    if (rows - 1 != 0) {
+        auto& null_map = col.get_null_map_data();
+        auto& nested_column = col.get_nested_column();
+
+        uint8_t val = null_map.back();
+        size_t new_sz = null_map.size() + rows - 1;
+        null_map.resize_fill(new_sz,
+                             val); // data_type_nullable::insert_column_last_value_multiple_times()
+        nested_serde->insert_column_last_value_multiple_times(nested_column, rows - 1);
+    }
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);

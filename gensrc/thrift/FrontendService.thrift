@@ -492,6 +492,36 @@ struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
 }
+
+enum TSubTxnType {
+    INSERT = 0,
+    DELETE = 1
+}
+
+struct TSubTxnInfo {
+    1: optional i64 sub_txn_id
+    2: optional i64 table_id
+    3: optional list<Types.TTabletCommitInfo> tablet_commit_infos
+    4: optional TSubTxnType sub_txn_type
+}
+
+struct TTxnLoadInfo {
+    1: optional string label
+    2: optional i64 dbId
+    3: optional i64 txnId
+    4: optional i64 timeoutTimestamp
+    5: optional i64 allSubTxnNum
+    6: optional list<TSubTxnInfo> subTxnInfos
+}
+
+struct TGroupCommitInfo{
+    1: optional bool getGroupCommitLoadBeId
+    2: optional i64 groupCommitLoadTableId
+    3: optional bool updateLoadData
+    4: optional i64 tableId 
+    5: optional i64 receiveData
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -523,6 +553,9 @@ struct TMasterOpRequest {
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
     28: optional map<string, Exprs.TExprNode> user_variables
+    // transaction load
+    29: optional TTxnLoadInfo txnLoadInfo
+    30: optional TGroupCommitInfo groupCommitInfo
 }
 
 struct TColumnDefinition {
@@ -550,6 +583,9 @@ struct TMasterOpResult {
     6: optional i32 statusCode;
     7: optional string errMessage;
     8: optional list<binary> queryResultBufList;
+    // transaction load
+    9: optional TTxnLoadInfo txnLoadInfo;
+    10: optional i64 groupCommitLoadBeId;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -750,6 +786,10 @@ struct TLoadTxnCommitRequest {
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
+    17: optional string auth_code_uuid
+    18: optional bool groupCommit
+    19: optional i64 receiveBytes
+    20: optional i64 backendId 
 }
 
 struct TLoadTxnCommitResult {
@@ -1374,6 +1414,7 @@ struct TGetMetaDBMeta {
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
+    5: optional list<i64> dropped_tables
 }
 
 struct TGetMetaResult {

@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -37,7 +38,6 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -69,10 +69,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return;
         }
         List<Pair<String, String>> columnList = info.jobColumns;
-        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
+        if (columnList == null || columnList.isEmpty()) {
+            LOG.warn("Table {}.{}.{}, jobColumns is null or empty.", info.catalogId, info.dbId, info.tblId);
+            throw new RuntimeException();
+        }
+        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod)) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
-            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
+            ColStatsData colStatsData = new ColStatsData(statsId);
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
+            job.appendBuf(this, Collections.singletonList(colStatsData));
             return;
         }
         if (tableSample != null) {

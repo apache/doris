@@ -293,6 +293,5 @@ under the License.
             <!--Regression tests need to include this jar-->
             <scope>compile</scope>
         </dependency>
-
     </dependencies>
 </project>

@@ -20,7 +20,6 @@ suite("test_create_table_like_nereids") {
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10
     properties('replication_num' = '1');"""
@@ -28,9 +27,15 @@ suite("test_create_table_like_nereids") {
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     sql "sync"
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    sleep(2000)
-    sql "alter table mal_test_create_table_like add rollup ru2(b,pk);"
-    sleep(2000)
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
+    sql "alter table mal_test_create_table_like add rollup ru2(b,pk)"
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
 
     // no rollup
     sql "drop table if exists table_like"

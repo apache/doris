@@ -17,11 +17,17 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerDorisPlugin extends RangerBasePlugin {
     public RangerDorisPlugin(String serviceName) {
+        this(serviceName, null);
+    }
+
+    public RangerDorisPlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
         super.init();
+        super.registerAuthContextEventListener(rangerAuthContextListener);
     }
 }

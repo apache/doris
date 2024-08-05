@@ -434,6 +434,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
+DECLARE_mInt64(base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -464,6 +465,7 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
+DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -521,6 +523,8 @@ DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
+// timeout for try_lock migration lock
+DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
@@ -674,6 +678,9 @@ DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
+
+// arrow flight result sink buffer rows size, default 4096 * 8
+DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -1340,6 +1347,10 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
+
+DECLARE_mInt64(compaction_memory_bytes_limit);
+
+DECLARE_mInt64(compaction_batch_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 

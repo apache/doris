@@ -71,7 +71,6 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
     protected long fileSplitSize;
-    public long rowCount = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -98,7 +97,10 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     public long getPushDownCount() {
-        return 0;
+        // 1. Do not use `0`: If the number of entries in the table is 0,
+        //                    it is unclear whether optimization has been performed.
+        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
+        return -1;
     }
 
     @Override

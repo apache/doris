@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -220,6 +221,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
@@ -510,6 +512,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Asin.class, "asin"),
             scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
+            scalar(AutoPartitionName.class, "auto_partition_name"),
             scalar(Bin.class, "bin"),
             scalar(BitCount.class, "bit_count"),
             scalar(BitLength.class, "bit_length"),
@@ -709,6 +712,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbType.class, "jsonb_type"),
             scalar(JsonLength.class, "json_length"),
             scalar(JsonContains.class, "json_contains"),
+            scalar(JsonKeys.class, "json_keys", "jsonb_keys"),
             scalar(L1Distance.class, "l1_distance"),
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),

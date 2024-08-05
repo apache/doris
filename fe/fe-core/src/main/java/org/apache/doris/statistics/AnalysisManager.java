@@ -204,7 +204,21 @@ public class AnalysisManager implements Writable {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
+    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException, AnalysisException {
+        // Using auto analyzer if user specifies.
+        if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+            StatisticsAutoCollector autoCollector = Env.getCurrentEnv().getStatisticsAutoCollector();
+            if (autoCollector.skip(stmt.getTable())) {
+                return;
+            }
+            List<AnalysisInfo> jobs = new ArrayList<>();
+            autoCollector.createAnalyzeJobForTbl(stmt.getDb(), jobs, stmt.getTable());
+            AnalysisInfo job = autoCollector.getNeedAnalyzeColumns(jobs.get(0));
+            if (job != null) {
+                Env.getCurrentEnv().getStatisticsAutoCollector().createSystemAnalysisJob(job);
+            }
+            return;
+        }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
         if (jobInfo == null) {
             return;
@@ -354,6 +368,8 @@ public class AnalysisManager implements Writable {
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
         infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0
                 && analysisMethod.equals(AnalysisMethod.SAMPLE));
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
+        infoBuilder.setRowCount(rowCount);
         return infoBuilder.build();
     }
 

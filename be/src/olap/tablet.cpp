@@ -3506,7 +3506,9 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
     // When the new segment flush fails or the rowset build fails, the deletion marker for the
     // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
     // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+    bool is_partial_update =
+            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update;
+    if (is_partial_update) {
         delete_bitmap = std::make_shared<DeleteBitmap>(*(txn_info->delete_bitmap));
     }
 
@@ -3539,6 +3541,37 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
     }
     auto t3 = watch.get_elapse_time_us();
+
+    // If a rowset is produced by compaction before the commit phase of the partial update load
+    // and is not included in txn_info->rowset_ids, we can skip the alignment process of that rowset
+    // because data remains the same before and after compaction. But we still need to calculate the
+    // the delete bitmap for that rowset.
+    std::vector<RowsetSharedPtr> rowsets_skip_alignment;
+    if (is_partial_update) {
+        int64_t max_version_in_flush_phase =
+                txn_info->partial_update_info->max_version_in_flush_phase;
+        DCHECK(max_version_in_flush_phase != -1);
+        std::vector<RowsetSharedPtr> remained_rowsets;
+        for (const auto& rowset : specified_rowsets) {
+            if (rowset->end_version() <= max_version_in_flush_phase &&
+                rowset->produced_by_compaction()) {
+                rowsets_skip_alignment.emplace_back(rowset);
+            } else {
+                remained_rowsets.emplace_back(rowset);
+            }
+        }
+        if (!rowsets_skip_alignment.empty()) {
+            specified_rowsets = std::move(remained_rowsets);
+        }
+    }
+
+    if (!rowsets_skip_alignment.empty()) {
+        auto token = _engine.calc_delete_bitmap_executor()->create_token();
+        // set rowset_writer to nullptr to skip the alignment process
+        RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, rowsets_skip_alignment, delete_bitmap,
+                                           cur_version - 1, token.get(), nullptr));
+        RETURN_IF_ERROR(token->wait());
+    }
 
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
@@ -3945,6 +3978,7 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 
 void Tablet::clear_cache() {
     std::shared_lock rlock(get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     static auto recycle_segment_cache = [](const auto& rowset_map) {
         for (auto& [_, rowset] : rowset_map) {
             rowset->clear_cache();
@@ -4103,6 +4137,42 @@ Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, i
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }
+    return Status::OK();
+}
+
+Status Tablet::show_nested_index_file(std::string* json_meta) {
+    Version v(0, max_version_unlocked().second);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get all rowsets
+        if (v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+    rapidjson::Value tabletIdValue(tablet_id());
+    doc.AddMember("tablet_id", tabletIdValue, allocator);
+
+    rapidjson::Value rowsets_value(rapidjson::kArrayType);
+
+    for (const auto& rs : rowsets) {
+        rapidjson::Value rowset_value(rapidjson::kObjectType);
+
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        RETURN_IF_ERROR(rowset->show_nested_index_file(&rowset_value, allocator));
+        rowsets_value.PushBack(rowset_value, allocator);
+    }
+    doc.AddMember("rowsets", rowsets_value, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+    *json_meta = std::string(buffer.GetString());
+
     return Status::OK();
 }
 

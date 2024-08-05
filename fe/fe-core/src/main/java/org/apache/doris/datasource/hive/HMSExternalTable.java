@@ -543,8 +543,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public boolean hasColumnStatistics(String colName) {
         Map<String, String> parameters = remoteTable.getParameters();
-        return parameters.keySet().stream()
-                .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+        return parameters.keySet().stream().anyMatch(k -> k.startsWith(SPARK_COL_STATS + colName + "."));
     }
 
     public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
@@ -556,12 +555,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         Map<String, String> parameters = remoteTable.getParameters();
         for (StatsType type : statsTypes.keySet()) {
             String key = SPARK_COL_STATS + colName + MAP_SPARK_STATS_TO_DORIS.getOrDefault(type, "-");
-            if (parameters.containsKey(key)) {
-                stats.put(statsTypes.get(type), parameters.get(key));
-            } else {
-                // should not happen, spark would have all type (except histogram)
-                stats.put(statsTypes.get(type), "NULL");
-            }
+            // 'NULL' should not happen, spark would have all type (except histogram)
+            stats.put(statsTypes.get(type), parameters.getOrDefault(key, "NULL"));
         }
         return true;
     }

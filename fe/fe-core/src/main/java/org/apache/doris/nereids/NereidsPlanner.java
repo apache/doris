@@ -21,11 +21,12 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -46,23 +47,20 @@ import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
-import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -72,11 +70,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Planner to do query plan in Nereids.
@@ -170,7 +166,8 @@ public class NereidsPlanner extends Planner {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
                 physicalPlan = new PhysicalSqlCache(
-                        logicalSqlCache.getQueryId(), logicalSqlCache.getColumnLabels(),
+                        logicalSqlCache.getQueryId(),
+                        logicalSqlCache.getColumnLabels(), logicalSqlCache.getFieldInfos(),
                         logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
                         logicalSqlCache.getCacheValues(), logicalSqlCache.getBackendAddress(),
                         logicalSqlCache.getPlanBody()
@@ -337,13 +334,35 @@ public class NereidsPlanner extends Planner {
         }
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
-                .collect(Collectors.toCollection(ArrayList::new));
-        logicalPlanAdapter.setColLabels(columnLabelList);
+        ArrayList<String> columnLabels = Lists.newArrayListWithExpectedSize(physicalPlan.getOutput().size());
+        List<FieldInfo> fieldInfos = Lists.newArrayListWithExpectedSize(physicalPlan.getOutput().size());
+        for (NamedExpression output : physicalPlan.getOutput()) {
+            Optional<Column> column = Optional.empty();
+            Optional<TableIf> table = Optional.empty();
+            if (output instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) output;
+                column = slotReference.getColumn();
+                table = slotReference.getTable();
+            }
+            columnLabels.add(output.getName());
+            FieldInfo fieldInfo = new FieldInfo(
+                    table.isPresent() ? (table.get().getDatabase() != null
+                            ? table.get().getDatabase().getFullName() : "") : "",
+                    !output.getQualifier().isEmpty() ? output.getQualifier().get(output.getQualifier().size() - 1)
+                            : (table.isPresent() ? table.get().getName() : ""),
+                    table.isPresent() ? table.get().getName() : "",
+                    output.getName(),
+                    column.isPresent() ? column.get().getName() : ""
+            );
+            fieldInfos.add(fieldInfo);
+        }
+        logicalPlanAdapter.setColLabels(columnLabels);
+        logicalPlanAdapter.setFieldInfos(fieldInfos);
         logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         if (statementContext.getSqlCacheContext().isPresent()) {
             SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-            sqlCacheContext.setColLabels(columnLabelList);
+            sqlCacheContext.setColLabels(columnLabels);
+            sqlCacheContext.setFieldInfos(fieldInfos);
             sqlCacheContext.setResultExprs(root.getOutputExprs());
             sqlCacheContext.setPhysicalPlan(resultPlan.treeString());
         }
@@ -547,23 +566,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        if (physicalPlan instanceof PhysicalResultSink
-                && physicalPlan.child(0) instanceof PhysicalHashAggregate && !getScanNodes().isEmpty()
-                && getScanNodes().get(0) instanceof IcebergScanNode) {
-            List<Column> columns = Lists.newArrayList();
-            NamedExpression output = physicalPlan.getOutput().get(0);
-            columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-            if (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0) {
-                ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-                ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(
-                        Lists.newArrayList(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount))));
-                // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
-                return Optional.of(resultSet);
-            }
-            return Optional.empty();
-        } else {
-            return Optional.empty();
-        }
+        return Optional.empty();
     }
 
     private void setFormatOptions() {

@@ -1580,6 +1580,7 @@ visible_functions = {
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
         [['quote'], 'VARCHAR', ['VARCHAR'], ''],
+        [['auto_partition_name'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1650,6 +1651,7 @@ visible_functions = {
         [['ltrim'], 'STRING', ['STRING','STRING'], ''],
         [['rtrim'], 'STRING', ['STRING'], ''],
         [['rtrim'], 'STRING', ['STRING','STRING'], ''],
+        [['auto_partition_name'], 'STRING', ['STRING', '...'], ''],
         [['ascii'], 'INT', ['STRING'], ''],
         [['instr'], 'INT', ['STRING', 'STRING'], ''],
         [['locate'], 'INT', ['STRING', 'STRING'], ''],
@@ -1735,6 +1737,11 @@ visible_functions = {
         [['jsonb_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
         [['jsonb_type'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
         [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING', '...'], 'ALWAYS_NULLABLE'],

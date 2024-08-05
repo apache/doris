@@ -378,6 +378,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
+DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -408,6 +409,7 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
+DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
@@ -472,6 +474,8 @@ DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DEFINE_mInt32(migration_task_timeout_secs, "300");
+// timeout for try_lock migration lock
+DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -616,6 +620,8 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
+
+DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -1029,7 +1035,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "true");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1251,6 +1257,10 @@ DEFINE_Int64(min_row_group_size, "134217728");
 
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
+
+DEFINE_mInt64(compaction_batch_size, "-1");
 
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index

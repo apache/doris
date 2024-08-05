@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -158,12 +159,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                             distinctChildColumns, ShuffleType.REQUIRE);
                     if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
                             || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
-                        return false;
+                        if (!agg.mustUseMultiDistinctAgg()) {
+                            return false;
+                        }
                     }
                 }
                 // if distinct without group by key, we prefer three or four stage distinct agg
                 // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
+                        && !agg.mustUseMultiDistinctAgg()) {
                     return false;
                 }
             }
@@ -459,6 +463,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         visit(sort, context);
         if (sort.getSortPhase() == SortPhase.GATHER_SORT && sort.child() instanceof PhysicalDistribute) {
             // forbid gather sort need explicit shuffle
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
+        // process must shuffle
+        visit(topN, context);
+
+        // If child is DistributionSpecGather, topN should forbid two-phase topN
+        if (topN.getSortPhase() == SortPhase.LOCAL_SORT
+                && childrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
             return false;
         }
         return true;

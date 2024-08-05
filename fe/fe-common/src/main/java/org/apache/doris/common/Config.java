@@ -1465,6 +1465,14 @@ public class Config extends ConfigBase {
     public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
+     * sets the time without read activity before sending a keepalive ping
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     */
+    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+            "The time without grpc read activity before sending a keepalive ping" })
+    public static int grpc_keep_alive_second = 10;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2249,6 +2257,12 @@ public class Config extends ConfigBase {
     public static long stats_cache_size = 50_0000;
 
     /**
+     * This config used for ranger cache data mask/row policy
+     */
+    @ConfField
+    public static long ranger_cache_size = 10000;
+
+    /**
      * This configuration is used to enable the statistics of query information, which will record
      * the access status of databases, tables, and columns, and can be used to guide the
      * optimization of table structures
@@ -2734,6 +2748,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                      end of cloud config

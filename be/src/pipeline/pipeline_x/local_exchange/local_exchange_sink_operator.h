@@ -49,6 +49,8 @@ private:
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
     friend class AdaptivePassthroughExchanger;
+    template <typename BlockType>
+    friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
 

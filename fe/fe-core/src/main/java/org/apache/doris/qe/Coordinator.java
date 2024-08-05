@@ -140,6 +140,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TCompactProtocol;
 import org.jetbrains.annotations.NotNull;
+import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -273,6 +274,8 @@ public class Coordinator implements CoordInterface {
     private boolean enablePipelineXEngine = false;
     private boolean useNereids = false;
 
+    private Backend groupCommitBackend;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -297,6 +300,10 @@ public class Coordinator implements CoordInterface {
     // A countdown latch to mark the completion of each fragment. use for pipelineX
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
+
+    public void setGroupCommitBe(Backend backend) {
+        this.groupCommitBackend = backend;
+    }
 
     public void setTWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
@@ -1039,28 +1046,35 @@ public class Coordinator implements CoordInterface {
             updateProfileIfPresent(profile -> profile.setFragmentSerializeTime());
 
             // 4.2 send fragments rpc
-            List<Triple<PipelineExecContexts, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
-                    futures = Lists.newArrayList();
+            List<Pair<Long, Triple<PipelineExecContexts, BackendServiceProxy,
+                    Future<InternalService.PExecPlanFragmentResult>>>> futures = Lists.newArrayList();
             BackendServiceProxy proxy = BackendServiceProxy.getInstance();
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(ctxs.debugInfo());
                 }
-                futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy)));
+                futures.add(Pair.of(DateTime.now().getMillis(),
+                                        ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy))));
             }
-            waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
+            Map<TNetworkAddress, List<Long>> rpcPhase1Latency =
+                    waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
             updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
             updateProfileIfPresent(profile -> profile.setFragmentSendPhase1Time());
+            updateProfileIfPresent(profile -> profile.setRpcPhase1Latency(rpcPhase1Latency));
 
             if (twoPhaseExecution) {
                 // 5. send and wait execution start rpc
                 futures.clear();
                 for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                    futures.add(ImmutableTriple.of(ctxs, proxy, ctxs.execPlanFragmentStartAsync(proxy)));
+                    futures.add(Pair.of(DateTime.now().getMillis(),
+                            ImmutableTriple.of(ctxs, proxy, ctxs.execPlanFragmentStartAsync(proxy))));
                 }
-                waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
+                Map<TNetworkAddress, List<Long>> rpcPhase2Latency =
+                        waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(),
+                                "send execution start");
                 updateProfileIfPresent(profile -> profile.updateFragmentRpcCount(futures.size()));
                 updateProfileIfPresent(profile -> profile.setFragmentSendPhase2Time());
+                updateProfileIfPresent(profile -> profile.setRpcPhase2Latency(rpcPhase2Latency));
             }
         } finally {
             unlock();
@@ -1144,8 +1158,8 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void waitPipelineRpc(List<Triple<PipelineExecContexts, BackendServiceProxy,
-            Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
+    private Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
+            BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             long currentTimeMillis = System.currentTimeMillis();
@@ -1166,14 +1180,26 @@ public class Coordinator implements CoordInterface {
             throw new UserException(msg);
         }
 
+        // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
+        // to FE)
+        Map<TNetworkAddress, List<Long>> beToPrepareLatency = new HashMap<>();
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
-        for (Triple<PipelineExecContexts, BackendServiceProxy, Future<PExecPlanFragmentResult>> triple : futures) {
+        for (Pair<Long, Triple<PipelineExecContexts, BackendServiceProxy,
+                    Future<InternalService.PExecPlanFragmentResult>>> pair : futures) {
+            Triple<PipelineExecContexts, BackendServiceProxy,
+                    Future<InternalService.PExecPlanFragmentResult>> triple = pair.second;
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
 
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
+                long rpcDone = DateTime.now().getMillis();
+                beToPrepareLatency.put(triple.getLeft().brpcAddr,
+                        Lists.newArrayList(result.getReceivedTime() - pair.first,
+                        result.getExecutionTime() - result.getReceivedTime(),
+                        result.getExecutionDoneTime() - result.getExecutionTime(),
+                        rpcDone - result.getExecutionDoneTime()));
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code == null) {
                     code = TStatusCode.INTERNAL_ERROR;
@@ -1193,6 +1219,7 @@ public class Coordinator implements CoordInterface {
             } catch (InterruptedException e) {
                 exception = e;
                 code = TStatusCode.INTERNAL_ERROR;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (TimeoutException e) {
                 exception = e;
                 errMsg = String.format(
@@ -1200,6 +1227,7 @@ public class Coordinator implements CoordInterface {
                                             operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
                 LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             }
 
             if (code != TStatusCode.OK) {
@@ -1223,6 +1251,7 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
+        return beToPrepareLatency;
     }
 
     public List<String> getExportFiles() {
@@ -1414,7 +1443,7 @@ public class Coordinator implements CoordInterface {
     // We use a very conservative cancel strategy.
     // 0. If backends has zero process epoch, do not cancel. Zero process epoch usually arises in cluster upgrading.
     // 1. If process epoch is same, do not cancel. Means backends does not restart or die.
-    public boolean shouldCancel(List<Backend> currentBackends) {
+    public Status shouldCancel(List<Backend> currentBackends) {
         Map<Long, Backend> curBeMap = Maps.newHashMap();
         for (Backend be : currentBackends) {
             curBeMap.put(be.getId(), be);
@@ -1427,21 +1456,24 @@ public class Coordinator implements CoordInterface {
                 for (PipelineExecContext pipelineExecContext : pipelineExecContexts.values()) {
                     Backend be = curBeMap.get(pipelineExecContext.backend.getId());
                     if (be == null || !be.isAlive()) {
-                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend {} not exists or dead, query {} should be cancelled",
                                 pipelineExecContext.backend.toString(), DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     }
 
                     // Backend process epoch changed, indicates that this be restarts, query should be cancelled.
                     // Check zero since during upgrading, older version oplog will not persistent be start time
                     // so newer version follower will get zero epoch when replaying oplog or snapshot
                     if (pipelineExecContext.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
-                        LOG.warn("Backend process epoch changed, previous {} now {}, "
-                                        + "means this be has already restarted, should cancel this coordinator,"
-                                        + " query id {}",
-                                        pipelineExecContext.beProcessEpoch, be.getProcessEpoch(),
-                                        DebugUtil.printId(queryId));
-                        return true;
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend process epoch changed, previous {} now {}, "
+                                + "means this be has already restarted, should cancel this coordinator,"
+                                + "query id {}", pipelineExecContext.beProcessEpoch, be.getProcessEpoch(),
+                                DebugUtil.printId(queryId));
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     } else if (be.getProcessEpoch() == 0) {
                         LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?",
                                 be.toString());
@@ -1452,23 +1484,27 @@ public class Coordinator implements CoordInterface {
                 for (BackendExecStates beExecState : beToExecStates.values()) {
                     Backend be = curBeMap.get(beExecState.beId);
                     if (be == null || !be.isAlive()) {
-                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled.",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend {} not exists or dead, query {} should be cancelled.",
                                 beExecState.beId, DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     }
 
                     if (beExecState.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
-                        LOG.warn("Process epoch changed, previous {} now {}, means this be has already restarted, "
-                                        + "should cancel this coordinator, query id {}",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Process epoch changed, previous {} now {}, means this be has already restarted,"
+                                + "should cancel this coordinator, query id {}",
                                 beExecState.beProcessEpoch, be.getProcessEpoch(), DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     } else if (be.getProcessEpoch() == 0) {
                         LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?", be.toString());
                     }
                 }
             }
 
-            return false;
+            return Status.OK;
         } finally {
             unlock();
         }
@@ -1478,14 +1514,14 @@ public class Coordinator implements CoordInterface {
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
     public void cancel() {
-        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, "user cancel");
         if (queueToken != null) {
             queueToken.signalForCancel();
         }
     }
 
     @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason, String errorMsg) {
         for (ScanNode scanNode : scanNodes) {
             scanNode.stop();
         }
@@ -1498,7 +1534,7 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), queryStatus.toString(),
                         new Exception("cancel failed"));
             } else {
-                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
+                queryStatus.updateStatus(TStatusCode.CANCELLED, errorMsg);
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());
@@ -1955,8 +1991,11 @@ public class Coordinator implements CoordInterface {
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
-                if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (isAllExternalScan
-                        && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
+                if (groupCommitBackend != null) {
+                    execHostport = getGroupCommitBackend(addressToBackendID);
+                } else if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (
+                        isAllExternalScan
+                                && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
                     // 2 cases:
                     // case 1: user set resource tag, we need to use the BE with the specified resource tags.
                     // case 2: All scan nodes are external scan node,
@@ -2148,7 +2187,9 @@ public class Coordinator implements CoordInterface {
             if (params.instanceExecParams.isEmpty()) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
-                if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
+                if (groupCommitBackend != null) {
+                    execHostport = getGroupCommitBackend(addressToBackendID);
+                } else if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
                         && !addressToBackendID.isEmpty()) {
                     // In this case, we only use the BE where the replica selected by the tag is located to
                     // execute this query. Otherwise, except for the scan node, the rest of the execution nodes
@@ -2170,6 +2211,14 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
             }
         }
+    }
+
+    private TNetworkAddress getGroupCommitBackend(Map<TNetworkAddress, Long> addressToBackendID) {
+        // Used for Nereids planner Group commit insert BE select.
+        TNetworkAddress execHostport = new TNetworkAddress(groupCommitBackend.getHost(),
+                groupCommitBackend.getBePort());
+        addressToBackendID.put(execHostport, groupCommitBackend.getId());
+        return execHostport;
     }
 
     // Traverse the expected runtimeFilterID in each fragment, and establish the corresponding relationship

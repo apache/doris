@@ -51,6 +51,7 @@
 #include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
+#include "http/action/show_nested_index_file_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -330,6 +331,11 @@ Status HttpService::start() {
     CalcFileCrcAction* calc_crc_action =
             _pool.add(new CalcFileCrcAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
 
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));

@@ -290,6 +290,10 @@ public class ProfileManager {
         }
     }
 
+    public String getLastQueryId() {
+        return queryIdDeque.getLast();
+    }
+
     public String getProfileBrief(String queryID) {
         readLock.lock();
         try {

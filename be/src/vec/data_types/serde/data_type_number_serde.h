@@ -70,6 +70,12 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;

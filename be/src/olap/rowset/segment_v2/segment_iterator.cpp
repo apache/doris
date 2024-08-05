@@ -365,12 +365,18 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         std::set<std::string> push_down_preds;
         for (auto* pred : _col_predicates) {
             if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
                 continue;
             }
             push_down_preds.insert(_gen_predicate_result_sign(pred));
         }
         for (auto* pred : _col_preds_except_leafnode_of_andnode) {
             if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
                 continue;
             }
             push_down_preds.insert(_gen_predicate_result_sign(pred));
@@ -687,6 +693,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
+                if (!_segment->can_apply_predicate_safely(cid,
+                                                          _opts.col_id_to_predicates.at(cid).get(),
+                                                          *_schema, _opts.io_ctx.reader_type)) {
+                    continue;
+                }
                 RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
                 DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
                 RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
@@ -1168,6 +1179,9 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return true;
+    }
     // only support DUP_KEYS and UNIQUE_KEYS with MOW
     if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
            (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -1481,7 +1495,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     // for mow with cluster key table, we should get key range from short key index.
     DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
 
-    if (has_seq_col) {
+    // if full key is exact_match, the primary key without sequence column should also the same
+    if (has_seq_col && !exact_match) {
         size_t seq_col_length =
                 _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())
                         .length() +
@@ -1864,7 +1879,8 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 }
 
 Status SegmentIterator::_init_current_block(
-        vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
+        vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns,
+        uint32_t nrows_read_limit) {
     block->clear_column_data(_schema->num_column_ids());
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
@@ -1884,7 +1900,7 @@ Status SegmentIterator::_init_current_block(
                     column_desc->path() == nullptr ? "" : column_desc->path()->get_path());
             // TODO reuse
             current_columns[cid] = file_column_type->create_column();
-            current_columns[cid]->reserve(_opts.block_row_max);
+            current_columns[cid]->reserve(nrows_read_limit);
         } else {
             // the column in block must clear() here to insert new data
             if (_is_pred_column[cid] ||
@@ -1903,7 +1919,7 @@ Status SegmentIterator::_init_current_block(
                 } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     current_columns[cid]->set_datetime_type();
                 }
-                current_columns[cid]->reserve(_opts.block_row_max);
+                current_columns[cid]->reserve(nrows_read_limit);
             }
         }
     }
@@ -1961,7 +1977,15 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
 
         DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_index", "column_name", "");
+            if (debug_col_name.empty()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            }
+            auto col_name = _opts.tablet_schema->column(cid).name();
+            if (debug_col_name.find(col_name) != std::string::npos) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            }
         })
 
         if (is_continuous) {
@@ -2309,14 +2333,16 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
     }
-    RETURN_IF_ERROR(_init_current_block(block, _current_return_columns));
-    _converted_column_ids.assign(_schema->columns().size(), 0);
 
-    _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
+
+    RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
+    _converted_column_ids.assign(_schema->columns().size(), 0);
+
+    _current_batch_rows_read = 0;
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2341,6 +2367,15 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
+
+    DBUG_EXECUTE_IF("segment_iterator._rowid_result_for_index", {
+        for (auto& iter : _rowid_result_for_index) {
+            if (iter.second.first) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "_rowid_result_for_index exists true");
+            }
+        }
+    })
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
         if (_non_predicate_columns.empty()) {
@@ -2731,6 +2766,11 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_values.insert(v_literal_expr->value());
+    } else if (node_type == TExprNodeType::NULL_LITERAL) {
+        if (!_column_predicate_info->column_name.empty()) {
+            auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
+            _column_predicate_info->query_values.insert(v_literal_expr->value());
+        }
     } else {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
@@ -2754,6 +2794,9 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
 bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
                                              size_t nrows_read) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return false;
+    }
     if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
         return false;
     }

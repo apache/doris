@@ -70,6 +70,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
+    "test_delta_writer_v2_back_pressure_fault_injection," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
@@ -132,9 +133,7 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+s3Source="aliyun"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
