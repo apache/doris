@@ -57,9 +57,7 @@ public class JobExecutionConfiguration {
         if (executeType == JobExecuteType.INSTANT || executeType == JobExecuteType.MANUAL) {
             return;
         }
-
-        checkTimerDefinition(immediate);
-
+        checkTimerDefinition();
         if (executeType == JobExecuteType.ONE_TIME) {
             validateStartTimeMs();
             return;
@@ -80,12 +78,12 @@ public class JobExecutionConfiguration {
         }
     }
 
-    private void checkTimerDefinition(boolean immediate) {
+    private void checkTimerDefinition() {
         if (timerDefinition == null) {
             throw new IllegalArgumentException(
                     "timerDefinition cannot be null when executeType is not instant or manual");
         }
-        timerDefinition.checkParams(immediate);
+        timerDefinition.checkParams();
     }
 
     private void validateStartTimeMs() {
