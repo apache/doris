@@ -29,10 +29,8 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -181,6 +179,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
+                        long visibleVersion = partition.getVisibleVersion();
                         ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
@@ -196,13 +195,10 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                         replicaAlloc = groupSchema.getReplicaAlloc();
                                     }
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
-                                            backendsSet);
+                                    res = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
-                                            = tablet.getHealthStatusWithPriority(infoService,
-                                            partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
-                                    res = pair.first;
+                                    res = tablet.getHealth(infoService, visibleVersion, replicaAlloc,
+                                            aliveBeIds).status;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                                     case HEALTHY:
