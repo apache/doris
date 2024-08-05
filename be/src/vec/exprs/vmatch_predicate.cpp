@@ -17,6 +17,12 @@
 
 #include "vec/exprs/vmatch_predicate.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+
+#include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
@@ -29,6 +35,7 @@
 #include <string_view>
 #include <vector>
 
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
@@ -53,6 +60,12 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
     _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
     _analyzer = InvertedIndexReader::create_analyzer(_inverted_index_ctx.get());
+    _analyzer->set_lowercase(node.match_predicate.parser_lowercase);
+    if (node.match_predicate.parser_stopwords == "none") {
+        _analyzer->set_stopwords(nullptr);
+    } else {
+        _analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+    }
     _inverted_index_ctx->analyzer = _analyzer.get();
 }
 
