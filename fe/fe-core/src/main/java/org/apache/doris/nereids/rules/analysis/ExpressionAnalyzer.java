@@ -403,6 +403,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
+        buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
