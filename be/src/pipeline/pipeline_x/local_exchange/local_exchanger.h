@@ -117,10 +117,8 @@ public:
     }
     ~Exchanger() override = default;
     std::string data_queue_debug_string(int i) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "Data Queue {}: [size approx = {}, eos = {}]",
-                       _data_queue[i].data_queue.size_approx(), _data_queue[i].eos);
-        return fmt::to_string(debug_string_buffer);
+        return fmt::format("Data Queue {}: [size approx = {}, eos = {}]", i,
+                           _data_queue[i].data_queue.size_approx(), _data_queue[i].eos);
     }
 
 protected:
