@@ -103,6 +103,7 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.NereidsSqlCacheManager;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
@@ -1453,7 +1454,7 @@ public class StmtExecutor {
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel(cancelReason);
+            coordRef.cancel(cancelReason, "");
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1874,8 +1875,11 @@ public class StmtExecutor {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
-            LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
-            coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            Status internalErrorSt = new Status(TStatusCode.INTERNAL_ERROR,
+                    "cancel fragment query_id:{} cause {}",
+                    DebugUtil.printId(context.queryId()), e.getMessage());
+            LOG.warn(internalErrorSt.getErrorMsg());
+            coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, internalErrorSt.getErrorMsg());
             throw e;
         } finally {
             coordBase.close();
@@ -2257,7 +2261,7 @@ public class StmtExecutor {
                 }
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
-                    coord.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
+                    coord.cancel(Types.PPlanFragmentCancelReason.TIMEOUT, "timeout");
                     if (notTimeout) {
                         errMsg = coord.getExecStatus().getErrorMsg();
                         ErrorReport.reportDdlException("There exists unhealthy backend. "
