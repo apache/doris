@@ -103,7 +103,7 @@ public:
 
     uint64_t estimate_segment_size();
 
-    InvertedIndexFileSize get_inverted_index_file_size() const { return _inverted_index_file_size; }
+    InvertedIndexFileInfo get_inverted_index_file_info() const { return _inverted_index_file_info; }
     int64_t get_inverted_index_total_size();
 
     uint32_t num_rows_written() const { return _num_rows_written; }
@@ -198,7 +198,7 @@ private:
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
-    InvertedIndexFileSize _inverted_index_file_size;
+    InvertedIndexFileInfo _inverted_index_file_info;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;

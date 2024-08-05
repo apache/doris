@@ -1157,7 +1157,7 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     }
     if (_inverted_index_file_writer != nullptr) {
         RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        _inverted_index_file_size = _inverted_index_file_writer->get_index_file_size();
+        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
     }
     return Status::OK();
 }
@@ -1392,16 +1392,10 @@ Status SegmentWriter::_generate_short_key_index(
 }
 
 int64_t SegmentWriter::get_inverted_index_total_size() {
-    int64_t file_size = 0;
-    if (_tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-        const auto& idx_v1_file_size = _inverted_index_file_size.inverted_index_v1_file_size();
-        for (const auto& index_info : idx_v1_file_size.file_size()) {
-            file_size += index_info.index_file_size();
-        }
-    } else {
-        file_size += _inverted_index_file_size.inverted_index_v2_file_size().file_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_total_size();
     }
-    return file_size;
+    return 0;
 }
 
 } // namespace segment_v2

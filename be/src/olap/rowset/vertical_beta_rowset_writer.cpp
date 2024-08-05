@@ -214,8 +214,8 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         }
         this->_total_data_size += segment_size + segment_writer->get_inverted_index_total_size();
         this->_total_index_size += segment_writer->get_inverted_index_total_size();
-        this->_idx_files_info.add_file_size(segment_writer->get_segment_id(),
-                                            segment_writer->get_inverted_index_file_size());
+        this->_idx_files_info.add_file_info(segment_writer->get_segment_id(),
+                                            segment_writer->get_inverted_index_file_info());
         segment_writer.reset();
     }
     return Status::OK();

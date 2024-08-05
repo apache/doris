@@ -144,16 +144,14 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     //Check if a valid handle was retrieved
     if (st.ok() && h->_reader) {
         if (h->_reader->size() == 0) {
-            // may be a empty file
-            error.set(CL_ERR_IO, fmt::format("Opened File is empty, file is {}", path).data());
-            return false;
-        } else {
-            //Store the file length
-            h->_length = h->_reader->size();
-            h->_fpos = 0;
-            ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
-            return true;
+            // may be an empty file
+            LOG(INFO) << "Opened inverted index file is empty, file is " << path;
         }
+        //Store the file length
+        h->_length = h->_reader->size();
+        h->_fpos = 0;
+        ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
+        return true;
     }
 
     //delete h->_shared_lock;

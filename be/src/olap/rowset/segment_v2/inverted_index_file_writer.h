@@ -65,7 +65,7 @@ public:
     int64_t write_v1();
     Status close();
     int64_t headerLength();
-    InvertedIndexFileSize get_index_file_size() const { return _file_size; }
+    InvertedIndexFileInfo get_index_file_info() const { return _file_info; }
     int64_t get_index_file_total_size() const { return _total_file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
     void sort_files(std::vector<FileInfo>& file_infos);
@@ -86,7 +86,7 @@ private:
     // write to disk or stream
     io::FileWriterPtr _idx_v2_writer;
 
-    InvertedIndexFileSize _file_size;
+    InvertedIndexFileInfo _file_info;
 };
 } // namespace segment_v2
 } // namespace doris

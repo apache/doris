@@ -247,7 +247,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.index_size = index_size + writer->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
 
-    _idx_files_info.add_file_size(segment_id, writer->get_inverted_index_file_size());
+    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
@@ -293,7 +293,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.index_size = index_size + writer->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
 
-    _idx_files_info.add_file_size(segment_id, writer->get_inverted_index_file_size());
+    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));

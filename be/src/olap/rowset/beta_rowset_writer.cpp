@@ -737,12 +737,12 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
                                                                   : _context.tablet_schema;
     _rowset_meta->set_tablet_schema(rowset_schema);
 
-    if (auto idx_file_size = _idx_files_info.get_inverted_file_size(_segment_start_id);
-        !idx_file_size.has_value()) [[unlikely]] {
-        LOG(ERROR) << "expected inverted index file sizes, but none presents: "
-                   << idx_file_size.error();
+    if (auto idx_files_info = _idx_files_info.get_inverted_files_info(_segment_start_id);
+        !idx_files_info.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected inverted index files info, but none presents: "
+                   << idx_files_info.error();
     } else {
-        _rowset_meta->add_inverted_index_file_size(idx_file_size.value());
+        _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,

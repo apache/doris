@@ -82,7 +82,7 @@ public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
-                       std::shared_ptr<Segment>* output, InvertedIndexFileSize idx_file_size = {});
+                       std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
 
     static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
     io::UInt128Wrapper file_cache_key() const {
@@ -196,7 +196,7 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
-            InvertedIndexFileSize inverted_index_file_size = InvertedIndexFileSize());
+            InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer(SegmentFooterPB* footer);
@@ -273,7 +273,7 @@ private:
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     DorisCallOnce<Status> _inverted_index_file_reader_open;
 
-    InvertedIndexFileSize _idx_file_size;
+    InvertedIndexFileInfo _idx_file_info;
 };
 
 } // namespace segment_v2

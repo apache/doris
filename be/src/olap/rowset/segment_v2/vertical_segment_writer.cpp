@@ -1028,7 +1028,7 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     }
 
     if (_inverted_index_file_writer != nullptr) {
-        _inverted_index_file_size = _inverted_index_file_writer->get_index_file_size();
+        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
     }
     // reset all column writers and data_conveter
     clear();
@@ -1194,16 +1194,10 @@ void VerticalSegmentWriter::_set_max_key(const Slice& key) {
 }
 
 int64_t VerticalSegmentWriter::get_inverted_index_total_size() {
-    int64_t file_size = 0;
-    if (_tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-        const auto& idx_v1_file_size = _inverted_index_file_size.inverted_index_v1_file_size();
-        for (const auto& index_info : idx_v1_file_size.file_size()) {
-            file_size += index_info.index_file_size();
-        }
-    } else {
-        file_size += _inverted_index_file_size.inverted_index_v2_file_size().file_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_total_size();
     }
-    return file_size;
+    return 0;
 }
 
 } // namespace segment_v2

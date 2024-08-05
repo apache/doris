@@ -47,8 +47,8 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
 
         // 1. get file size from meta
         int64_t file_size = -1;
-        if (_idx_file_size.has_inverted_index_v2_file_size()) {
-            file_size = _idx_file_size.inverted_index_v2_file_size().file_size();
+        if (_idx_file_info.has_index_size()) {
+            file_size = _idx_file_info.index_size();
         }
         file_size = file_size == 0 ? -1 : file_size;
 
@@ -161,9 +161,8 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
 
             // 1. get file size from meta
             int64_t file_size = -1;
-            if (_idx_file_size.has_inverted_index_v1_file_size()) {
-                for (const auto& idx_info :
-                     _idx_file_size.inverted_index_v1_file_size().file_size()) {
+            if (_idx_file_info.index_info_size() > 0) {
+                for (const auto& idx_info : _idx_file_info.index_info()) {
                     if (index_id == idx_info.index_id() &&
                         index_suffix == idx_info.index_suffix()) {
                         file_size = idx_info.index_file_size();

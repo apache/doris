@@ -64,20 +64,12 @@ enum FileType {
   INVERTED_INDEX_FILE = 2;
 }
 
-message InvertedIndexFormatV1FileSize {
+message InvertedIndexFileInfo {
     message IndexInfo {
         required int64 index_id = 1;
-        required string index_suffix = 2;
-        required int64 index_file_size = 3;
+        required int64 index_file_size = 2 [default = -1];
+        optional string index_suffix = 3;
     }
-    repeated IndexInfo file_size = 1;
-}
-
-message InvertedIndexFormatV2FileSize {
-    required int64 file_size = 1;
-}
-
-message InvertedIndexFileSize {
-    optional InvertedIndexFormatV1FileSize inverted_index_v1_file_size = 1;
-    optional InvertedIndexFormatV2FileSize inverted_index_v2_file_size = 2;
+    repeated IndexInfo index_info = 1; // for inverted index v1
+    optional int64 index_size = 2;     // for inverted index v2
 }

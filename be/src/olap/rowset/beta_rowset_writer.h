@@ -87,55 +87,54 @@ private:
 // Collect the size of the inverted index files
 class InvertedIndexFilesInfo {
 public:
-    // Get inverted index file size in segment id order.
-    // Return the size of inverted index files from seg_id_offset to the last one.
-    Result<std::vector<InvertedIndexFileSize>> get_inverted_file_size(int seg_id_offset) {
+    // Get inverted index file info in segment id order.
+    // Return the info of inverted index files from seg_id_offset to the last one.
+    Result<std::vector<InvertedIndexFileInfo>> get_inverted_files_info(int seg_id_offset) {
         std::lock_guard lock(_lock);
 
         Status st;
-        std::vector<InvertedIndexFileSize> inverted_file_size(_inverted_index_file_size.size());
+        std::vector<InvertedIndexFileInfo> inverted_files_info(_inverted_index_files_info.size());
         bool succ = std::all_of(
-                _inverted_index_file_size.begin(), _inverted_index_file_size.end(), [&](auto&& it) {
-                    auto&& [seg_id, size] = it;
+                _inverted_index_files_info.begin(), _inverted_index_files_info.end(),
+                [&](auto&& it) {
+                    auto&& [seg_id, info] = it;
 
                     int idx = seg_id - seg_id_offset;
-                    if (idx >= inverted_file_size.size()) [[unlikely]] {
+                    if (idx >= inverted_files_info.size()) [[unlikely]] {
                         auto err_msg = fmt::format(
-                                "invalid seg_id={} num_inverted_file_writers={} seg_id_offset={}",
-                                seg_id, inverted_file_size.size(), seg_id_offset);
+                                "invalid seg_id={} num_inverted_files_info={} seg_id_offset={}",
+                                seg_id, inverted_files_info.size(), seg_id_offset);
                         DCHECK(false) << err_msg;
                         st = Status::InternalError(err_msg);
                         return false;
                     }
 
-                    auto& fsize = inverted_file_size[idx];
-                    if (fsize.has_inverted_index_v1_file_size() ||
-                        fsize.has_inverted_index_v2_file_size()) [[unlikely]] {
+                    auto& finfo = inverted_files_info[idx];
+                    if (finfo.has_index_size() || finfo.index_info_size() > 0) [[unlikely]] {
                         // File size should not been set
                         auto err_msg = fmt::format("duplicate seg_id={}", seg_id);
                         DCHECK(false) << err_msg;
                         st = Status::InternalError(err_msg);
                         return false;
                     }
-
-                    fsize = size;
+                    finfo = info;
                     return true;
                 });
 
         if (succ) {
-            return inverted_file_size;
+            return inverted_files_info;
         }
 
         return ResultError(st);
     }
 
-    void add_file_size(int seg_id, InvertedIndexFileSize file_size) {
+    void add_file_info(int seg_id, InvertedIndexFileInfo file_info) {
         std::lock_guard lock(_lock);
-        _inverted_index_file_size.emplace(seg_id, file_size);
+        _inverted_index_files_info.emplace(seg_id, file_info);
     }
 
 private:
-    std::unordered_map<int /* seg_id */, InvertedIndexFileSize> _inverted_index_file_size;
+    std::unordered_map<int /* seg_id */, InvertedIndexFileInfo> _inverted_index_files_info;
     mutable SpinLock _lock;
 };
 
@@ -266,7 +265,7 @@ protected:
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
 
-    // map<segment_id, inverted_index_file_size>
+    // map<segment_id, inverted_index_file_info>
     InvertedIndexFilesInfo _idx_files_info;
 };
 

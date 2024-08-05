@@ -91,10 +91,10 @@ std::string file_cache_key_str(const std::string& seg_path) {
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
-                     InvertedIndexFileSize inverted_index_file_size) {
+                     InvertedIndexFileInfo idx_file_info) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema), inverted_index_file_size));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
     segment->_fs = fs;
     segment->_file_reader = std::move(file_reader);
     auto st = segment->_open();
@@ -137,12 +137,12 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
 }
 
 Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
-                 InvertedIndexFileSize inverted_index_file_size)
+                 InvertedIndexFileInfo idx_file_info)
         : _segment_id(segment_id),
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
-          _idx_file_size(inverted_index_file_size) {
+          _idx_file_info(idx_file_info) {
     g_total_segment_num << 1;
 }
 
@@ -186,7 +186,7 @@ Status Segment::_open_inverted_index() {
             _fs,
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
-            _tablet_schema->get_inverted_index_storage_format(), _idx_file_size);
+            _tablet_schema->get_inverted_index_storage_format(), _idx_file_info);
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
                                                 open_idx_file_cache);

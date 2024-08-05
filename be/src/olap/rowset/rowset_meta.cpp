@@ -233,11 +233,11 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
             _rowset_meta_pb.add_segments_file_size(fsize);
         }
     }
-    if (_rowset_meta_pb.enable_inverted_index_file_size() &&
-        other._rowset_meta_pb.enable_inverted_index_file_size()) {
-        for (auto fsize : other.inverted_index_file_size()) {
-            InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
-            *new_file_size = fsize;
+    if (_rowset_meta_pb.enable_inverted_index_file_info() &&
+        other._rowset_meta_pb.enable_inverted_index_file_info()) {
+        for (auto finfo : other.inverted_index_file_info()) {
+            InvertedIndexFileInfo* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+            *new_file_info = finfo;
         }
     }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
@@ -256,31 +256,27 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
 }
 
-InvertedIndexFileSize RowsetMeta::inverted_index_file_size(int seg_id) {
-    return _rowset_meta_pb.enable_inverted_index_file_size()
-                   ? (_rowset_meta_pb.inverted_index_file_size_size() > seg_id
-                              ? _rowset_meta_pb.inverted_index_file_size(seg_id)
-                              : InvertedIndexFileSize())
-                   : InvertedIndexFileSize();
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+    return _rowset_meta_pb.enable_inverted_index_file_info()
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
+                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                              : InvertedIndexFileInfo())
+                   : InvertedIndexFileInfo();
 }
 
-void RowsetMeta::add_inverted_index_file_size(
-        const std::vector<InvertedIndexFileSize>& idx_file_size) {
-    _rowset_meta_pb.set_enable_inverted_index_file_size(true);
-    for (auto fsize : idx_file_size) {
-        InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
-        *new_file_size = fsize;
+void RowsetMeta::add_inverted_index_files_info(
+        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+    _rowset_meta_pb.set_enable_inverted_index_file_info(true);
+    for (auto finfo : idx_file_info) {
+        auto* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
+        *new_file_info = finfo;
     }
 }
 
-void RowsetMeta::update_inverted_index_file_size(
-        const std::vector<InvertedIndexFileSize>& idx_file_size) {
-    _rowset_meta_pb.set_enable_inverted_index_file_size(true);
-    _rowset_meta_pb.clear_inverted_index_file_size();
-    for (auto fsize : idx_file_size) {
-        InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
-        *new_file_size = fsize;
-    }
+void RowsetMeta::update_inverted_index_files_info(
+        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+    _rowset_meta_pb.clear_inverted_index_file_info();
+    add_inverted_index_files_info(idx_file_info);
 }
 
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {

@@ -760,7 +760,7 @@ Status Compaction::do_inverted_index_compaction() {
         }
     }
 
-    std::vector<InvertedIndexFileSize> all_inverted_index_file_size(dest_segment_num);
+    std::vector<InvertedIndexFileInfo> all_inverted_index_file_info(dest_segment_num);
     uint64_t inverted_index_file_size = 0;
     for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
         auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
@@ -770,7 +770,7 @@ Status Compaction::do_inverted_index_compaction() {
             inverted_index_file_size += inverted_index_file_writer->get_index_file_total_size();
             inverted_index_file_size -= compacted_idx_file_size[seg_id];
         }
-        all_inverted_index_file_size[seg_id] = inverted_index_file_writer->get_index_file_size();
+        all_inverted_index_file_info[seg_id] = inverted_index_file_writer->get_index_file_info();
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
     if (!status.ok()) {
@@ -785,7 +785,7 @@ Status Compaction::do_inverted_index_compaction() {
     _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
                                                        inverted_index_file_size);
 
-    _output_rowset->rowset_meta()->update_inverted_index_file_size(all_inverted_index_file_size);
+    _output_rowset->rowset_meta()->update_inverted_index_files_info(all_inverted_index_file_info);
     COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
 
     LOG(INFO) << "succeed to do index compaction"
