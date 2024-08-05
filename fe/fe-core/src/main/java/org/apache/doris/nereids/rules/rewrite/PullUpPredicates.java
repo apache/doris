@@ -99,20 +99,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
             // TODO
-            Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
-                    .stream()
-                    .filter(this::hasAgg)
-                    .collect(Collectors.toMap(
-                            namedExpr -> {
-                                if (namedExpr instanceof Alias) {
-                                    return ((Alias) namedExpr).child();
-                                } else {
-                                    return namedExpr;
-                                }
-                            }, NamedExpression::toSlot)
-                    );
-            Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap);
+            Expression expression = ExpressionUtils.and(Lists.newArrayList(childPredicates));
             List<Expression> predicates = ExpressionUtils.extractConjunction(expression);
             return getAvailableExpressions(predicates, aggregate);
         });
