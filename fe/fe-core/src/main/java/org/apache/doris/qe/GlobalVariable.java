@@ -55,10 +55,19 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
+    public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
     public static final String READ_ONLY = "read_only";
     public static final String SUPER_READ_ONLY = "super_read_only";
+    public static final String DEFAULT_USING_META_CACHE_FOR_EXTERNAL_CATALOG
+            = "default_using_meta_cache_for_external_catalog";
+
+    public static final String PARTITION_ANALYZE_BATCH_SIZE = "partition_analyze_batch_size";
+    public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
+
+    public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
+
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
@@ -129,6 +138,9 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
     public static int auditPluginMaxSqlLength = 4096;
 
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
+    public static int auditPluginLoadTimeoutS = 600;
+
     @VariableMgr.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VariableMgr.GLOBAL,
             description = {
                     "针对外表，是否允许根据文件列表估算表行数。获取文件列表可能是一个耗时的操作，"
@@ -137,7 +149,7 @@ public final class GlobalVariable {
                             + "Getting file list may be a time-consuming operation. "
                             + "If you don't need to estimate the number of rows in the table "
                             + "or it affects performance, you can disable this feature."})
-    public static boolean enable_get_row_count_from_file_list = false;
+    public static boolean enable_get_row_count_from_file_list = true;
 
     @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
             description = {"仅用于兼容MySQL生态，暂无实际意义",
@@ -148,6 +160,24 @@ public final class GlobalVariable {
             description = {"仅用于兼容MySQL生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean super_read_only = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_ANALYZE_BATCH_SIZE, flag = VariableMgr.GLOBAL,
+            description = {
+                "批量收集分区信息的分区数",
+                "Number of partitions to collect in one batch."})
+    public static int partitionAnalyzeBatchSize = 10;
+
+    @VariableMgr.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VariableMgr.GLOBAL,
+            description = {
+                "行数超过该值的分区将跳过自动分区收集",
+                "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
+    public static long hugePartitionLowerBoundRows = 100000000L;
+
+    @VariableMgr.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VariableMgr.GLOBAL,
+            description = {
+                "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
+                "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
+    public static boolean enableFetchIcebergStats = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

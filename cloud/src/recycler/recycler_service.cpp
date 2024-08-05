@@ -26,13 +26,18 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "cpp/s3_rate_limiter.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv_error.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
+#include "recycler/s3_accessor.h"
 
 namespace doris::cloud {
+
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
 
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
@@ -146,7 +151,8 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
 }
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
-                       MetaServiceCode& code, std::string& msg) {
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -183,7 +189,13 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
             return;
         }
     }
-    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance);
+
+    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance, thread_pool_group);
+    if (recycler->init() != 0) {
+        LOG(WARNING) << "failed to init InstanceRecycler recycle_copy_jobs on instance "
+                     << instance_id;
+        return;
+    }
     std::thread worker([recycler = std::move(recycler), instance_id] {
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
@@ -321,7 +333,7 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             status_code = 400;
             return;
         }
-        recycle_copy_jobs(txn_kv_, *instance_id, code, msg);
+        recycle_copy_jobs(txn_kv_, *instance_id, code, msg, recycler_->_thread_pool_group);
         response_body = msg;
         return;
     }
@@ -394,6 +406,34 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             return;
         }
         check_meta(txn_kv_, *instance_id, *host, *port, *user, *password, msg);
+        status_code = 200;
+        response_body = msg;
+        return;
+    }
+
+    if (unresolved_path == "adjust_rate_limiter") {
+        auto type_string = uri.GetQuery("type");
+        auto speed = uri.GetQuery("speed");
+        auto burst = uri.GetQuery("burst");
+        auto limit = uri.GetQuery("limit");
+        if (type_string->empty() || speed->empty() || burst->empty() || limit->empty() ||
+            (*type_string != "get" && *type_string != "put")) {
+            msg = "argument not suitable";
+            response_body = msg;
+            status_code = 400;
+            return;
+        }
+        auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
+        auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
+        auto max_limit = burst->empty() ? 0 : std::stoul(*limit);
+        if (0 != reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed,
+                                       max_burst, max_limit)) {
+            msg = "adjust failed";
+            response_body = msg;
+            status_code = 400;
+            return;
+        }
+
         status_code = 200;
         response_body = msg;
         return;

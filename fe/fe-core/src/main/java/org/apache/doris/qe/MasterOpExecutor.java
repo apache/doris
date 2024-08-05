@@ -20,12 +20,14 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -84,11 +86,30 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
+        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
         waitOnReplaying();
     }
 
     public void syncJournal() throws Exception {
         result = forward(buildSyncJournalParmas());
+        waitOnReplaying();
+    }
+
+    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
+        waitOnReplaying();
+        return result.groupCommitLoadBeId;
+    }
+
+    public void updateLoadData(long tableId, long receiveData) throws Exception {
+        result = forward(buildUpdateLoadDataParams(tableId, receiveData));
         waitOnReplaying();
     }
 
@@ -175,7 +196,7 @@ public class MasterOpExecutor {
         }
     }
 
-    private TMasterOpRequest buildStmtForwardParams() {
+    private TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
         TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
@@ -203,6 +224,10 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+        // set transaction load info
+        if (ctx.isTxnModel()) {
+            params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
+        }
         return params;
     }
 
@@ -212,6 +237,43 @@ public class MasterOpExecutor {
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setGetGroupCommitLoadBeId(true);
+        groupCommitParams.setGroupCommitLoadTableId(tableId);
+        groupCommitParams.setCluster(cluster);
+        groupCommitParams.setIsCloud(isCloud);
+
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGroupCommitInfo(groupCommitParams);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
+    }
+
+    private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setUpdateLoadData(true);
+        groupCommitParams.setTableId(tableId);
+        groupCommitParams.setReceiveData(receiveData);
+
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGroupCommitInfo(groupCommitParams);
         params.setDb(ctx.getDatabase());
         params.setUser(ctx.getQualifiedUser());
         // just make the protocol happy

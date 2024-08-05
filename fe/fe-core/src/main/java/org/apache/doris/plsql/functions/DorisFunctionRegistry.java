@@ -20,6 +20,9 @@
 
 package org.apache.doris.plsql.functions;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.PLLexer;
 import org.apache.doris.nereids.PLParser;
 import org.apache.doris.nereids.PLParser.Create_function_stmtContext;
@@ -89,15 +92,47 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         return (ConnectContext.get().getDatabase() + "." + name).toUpperCase();
     }
 
+    private String getDbName(long catalogId, long dbId) {
+        String dbName = "";
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (catalog != null) {
+            DatabaseIf db = catalog.getDbNullable(dbId);
+            if (db != null) {
+                dbName = db.getFullName();
+            }
+        }
+        return dbName;
+    }
+
+    public boolean like(String str, String wild) {
+        str = str.toLowerCase();
+        return str.matches(wild.replace(".", "\\.").replace("?", ".").replace("%", ".*").toLowerCase());
+    }
+
+    public boolean applyFilter(String value, String filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        return like(value, filter);
+    }
+
     @Override
-    public void showProcedure(List<List<String>> columns) {
+    public void showProcedure(List<List<String>> columns, String dbFilter, String procFilter) {
         Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = client.getAllPlsqlStoredProcedures();
         for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
             List<String> row = new ArrayList<>();
             PlsqlStoredProcedure proc = entry.getValue();
+            if (!applyFilter(proc.getName(), procFilter)) {
+                continue;
+            }
+            String dbName = getDbName(proc.getCatalogId(), proc.getDbId());
+            if (!applyFilter(dbName, dbFilter)) {
+                continue;
+            }
             row.add(proc.getName());
             row.add(Long.toString(proc.getCatalogId()));
             row.add(Long.toString(proc.getDbId()));
+            row.add(dbName);
             row.add(proc.getPackageName());
             row.add(proc.getOwnerName());
             row.add(proc.getCreateTime());

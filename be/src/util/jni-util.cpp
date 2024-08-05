@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -34,8 +35,9 @@
 
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
+#include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
-#include "util/libjvm_loader.h"
+// #include "util/libjvm_loader.h"
 
 using std::string;
 
@@ -153,6 +155,7 @@ const std::string GetDorisJNIClasspathOption() {
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
+
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
@@ -173,6 +176,8 @@ jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
 jmethodID JniUtil::get_jmx_json_ = nullptr;
 jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
 jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
+jlong JniUtil::max_jvm_heap_memory_size_ = 0;
+jmethodID JniUtil::_clean_udf_cache_method_id = nullptr;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -202,6 +207,54 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     }
     env_ = env;
     return Status::OK();
+}
+
+void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
+    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
+    std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
+    std::istringstream iss(java_opts);
+    std::string opt;
+    while (iss >> opt) {
+        if (opt.find("-Xmx") == 0) {
+            std::string xmxValue = opt.substr(4);
+            LOG(INFO) << "The max heap vaule is " << xmxValue;
+            char unit = xmxValue.back();
+            xmxValue.pop_back();
+            long long value = std::stoll(xmxValue);
+            switch (unit) {
+            case 'g':
+            case 'G':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
+                break;
+            case 'm':
+            case 'M':
+                max_jvm_heap_memory_size_ = value * 1024 * 1024;
+                break;
+            case 'k':
+            case 'K':
+                max_jvm_heap_memory_size_ = value * 1024;
+                break;
+            default:
+                max_jvm_heap_memory_size_ = value;
+                break;
+            }
+        }
+    }
+    if (0 == max_jvm_heap_memory_size_) {
+        LOG(FATAL) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+    }
+    LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+}
+
+size_t JniUtil::get_max_jni_heap_memory_size() {
+#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+    return std::numeric_limits<size_t>::max();
+#else
+    static std::once_flag parse_max_heap_memory_size_from_jvm_flag;
+    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm,
+                   tls_env_);
+    return max_jvm_heap_memory_size_;
+#endif
 }
 
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
@@ -389,6 +442,25 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
     }
     env->CallVoidMethod(jni_scanner_loader_obj_, load_jni_scanner);
     RETURN_ERROR_IF_EXC(env);
+
+    _clean_udf_cache_method_id = env->GetMethodID(jni_scanner_loader_cls, "cleanUdfClassLoader",
+                                                  "(Ljava/lang/String;)V");
+    if (_clean_udf_cache_method_id == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::InternalError("Failed to find removeUdfClassLoader method.");
+    }
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
+}
+
+Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature) {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->CallVoidMethod(jni_scanner_loader_obj_, _clean_udf_cache_method_id,
+                        env->NewStringUTF(function_signature.c_str()));
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -404,7 +476,7 @@ Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
 }
 
 Status JniUtil::Init() {
-    RETURN_IF_ERROR(LibJVMLoader::instance().load());
+    // RETURN_IF_ERROR(LibJVMLoader::instance().load());
 
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env = nullptr;
@@ -520,6 +592,7 @@ Status JniUtil::Init() {
     }
     RETURN_IF_ERROR(init_jni_scanner_loader(env));
     jvm_inited_ = true;
+    DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
 

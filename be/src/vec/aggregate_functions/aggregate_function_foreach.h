@@ -223,11 +223,9 @@ public:
         return nested_function->allocates_memory_in_arena();
     }
 
-    bool is_state() const override { return nested_function->is_state(); }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        const IColumn* nested[num_arguments];
+        std::vector<const IColumn*> nested(num_arguments);
 
         for (size_t i = 0; i < num_arguments; ++i) {
             nested[i] = &assert_cast<const ColumnArray&>(*columns[i]).get_data();
@@ -256,7 +254,7 @@ public:
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = begin; i < end; ++i) {
-            nested_function->add(nested_state, nested, i, arena);
+            nested_function->add(nested_state, nested.data(), i, arena);
             nested_state += nested_size_of_data;
         }
     }

@@ -21,9 +21,9 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
+#include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -31,24 +31,15 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
 class SipHash;
-
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
 
 //TODO: use marcos below to decouple array function calls
 #define ALL_COLUMNS_NUMBER                                                                       \
@@ -61,6 +52,8 @@ class Arena;
 
 namespace doris::vectorized {
 
+class Arena;
+
 /** Obtaining array as Field can be slow for large arrays and consume vast amount of memory.
   * Just don't allow to do it.
   * You can increase the limit if the following query:
@@ -71,7 +64,6 @@ static constexpr size_t max_array_size_as_field = 1000000;
 /** A column of array values.
   * In memory, it is represented as one column of a nested type, whose size is equal to the sum of the sizes of all arrays,
   *  and as an array of offsets in it, which allows you to get each element.
-  * NOTE: the ColumnArray won't nest multi-layers. That means the nested type will be concrete data-type.
   */
 class ColumnArray final : public COWHelper<IColumn, ColumnArray> {
 private:
@@ -136,7 +128,7 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
-    bool is_default_at(size_t n) const override;
+    bool is_default_at(size_t n) const;
     void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
@@ -163,16 +155,7 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-
-    [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-        __builtin_unreachable();
-    }
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
@@ -230,11 +213,8 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void clear() override {
@@ -252,18 +232,9 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override;
-
 private:
-    // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
-    // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
+    // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
+    // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
 

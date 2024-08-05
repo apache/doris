@@ -75,7 +75,7 @@ public class TableBinlogTest {
         }
 
         // trigger ttlGc
-        BinlogTombstone tombstone = tableBinlog.ttlGc();
+        BinlogTombstone tombstone = tableBinlog.gc();
 
         // check binlog status
         for (TBinlog binlog : testBinlogs) {

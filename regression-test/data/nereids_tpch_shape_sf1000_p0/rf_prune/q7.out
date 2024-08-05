@@ -8,33 +8,28 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))) build RFs:RF4 o_orderkey->[l_orderkey]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))) build RFs:RF4 c_custkey->[o_custkey]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
+--------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF3 l_orderkey->[o_orderkey]
 ----------------------PhysicalProject
-------------------------filter((lineitem.l_shipdate <= '1996-12-31') and (lineitem.l_shipdate >= '1995-01-01'))
---------------------------PhysicalOlapScan[lineitem] apply RFs: RF3 RF4
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[s_nationkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[supplier] apply RFs: RF2
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalProject
---------------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-----------------------------------PhysicalOlapScan[nation]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 c_custkey->[o_custkey]
-------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalOlapScan[orders] apply RFs: RF3 RF4
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[orders] apply RFs: RF1
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n2.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[c_nationkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer] apply RFs: RF0
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------filter((lineitem.l_shipdate <= '1996-12-31') and (lineitem.l_shipdate >= '1995-01-01'))
+------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
 ------------------------------PhysicalProject
 --------------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
 ----------------------------------PhysicalOlapScan[nation]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n2.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[c_nationkey]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer] apply RFs: RF0
+----------------------PhysicalProject
+------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
+--------------------------PhysicalOlapScan[nation]
 

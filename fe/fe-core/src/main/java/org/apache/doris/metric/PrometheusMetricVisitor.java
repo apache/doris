@@ -19,6 +19,7 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -244,15 +245,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder tableRowCountBuilder = new StringBuilder();
 
         long totalTableSize = 0;
-        for (CloudTabletStatMgr.CloudTableStats stats : tabletStatMgr.getCloudTableStatsMap().values()) {
-            totalTableSize += stats.getTableDataSize();
+        for (OlapTable.Statistics stats : tabletStatMgr.getCloudTableStatsMap().values()) {
+            totalTableSize += stats.getDataSize();
 
             dataSizeBuilder.append("doris_fe_table_data_size{db_name=\"");
             dataSizeBuilder.append(stats.getDbName());
             dataSizeBuilder.append("\", table_name=\"");
             dataSizeBuilder.append(stats.getTableName());
             dataSizeBuilder.append("\"} ");
-            dataSizeBuilder.append(stats.getTableDataSize());
+            dataSizeBuilder.append(stats.getDataSize());
             dataSizeBuilder.append("\n");
 
             rowsetCountBuilder.append("doris_fe_table_rowset_count{db_name=\"");
@@ -260,7 +261,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             rowsetCountBuilder.append("\", table_name=\"");
             rowsetCountBuilder.append(stats.getTableName());
             rowsetCountBuilder.append("\"} ");
-            rowsetCountBuilder.append(stats.getTableRowsetCount());
+            rowsetCountBuilder.append(stats.getRowsetCount());
             rowsetCountBuilder.append("\n");
 
             segmentCountBuilder.append("doris_fe_table_segment_count{db_name=\"");
@@ -268,7 +269,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             segmentCountBuilder.append("\", table_name=\"");
             segmentCountBuilder.append(stats.getTableName());
             segmentCountBuilder.append("\"} ");
-            segmentCountBuilder.append(stats.getTableSegmentCount());
+            segmentCountBuilder.append(stats.getSegmentCount());
             segmentCountBuilder.append("\n");
 
             tableRowCountBuilder.append("doris_fe_table_row_count{db_name=\"");
@@ -276,7 +277,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             tableRowCountBuilder.append("\", table_name=\"");
             tableRowCountBuilder.append(stats.getTableName());
             tableRowCountBuilder.append("\"} ");
-            tableRowCountBuilder.append(stats.getTableRowCount());
+            tableRowCountBuilder.append(stats.getRowCount());
             tableRowCountBuilder.append("\n");
         }
 

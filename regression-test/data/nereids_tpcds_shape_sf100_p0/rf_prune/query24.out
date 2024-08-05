@@ -7,53 +7,46 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashJoin[INNER_JOIN] hashCondition=((store.s_zip = customer_address.ca_zip) and (store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter((store.s_market_id = 8))
-------------------------------------PhysicalOlapScan[store]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country))))
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_address]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[store_returns]
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store.s_zip = customer_address.ca_zip) and (store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
+----------------------------PhysicalProject
+------------------------------filter((store.s_market_id = 8))
+--------------------------------PhysicalOlapScan[store]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country))))
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[customer]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[item]
+----------------PhysicalProject
+------------------PhysicalOlapScan[store_returns]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'beige'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecGather]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'beige'))
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecGather]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

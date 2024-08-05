@@ -246,3 +246,63 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[mal_test1]
 
+-- !test_has_project_distinct_cant_transform --
+1
+
+-- !test_has_project_distinct_cant_transform_shape --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[mal_test_merge_agg]
+
+-- !test_distinct_expr_transform --
+-1
+
+-- !test_distinct_expr_transform_shape --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------PhysicalOlapScan[mal_test_merge_agg]
+
+-- !test_has_project_distinct_expr_transform --
+1
+1
+1
+
+-- !test_has_project_distinct_expr_transform --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[mal_test_merge_agg]
+
+-- !test_sum_empty_table --
+\N	\N	\N
+
+-- !test_sum_empty_table_shape --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[mal_test2]
+
+-- !agg_project_agg_the_project_has_duplicate_slot_output --
+1	7	7
+2	4	4
+6	\N	\N
+7	1	1
+8	2	2
+8	5	5
+9	3	3
+

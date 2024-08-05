@@ -55,6 +55,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -322,9 +323,11 @@ public class OlapTableSink extends DataSink {
             for (Column col : table.getFullSchema()) {
                 if (col.isAutoInc()) {
                     schemaParam.setAutoIncrementColumn(col.getName());
+                    schemaParam.setAutoIncrementColumnUniqueId(col.getUniqueId());
                 }
             }
         }
+        schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
 
@@ -348,18 +351,84 @@ public class OlapTableSink extends DataSink {
         return distColumns;
     }
 
+    private PartitionItem createDummyPartitionItem(PartitionType partType) throws UserException {
+        if (partType == PartitionType.LIST) {
+            return ListPartitionItem.DUMMY_ITEM;
+        } else if (partType == PartitionType.RANGE) {
+            return RangePartitionItem.DUMMY_ITEM;
+        } else {
+            throw new UserException("unsupported partition for OlapTable, partition=" + partType);
+        }
+    }
+
+    private TOlapTablePartitionParam createDummyPartition(long dbId, OlapTable table, Analyzer analyzer,
+            TOlapTablePartitionParam partitionParam, PartitionInfo partitionInfo, PartitionType partType)
+            throws UserException {
+        partitionParam.setEnableAutomaticPartition(true);
+        // these partitions only use in locations. not find partition.
+        partitionParam.setPartitionsIsFake(true);
+
+        // set columns
+        for (Column partCol : partitionInfo.getPartitionColumns()) {
+            partitionParam.addToPartitionColumns(partCol.getName());
+        }
+
+        int partColNum = partitionInfo.getPartitionColumns().size();
+
+        TOlapTablePartition fakePartition = new TOlapTablePartition();
+        fakePartition.setId(0);
+        // set partition keys
+        setPartitionKeys(fakePartition, createDummyPartitionItem(partType), partColNum);
+
+        for (Long indexId : table.getIndexIdToMeta().keySet()) {
+            fakePartition.addToIndexes(new TOlapTableIndexTablets(indexId, Arrays.asList(0L)));
+            fakePartition.setNumBuckets(1);
+        }
+        fakePartition.setIsMutable(true);
+
+        DistributionInfo distInfo = table.getDefaultDistributionInfo();
+        partitionParam.setDistributedColumns(getDistColumns(distInfo));
+        partitionParam.addToPartitions(fakePartition);
+
+        ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
+        if (exprSource != null && analyzer != null) {
+            Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+            tupleDescriptor.setTable(table);
+            funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
+            // we must clone the exprs. otherwise analyze will influence the origin exprs.
+            ArrayList<Expr> exprs = new ArrayList<Expr>();
+            for (Expr e : exprSource) {
+                exprs.add(e.clone());
+            }
+            for (Expr e : exprs) {
+                e.reset();
+                e.analyze(funcAnalyzer);
+            }
+            partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
+        }
+
+        return partitionParam;
+    }
+
     public TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
             throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
+        PartitionType partType = table.getPartitionInfo().getType();
         partitionParam.setDbId(dbId);
         partitionParam.setTableId(table.getId());
         partitionParam.setVersion(0);
+        partitionParam.setPartitionType(partType.toThrift());
 
-        PartitionType partType = table.getPartitionInfo().getType();
+        // create shadow partition for empty auto partition table. only use in this load.
+        if (enableAutomaticPartition && partitionIds.isEmpty()) {
+            return createDummyPartition(dbId, table, analyzer, partitionParam, partitionInfo, partType);
+        }
+
         switch (partType) {
             case LIST:
             case RANGE: {
-                PartitionInfo partitionInfo = table.getPartitionInfo();
                 for (Column partCol : partitionInfo.getPartitionColumns()) {
                     partitionParam.addToPartitionColumns(partCol.getName());
                 }
@@ -404,7 +473,6 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
-                boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
                 // for auto create partition by function expr, there is no any partition firstly,
                 // But this is required in thrift struct.
                 if (enableAutomaticPartition && partitionIds.isEmpty()) {
@@ -473,7 +541,6 @@ public class OlapTableSink extends DataSink {
                 throw new UserException("unsupported partition for OlapTable, partition=" + partType);
             }
         }
-        partitionParam.setPartitionType(partType.toThrift());
         return partitionParam;
     }
 
@@ -514,13 +581,61 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {
+        TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
+        TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
+
+        final long fakeTabletId = 0;
+        SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
+        List<Long> aliveBe = clusterInfo.getAllBackendIds(true);
+        if (aliveBe.isEmpty()) {
+            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, "no available BE in cluster");
+        }
+        for (int i = 0; i < table.getIndexNumber(); i++) {
+            // only one fake tablet here
+            if (singleReplicaLoad) {
+                Long[] nodes = aliveBe.toArray(new Long[0]);
+                List<Long> slaveBe = aliveBe;
+
+                Random random = new SecureRandom();
+                int masterNode = random.nextInt(nodes.length);
+                locationParam.addToTablets(new TTabletLocation(fakeTabletId,
+                        Arrays.asList(nodes[masterNode])));
+
+                slaveBe.remove(masterNode);
+                slaveLocationParam.addToTablets(new TTabletLocation(fakeTabletId,
+                        slaveBe));
+            } else {
+                locationParam.addToTablets(new TTabletLocation(fakeTabletId,
+                        Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
+
+                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
+            }
+        }
+
+        return Arrays.asList(locationParam, slaveLocationParam);
+    }
+
     public List<TOlapTableLocationParam> createLocation(OlapTable table) throws UserException {
+        if (table.getPartitionInfo().enableAutomaticPartition() && partitionIds.isEmpty()) {
+            return createDummyLocation(table);
+        }
+
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        for (Long partitionId : partitionIds) {
-            Partition partition = table.getPartition(partitionId);
+        List<Partition> partitions = partitionIds.stream().map(partitionId -> table.getPartition(partitionId))
+                .collect(Collectors.toList());
+        List<Long> visibleVersions = null;
+        try {
+            visibleVersions = Partition.getVisibleVersions(partitions);
+        } catch (RpcException e) {
+            throw new UserException("OlapTableSink get partition visible version failed", e);
+        }
+        for (int i = 0; i < partitions.size(); i++) {
+            Partition partition = partitions.get(i);
+            long visibleVersion = visibleVersions.get(i);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
@@ -531,17 +646,14 @@ public class OlapTableSink extends DataSink {
                         String errMsg = "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
                                 + " < load required replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]"
-                                + ", detail: " + tablet.getDetailsStatusForQuery(partition.getVisibleVersion());
+                                + ", detail: " + tablet.getDetailsStatusForQuery(visibleVersion);
                         if (Config.isCloudMode()) {
-                            errMsg += ", or you may not have permission to access the current cluster";
-                            if (ConnectContext.get() != null) {
-                                errMsg += " clusterName=" + ConnectContext.get().getCloudCluster(false);
-                            }
+                            errMsg += ConnectContext.cloudNoBackendsReason();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
                     }
 
-                    debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);
+                    debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);
                     if (bePathsMap.keySet().isEmpty()) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
                                 "tablet " + tablet.getId() + " no available replica");

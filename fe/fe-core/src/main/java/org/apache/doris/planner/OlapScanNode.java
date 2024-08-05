@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -65,7 +66,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -163,12 +163,12 @@ public class OlapScanNode extends ScanNode {
     private boolean canTurnOnPreAggr = true;
     private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
-    private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
-    private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
+    // tablet id to single replica bytes
+    private Map<Long, Long> tabletBytes = Maps.newLinkedHashMap();
 
     private SortInfo sortInfo = null;
     private Set<Integer> outputColumnUniqueIds = new HashSet<>();
@@ -176,12 +176,6 @@ public class OlapScanNode extends ScanNode {
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
-
-    // useTopnOpt is equivalent to !topnFilterSortNodes.isEmpty().
-    // keep this flag for compatibility.
-    private boolean useTopnOpt = false;
-    // support multi topn filter
-    private final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -197,6 +191,7 @@ public class OlapScanNode extends ScanNode {
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
+    public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
 
     boolean isFromPrepareStmt = false;
     // For point query
@@ -213,6 +208,7 @@ public class OlapScanNode extends ScanNode {
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
+    PrepareStmt preparedStatment = null;
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -297,14 +293,6 @@ public class OlapScanNode extends ScanNode {
         this.forceOpenPreAgg = forceOpenPreAgg;
     }
 
-    public Integer getSelectedPartitionNum() {
-        return selectedPartitionNum;
-    }
-
-    public Long getSelectedTabletsNum() {
-        return selectedTabletsNum;
-    }
-
     public SortInfo getSortInfo() {
         return sortInfo;
     }
@@ -315,14 +303,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
-    }
-
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
-    }
-
-    public void setUseTopnOpt(boolean useTopnOpt) {
-        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -559,9 +539,9 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
-        // lazy evaluation, since stmt is a prepared statment
-        isFromPrepareStmt = analyzer.getPrepareStmt() != null;
-        if (!isFromPrepareStmt) {
+        // point query could do lazy evaluation, since stmt is a prepared statment
+        preparedStatment = analyzer.getPrepareStmt();
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 partitionsInfo = olapTable.getPartitionInfo();
                 analyzerPartitionExpr(analyzer, partitionsInfo);
@@ -627,7 +607,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         // prepare stmt evaluate lazily in Coordinator execute
-        if (!isFromPrepareStmt) {
+        if (preparedStatment == null || !preparedStatment.isPointQueryShortCircuit()) {
             try {
                 createScanRangeLocations();
             } catch (AnalysisException e) {
@@ -741,6 +721,11 @@ public class OlapScanNode extends ScanNode {
 
     // Update the visible version of the scan range locations.
     public void updateScanRangeVersions(Map<Long, Long> visibleVersionMap) {
+        if (LOG.isDebugEnabled() && ConnectContext.get() != null) {
+            LOG.debug("query id: {}, selectedPartitionIds: {}, visibleVersionMap: {}",
+                    DebugUtil.printId(ConnectContext.get().queryId()), selectedPartitionIds, visibleVersionMap);
+        }
+
         Map<Long, TScanRangeLocations> locationsMap = scanRangeLocations.stream()
                 .collect(Collectors.toMap(loc -> loc.getScanRange().getPaloScanRange().getTabletId(), loc -> loc));
         for (Long partitionId : selectedPartitionIds) {
@@ -759,6 +744,10 @@ public class OlapScanNode extends ScanNode {
                 scanRange.setVersion(visibleVersionStr);
             }
         }
+    }
+
+    public Long getTabletSingleReplicaSize(Long tabletId) {
+        return tabletBytes.get(tabletId);
     }
 
     private void addScanRangeLocations(Partition partition,
@@ -865,31 +854,37 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            final long coolDownReplicaId = tablet.getCooldownReplicaId();
-            // we prefer to query using cooldown replica to make sure the cache is fully utilized
-            // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
-            // is now under cooldown
-            // first time we choose BE A, and A will download data into cache while the other two's cache is empty
-            // second time we choose BE B, this time B will be cached, C is still empty
-            // third time we choose BE C, after this time all replica is cached
-            // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
-            if (-1L != coolDownReplicaId) {
-                final Optional<Replica> replicaOptional = replicas.stream()
-                        .filter(r -> r.getId() == coolDownReplicaId).findAny();
-                replicaOptional.ifPresent(
-                        r -> {
-                            Backend backend = Env.getCurrentSystemInfo()
-                                    .getBackend(r.getBackendId());
-                            if (backend != null && backend.isAlive()) {
-                                replicas.clear();
-                                replicas.add(r);
+            if (Config.enable_cooldown_replica_affinity) {
+                final long coolDownReplicaId = tablet.getCooldownReplicaId();
+                // we prefer to query using cooldown replica to make sure the cache is fully utilized
+                // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
+                // is now under cooldown
+                // first time we choose BE A, and A will download data into cache while the other two's cache is empty
+                // second time we choose BE B, this time B will be cached, C is still empty
+                // third time we choose BE C, after this time all replica is cached
+                // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
+                if (-1L != coolDownReplicaId) {
+                    final Optional<Replica> replicaOptional = replicas.stream()
+                            .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                    replicaOptional.ifPresent(
+                            r -> {
+                                Backend backend = Env.getCurrentSystemInfo()
+                                        .getBackend(r.getBackendId());
+                                if (backend != null && backend.isAlive()) {
+                                    replicas.clear();
+                                    replicas.add(r);
+                                }
                             }
-                        }
-                );
+                    );
+                }
             }
+
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
+
+            int replicaInTablet = 0;
+            long oneReplicaBytes = 0;
             for (Replica replica : replicas) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
@@ -900,10 +895,7 @@ public class OlapScanNode extends ScanNode {
                     String err = "replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive";
                     if (Config.isCloudMode()) {
-                        err += ", or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null) {
-                            err += " clusterName=" + ConnectContext.get().getCloudCluster();
-                        }
+                        errs.add(ConnectContext.cloudNoBackendsReason());
                     }
                     errs.add(err);
                     continue;
@@ -932,7 +924,13 @@ public class OlapScanNode extends ScanNode {
 
                 // for CBO
                 if (!collectedStat && replica.getRowCount() != -1) {
-                    totalBytes += replica.getDataSize();
+                    long dataSize = replica.getDataSize();
+                    if (replicaInTablet == 0) {
+                        oneReplicaBytes = dataSize;
+                        tabletBytes.put(tabletId, dataSize);
+                    }
+                    replicaInTablet++;
+                    totalBytes += dataSize;
                     collectedStat = true;
                 }
                 scanBackendIds.add(backend.getId());
@@ -950,8 +948,9 @@ public class OlapScanNode extends ScanNode {
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
-            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), locations);
-
+            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
+            bucketSeq2locations.put(bucketSeq, locations);
+            bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
 
@@ -1157,7 +1156,9 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return this.pointQueryEqualPredicats != null;
+        return this.pointQueryEqualPredicats != null
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit())
+                    || ConnectContext.get().getStatementContext().isShortCircuitQuery();
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1207,7 +1208,7 @@ public class OlapScanNode extends ScanNode {
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
-            selectedTabletsNum += tablets.size();
+            selectedSplitNum += tablets.size();
             addScanRangeLocations(partition, tablets);
         }
     }
@@ -1285,6 +1286,7 @@ public class OlapScanNode extends ScanNode {
         scanTabletIds.clear();
         bucketSeq2locations.clear();
         scanReplicaIds.clear();
+        sampleTabletIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1347,7 +1349,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
-        if (useTopnOpt) {
+        if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
@@ -1366,8 +1368,9 @@ public class OlapScanNode extends ScanNode {
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
                 .map(id -> olapTable.getPartition(id).getName())
                 .collect(Collectors.joining(","));
-        output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
-                olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedPartitions)).append("\n");
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedSplitNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1384,7 +1387,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
         }
         if (isPointQuery()) {
-            output.append(prefix).append("SHORT-CIRCUIT");
+            output.append(prefix).append("SHORT-CIRCUIT\n");
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
@@ -1399,13 +1402,7 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                && !ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
-                && ConnectContext.get().getSessionVariable().getEnableSharedScan()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-        }
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
-                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
+        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
@@ -1419,6 +1416,20 @@ public class OlapScanNode extends ScanNode {
     @Override
     public boolean getShouldColoScan() {
         return shouldColoScan;
+    }
+
+    public int getBucketNum() {
+        // In bucket shuffle join, we have 2 situation.
+        // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
+        //    because when table turn on dynamic partition, the bucket number in default distribution info
+        //    is not correct.
+        // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
+        //    bucket number must be same, so we use default bucket num is ok.
+        if (olapTable.isColocateTable()) {
+            return olapTable.getDefaultDistributionInfo().getBucketNum();
+        } else {
+            return (int) totalTabletsNum;
+        }
     }
 
     @Override
@@ -1524,14 +1535,6 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
-        List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
-                .stream()
-                .map(sortNode -> sortNode.getId().asInt())
-                .collect(Collectors.toList());
-        if (!topnFilterSourceNodeIds.isEmpty()) {
-            msg.olap_scan_node.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
-        }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
@@ -1549,9 +1552,9 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
 
-        if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
-            msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
-        }
+        msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
+
+        super.toThrift(msg);
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
@@ -1728,10 +1731,6 @@ public class OlapScanNode extends ScanNode {
         computeStatsForNereids();
         // NOTICE: must call here to get selected tablet row count to let block rules work well.
         mockRowCountInStatistic();
-        if (!SessionVariable.enablePipelineEngineX()) {
-            // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
-            distributionColumnIds.clear();
-        }
     }
 
     private void computeStatsForNereids() {
@@ -1750,7 +1749,11 @@ public class OlapScanNode extends ScanNode {
                 : Sets.newTreeSet();
     }
 
-    @Override
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();
@@ -1807,14 +1810,6 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
-    }
-
-    public void addTopnFilterSortNode(SortNode sortNode) {
-        topnFilterSortNodes.add(sortNode);
-    }
-
-    public List<SortNode> getTopnFilterSortNodes() {
-        return topnFilterSortNodes;
     }
 
     @Override

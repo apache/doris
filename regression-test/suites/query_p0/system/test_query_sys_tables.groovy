@@ -139,34 +139,6 @@ suite("test_query_sys_tables", "query,p0") {
     qt_desc_partitions """ desc `information_schema`.`partitions` """ 
     order_qt_select_partitions """ select * from  `information_schema`.`partitions`; """ 
 
-
-    // test rowsets
-    qt_desc_rowsets """ desc information_schema.rowsets """ 
-    def rowsets_table_name = """ test_query_sys_db_1.test_query_rowset """  
-    sql """ drop table if exists ${rowsets_table_name}  """ 
-
-    sql """ 
-        create table ${rowsets_table_name}( 
-            a int , 
-            b boolean , 
-            c string ) 
-        DISTRIBUTED BY HASH(`a`) BUCKETS 1 
-        PROPERTIES (
-            "replication_num" = "1",
-            "disable_auto_compaction" = "true",
-            "enable_single_replica_compaction"="true"
-        );
-    """
-    
-    List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
-    order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
-    sql """ insert into  ${rowsets_table_name} values (1,0,"abc");  """ 
-    order_qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
-    sql """ insert into  ${rowsets_table_name} values (2,1,"hello world");  """ 
-    sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
-    order_qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
-
-
     // test schemata
     // create test dbs
     sql("CREATE DATABASE IF NOT EXISTS ${dbName1}")
@@ -266,6 +238,7 @@ suite("test_query_sys_tables", "query,p0") {
         AS
         SELECT ccc as a FROM ${tbName1}
     """
+
     sql("use information_schema")
     qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
 

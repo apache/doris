@@ -114,4 +114,28 @@ public class ExternalRowCountCache {
         return 0;
     }
 
+    /**
+     * Get cached row count for the given table if present. Return 0 if cached not loaded.
+     * This method will not trigger async loading if cache is missing.
+     *
+     * @param catalogId
+     * @param dbId
+     * @param tableId
+     * @return
+     */
+    public long getCachedRowCountIfPresent(long catalogId, long dbId, long tableId) {
+        RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
+        try {
+            CompletableFuture<Optional<Long>> f = rowCountCache.getIfPresent(key);
+            if (f == null) {
+                return 0;
+            } else if (f.isDone()) {
+                return f.get().orElse(0L);
+            }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning row count if present", e);
+        }
+        return 0;
+    }
+
 }

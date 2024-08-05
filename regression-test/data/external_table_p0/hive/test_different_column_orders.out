@@ -27,3 +27,31 @@ guangzhou	1
 hangzhou	1
 shanghai	1
 
+-- !q01 --
+Tom	1	shanghai	48	male
+Jerry	2	guangzhou	35	male
+Frank	3	hangzhou	25	male
+Ada	4	beijing	22	female
+
+-- !q02 --
+4
+
+-- !q03 --
+guangzhou	1
+hangzhou	1
+shanghai	1
+
+-- !q01 --
+Tom	1	shanghai	48	male
+Jerry	2	guangzhou	35	male
+Frank	3	hangzhou	25	male
+Ada	4	beijing	22	female
+
+-- !q02 --
+4
+
+-- !q03 --
+guangzhou	1
+hangzhou	1
+shanghai	1
+

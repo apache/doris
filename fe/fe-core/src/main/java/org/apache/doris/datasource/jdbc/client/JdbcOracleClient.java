@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -35,6 +36,11 @@ public class JdbcOracleClient extends JdbcClient {
 
     protected JdbcOracleClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+    }
+
+    protected JdbcOracleClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        this.dbType = dbType;
     }
 
     @Override
@@ -69,27 +75,7 @@ public class JdbcOracleClient extends JdbcClient {
                 if (isModify && isTableModified(rs.getString("TABLE_NAME"), remoteTableName)) {
                     continue;
                 }
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
-                field.setDataType(rs.getInt("DATA_TYPE"));
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                /*
-                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
-                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
-                */
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                tableSchema.add(field);
+                tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
@@ -126,7 +112,7 @@ public class JdbcOracleClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String oracleType = fieldSchema.getDataTypeName();
+        String oracleType = fieldSchema.getDataTypeName().orElse("unknown");
         if (oracleType.startsWith("INTERVAL")) {
             oracleType = oracleType.substring(0, 8);
         } else if (oracleType.startsWith("TIMESTAMP")) {
@@ -134,7 +120,7 @@ public class JdbcOracleClient extends JdbcClient {
                 return Type.UNSUPPORTED;
             }
             // oracle can support nanosecond, will lose precision
-            int scale = fieldSchema.getDecimalDigits();
+            int scale = fieldSchema.getDecimalDigits().orElse(0);
             if (scale > 6) {
                 scale = 6;
             }
@@ -160,8 +146,8 @@ public class JdbcOracleClient extends JdbcClient {
              *    In this case, doris can not determine p and s, so doris can not determine data type.
              */
             case "NUMBER":
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale <= 0) {
                     precision -= scale;
                     if (precision < 3) {

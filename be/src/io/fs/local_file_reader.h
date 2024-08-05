@@ -26,7 +26,22 @@
 #include "io/fs/path.h"
 #include "util/slice.h"
 
+namespace doris {
+struct StorePath;
+struct DataDirInfo;
+} // namespace doris
+
 namespace doris::io {
+
+struct BeConfDataDirReader {
+    static std::vector<doris::DataDirInfo> be_config_data_dir_list;
+
+    static void get_data_dir_by_file_path(Path* file_path, std::string* data_dir_arg);
+
+    static void init_be_conf_data_dir(const std::vector<doris::StorePath>& store_paths,
+                                      const std::vector<doris::StorePath>& spill_store_paths);
+};
+
 struct IOContext;
 
 class LocalFileReader final : public FileReader {
@@ -43,6 +58,8 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
+    const std::string& get_data_dir_path() override { return _data_dir_path; }
+
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -52,6 +69,7 @@ private:
     Path _path;
     size_t _file_size;
     std::atomic<bool> _closed = false;
+    std::string _data_dir_path; // be conf's data dir path
 };
 
 } // namespace doris::io

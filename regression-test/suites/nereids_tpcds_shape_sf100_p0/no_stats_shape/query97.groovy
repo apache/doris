@@ -19,19 +19,25 @@
 
 suite("query97") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
-    sql "use ${db}"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set exec_mem_limit=21G'
-    sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
-    sql 'set forbid_unknown_col_stats=false'
-    sql 'set enable_stats=false'
-    sql "set runtime_filter_type=8"
-    sql 'set broadcast_row_count_limit = 30000000'
-    sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    multi_sql """
+        use ${db};
+        set enable_nereids_planner=true;
+        set enable_nereids_distribute_planner=false;
+        set enable_fallback_to_original_planner=false;
+        set exec_mem_limit=21G;
+        set be_number_for_test=3;
+        set enable_runtime_filter_prune=false;
+        set parallel_pipeline_task_num=8;
+        set forbid_unknown_col_stats=false;
+        set enable_stats=false;
+        set runtime_filter_type=8;
+        set broadcast_row_count_limit = 30000000;
+        set enable_nereids_timeout = false;
+        set enable_pipeline_engine = true;
+        set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        set push_topn_to_agg = true;
+        set topn_opt_limit_threshold=1024;
+        """
 
     qt_ds_shape_97 '''
     explain shape plan

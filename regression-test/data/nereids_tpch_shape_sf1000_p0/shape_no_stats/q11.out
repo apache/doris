@@ -6,40 +6,34 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
---------------------------PhysicalDistribute[DistributionSpecHash]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[partsupp] apply RFs: RF2
---------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[supplier] apply RFs: RF3
-----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((nation.n_name = 'GERMANY'))
 ----------------------------PhysicalOlapScan[nation]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
-------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
-------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
---------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
 ----------------------------PhysicalProject
-------------------------------filter((nation.n_name = 'GERMANY'))
---------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
+------------------------PhysicalProject
+--------------------------filter((nation.n_name = 'GERMANY'))
+----------------------------PhysicalOlapScan[nation]
 

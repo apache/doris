@@ -75,6 +75,13 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
 
+    private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("DBName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
+                    .build();
+
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
@@ -101,15 +108,24 @@ public class ShowDataStmt extends ShowStmt {
     private List<OrderByElement> orderByElements;
     private List<OrderByPair> orderByPairs;
 
-    public ShowDataStmt(TableName tableName, List<OrderByElement> orderByElements) {
+    private final Map<String, String> properties;
+
+    private static final String WAREHOUSE = "entire_warehouse";
+    private static final String DB_LIST = "db_names";
+
+    public ShowDataStmt(TableName tableName, List<OrderByElement> orderByElements, Map<String, String> properties) {
         this.tableName = tableName;
         this.totalRows = Lists.newArrayList();
         this.orderByElements = orderByElements;
+        this.properties = properties;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (getDbStatsByProperties()) {
+            return;
+        }
         dbName = analyzer.getDefaultDb();
         if (Strings.isNullOrEmpty(dbName)) {
             getAllDbStats();
@@ -174,14 +190,11 @@ public class ShowDataStmt extends ShowStmt {
                     long tableSize = 0;
                     long replicaCount = 0;
                     long remoteSize = 0;
-                    olapTable.readLock();
-                    try {
-                        tableSize = olapTable.getDataSize();
-                        replicaCount = olapTable.getReplicaCount();
-                        remoteSize = olapTable.getRemoteDataSize();
-                    } finally {
-                        olapTable.readUnlock();
-                    }
+
+                    tableSize = olapTable.getDataSize();
+                    replicaCount = olapTable.getReplicaCount();
+                    remoteSize = olapTable.getRemoteDataSize();
+
                     //|TableName|Size|ReplicaCount|RemoteSize
                     List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
                     totalRowsObject.add(row);
@@ -279,7 +292,7 @@ public class ShowDataStmt extends ShowStmt {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
-                        indexRowCount += mIndex.getRowCount();
+                        indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                         indexRemoteSize += mIndex.getRemoteDataSize();
                     }
 
@@ -387,6 +400,14 @@ public class ShowDataStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
+        String value = null;
+        if (properties != null) {
+            value = properties.get(WAREHOUSE);
+        }
+        if (value != null && value.equals("true")) {
+            return SHOW_WAREHOUSE_DATA_META_DATA;
+        }
+
         if (Strings.isNullOrEmpty(dbName)) {
             return SHOW_DATABASE_DATA_META_DATA;
         }
@@ -422,6 +443,68 @@ public class ShowDataStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    private boolean getDbStatsByProperties() {
+        if (properties == null) {
+            return false;
+        }
+        String value = properties.get(WAREHOUSE);
+        if (value != null && value.equals("true")) {
+            List<String> dbList = null;
+            String dbNames = properties.get(DB_LIST);
+            if (dbNames != null) {
+                dbList = Arrays.asList(dbNames.split(","));
+            }
+            Map<String, Long> dbToDataSize = Env.getCurrentInternalCatalog().getUsedDataQuota();
+            Map<Long, Pair<Long, Long>> dbToRecycleSize = Env.getCurrentRecycleBin().getDbToRecycleSize();
+            Long total = 0L;
+            Long totalRecycleSize = 0L;
+            if (dbList == null) {
+                for (Map.Entry<String, Long> pair : dbToDataSize.entrySet()) {
+                    Database db = Env.getCurrentInternalCatalog().getDbNullable(pair.getKey());
+                    if (db == null) {
+                        continue;
+                    }
+                    Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
+                    List<String> result = Arrays.asList(db.getName(),
+                            String.valueOf(pair.getValue()), String.valueOf(recycleSize));
+                    totalRows.add(result);
+                    total += pair.getValue();
+                    totalRecycleSize += recycleSize;
+                    dbToRecycleSize.remove(db.getId());
+                }
+
+                // Append left database in recycle bin
+                for (Map.Entry<Long, Pair<Long, Long>> entry : dbToRecycleSize.entrySet()) {
+                    List<String> result = Arrays.asList("NULL:" + entry.getKey(),
+                            "0", String.valueOf(entry.getValue().first));
+                    totalRows.add(result);
+                    totalRecycleSize += entry.getValue().first;
+                }
+            } else {
+                for (String databaseName : Env.getCurrentInternalCatalog().getDbNames()) {
+                    Database db = Env.getCurrentInternalCatalog().getDbNullable(databaseName);
+                    if (db == null) {
+                        continue;
+                    }
+                    if (!dbList.contains(db.getName())) {
+                        continue;
+                    }
+                    Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
+                    Long dataSize = dbToDataSize.getOrDefault(databaseName, 0L);
+                    List<String> result =
+                            Arrays.asList(db.getName(), String.valueOf(dataSize), String.valueOf(recycleSize));
+                    totalRows.add(result);
+                    total += dataSize;
+                    totalRecycleSize += recycleSize;
+                }
+            }
+            List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize));
+            totalRows.add(result);
+            return true;
+        }
+        return false;
     }
 
     private void getAllDbStats() throws AnalysisException {

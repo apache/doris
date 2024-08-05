@@ -14,7 +14,7 @@ internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_decimal
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_date	12	\N	YES	date	\N	\N	\N	\N	\N	\N	\N	date					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetime	13	\N	YES	datetime	\N	\N	\N	\N	\N	\N	\N	datetime					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datev2	14	\N	YES	date	\N	\N	\N	\N	\N	\N	\N	date					\N	\N	\N	\N
-internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetimev2	15	\N	YES	datetime	\N	\N	18	0	\N	\N	\N	datetime					\N	0	\N	\N
+internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_datetimev2	15	\N	YES	datetime	\N	\N	\N	\N	0	\N	\N	datetime					\N	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_char	16	\N	YES	char	15	60	\N	\N	\N	\N	\N	char(15)					15	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_varchar	17	\N	YES	varchar	100	400	\N	\N	\N	\N	\N	varchar(100)					100	\N	\N	\N
 internal	regression_test_datatype_p0_scalar_types	tbl_scalar_types_dup	c_string	18	\N	YES	varchar	2147483643	8589934572	\N	\N	\N	\N	\N	string					2147483643	\N	\N	\N

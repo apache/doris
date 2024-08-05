@@ -5,68 +5,65 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
 ------------PhysicalProject
 --------------PhysicalOlapScan[item] apply RFs: RF1
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
-------------------PhysicalProject
---------------------PhysicalOlapScan[item] apply RFs: RF0
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashJoin[INNER_JOIN] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((rnk < 11))
-----------------------------PhysicalWindow
-------------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------------PhysicalPartitionTopN
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
+----------------PhysicalProject
+------------------PhysicalOlapScan[item] apply RFs: RF0
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
+--------------------PhysicalProject
+----------------------filter((rnk < 11))
+------------------------PhysicalWindow
+--------------------------PhysicalQuickSort[MERGE_SORT]
+----------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------PhysicalQuickSort[LOCAL_SORT]
+--------------------------------PhysicalPartitionTopN
+----------------------------------PhysicalProject
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
-------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((ss1.ss_store_sk = 146))
-------------------------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((rnk < 11))
-----------------------------PhysicalWindow
-------------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------------PhysicalPartitionTopN
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((ss1.ss_store_sk = 146))
+--------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
-------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((ss1.ss_store_sk = 146))
-------------------------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalAssertNumRows
+------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------PhysicalProject
+----------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------PhysicalProject
+----------------------filter((rnk < 11))
+------------------------PhysicalWindow
+--------------------------PhysicalQuickSort[MERGE_SORT]
+----------------------------PhysicalDistribute[DistributionSpecGather]
+------------------------------PhysicalQuickSort[LOCAL_SORT]
+--------------------------------PhysicalPartitionTopN
+----------------------------------PhysicalProject
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+--------------------------------------PhysicalProject
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((ss1.ss_store_sk = 146))
+--------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalAssertNumRows
+------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------PhysicalProject
+----------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------PhysicalOlapScan[store_sales]
 

@@ -377,7 +377,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 size_t base = mutable_block.rows();
                 // append block to mutable_block
-                mutable_block.add_rows(block, 0, rows_to_copy);
+                RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
                 // insert appended rows pos in mutable_block to sorted_row_pos and sort it
                 for (size_t i = 0; i < rows_to_copy; i++) {
                     sorted_row_pos.insert(base + i);
@@ -414,7 +414,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (_reader->_reader_context.use_topn_opt && changed &&
+            if (!_reader->_reader_context.topn_filter_source_node_ids.empty() && changed &&
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
@@ -857,18 +857,18 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
 Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_normal_next_timer);
     auto res = _cur_child->next(block);
+
+    while (res.is<END_OF_FILE>() && !_children.empty()) {
+        _cur_child = std::move(*(_children.begin()));
+        _children.pop_front();
+        res = _cur_child->next(block);
+    }
+
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        // current child has been read, to read next
-        if (!_children.empty()) {
-            _cur_child = std::move(*(_children.begin()));
-            _children.pop_front();
-            return _normal_next(block);
-        } else {
-            _cur_child.reset();
-            return Status::Error<END_OF_FILE>("");
-        }
+        _cur_child.reset();
+        return Status::Error<END_OF_FILE>("");
     } else {
         _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;

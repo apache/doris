@@ -51,6 +51,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -81,7 +82,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         FeConstants.runningUnitTest = true;
         Config.enable_query_hive_views = true;
         Config.cache_enable_sql_mode = true;
-        Config.cache_enable_partition_mode = true;
         connectContext.getSessionVariable().setEnableSqlCache(true);
 
         env = Env.getCurrentEnv();
@@ -109,6 +109,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private void init(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -516,8 +517,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
         StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
+
+        CacheAnalyzer ca2 = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
+        ca2.checkCacheMode(0);
+        long latestPartitionTime = ca2.getLatestTable().latestPartitionTime;
+
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(0);
+        ca.checkCacheMode(latestPartitionTime);
         Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
@@ -526,8 +532,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
         StatementBase parseStmt = analyzeAndGetStmtByNereids("select * from hms_ctl.hms_db.hms_tbl", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
+
+        CacheAnalyzer ca2 = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
+        ca2.checkCacheModeForNereids(0);
+        long latestPartitionTime = ca2.getLatestTable().latestPartitionTime;
+
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheModeForNereids(0);
+        ca.checkCacheModeForNereids(latestPartitionTime);
         Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 

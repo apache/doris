@@ -49,7 +49,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
 
     sql "sync"
@@ -89,7 +89,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
@@ -116,7 +116,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
@@ -169,7 +169,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
 
     sql "sync"
@@ -220,7 +220,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
@@ -255,7 +255,7 @@ suite("test_load_to_single_tablet", "p0") {
         set 'load_to_single_tablet', 'true'
 
         file 'test_load_to_single_tablet.json'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 10s
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"

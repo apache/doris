@@ -29,10 +29,12 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -42,18 +44,18 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileScanNode;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitGenerator;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -81,8 +83,10 @@ import java.util.stream.IntStream;
 /**
  * Representation of the common elements of all scan nodes.
  */
-public abstract class ScanNode extends PlanNode {
+public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
+    protected static final int NUM_SPLITS_PER_PARTITION = 10;
+    protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -91,10 +95,20 @@ public abstract class ScanNode extends PlanNode {
     protected String sortColumn = null;
     protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
+    protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+    protected SplitAssignment splitAssignment = null;
+
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
+
+    // support multi topn filter
+    protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
+
+    protected TableSnapshot tableSnapshot;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -127,10 +141,6 @@ public abstract class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
-    }
-
-    protected List<Split> getSplits() throws UserException {
-        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**
@@ -167,15 +177,6 @@ public abstract class ScanNode extends PlanNode {
     // 2. key column slot is distribution column and first column
     protected boolean isKeySearch() {
         return false;
-    }
-
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
@@ -403,7 +404,8 @@ public abstract class ScanNode extends PlanNode {
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
-                LiteralExpr literal = (LiteralExpr) slotBinding;
+                LiteralExpr literal = slotBinding instanceof PlaceHolderExpr
+                        ? ((PlaceHolderExpr) slotBinding).getLiteral() : (LiteralExpr) slotBinding;
                 BinaryPredicate.Operator op = binPredicate.getOp();
                 if (!binPredicate.slotIsLeft()) {
                     op = op.commutative();
@@ -564,9 +566,12 @@ public abstract class ScanNode extends PlanNode {
 
     @Override
     public String toString() {
-        return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
-                desc.getTable().getName()).add("keyRanges", "").addValue(
-                super.debugString()).toString();
+        return MoreObjects.toStringHelper(this)
+                .add("id", getId().asInt())
+                .add("tid", desc.getId().asInt())
+                .add("tblName", desc.getTable().getName())
+                .add("keyRanges", "")
+                .addValue(super.debugString()).toString();
     }
 
     // Some of scan node(eg, DataGenScanNode) does not need to check column priv
@@ -716,22 +721,9 @@ public abstract class ScanNode extends PlanNode {
         return scanRangeLocation;
     }
 
-    // some scan should not enable the shared scan opt to prevent the performance problem
-    // 1. is key search
-    // 2. session variable not enable_shared_scan
-    public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || context == null
-                || !context.getSessionVariable().getEnableSharedScan()
-                || !context.getSessionVariable().getEnablePipelineEngine()
-                || context.getSessionVariable().getEnablePipelineXEngine()
-                || this instanceof FileScanNode
-                || getShouldColoScan();
-    }
-
     public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
@@ -746,8 +738,9 @@ public abstract class ScanNode extends PlanNode {
         return Integer.MAX_VALUE;
     }
 
-    public boolean shouldUseOneInstance() {
-        return hasLimit() && conjuncts.isEmpty();
+    public boolean shouldUseOneInstance(ConnectContext ctx) {
+        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
+        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
@@ -811,5 +804,36 @@ public abstract class ScanNode extends PlanNode {
             OlapScanNode scanNode = (OlapScanNode) node;
             scanNode.updateScanRangeVersions(visibleVersionMap);
         }
+    }
+
+    protected void toThrift(TPlanNode msg) {
+        // topn filter
+        if (useTopnFilter()) {
+            List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
+                    .stream()
+                    .map(sortNode -> sortNode.getId().asInt())
+                    .collect(Collectors.toList());
+            msg.setTopnFilterSourceNodeIds(topnFilterSourceNodeIds);
+        }
+    }
+
+    public void addTopnFilterSortNode(SortNode sortNode) {
+        topnFilterSortNodes.add(sortNode);
+    }
+
+    public List<SortNode> getTopnFilterSortNodes() {
+        return topnFilterSortNodes;
+    }
+
+    public boolean useTopnFilter() {
+        return !topnFilterSortNodes.isEmpty();
+    }
+
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
     }
 }

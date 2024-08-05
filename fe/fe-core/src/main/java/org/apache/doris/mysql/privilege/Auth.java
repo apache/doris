@@ -64,6 +64,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -81,6 +82,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -133,7 +135,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE,
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE, STORAGE_VAULT
     }
 
     public Auth() {
@@ -385,10 +387,32 @@ public class Auth implements Writable {
         }
     }
 
+    // ==== Storage Vault ====
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        readLock();
+        try {
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            for (Role role : roles) {
+                if (role.checkStorageVaultPriv(storageVaultName, wanted)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
     // ==== Workload Group ====
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         readLock();
         try {
+            // currently stream load not support ip based auth, so normal should not auth temporary
+            // need remove later
+            if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+                return true;
+            }
+
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
@@ -1353,6 +1377,20 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(cloudStagePrivs));
         }
 
+        // storage vault
+        List<String> storageVaultPrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserStorageVaultPrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            storageVaultPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
+        }
+
+        if (storageVaultPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(storageVaultPrivs));
+        }
+
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
@@ -1370,6 +1408,47 @@ public class Auth implements Writable {
         userAuthInfos.add(userAuthInfo);
     }
 
+    public void getUserRoleWorkloadGroupPrivs(List<List<String>> result, UserIdentity currentUserIdentity) {
+        readLock();
+        try {
+            boolean isCurrentUserAdmin = checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN);
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (!user.isSetByDomainResolver()) {
+                        if (!isCurrentUserAdmin && !currentUserIdentity.equals(user.getUserIdentity())) {
+                            continue;
+                        }
+                        String isGrantable = checkGlobalPriv(user.getUserIdentity(), PrivPredicate.ADMIN) ? "YES"
+                                : "NO";
+
+                        // workload group
+                        for (PrivEntry entry : getUserWorkloadGroupPrivTable(user.getUserIdentity()).entries) {
+                            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+                            PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
+
+                            List<String> row = Lists.newArrayList();
+                            row.add(user.getUserIdentity().toString());
+                            row.add(workloadGroupPrivEntry.getOrigWorkloadGroupName());
+                            row.add(savedPrivs.toString());
+                            row.add(isGrantable);
+                            result.add(row);
+                        }
+                    }
+                }
+            }
+
+            Set<String> currentUserRole = null;
+            if (!isCurrentUserAdmin) {
+                currentUserRole = userRoleManager.getRolesByUser(currentUserIdentity, false);
+                currentUserRole = currentUserRole == null ? new HashSet<>() : currentUserRole;
+            }
+            roleManager.getRoleWorkloadGroupPrivs(result, currentUserRole);
+        } finally {
+            readUnlock();
+        }
+    }
+
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
@@ -1384,6 +1463,15 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCloudStagePrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getStorageVaultPrivTable());
         }
         return table;
     }

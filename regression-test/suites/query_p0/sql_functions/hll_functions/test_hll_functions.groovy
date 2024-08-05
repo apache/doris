@@ -60,7 +60,7 @@ suite("test_hll_functions") {
 
     qt_table_select "select hll_union_agg(hll_from_base64(hll_to_base64(pv))) from test_hll_func;"
     qt_table_select "select province, hll_union_agg(hll_from_base64(hll_to_base64(pv))) from test_hll_func group by province order by province;"
-    qt_table_select "select hll_cardinality(hll_from_base64(hll_to_base64(pv))) from test_hll_func limit 1;"
+    qt_table_select "select hll_cardinality(hll_from_base64(hll_to_base64(pv))) as res from test_hll_func  order by res limit 1;"
 
     qt_const_select "select hll_cardinality(hll_from_base64(hll_to_base64(hll_hash('abc'))));"
     qt_const_select "select hll_cardinality(hll_from_base64(hll_to_base64(hll_hash(''))));"

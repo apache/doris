@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -588,15 +589,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     if (this->is_set_sink()) {
         node.__set_is_sink(this->is_sink());
     }
-    CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
-    }
-
-    for (auto&& [name, counter] : counter_map) {
-        counter->to_thrift(name, node.counters, node.child_counters_map);
+        for (auto&& [name, counter] : _counter_map) {
+            counter->to_thrift(name, node.counters, node.child_counters_map);
+        }
     }
 
     {

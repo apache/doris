@@ -84,7 +84,7 @@ public class InsertEvent extends MetastoreTableEvent {
              *  but <a href="https://github.com/apache/doris/pull/17932">this PR</a> has fixed it.
              */
             Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(catalogName, dbName, tblName,
-                    eventTime, true);
+                    eventTime);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

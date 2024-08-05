@@ -26,15 +26,16 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * this is description of kafka routine load progress
@@ -54,7 +55,8 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     // (partition id, begin offset)
     // the offset saved here is the next offset need to be consumed
-    private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+    @SerializedName(value = "pito")
+    private ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
         super(LoadDataSourceType.KAFKA);
@@ -62,17 +64,24 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public KafkaProgress(TKafkaRLTaskProgress tKafkaRLTaskProgress) {
         super(LoadDataSourceType.KAFKA);
-        this.partitionIdToOffset = tKafkaRLTaskProgress.getPartitionCmtOffset();
+        this.partitionIdToOffset = new ConcurrentHashMap<>();
+        partitionIdToOffset.putAll(tKafkaRLTaskProgress.getPartitionCmtOffset());
     }
 
     public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
         super(LoadDataSourceType.KAFKA);
+        this.partitionIdToOffset = new ConcurrentHashMap<>();
+        this.partitionIdToOffset.putAll(partitionIdToOffset);
+    }
+
+    public KafkaProgress(ConcurrentMap<Integer, Long> partitionIdToOffset) {
+        super(LoadDataSourceType.KAFKA);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
-    public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
-        Map<Integer, Long> result = Maps.newHashMap();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+    public ConcurrentMap<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
+        ConcurrentMap<Integer, Long> result = Maps.newConcurrentMap();
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             for (Integer partitionId : partitionIds) {
                 if (entry.getKey().equals(partitionId)) {
                     result.put(partitionId, entry.getValue());
@@ -90,7 +99,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         return partitionIdToOffset.get(kafkaPartition);
     }
 
-    public Map<Integer, Long> getOffsetByPartition() {
+    public ConcurrentMap<Integer, Long> getOffsetByPartition() {
         return partitionIdToOffset;
     }
 
@@ -107,8 +116,8 @@ public class KafkaProgress extends RoutineLoadProgress {
     // OFFSET_END: user set offset = OFFSET_END, no committed msg
     // OFFSET_BEGINNING: user set offset = OFFSET_BEGINNING, no committed msg
     // other: current committed msg's offset
-    private void getReadableProgress(Map<Integer, String> showPartitionIdToOffset) {
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+    private void getReadableProgress(ConcurrentMap<Integer, String> showPartitionIdToOffset) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
                 showPartitionIdToOffset.put(entry.getKey(), OFFSET_ZERO);
             } else if (entry.getValue() == -1) {
@@ -139,7 +148,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public List<Pair<Integer, String>> getPartitionOffsetPairs(boolean alreadyConsumed) {
         List<Pair<Integer, String>> pairs = Lists.newArrayList();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
                 pairs.add(Pair.of(entry.getKey(), OFFSET_ZERO));
             } else if (entry.getValue() == -1) {
@@ -167,7 +176,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     // so the lag should be (4-2=)2.
     public Map<Integer, Long> getLag(Map<Integer, Long> partitionIdWithLatestOffsets) {
         Map<Integer, Long> lagMap = Maps.newHashMap();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (partitionIdWithLatestOffsets.containsKey(entry.getKey())) {
                 long lag = partitionIdWithLatestOffsets.get(entry.getKey()) - entry.getValue();
                 lagMap.put(entry.getKey(), lag);
@@ -180,7 +189,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     @Override
     public String toString() {
-        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        ConcurrentMap<Integer, String> showPartitionIdToOffset = Maps.newConcurrentMap();
         getReadableProgress(showPartitionIdToOffset);
         return "KafkaProgress [partitionIdToOffset="
                 + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
@@ -188,7 +197,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     @Override
     public String toJsonString() {
-        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        ConcurrentMap<Integer, String> showPartitionIdToOffset = Maps.newConcurrentMap();
         getReadableProgress(showPartitionIdToOffset);
         Gson gson = new Gson();
         return gson.toJson(showPartitionIdToOffset);
@@ -206,20 +215,11 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(partitionIdToOffset.size());
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            out.writeInt((Integer) entry.getKey());
-            out.writeLong((Long) entry.getValue());
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int size = in.readInt();
-        partitionIdToOffset = new HashMap<>();
+        partitionIdToOffset = new ConcurrentHashMap<>();
         for (int i = 0; i < size; i++) {
             partitionIdToOffset.put(in.readInt(), in.readLong());
         }

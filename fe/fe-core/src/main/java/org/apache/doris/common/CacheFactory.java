@@ -22,6 +22,7 @@ import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
 import org.jetbrains.annotations.NotNull;
 
@@ -74,9 +75,13 @@ public class CacheFactory {
     }
 
     // Build a loading cache, with executor, it will use given executor for refresh
-    public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader, ExecutorService executor) {
+    public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader,
+            RemovalListener<K, V> removalListener, ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
         return builder.build(cacheLoader);
     }
 

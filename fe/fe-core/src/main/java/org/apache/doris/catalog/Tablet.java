@@ -27,7 +27,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -44,7 +43,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,7 +58,7 @@ import java.util.stream.LongStream;
 /**
  * This class represents the olap tablet related metadata.
  */
-public class Tablet extends MetaObject implements Writable {
+public class Tablet extends MetaObject {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
     // if current version count of replica is mor than
     // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
@@ -85,20 +83,20 @@ public class Tablet extends MetaObject implements Writable {
 
     @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "replicas")
+    @SerializedName(value = "rs", alternate = {"replicas"})
     protected List<Replica> replicas;
-    @SerializedName(value = "checkedVersion")
+    @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
     @Deprecated
-    @SerializedName(value = "checkedVersionHash")
+    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
     private long checkedVersionHash;
-    @SerializedName(value = "isConsistent")
+    @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
 
     // cooldown conf
-    @SerializedName(value = "cooldownReplicaId")
+    @SerializedName(value = "cri", alternate = {"cooldownReplicaId"})
     private long cooldownReplicaId = -1;
-    @SerializedName(value = "cooldownTerm")
+    @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
     private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 
@@ -244,7 +242,9 @@ public class Tablet extends MetaObject implements Writable {
 
             ReplicaState state = replica.getState();
             if (state.canLoad()
-                    || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
+                    || (state == ReplicaState.DECOMMISSION
+                            && replica.getPostWatermarkTxnId() < 0
+                            && replica.getLastFailedVersion() < 0)) {
                 map.put(backendId, replica.getPathHash());
             }
         }
@@ -294,16 +294,16 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = Long.MAX_VALUE;
-            for (Replica replica : allQueryableReplica) {
-                if (replica.getVersionCount() != -1 && replica.getVersionCount() < minVersionCount) {
-                    minVersionCount = replica.getVersionCount();
-                }
+            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
+                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+            long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
+            if (minVersionCount != Long.MAX_VALUE) {
+                maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
-            final long finalMinVersionCount = minVersionCount;
-            return allQueryableReplica.stream().filter(replica -> replica.getVersionCount() == -1
-                            || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow
-                            || replica.getVersionCount() < finalMinVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT)
+
+            final long finalMaxVersionCount = maxVersionCount;
+            return allQueryableReplica.stream()
+                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
@@ -394,12 +394,7 @@ public class Tablet extends MetaObject implements Writable {
         return "tabletId=" + this.id;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -418,6 +413,7 @@ public class Tablet extends MetaObject implements Writable {
         isConsistent = in.readBoolean();
     }
 
+    @Deprecated
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);
@@ -533,7 +529,7 @@ public class Tablet extends MetaObject implements Writable {
 
                 if (versionCompleted) {
                     stable++;
-                    versions.add(replica.getVersionCount());
+                    versions.add(replica.getVisibleVersionCount());
 
                     allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
                     stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
@@ -624,7 +620,7 @@ public class Tablet extends MetaObject implements Writable {
             // get the max version diff
             long delta = versions.get(versions.size() - 1) - versions.get(0);
             double ratio = (double) delta / versions.get(versions.size() - 1);
-            if (versions.get(versions.size() - 1) > Config.min_version_count_indicate_replica_compaction_too_slow
+            if (versions.get(versions.size() - 1) >= Config.min_version_count_indicate_replica_compaction_too_slow
                     && ratio > Config.valid_version_count_delta_ratio_between_replicas) {
                 return Pair.of(TabletStatus.REPLICA_COMPACTION_TOO_SLOW, Priority.HIGH);
             }

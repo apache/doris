@@ -293,17 +293,19 @@ public class EsUtil {
                 case "keyword":
                 case "text":
                 case "ip":
-                case "nested":
-                case "object":
                 case "wildcard":
                 case "constant_keyword":
                     type = ScalarType.createStringType();
+                    break;
+                case "nested":
+                case "object":
+                    type = Type.JSONB;
                     break;
                 default:
                     type = Type.UNSUPPORTED;
             }
         } else {
-            type = Type.STRING;
+            type = Type.JSONB;
             column.setComment("Elasticsearch no type");
         }
         if (arrayFields.contains(fieldName)) {

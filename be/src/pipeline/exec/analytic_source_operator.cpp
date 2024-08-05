@@ -21,10 +21,9 @@
 
 #include "pipeline/exec/operator.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
@@ -38,10 +37,8 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_functions_created(false) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-vectorized::BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx,
-                                                                     vectorized::BlockRowPos start,
-                                                                     vectorized::BlockRowPos end,
-                                                                     bool need_check_first) {
+BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+                                                         BlockRowPos end, bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
     vectorized::ColumnPtr start_column =
@@ -116,7 +113,7 @@ vectorized::BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx,
     return start;
 }
 
-vectorized::BlockRowPos AnalyticLocalState::_get_partition_by_end() {
+BlockRowPos AnalyticLocalState::_get_partition_by_end() {
     auto& shared_state = *_shared_state;
     if (shared_state.current_row_position <
         shared_state.partition_by_end.pos) { //still have data, return partition_by_end directly
@@ -128,7 +125,7 @@ vectorized::BlockRowPos AnalyticLocalState::_get_partition_by_end() {
         return shared_state.all_block_end;
     }
 
-    vectorized::BlockRowPos cal_end = shared_state.all_block_end;
+    BlockRowPos cal_end = shared_state.all_block_end;
     for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
@@ -138,8 +135,7 @@ vectorized::BlockRowPos AnalyticLocalState::_get_partition_by_end() {
     return cal_end;
 }
 
-bool AnalyticLocalState::_whether_need_next_partition(
-        vectorized::BlockRowPos& found_partition_end) {
+bool AnalyticLocalState::_whether_need_next_partition(BlockRowPos& found_partition_end) {
     auto& shared_state = *_shared_state;
     if (shared_state.input_eos ||
         (shared_state.current_row_position <
@@ -283,8 +279,6 @@ void AnalyticLocalState::_destroy_agg_status() {
     }
 }
 
-//now is execute for lead/lag row_number/rank/dense_rank/ntile functions
-//sum min max count avg first_value last_value functions
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -296,7 +290,7 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), nullptr);
+                agg_columns.data(), _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         _current_window_empty =
@@ -308,16 +302,14 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
     int64_t current_block_row_pos =
             _shared_state->input_block_first_row_positions[_output_block_index];
     int64_t get_result_start = _shared_state->current_row_position - current_block_row_pos;
-    if (_parent->cast<AnalyticSourceOperatorX>()._fn_scope ==
-        vectorized::AnalyticFnScope::PARTITION) {
+    if (_parent->cast<AnalyticSourceOperatorX>()._fn_scope == AnalyticFnScope::PARTITION) {
         int64_t get_result_end =
                 std::min<int64_t>(_shared_state->current_row_position + current_block_rows,
                                   _shared_state->partition_by_end.pos);
         _window_end_position =
                 std::min<int64_t>(get_result_end - current_block_row_pos, current_block_rows);
         _shared_state->current_row_position += (_window_end_position - get_result_start);
-    } else if (_parent->cast<AnalyticSourceOperatorX>()._fn_scope ==
-               vectorized::AnalyticFnScope::RANGE) {
+    } else if (_parent->cast<AnalyticSourceOperatorX>()._fn_scope == AnalyticFnScope::RANGE) {
         _window_end_position =
                 std::min<int64_t>(_order_by_end.pos - current_block_row_pos, current_block_rows);
         _shared_state->current_row_position += (_window_end_position - get_result_start);
@@ -432,7 +424,7 @@ void AnalyticLocalState::init_result_columns() {
 }
 
 //calculate pos have arrive partition end, so it's needed to init next partition, and update the boundary of partition
-bool AnalyticLocalState::init_next_partition(vectorized::BlockRowPos found_partition_end) {
+bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
     if ((_shared_state->current_row_position >= _shared_state->partition_by_end.pos) &&
         ((_shared_state->partition_by_end.pos == 0) ||
          (_shared_state->partition_by_end.pos != found_partition_end.pos))) {
@@ -481,7 +473,7 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
           _has_window_end(tnode.analytic_node.window.__isset.window_end) {
-    _fn_scope = vectorized::AnalyticFnScope::PARTITION;
+    _fn_scope = AnalyticFnScope::PARTITION;
     if (tnode.analytic_node.__isset.window &&
         tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
         DCHECK(!_window.__isset.window_start) << "RANGE windows must have UNBOUNDED PRECEDING";
@@ -491,13 +483,12 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
 
         if (_window.__isset
                     .window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
-            _fn_scope =
-                    vectorized::AnalyticFnScope::RANGE; //range:  [unbounded preceding,current row]
+            _fn_scope = AnalyticFnScope::RANGE; //range:  [unbounded preceding,current row]
         }
 
     } else if (tnode.analytic_node.__isset.window) {
         if (_window.__isset.window_start || _window.__isset.window_end) {
-            _fn_scope = vectorized::AnalyticFnScope::ROWS;
+            _fn_scope = AnalyticFnScope::ROWS;
         }
     }
 }
@@ -579,6 +570,7 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
     }

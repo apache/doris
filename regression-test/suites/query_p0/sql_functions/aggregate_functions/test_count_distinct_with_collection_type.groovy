@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_count_distinct_with_collection_type", "p0") {
-    sql """ set enable_nereids_planner=false;"""
-
     // not support array/map/struct
     sql " drop table if exists test_collection_type;"
     sql """ CREATE TABLE IF NOT EXISTS `test_collection_type` (

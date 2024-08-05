@@ -18,6 +18,7 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -26,6 +27,8 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -38,7 +41,7 @@ import java.util.Map;
  *      query_latency_ms_75 LONG 2
  */
 public class SimpleCoreMetricVisitor extends MetricVisitor {
-
+    private static final Logger LOG = LogManager.getLogger(SimpleCoreMetricVisitor.class);
     private static final String TYPE_LONG = "LONG";
     private static final String TYPE_DOUBLE = "DOUBLE";
 
@@ -128,8 +131,14 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     @Override
     public void visitNodeInfo() {
         long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        long beDeadNum = Env.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive())
-                .count();
+        long beDeadNum = 0;
+        try {
+            beDeadNum = Env.getCurrentSystemInfo().getAllBackendsByAllCluster()
+                    .values().stream().filter(b -> !b.isAlive())
+                    .count();
+        } catch (AnalysisException e) {
+            LOG.warn("failed get backend, ", e);
+        }
         long brokerDeadNum = Env.getCurrentEnv().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive)
                 .count();
         sb.append("doris_fe_frontend_dead_num").append(" ").append(feDeadNum).append("\n");

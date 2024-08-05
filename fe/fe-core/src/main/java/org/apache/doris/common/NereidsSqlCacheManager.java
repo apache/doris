@@ -25,12 +25,14 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
@@ -48,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
@@ -58,10 +61,12 @@ import org.apache.doris.qe.cache.SqlCache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -74,8 +79,11 @@ public class NereidsSqlCacheManager {
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
 
-    public NereidsSqlCacheManager(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCaches = buildSqlCaches(sqlCacheNum, cacheIntervalSeconds);
+    public NereidsSqlCacheManager() {
+        sqlCaches = buildSqlCaches(
+                Config.sql_cache_manage_num,
+                Config.expire_sql_cache_in_fe_second
+        );
     }
 
     public static synchronized void updateConfig() {
@@ -90,22 +98,24 @@ public class NereidsSqlCacheManager {
 
         Cache<String, SqlCacheContext> sqlCaches = buildSqlCaches(
                 Config.sql_cache_manage_num,
-                Config.cache_last_version_interval_second
+                Config.expire_sql_cache_in_fe_second
         );
         sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
         sqlCacheManager.sqlCaches = sqlCaches;
     }
 
-    private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long cacheIntervalSeconds) {
-        sqlCacheNum = sqlCacheNum < 0 ? 100 : sqlCacheNum;
-        cacheIntervalSeconds = cacheIntervalSeconds < 0 ? 30 : cacheIntervalSeconds;
-
-        return Caffeine.newBuilder()
-                .maximumSize(sqlCacheNum)
-                .expireAfterAccess(Duration.ofSeconds(cacheIntervalSeconds))
+    private static Cache<String, SqlCacheContext> buildSqlCaches(int sqlCacheNum, long expireAfterAccessSeconds) {
+        Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
                 // auto evict cache when jvm memory too low
-                .softValues()
-                .build();
+                .softValues();
+        if (sqlCacheNum > 0) {
+            cacheBuilder = cacheBuilder.maximumSize(sqlCacheNum);
+        }
+        if (expireAfterAccessSeconds > 0) {
+            cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
+        }
+
+        return cacheBuilder.build();
     }
 
     /** tryAddFeCache */
@@ -117,17 +127,17 @@ public class NereidsSqlCacheManager {
 
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if ((sqlCaches.getIfPresent(key) == null) && sqlCacheContext.getOrComputeCacheKeyMd5() != null
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
+                ? currentUserIdentity.toString() + ":" + sql.trim()
+                : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCaches.put(key, sqlCacheContext);
         }
     }
 
-    /** tryAddCache */
-    public void tryAddCache(
-            ConnectContext connectContext, String sql,
-            CacheAnalyzer analyzer, boolean currentMissParseSqlFromSqlCache) {
+    /** tryAddBeCache */
+    public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer) {
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -137,9 +147,10 @@ public class NereidsSqlCacheManager {
         }
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if ((currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)
-                && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
+                ? currentUserIdentity.toString() + ":" + sql.trim()
+                : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
@@ -158,14 +169,43 @@ public class NereidsSqlCacheManager {
     /** tryParseSql */
     public Optional<LogicalSqlCache> tryParseSql(ConnectContext connectContext, String sql) {
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        Env env = connectContext.getEnv();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
+        String key = currentUserIdentity + ":" + sql.trim();
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
             return Optional.empty();
         }
 
         // LOG.info("Total size: " + GraphLayout.parseInstance(sqlCacheContext).totalSize());
+
+        List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
+        if (usedVariablesChanged(currentVariables, sqlCacheContext)) {
+            String md5 = DebugUtil.printId(
+                    sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables)));
+
+            String md5CacheKey = currentUserIdentity + ":" + md5;
+            SqlCacheContext sqlCacheContextWithVariable = sqlCaches.getIfPresent(md5CacheKey);
+
+            // already exist cache in the fe, but the variable is different to this query,
+            // we should create another cache context in fe, use another cache key
+            connectContext.getStatementContext()
+                    .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
+
+            if (sqlCacheContextWithVariable != null) {
+                return tryParseSqlWithoutCheckVariable(
+                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity
+                );
+            } else {
+                return Optional.empty();
+            }
+        } else {
+            return tryParseSqlWithoutCheckVariable(connectContext, key, sqlCacheContext, currentUserIdentity);
+        }
+    }
+
+    private Optional<LogicalSqlCache> tryParseSqlWithoutCheckVariable(
+            ConnectContext connectContext, String key,
+            SqlCacheContext sqlCacheContext, UserIdentity currentUserIdentity) {
+        Env env = connectContext.getEnv();
 
         // check table and view and their columns authority
         if (privilegeChanged(connectContext, env, sqlCacheContext)) {
@@ -175,9 +215,6 @@ public class NereidsSqlCacheManager {
             return invalidateCache(key);
         }
         if (viewsChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (usedVariablesChanged(sqlCacheContext)) {
             return invalidateCache(key);
         }
 
@@ -196,12 +233,15 @@ public class NereidsSqlCacheManager {
 
         try {
             Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
-            if (resultSetInFe.isPresent()) {
+
+            List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
+            boolean usedVariablesChanged = usedVariablesChanged(currentVariables, sqlCacheContext);
+            if (resultSetInFe.isPresent() && !usedVariablesChanged) {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
-                        sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(),
+                        sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
                         sqlCacheContext.getResultExprs(), resultSetInFe, ImmutableList.of(),
                         "none", cachedPlan
                 );
@@ -209,7 +249,9 @@ public class NereidsSqlCacheManager {
             }
 
             Status status = new Status();
-            PUniqueId cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
+            PUniqueId cacheKeyMd5 = usedVariablesChanged
+                    ? sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables))
+                    : sqlCacheContext.getOrComputeCacheKeyMd5();
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
                             cacheKeyMd5, sqlCacheContext.getLatestPartitionId(),
@@ -224,22 +266,19 @@ public class NereidsSqlCacheManager {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
-                        sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(),
+                        sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
                         sqlCacheContext.getResultExprs(), Optional.empty(),
                         cacheValues, backendAddress, cachedPlan
                 );
                 return Optional.of(logicalSqlCache);
             }
-            return invalidateCache(key);
+            return Optional.empty();
         } catch (Throwable t) {
             return invalidateCache(key);
         }
     }
 
     private boolean tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext) {
-        long latestPartitionTime = sqlCacheContext.getLatestPartitionTime();
-        long latestPartitionVersion = sqlCacheContext.getLatestPartitionVersion();
-
         if (sqlCacheContext.hasUnsupportedTables()) {
             return true;
         }
@@ -251,22 +290,20 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableTime = olapTable.getVisibleVersionTime();
-            long cacheTableTime = scanTable.latestTimestamp;
             long currentTableVersion = olapTable.getVisibleVersion();
             long cacheTableVersion = scanTable.latestVersion;
-            // some partitions have been dropped, or delete or update or insert rows into new partition?
-            if (currentTableTime > cacheTableTime
-                    || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
+            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
+            if (currentTableVersion != cacheTableVersion) {
                 return true;
             }
+
+            Collection<Long> partitionIds = scanTable.getScanPartitions();
+            olapTable.getVersionInBatchForCloudMode(partitionIds);
 
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);
                 // partition == null: is this partition truncated?
-                if (partition == null || partition.getVisibleVersionTime() > latestPartitionTime
-                        || (partition.getVisibleVersionTime() == latestPartitionTime
-                        && partition.getVisibleVersion() > latestPartitionVersion)) {
+                if (partition == null) {
                     return true;
                 }
             }
@@ -342,12 +379,24 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private boolean usedVariablesChanged(SqlCacheContext sqlCacheContext) {
-        for (Variable variable : sqlCacheContext.getUsedVariables()) {
+    private List<Variable> resolveUserVariables(SqlCacheContext sqlCacheContext) {
+        List<Variable> cachedUsedVariables = sqlCacheContext.getUsedVariables();
+        List<Variable> currentVariables = Lists.newArrayListWithCapacity(cachedUsedVariables.size());
+        for (Variable cachedVariable : cachedUsedVariables) {
             Variable currentVariable = ExpressionAnalyzer.resolveUnboundVariable(
-                    new UnboundVariable(variable.getName(), variable.getType()));
-            if (!Objects.equals(currentVariable, variable)
-                    || variable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
+                    new UnboundVariable(cachedVariable.getName(), cachedVariable.getType()));
+            currentVariables.add(currentVariable);
+        }
+        return currentVariables;
+    }
+
+    private boolean usedVariablesChanged(List<Variable> currentVariables, SqlCacheContext sqlCacheContext) {
+        List<Variable> cachedUsedVariables = sqlCacheContext.getUsedVariables();
+        for (int i = 0; i < cachedUsedVariables.size(); i++) {
+            Variable currentVariable = currentVariables.get(i);
+            Variable cachedVariable = cachedUsedVariables.get(i);
+            if (!Objects.equals(currentVariable, cachedVariable)
+                    || cachedVariable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
                 return true;
             }
         }

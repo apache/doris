@@ -30,23 +30,13 @@ suite("test_agg_state_max") {
 
     test {
         sql "insert into a_table values(100,max_state(null));"
-        exception "which is illegal for non_nullable"
+        exception "can not cast from origin type agg_state"
     }
 
     sql """insert into a_table
             select e1/1000,max_state(e1) from 
                 (select 1 k1) as t lateral view explode_numbers(8000) tmp1 as e1;"""
 
-    sql"set enable_nereids_planner=false;"
-    qt_select """ select k1,max_merge(k2) from a_table group by k1 order by k1;
-             """
-    qt_select """ select max_merge(tmp) from (select k1,max_union(k2) tmp from a_table group by k1)t;
-             """
-    test {
-        sql "select k1,min_merge(k2) from a_table group by k1 order by k1;"
-        exception "not match function"
-    }
-    sql"set enable_nereids_planner=true;"
     qt_select """ select k1,max_merge(k2) from a_table group by k1 order by k1;
              """
     qt_select """ select max_merge(tmp) from (select k1,max_union(k2) tmp from a_table group by k1)t;
@@ -71,14 +61,9 @@ suite("test_agg_state_max") {
             select e1/1000,max_state(e1) from 
                 (select 1 k1) as t lateral view explode_numbers(8000) tmp1 as e1;"""
 
-    sql"set enable_nereids_planner=false;"
+
     qt_select """ select k1,max_merge(k2) from a_table2 group by k1 order by k1;
              """
     qt_select """ select max_merge(tmp) from (select k1,max_union(k2) tmp from a_table group by k1)t;
              """
-    sql"set enable_nereids_planner=true;"
-    qt_select """ select k1,max_merge(k2) from a_table2 group by k1 order by k1;
-             """
-    qt_select """ select max_merge(tmp) from (select k1,max_union(k2) tmp from a_table group by k1)t;
-            """
 }

@@ -48,6 +48,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
 
     public MySQLJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+        System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
     }
 
     @Override

@@ -333,7 +333,8 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
 template <bool is_binary_format>
 Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
-                                                   int row_idx, bool col_const) const {
+                                                   int row_idx, bool col_const,
+                                                   const FormatOptions& options) const {
     auto& col = assert_cast<const ColumnStruct&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     result.open_dynamic_mode();
@@ -348,29 +349,38 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
 
-        std::string col_name = "\"" + elem_names[j] + "\": ";
+        // eg: `"col_name": `
+        // eg: `col_name=`
+        std::string col_name;
+        if (options.wrapper_len > 0) {
+            col_name =
+                    options.nested_string_wrapper + elem_names[j] + options.nested_string_wrapper;
+        } else {
+            col_name = elem_names[j];
+        }
+        col_name += options.map_key_delim;
         if (0 != result.push_string(col_name.c_str(), col_name.length())) {
             return Status::InternalError("pack mysql buffer failed.");
         }
 
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
-                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
+            if (0 != result.push_string(options.null_format, options.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            if (remove_nullable(col.get_column_ptr(j))->is_column_string()) {
-                if (0 != result.push_string("\"", 1)) {
+            if (remove_nullable(col.get_column_ptr(j))->is_column_string() &&
+                options.wrapper_len > 0) {
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
                 RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false));
-                if (0 != result.push_string("\"", 1)) {
+                        col.get_column(j), result, col_index, false, options));
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
                 RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false));
+                        col.get_column(j), result, col_index, false, options));
             }
         }
         begin = false;
@@ -384,14 +394,16 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -399,8 +411,8 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
-    orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
-    const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
+    auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+    const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
@@ -419,7 +431,7 @@ Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& r
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::STRUCT);
     auto tuple_size = struct_col.tuple_size();
-    PValues* child_elements[tuple_size];
+    std::vector<PValues*> child_elements(tuple_size);
     for (int i = 0; i < tuple_size; ++i) {
         child_elements[i] = result.add_child_element();
     }

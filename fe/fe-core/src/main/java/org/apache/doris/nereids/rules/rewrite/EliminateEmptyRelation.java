@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -51,11 +52,12 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
         return ImmutableList.of(
             // join->empty
             logicalJoin(any(), any())
-                .when(this::hasEmptyRelationChild)
-                .when(this::canReplaceJoinByEmptyRelation)
+                .when(join -> hasEmptyRelationChild(join) && canReplaceJoinByEmptyRelation(join)
+                        || bothChildrenEmpty(join))
                 .then(join -> new LogicalEmptyRelation(
-                    ConnectContext.get().getStatementContext().getNextRelationId(),
-                    join.getOutput()))
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            join.getOutput())
+                )
                 .toRule(RuleType.ELIMINATE_JOIN_ON_EMPTYRELATION),
             logicalFilter(logicalEmptyRelation())
                 .then(filter -> new LogicalEmptyRelation(
@@ -68,7 +70,13 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     ConnectContext.get().getStatementContext().getNextRelationId(),
                     agg.getOutput())
                 ).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
-
+            // proj->empty
+            logicalProject(logicalEmptyRelation())
+                    .thenApply(ctx -> {
+                        LogicalProject<? extends Plan> project = ctx.root;
+                        return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
+                                project.getOutputs());
+                    }).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // after BuildAggForUnion rule, union may have more than 2 children.
             logicalUnion(multi()).then(union -> {
                 if (union.children().isEmpty()) {
@@ -116,6 +124,18 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     return null;
                 }
             }).toRule(RuleType.ELIMINATE_UNION_ON_EMPTYRELATION),
+            // topn->empty
+            logicalTopN(logicalEmptyRelation())
+                    .then(topn -> new LogicalEmptyRelation(
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            topn.getOutput()))
+                            .toRule(RuleType.ELIMINATE_TOPN_ON_EMPTYRELATION),
+            // sort->empty
+            logicalSort(logicalEmptyRelation())
+                    .then(sort -> new LogicalEmptyRelation(
+                            ConnectContext.get().getStatementContext().getNextRelationId(),
+                            sort.getOutput()))
+                    .toRule(RuleType.ELIMINATE_SORT_ON_EMPTYRELATION),
             // set intersect
             logicalIntersect(multi()).then(intersect -> {
                 List<Plan> emptyChildren = intersect.children().stream()
@@ -131,6 +151,10 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                             intersect.getOutput());
                 }
             }).toRule(RuleType.ELIMINATE_INTERSECTION_ON_EMPTYRELATION),
+            // limit -> empty
+            logicalLimit(logicalEmptyRelation())
+                    .then(UnaryNode::child)
+                    .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
             // set except
             logicalExcept(multi()).then(except -> {
                 Plan first = except.child(0);
@@ -184,6 +208,10 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
 
     private boolean hasEmptyRelationChild(LogicalJoin<?, ?> join) {
         return join.left() instanceof EmptyRelation || join.right() instanceof EmptyRelation;
+    }
+
+    private boolean bothChildrenEmpty(LogicalJoin<?, ?> join) {
+        return join.left() instanceof EmptyRelation && join.right() instanceof EmptyRelation;
     }
 
     private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {

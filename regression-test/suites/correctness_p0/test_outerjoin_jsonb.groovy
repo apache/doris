@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_outerjoin_jsonb") {
-    sql """set enable_nereids_planner=false;"""
     sql """
         drop table if exists test_outerjoin_jsonb_t1;
     """

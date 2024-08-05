@@ -18,12 +18,15 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
@@ -33,7 +36,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -89,19 +91,28 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    public void setCachedVisibleVersion(long version) {
+    public void setCachedVisibleVersion(long version, Long versionUpdateTimeMs) {
         // we only care the version should increase monotonically and ignore the readers
         LOG.debug("setCachedVisibleVersion use CloudPartition {}, version: {}, old version: {}",
                 super.getId(), version, super.getVisibleVersion());
         lock.lock();
         if (version > super.getVisibleVersion()) {
-            super.setVisibleVersion(version);
+            super.setVisibleVersionAndTime(version, versionUpdateTimeMs);
         }
         lock.unlock();
     }
 
     @Override
+    public long getVisibleVersion(Boolean fromCache) {
+        return super.getVisibleVersion();
+    }
+
+    @Override
     public long getVisibleVersion() {
+        if (Env.isCheckpointThread() || Config.enable_check_compatibility_mode) {
+            return super.getVisibleVersion();
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", super.getName());
         }
@@ -119,7 +130,8 @@ public class CloudPartition extends Partition {
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
                 // Cache visible version, see hasData() for details.
-                setCachedVisibleVersion(version);
+                long mTime = resp.getVersionUpdateTimeMsList().size() == 1 ? resp.getVersionUpdateTimeMs(0) : 0;
+                setCachedVisibleVersion(version, mTime);
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
                 version = Partition.PARTITION_INIT_VERSION;
@@ -179,20 +191,23 @@ public class CloudPartition extends Partition {
         List<Long> dbIds = new ArrayList<>();
         List<Long> tableIds = new ArrayList<>();
         List<Long> partitionIds = new ArrayList<>();
+        List<Long> versionUpdateTimesMs = new ArrayList<>();
         for (CloudPartition partition : partitions) {
             dbIds.add(partition.getDbId());
             tableIds.add(partition.getTableId());
             partitionIds.add(partition.getId());
         }
 
-        List<Long> versions = getSnapshotVisibleVersion(dbIds, tableIds, partitionIds);
+        List<Long> versions = getSnapshotVisibleVersion(dbIds, tableIds, partitionIds, versionUpdateTimesMs);
 
         // Cache visible version, see hasData() for details.
         int size = versions.size();
         for (int i = 0; i < size; ++i) {
             Long version = versions.get(i);
             if (version > Partition.PARTITION_INIT_VERSION) {
-                partitions.get(i).setCachedVisibleVersion(versions.get(i));
+                // For compatibility, the existing partitions may not have mtime
+                long mTime = versions.size() == versionUpdateTimesMs.size() ? versionUpdateTimesMs.get(i) : 0;
+                partitions.get(i).setCachedVisibleVersion(versions.get(i), mTime);
             }
         }
 
@@ -202,7 +217,8 @@ public class CloudPartition extends Partition {
     // Get visible versions for the specified partitions.
     //
     // Return the visible version in order of the specified partition ids, -1 means version NOT FOUND.
-    public static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds)
+    public static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds,
+            List<Long> versionUpdateTimesMs)
             throws RpcException {
         assert dbIds.size() == partitionIds.size() :
                 "partition ids size: " + partitionIds.size() + " should equals to db ids size: " + dbIds.size();
@@ -243,6 +259,10 @@ public class CloudPartition extends Partition {
                 news.add(v == -1 ? 1 : v);
             }
             return news;
+        }
+
+        if (versionUpdateTimesMs != null) {
+            versionUpdateTimesMs.addAll(resp.getVersionUpdateTimeMsList());
         }
 
         return versions;
@@ -334,7 +354,8 @@ public class CloudPartition extends Partition {
 
     private static boolean isEmptyPartitionPruneDisabled() {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().getDisableEmptyPartitionPrune()) {
+        if (ctx != null && (ctx.getSessionVariable().getDisableNereidsRules().get(RuleType.valueOf(
+                "PRUNE_EMPTY_PARTITION").type()) || ctx.getSessionVariable().getDisableEmptyPartitionPrune())) {
             return true;
         }
         return false;
@@ -351,18 +372,12 @@ public class CloudPartition extends Partition {
         return null;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         this.dbId = in.readLong();
         this.tableId = in.readLong();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(this.dbId);
-        out.writeLong(this.tableId);
     }
 
     public boolean equals(Object obj) {

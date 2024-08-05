@@ -18,15 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.ExprFdItem;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
@@ -37,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -137,16 +132,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child) {
-        Preconditions.checkArgument(children.size() == 1,
-                "LogicalTopN should have 1 child, but input is %s", children.size());
         return new LogicalTopN<>(orderKeys, limit, offset, child);
     }
 
     public LogicalTopN<Plan> withLimitOrderKeyAndChild(long limit, long offset, List<OrderKey> orderKeys, Plan child) {
-        Preconditions.checkArgument(children.size() == 1,
-                "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalTopN<>(orderKeys, limit, offset,
-                Optional.empty(), Optional.of(getLogicalProperties()), child);
+        return new LogicalTopN<>(orderKeys, limit, offset, child);
     }
 
     @Override
@@ -170,37 +160,30 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUnique(DataTrait.Builder builder) {
         if (getLimit() == 1) {
-            getOutput().forEach(fdBuilder::addUniqueSlot);
+            getOutput().forEach(builder::addUniqueSlot);
         } else {
-            fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         }
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUniform(DataTrait.Builder builder) {
         if (getLimit() == 1) {
-            getOutput().forEach(fdBuilder::addUniformSlot);
+            getOutput().forEach(builder::addUniformSlot);
         } else {
-            fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+            builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         }
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
-        if (getLimit() == 1) {
-            ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-            List<Slot> output = getOutput();
-            ImmutableSet<SlotReference> slotSet = output.stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
-            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(slotSet, true, slotSet);
-            builder.add(fdItem);
-            fdItems = builder.build();
-        }
-        return fdItems;
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

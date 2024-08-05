@@ -35,20 +35,23 @@
 #include <type_traits>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/obj_storage_client.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -131,7 +134,7 @@ bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stat
 class MetaServiceProxy {
 public:
     static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
         return get_pooled_client(stub);
     }
 
@@ -458,7 +461,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bimtap")
+                LOG_WARNING("failed to get delete bitmap")
                         .tag("tablet", tablet->tablet_id())
                         .error(st);
                 return st;
@@ -518,8 +521,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                Status s = RowsetFactory::create_rowset(nullptr, tablet->tablet_path(), rs_meta,
-                                                        &rowset);
+                Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
                 if (!s.ok()) {
                     LOG_WARNING("create rowset").tag("status", s);
                     return s;
@@ -546,12 +548,51 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
     }
 }
 
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+                                                      std::ranges::range auto&& rs_metas,
+                                                      DeleteBitmap* delete_bitmap) {
+    std::set<int64_t> txn_processed;
+    for (auto& rs_meta : rs_metas) {
+        auto txn_id = rs_meta.txn_id();
+        if (txn_processed.find(txn_id) != txn_processed.end()) {
+            continue;
+        }
+        txn_processed.insert(txn_id);
+        DeleteBitmapPtr tmp_delete_bitmap;
+        RowsetIdUnorderedSet tmp_rowset_ids;
+        std::shared_ptr<PublishStatus> publish_status =
+                std::make_shared<PublishStatus>(PublishStatus::INIT);
+        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+        Status status = engine.txn_delete_bitmap_cache().get_delete_bitmap(
+                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, &tmp_rowset_ids, &publish_status);
+        if (status.ok() && *(publish_status.get()) == PublishStatus::SUCCEED) {
+            delete_bitmap->merge(*tmp_delete_bitmap);
+            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
+                                                                           tablet->tablet_id());
+        } else {
+            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
+                         << ", txn_id=" << txn_id << ", status=" << status;
+            return false;
+        }
+    }
+    return true;
+}
+
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
                                                DeleteBitmap* delete_bitmap) {
     if (rs_metas.empty()) {
         return Status::OK();
+    }
+
+    if (sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        return Status::OK();
+    } else {
+        LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
+                     << tablet->tablet_id();
+        DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        *delete_bitmap = *new_delete_bitmap;
     }
 
     std::shared_ptr<MetaService_Stub> stub;
@@ -635,17 +676,29 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
                              roaring::Roaring::read(delete_bitmaps[i].data()));
     }
+    int64_t latency = cntl.latency_us();
+    if (latency > 100 * 1000) { // 100ms
+        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+                  << ", delete_bitmaps.size()=" << delete_bitmaps.size() << ", latency=" << latency
+                  << "us";
+    } else {
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+                               << rowset_ids.size()
+                               << ", delete_bitmaps.size()=" << delete_bitmaps.size()
+                               << ", latency=" << latency << "us";
+    }
     return Status::OK();
 }
 
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -666,10 +719,11 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
 Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -693,7 +747,12 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
 
-    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(true);
+    // Variant schema maybe updated, so we need to update the schema as well.
+    // The updated rowset meta after `rowset->merge_rowset_meta` in `BaseTablet::update_delete_bitmap`
+    // will be lost in `update_tmp_rowset` if skip_schema.So in order to keep the latest schema we should keep schema in update_tmp_rowset
+    // for variant type
+    bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     Status st =
             retry_rpc("update committed rowset", req, &resp, &MetaService_Stub::update_tmp_rowset);
@@ -785,8 +844,12 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
-    } else {
+    } else if (ctx.txn_id > 0) {
         req.set_txn_id(ctx.txn_id);
+    } else {
+        LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
+                     << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
+        return Status::InternalError<false>("failed to abort txn");
     }
     return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
 }
@@ -813,28 +876,30 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     }
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(),
-                                  S3Conf {
-                                          .bucket = obj_store.bucket(),
-                                          .prefix = obj_store.prefix(),
-                                          .client_conf {.endpoint = obj_store.endpoint(),
-                                                        .region = obj_store.region(),
-                                                        .ak = obj_store.ak(),
-                                                        .sk = obj_store.sk()},
-                                          .sse_enabled = obj_store.sse_enabled(),
-                                          .provider = obj_store.provider(),
-                                  });
+        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+                                  StorageVaultPB_PathFormat {});
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);
     std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
         if (vault.has_hdfs_info()) {
-            vault_infos->emplace_back(vault.id(), vault.hdfs_info());
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
         }
         if (vault.has_obj_info()) {
             add_obj_store(vault.obj_info());
         }
     });
+
+    for (int i = 0; i < resp.obj_info_size(); ++i) {
+        resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
+    }
+    for (int i = 0; i < resp.storage_vault_size(); ++i) {
+        auto* j = resp.mutable_storage_vault(i);
+        if (!j->has_obj_info()) continue;
+        j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
+    }
+
+    LOG(INFO) << "get storage vault response: " << resp.ShortDebugString();
     return Status::OK();
 }
 

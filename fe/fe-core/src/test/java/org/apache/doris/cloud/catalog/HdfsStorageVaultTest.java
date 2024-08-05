@@ -65,7 +65,7 @@ public class HdfsStorageVaultTest {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 resp.setStatus(MetaServiceResponseStatus.newBuilder().build());
                 resp.setStorageVaultId("1");
@@ -88,7 +88,7 @@ public class HdfsStorageVaultTest {
             private Set<String> existed = new HashSet<>();
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (existed.contains(request.getVault().getName())) {
@@ -117,7 +117,7 @@ public class HdfsStorageVaultTest {
         new MockUp<MetaServiceProxy>(MetaServiceProxy.class) {
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 if (!request.getVault().hasName() || request.getVault().getName().isEmpty()) {
                     resp.setStatus(MetaServiceResponseStatus.newBuilder()
@@ -144,7 +144,7 @@ public class HdfsStorageVaultTest {
             private Set<String> existed = new HashSet<>();
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (existed.contains(request.getVault().getName())) {
@@ -158,7 +158,7 @@ public class HdfsStorageVaultTest {
                 return resp.build();
             }
         };
-        StorageVault vault = new HdfsStorageVault("name", true);
+        StorageVault vault = new HdfsStorageVault("name", true, false);
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/"));
@@ -178,7 +178,7 @@ public class HdfsStorageVaultTest {
 
             @Mock
             public Cloud.AlterObjStoreInfoResponse
-                    alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
+                    alterStorageVault(Cloud.AlterObjStoreInfoRequest request) throws RpcException {
                 Cloud.AlterObjStoreInfoResponse.Builder resp = Cloud.AlterObjStoreInfoResponse.newBuilder();
                 MetaServiceResponseStatus.Builder status = MetaServiceResponseStatus.newBuilder();
                 if (request.getOp() == Operation.ADD_HDFS_INFO) {
@@ -201,7 +201,7 @@ public class HdfsStorageVaultTest {
                 return resp.build();
             }
         };
-        StorageVault vault = new HdfsStorageVault("name", true);
+        StorageVault vault = new HdfsStorageVault("name", true, false);
         Assertions.assertThrows(DdlException.class,
                 () -> {
                     mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt("non_existent"));

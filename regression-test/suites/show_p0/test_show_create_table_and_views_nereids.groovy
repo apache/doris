@@ -39,7 +39,9 @@ suite("test_show_create_table_and_views_nereids", "show") {
         CREATE TABLE ${dbName}.${tableName} (
             `user_id` LARGEINT NOT NULL,
             `good_id` LARGEINT NOT NULL,
-            `cost` BIGINT SUM DEFAULT "0"
+            `cost` BIGINT SUM DEFAULT "0",
+            INDEX index_user_id (`user_id`) USING INVERTED COMMENT 'test index comment',
+            INDEX index_good_id (`good_id`) USING INVERTED COMMENT 'test index" comment'
         )
         AGGREGATE KEY(`user_id`, `good_id`)
         PARTITION BY RANGE(`good_id`)

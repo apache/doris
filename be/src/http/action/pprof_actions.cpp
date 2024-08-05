@@ -17,9 +17,12 @@
 
 #include "http/action/pprof_actions.h"
 
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/heap-profiler.h>    // IWYU pragma: keep
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <gperftools/profiler.h>         // IWYU pragma: keep
+#endif
 #include <stdio.h>
 
 #include <fstream>

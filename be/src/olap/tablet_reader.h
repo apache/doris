@@ -159,9 +159,8 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
-        // flag for enable topn opt
-        bool use_topn_opt = false;
         std::vector<int> topn_filter_source_node_ids;
+        int topn_filter_target_node_id = -1;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
         // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -184,6 +183,8 @@ public:
         void check_validation() const;
 
         std::string to_string() const;
+
+        int64_t batch_size = -1;
     };
 
     TabletReader() = default;
@@ -294,6 +295,7 @@ protected:
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
+    bool _delete_sign_available = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;

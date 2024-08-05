@@ -23,14 +23,17 @@ import org.apache.doris.fs.obj.ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.core.sync.RequestBody;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 
 public abstract class ObjFileSystem extends RemoteFileSystem {
@@ -43,9 +46,18 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         this.objStorage = objStorage;
     }
 
+    public ObjStorage<?> getObjStorage() {
+        return objStorage;
+    }
+
     @Override
     public Status exists(String remotePath) {
         return objStorage.headObject(remotePath);
+    }
+
+    @Override
+    public Status directoryExists(String dir) {
+        return listFiles(dir, false, new ArrayList<>());
     }
 
     /**
@@ -90,7 +102,7 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        Status st = objStorage.putObject(remoteFile, RequestBody.fromBytes(content.getBytes()));
+        Status st = objStorage.putObject(remoteFile, new ByteArrayInputStream(content.getBytes()), content.length());
         if (st != Status.OK) {
             return st;
         }
@@ -100,7 +112,13 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
 
     @Override
     public Status upload(String localPath, String remotePath) {
-        Status st = objStorage.putObject(remotePath, RequestBody.fromFile(new File(localPath)));
+        File localFile = new File(localPath);
+        Status st = null;
+        try {
+            st = objStorage.putObject(remotePath, new FileInputStream(localFile), localFile.length());
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
         if (st != Status.OK) {
             return st;
         }
@@ -113,7 +131,7 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         if (!remotePath.endsWith("/")) {
             remotePath += "/";
         }
-        Status st = objStorage.putObject(remotePath, RequestBody.empty());
+        Status st = objStorage.putObject(remotePath, new ByteArrayInputStream(new byte[0]), 0);
         if (st != Status.OK) {
             return st;
         }
@@ -138,5 +156,10 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
     @Override
     public Status delete(String remotePath) {
         return objStorage.deleteObject(remotePath);
+    }
+
+    @Override
+    public Status deleteDirectory(String absolutePath) {
+        return objStorage.deleteObjects(absolutePath);
     }
 }

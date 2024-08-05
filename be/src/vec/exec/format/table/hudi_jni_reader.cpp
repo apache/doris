@@ -43,11 +43,9 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
                              const THudiFileDesc& hudi_params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile)
-        : _scan_params(scan_params),
-          _hudi_params(hudi_params),
-          _file_slot_descs(file_slot_descs),
-          _state(state),
-          _profile(profile) {
+        : JniReader(file_slot_descs, state, profile),
+          _scan_params(scan_params),
+          _hudi_params(hudi_params) {
     std::vector<std::string> required_fields;
     for (auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
@@ -80,11 +78,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
+    return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
 Status HudiJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,

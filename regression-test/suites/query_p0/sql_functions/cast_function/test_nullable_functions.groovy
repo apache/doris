@@ -40,34 +40,16 @@ suite("test_nullable_functions", "query") {
     sql """ INSERT INTO ${tableName} VALUES(3, [1, 2, 3], [], [1.3, 2.14], 3, 3) """
     sql """ INSERT INTO ${tableName} VALUES(4, [], ["a", "b", "c"], [1.3, 2.14], 4, null) """
 
-    sql "set enable_nereids_planner=false"
     qt_nullable_1 "SELECT k1, non_nullable(k1), nullable(k1) FROM ${tableName} ORDER BY k1"
     qt_nullable_2 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
     qt_nullable_3 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
-    try {
-        def result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
+    test {
+        sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
+        exception "Try to use originally non-nullable column"
     }
-    try {
-        result = sql "SELECT k1, non_nullable(k6) FROM ${tableName} ORDER BY k1"
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("There's NULL value"))
-    }
-
-    sql "set enable_nereids_planner=true"
-    sql "set forbid_unknown_col_stats=false"
-    sql "set enable_fallback_to_original_planner=false"
-    qt_nullable_4 "SELECT k1, non_nullable(k1), nullable(k1) FROM ${tableName} ORDER BY k1"
-    qt_nullable_5 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
-    qt_nullable_6 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
-    try {
-        result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
+    test {
+        sql "SELECT k1, non_nullable(k6) FROM ${tableName} ORDER BY k1"
+        exception "There's NULL value"
     }
     qt_ignore "SELECT ignore(k1*k5, k2, k3, k4, k5) FROM ${tableName} ORDER BY k1"
 }

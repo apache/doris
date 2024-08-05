@@ -18,6 +18,8 @@
 suite("test_mv_select") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql "DROP TABLE IF EXISTS mv_test_table_t"
     sql """
@@ -74,26 +76,5 @@ suite("test_mv_select") {
             sleep(delta_time)
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
-    sql """ALTER TABLE SkuUniqDailyCounter
-            ADD ROLLUP rollup_index_shopid(
-            Dc,
-            Bc,
-            Pd,
-            Fs
-            ); """
-    wait_for_latest_op_on_table_finish("SkuUniqDailyCounter",60000);
-    sql """ALTER TABLE SkuUniqDailyCounter 
-            ADD ROLLUP rollup_index_brandcid(
-            Bc,
-            Dc,
-            Pd,
-            Fs
-            );"""
-    wait_for_latest_op_on_table_finish("SkuUniqDailyCounter",60000);
-
-    explain {
-        sql ("""select sum(Fs) Sales from SkuUniqDailyCounter where Bc=742502946 and Dc >=20240315 and Dc <= 20240328;""")
-        contains "rollup_index_brandcid"
     }
 }

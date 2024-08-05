@@ -6,47 +6,39 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-----------------------PhysicalDistribute[DistributionSpecHash]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[partsupp]
-----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[supplier]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------filter((nation.n_name = 'GERMANY'))
-----------------------------------PhysicalOlapScan[nation]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
---------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[partsupp]
---------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[supplier]
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------filter((nation.n_name = 'GERMANY'))
---------------------------------------PhysicalOlapScan[nation]
+------------------------------filter((nation.n_name = 'GERMANY'))
+--------------------------------PhysicalOlapScan[nation]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[partsupp]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalProject
+------------------------------filter((nation.n_name = 'GERMANY'))
+--------------------------------PhysicalOlapScan[nation]
 
 Hint log:
 Used: leading(partsupp { supplier nation } ) leading(partsupp { supplier nation } )
-UnUsed:
+UnUsed: 
 SyntaxError:
 

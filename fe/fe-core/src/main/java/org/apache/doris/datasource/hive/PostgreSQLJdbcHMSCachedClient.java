@@ -24,6 +24,7 @@ import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Joiner;
@@ -60,6 +61,11 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public PostgreSQLJdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+    }
+
+    @Override
+    public void close() {
+        // the jdbc connection is used on demand, so we do not need to close it.
     }
 
     @Override
@@ -229,7 +235,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private List<String> getPartitionValues(int partitionId) {
         String sql = String.format("SELECT \"PART_KEY_VAL\" FROM \"PARTITION_KEY_VALS\""
-                + " WHERE \"PART_ID\" = " + partitionId);
+                + " WHERE \"PART_ID\" = " + partitionId + " ORDER BY \"INTEGER_IDX\"");
         if (LOG.isDebugEnabled()) {
             LOG.debug("getPartitionValues exec sql: {}", sql);
         }
@@ -366,7 +372,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     private List<FieldSchema> getTablePartitionKeys(int tableId) {
         String sql = "SELECT \"PKEY_NAME\", \"PKEY_TYPE\", \"PKEY_COMMENT\" from \"PARTITION_KEYS\""
-                + " WHERE \"TBL_ID\"= " + tableId;
+                + " WHERE \"TBL_ID\"= " + tableId + " ORDER BY \"INTEGER_IDX\"";
         if (LOG.isDebugEnabled()) {
             LOG.debug("getTablePartitionKeys exec sql: {}", sql);
         }
@@ -538,6 +544,10 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public void dropDatabase(String dbName) {
         throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
+    }
+
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new NotImplementedException("PostgreSQL truncateTable not implemented");
     }
 
     public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {

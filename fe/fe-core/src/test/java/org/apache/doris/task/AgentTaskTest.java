@@ -73,6 +73,7 @@ public class AgentTaskTest {
     private long version = 1L;
 
     private TStorageType storageType = TStorageType.COLUMN;
+    private long rowStorePageSize = 16384L;
     private List<Column> columns;
     private MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(3);
 
@@ -102,12 +103,12 @@ public class AgentTaskTest {
         range2 = Range.closedOpen(pk2, pk3);
 
         // create tasks
-
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null);
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);

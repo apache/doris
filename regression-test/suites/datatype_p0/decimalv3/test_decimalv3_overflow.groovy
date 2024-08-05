@@ -634,4 +634,19 @@ suite("test_decimalv3_overflow") {
     qt_except2 """
         select * from (select * from test_decimalv3_tb2 except select * from test_decimalv3_tb1) t order by 1;
     """
+    sql """ CREATE TABLE IF NOT EXISTS test4
+            (
+                id        BIGINT          NOT NULL COMMENT '',
+                price     DECIMAL(38, 18) NOT NULL COMMENT '',
+                size      DECIMAL(38, 18) NOT NULL COMMENT ''
+            ) UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES(
+                "replication_num"="1",
+                "compaction_policy" = "time_series",
+                "enable_unique_key_merge_on_write" = "true"
+            ); """
+    sql """ insert into test4 values(1, 62324, 0.00273) """
+    qt_sql """ select price, size, price * size from test4; """
+    sql "drop table if exists test4"
 }

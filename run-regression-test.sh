@@ -44,27 +44,29 @@ Usage: $0 <shell_options> <framework_options>
      -forceGenOut                      delete and generate .out file
      -parallel                         run tests using specified threads
      -randomOrder                      run tests in a random order
+     -noKillDocker                     don't kill container when finish docker suites
      -times                            rum tests {times} times
 
   Eg.
-    $0                                 build regression test framework and run all suite which in default group
-    $0 --run test_select               run a suite which named as test_select
-    $0 --run 'test*'                   run all suite which named start with 'test', note that you must quota with ''
-    $0 --run -s test_select            run a suite which named as test_select
-    $0 --run test_select -genOut       generate output file for test_select if not exist
-    $0 --run -g default                run all suite in the group which named as default
-    $0 --run -d demo,correctness/tmp   run all suite in the directories which named as demo and correctness/tmp
-    $0 --clean                         clean output of regression test framework
-    $0 --clean --run test_select       clean output and build regression test framework and run a suite which named as test_select
-    $0 --run -h                        print framework options
-    $0 --teamcity --run test_select    print teamcity service messages and build regression test framework and run test_select
+    $0                                        build regression test framework and run all suite which in default group
+    $0 --run test_select                      run a suite which named as test_select
+    $0 --compile                              only compile regression framework
+    $0 --run -s test_select                   run a suite which named as test_select
+    $0 --run test_select -genOut              generate output file for test_select if not exist
+    $0 --run -g default                       run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp          run all suite in the directories which named as demo and correctness/tmp
+    $0 --run -d regression-test/suites/demo   specify the suite directories path from repo root
+    $0 --clean                                clean output of regression test framework
+    $0 --clean --run test_select              clean output and build regression test framework and run a suite which named as test_select
+    $0 --run -h                               print framework options
+    $0 --teamcity --run test_select           print teamcity service messages and build regression test framework and run test_select
 
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
   "
     exit 1
 }
-
+ONLY_COMPILE=0
 CLEAN=0
 WRONG_CMD=0
 TEAMCITY=0
@@ -93,6 +95,11 @@ else
         --conf)
             CUSTOM_CONFIG_FILE="$2"
             shift
+            shift
+            ;;
+        --compile)
+            RUN=1
+            ONLY_COMPILE=1
             shift
             ;;
         --run)
@@ -177,6 +184,11 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cd "${DORIS_HOME}"/regression-test/java-udf-src
     "${MVN_CMD}" package
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    # be and fe dir is compiled output
+    mkdir -p "${DORIS_HOME}"/output/fe/custom_lib/
+    mkdir -p "${DORIS_HOME}"/output/be/custom_lib/
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
     cd "${DORIS_HOME}"
 fi
 
@@ -205,11 +217,13 @@ if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
 
-"${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
-    -DLOG_PATH="${LOG_OUTPUT_FILE}" \
-    -Dfile.encoding="UTF-8" \
-    -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
-    ${JAVA_OPTS:+${JAVA_OPTS}} \
-    -jar ${RUN_JAR:+${RUN_JAR}} \
-    -cf "${CONFIG_FILE}" \
-    ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+if [[ "${ONLY_COMPILE}" -eq 0 ]]; then
+    "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
+        -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+        -Dfile.encoding="UTF-8" \
+        -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
+        ${JAVA_OPTS:+${JAVA_OPTS}} \
+        -jar ${RUN_JAR:+${RUN_JAR}} \
+        -cf "${CONFIG_FILE}" \
+        ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+fi

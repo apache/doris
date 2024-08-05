@@ -17,15 +17,57 @@
 
 #pragma once
 
+#include <bvar/latency_recorder.h>
+
+#include <array>
+#include <cstdint>
 #include <memory>
 
-#include "recycler/obj_store_accessor.h"
+#include "common/stopwatch.h"
+#include "recycler/s3_obj_client.h"
+#include "recycler/storage_vault_accessor.h"
 
 namespace Aws::S3 {
 class S3Client;
 } // namespace Aws::S3
 
-namespace doris::cloud {
+namespace doris {
+class S3RateLimiterHolder;
+
+enum class S3RateLimitType;
+namespace cloud {
+class ObjectStoreInfoPB;
+class SimpleThreadPool;
+
+namespace s3_bvar {
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
+}; // namespace s3_bvar
+
+// The time unit is the same with BE: us
+#define SCOPED_BVAR_LATENCY(bvar_item)                     \
+    StopWatch sw;                                          \
+    std::unique_ptr<int, std::function<void(int*)>> defer( \
+            (int*)0x01, [&](int*) { bvar_item << sw.elapsed_us(); });
+
+struct AccessorRateLimiter {
+public:
+    ~AccessorRateLimiter() = default;
+    static AccessorRateLimiter& instance();
+    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+
+private:
+    AccessorRateLimiter();
+    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
+};
 
 struct S3Conf {
     std::string ak;
@@ -34,60 +76,78 @@ struct S3Conf {
     std::string region;
     std::string bucket;
     std::string prefix;
+
+    enum Provider : uint8_t {
+        S3,
+        GCS,
+        AZURE,
+    };
+
+    Provider provider;
+
+    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
+                                                     bool skip_aksk = false);
 };
 
-class S3Accessor : public ObjStoreAccessor {
+class S3Accessor : public StorageVaultAccessor {
 public:
     explicit S3Accessor(S3Conf conf);
     ~S3Accessor() override;
 
-    const std::string& path() const override { return path_; }
-
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() const { return s3_client_; }
-
-    const S3Conf& conf() const { return conf_; }
+    // returns 0 for success otherwise error
+    static int create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor);
 
     // returns 0 for success otherwise error
-    int init() override;
+    int init();
 
-    // returns 0 for success, returns 1 for http FORBIDDEN error, negative for other errors
-    int delete_objects_by_prefix(const std::string& relative_path) override;
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
 
+    int delete_directory(const std::string& dir_path) override;
+
+    int delete_all(int64_t expiration_time = 0) override;
+
+    int delete_files(const std::vector<std::string>& paths) override;
+
+    int delete_file(const std::string& path) override;
+
+    int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
+
+    int list_all(std::unique_ptr<ListIterator>* res) override;
+
+    int put_file(const std::string& path, const std::string& content) override;
+
+    int exists(const std::string& path) override;
+
+    // Get the objects' expiration time on the conf.bucket
     // returns 0 for success otherwise error
-    int delete_objects(const std::vector<std::string>& relative_paths) override;
+    int get_life_cycle(int64_t* expiration_days);
 
-    // returns 0 for success otherwise error
-    int delete_object(const std::string& relative_path) override;
+    // Check if the objects' versioning is on or off
+    // returns 0 when versioning is on, otherwise versioning is off or check failed
+    int check_versioning();
 
-    // for test
-    // returns 0 for success otherwise error
-    int put_object(const std::string& relative_path, const std::string& content) override;
+protected:
+    int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);
 
-    // returns 0 for success otherwise error
-    int list(const std::string& relative_path, std::vector<ObjectMeta>* ObjectMeta) override;
+    virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
 
-    // return 0 if object exists, 1 if object is not found, negative for error
-    int exist(const std::string& relative_path) override;
-
-    // delete objects which last modified time is less than the input expired time and under the input relative path
-    // returns 0 for success otherwise error
-    virtual int delete_expired_objects(const std::string& relative_path, int64_t expired_time);
-
-    // returns 0 for success otherwise error
-    virtual int get_bucket_lifecycle(int64_t* expiration_days);
-
-    // returns 0 for enabling bucket versioning, otherwise error
-    virtual int check_bucket_versioning();
-
-private:
     std::string get_key(const std::string& relative_path) const;
-    // return empty string if the input key does not start with the prefix of S3 conf
-    std::string get_relative_path(const std::string& key) const;
+    std::string to_uri(const std::string& relative_path) const;
 
-private:
-    std::shared_ptr<Aws::S3::S3Client> s3_client_;
     S3Conf conf_;
-    std::string path_;
+    std::shared_ptr<ObjStorageClient> obj_client_;
 };
 
-} // namespace doris::cloud
+class GcsAccessor final : public S3Accessor {
+public:
+    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
+    ~GcsAccessor() override = default;
+
+    int delete_files(const std::vector<std::string>& paths) override;
+
+private:
+    int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0) override;
+};
+
+} // namespace cloud
+} // namespace doris

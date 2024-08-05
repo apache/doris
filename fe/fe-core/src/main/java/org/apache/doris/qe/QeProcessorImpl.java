@@ -26,11 +26,9 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
-import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
@@ -74,7 +72,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 "profile-write-pool", true);
     }
 
-    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address) {
+    private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
         LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
 
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
@@ -88,7 +86,7 @@ public final class QeProcessorImpl implements QeProcessor {
         writeProfileExecutor.submit(new Runnable() {
             @Override
             public void run() {
-                executionProfile.updateProfile(profile, address);
+                executionProfile.updateProfile(profile, address, isDone);
             }
         });
 
@@ -123,10 +121,11 @@ public final class QeProcessorImpl implements QeProcessor {
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
-
         // Should add the execution profile to profile manager, BE will report the profile to FE and FE
         // will update it in ProfileManager
-        ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        if (info.coord.getQueryOptions().enable_profile) {
+            ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        }
     }
 
     @Override
@@ -168,18 +167,13 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(queryId);
-            if (executionProfile != null) {
-                executionProfile.setQueryFinishTime(System.currentTimeMillis());
-                if (queryInfo.connectContext != null) {
-                    long autoProfileThresholdMs = queryInfo.connectContext
-                            .getSessionVariable().getAutoProfileThresholdMs();
-                    if (autoProfileThresholdMs > 0 && System.currentTimeMillis() - queryInfo.getStartExecTime()
-                            < autoProfileThresholdMs) {
-                        ProfileManager.getInstance().removeProfile(executionProfile.getSummaryProfile().getProfileId());
-                    }
-                }
+
+            // Here we shuold use query option instead of ConnectContext,
+            // because for the coordinator of load task, it does not have ConnectContext.
+            if (queryInfo.getCoord().getQueryOptions().enable_profile) {
+                ProfileManager.getInstance().markExecutionProfileFinished(queryId);
             }
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
@@ -231,11 +225,24 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
-            if (params.isSetBackendId()) {
+            // Why not return response when process new profile failed?
+            // First of all, we will do a refactor for report exec status in the future.
+            // In that refactor, we will combine the report of exec status with query profile in a single rpc.
+            // If we return error response in this pr, we will have problem when doing cluster upgrading.
+            // For example, FE will return directly if it receives profile, but BE actually report exec status
+            // with profile in a single rpc, this will make FE ignore the exec status and may lead to bug in query
+            // like insert into select.
+            if (params.isSetBackendId() && params.isSetDone()) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
+                boolean isDone = params.isDone();
                 if (backend != null) {
-                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress());
+                    // the process status is ignored by design.
+                    // actually be does not care the process status of profile on fe.
+                    processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
                 }
+            } else {
+                LOG.warn("Invalid report profile req, this is a logical error, BE must set backendId and isDone"
+                            + " at same time, query id: {}", DebugUtil.printId(params.query_id));
             }
         }
 
@@ -270,16 +277,11 @@ public final class QeProcessorImpl implements QeProcessor {
         }
 
         final QueryInfo info = coordinatorMap.get(params.query_id);
-
+        result.setStatus(new TStatus(TStatusCode.OK));
         if (info == null) {
-            // There is no QueryInfo for StreamLoad, so we return OK
-            if (params.query_type == TQueryType.LOAD) {
-                result.setStatus(new TStatus(TStatusCode.OK));
-            } else {
-                result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            }
-            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
-                    DebugUtil.printId(params.query_id), params.query_type);
+            // Currently, the execution of query is splited from the exec status process.
+            // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
+            // has been removed from coordinatorMap.
             return result;
         }
         try {
@@ -366,11 +368,11 @@ public final class QeProcessorImpl implements QeProcessor {
             return -1;
         }
 
-        public TokenState getQueueStatus() {
+        public String getQueueStatus() {
             if (coord.getQueueToken() != null) {
-                return coord.getQueueToken().getTokenState();
+                return coord.getQueueToken().getQueueMsg();
             }
-            return null;
+            return "";
         }
     }
 }

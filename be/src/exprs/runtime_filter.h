@@ -48,7 +48,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-class ObjectPool;
 class RuntimePredicateWrapper;
 class PPublishFilterRequest;
 class PPublishFilterRequestV2;
@@ -65,12 +64,11 @@ class TQueryOptions;
 namespace vectorized {
 class VExpr;
 class VExprContext;
-struct SharedRuntimeFilterContext;
+struct RuntimeFilterContextSPtr;
 } // namespace vectorized
 
 namespace pipeline {
 class RuntimeFilterTimer;
-struct CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -129,6 +127,7 @@ struct RuntimeFilterParams {
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int64_t runtime_bloom_filter_min_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -158,17 +157,15 @@ protected:
 
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
-                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
-            : request(req), data(data_stream), pool(obj_pool) {}
+                              butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PPublishFilterRequest* request = nullptr;
     butil::IOBufAsZeroCopyInputStream* data = nullptr;
-    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool = nullptr;
     PrimitiveType column_type = INVALID_TYPE;
 };
 
@@ -193,10 +190,9 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                   const TRuntimeFilterDesc* desc, bool need_local_merge = false)
+    IRuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                   bool need_local_merge = false)
             : _state(state),
-              _pool(pool),
               _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
@@ -208,21 +204,20 @@ public:
               registration_time_(MonotonicMillis()),
               _wait_infinitely(_state->runtime_filter_wait_infinitely),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
-              _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)),
+              _profile(
+                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                     _filter_id, to_string(_runtime_filter_type)))),
               _need_local_merge(need_local_merge) {}
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
-                         const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
+    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                         const TQueryOptions* query_options, const RuntimeFilterRole role,
+                         int node_id, std::shared_ptr<IRuntimeFilter>* res,
                          bool build_bf_exactly = false, bool need_local_merge = false);
 
-    SharedRuntimeFilterContext& get_shared_context_ref();
+    RuntimeFilterContextSPtr& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
@@ -231,7 +226,7 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
 
-    Status send_filter_size(uint64_t local_filter_size);
+    Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -245,27 +240,20 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
+    bool has_local_target() const { return _has_local_target; }
+
     bool is_ready() const {
-        return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
-               (_enable_pipeline_exec &&
-                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY;
     }
     RuntimeFilterState current_state() const {
-        return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
+        return _rf_state_atomic.load(std::memory_order_acquire);
     }
-    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
     void set_role(const RuntimeFilterRole role) { _role = role; }
     int expr_order() const { return _expr_order; }
 
-    // only used for consumer
-    // if filter is not ready for filter data scan_node
-    // will wait util it ready or timeout
-    // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
-    // if return true , filter is ready to use
-    bool await();
     void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads
@@ -284,17 +272,17 @@ public:
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(const MergeRuntimeFilterParams* param,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(const UpdateRuntimeFilterParams* param,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
-                                 RuntimePredicateWrapper** wrapper);
+                                 std::shared_ptr<RuntimePredicateWrapper>* wrapper);
     Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
-    void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
+    void update_filter(std::shared_ptr<RuntimePredicateWrapper> filter_wrapper, int64_t merge_time,
                        int64_t start_apply);
 
     void set_ignored();
@@ -306,11 +294,11 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(const TNetworkAddress* addr);
 
     void init_profile(RuntimeProfile* parent_profile);
 
-    std::string& get_name() { return _name; }
+    std::string debug_string() const;
 
     void update_runtime_filter_type_to_profile();
 
@@ -366,7 +354,7 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    void set_dependency(pipeline::CountedFinishDependency* dependency);
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency);
 
     int64_t get_synced_size() const { return _synced_size; }
 
@@ -384,31 +372,22 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, ObjectPool* pool,
+    static Status _create_wrapper(const T* param,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _get_explain_state_string() const {
-        if (_enable_pipeline_exec) {
-            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
-                           ? "READY"
-                   : _rf_state_atomic.load(std::memory_order_acquire) ==
-                                   RuntimeFilterState::TIME_OUT
-                           ? "TIME_OUT"
-                           : "NOT_READY";
-        } else {
-            return _rf_state == RuntimeFilterState::READY      ? "READY"
-                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
-                                                               : "NOT_READY";
-        }
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                       ? "READY"
+               : _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::TIME_OUT
+                       ? "TIME_OUT"
+                       : "NOT_READY";
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
-    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
-    // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper = nullptr;
+    std::shared_ptr<RuntimePredicateWrapper> _wrapper;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -436,16 +415,12 @@ protected:
     const bool _wait_infinitely;
     const int32_t _rf_wait_time_ms;
 
-    const bool _enable_pipeline_exec;
-
     std::atomic<bool> _profile_init = false;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
-    std::string _name;
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    bool _opt_remote_rf;
     // `_need_local_merge` indicates whether this runtime filter is global on this BE.
     // All runtime filters should be merged on each BE before push_to_remote or publish.
     bool _need_local_merge = false;
@@ -453,7 +428,7 @@ protected:
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     int64_t _synced_size = -1;
-    pipeline::CountedFinishDependency* _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper

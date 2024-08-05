@@ -33,6 +33,12 @@ import static org.apache.doris.regression.ConfigOptions.*
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+enum RunMode {
+    UNKNOWN,
+    NOT_CLOUD,
+    CLOUD
+}
+
 @Slf4j
 @CompileStatic
 class Config {
@@ -64,18 +70,20 @@ class Config {
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
 
+    public RunMode isCloudMode = RunMode.UNKNOWN
+
     public String suitePath
     public String dataPath
     public String realDataPath
     public String cacheDataPath
     public boolean enableCacheData
-    public boolean enableStorageVault
     public String pluginPath
     public String sslCertificatePath
     public String dorisComposePath
     public String image
     public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
+    public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
 
     public String testGroups
@@ -136,9 +144,12 @@ class Config {
     public String kafkaBrokerList
     public String cloudVersion
 
+    public String s3Source
+
     Config() {}
 
     Config(
+            String s3Source,
             String caseNamePrefix,
             String defaultDb, 
             String jdbcUrl, 
@@ -164,7 +175,6 @@ class Config {
             String realDataPath,
             String cacheDataPath,
             Boolean enableCacheData,
-            Boolean enableStorageVault,
             String testGroups,
             String excludeGroups,
             String testSuites, 
@@ -192,6 +202,7 @@ class Config {
             String clusterDir, 
             String kafkaBrokerList, 
             String cloudVersion) {
+        this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
@@ -217,7 +228,6 @@ class Config {
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
         this.enableCacheData = enableCacheData
-        this.enableStorageVault = enableStorageVault
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -247,6 +257,17 @@ class Config {
         this.cloudVersion = cloudVersion
     }
 
+    static String removeDirectoryPrefix(String str) {
+        def prefixes = ["./regression-test/suites/", "regression-test/suites/"]
+
+        def prefix = prefixes.find { str.startsWith(it) }
+        if (prefix) {
+            return str.substring(prefix.length())
+        }
+
+        return str
+    }
+
     static Config fromCommandLine(CommandLine cmd) {
         String confFilePath = cmd.getOptionValue(confFileOpt, "")
         File confFile = new File(confFilePath)
@@ -272,11 +293,11 @@ class Config {
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, config.enableCacheData.toString()))
-        config.enableStorageVault = Boolean.parseBoolean(cmd.getOptionValue(enableStorageVaultOpt, config.enableStorageVault.toString()))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -289,7 +310,9 @@ class Config {
                 .toSet()
         config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
                 .split(",")
-                .collect({d -> d.trim()})
+                .collect({d -> 
+                    d.trim()
+                    removeDirectoryPrefix(d)})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
         config.excludeSuiteWildcard = cmd.getOptionValue(excludeSuiteOpt, config.excludeSuites)
@@ -430,7 +453,6 @@ class Config {
         }
         log.info("recycleAddr : $config.recycleServiceHttpAddress, socketAddr : $config.recycleServiceHttpInetSocketAddress")
 
-
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -459,6 +481,16 @@ class Config {
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
+        def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
+        if (s3SourceList.contains(config.s3Source)) {
+            log.info("s3Source is ${config.s3Source}".toString())
+            log.info("s3Provider is ${config.otherConfigs.get("s3Provider")}".toString())
+            log.info("s3BucketName is ${config.otherConfigs.get("s3BucketName")}".toString())
+            log.info("s3Region is ${config.otherConfigs.get("s3Region")}".toString())
+            log.info("s3Endpoint is ${config.otherConfigs.get("s3Endpoint")}".toString())
+        } else {
+            throw new Exception("The s3Source '${config.s3Source}' is invalid, optional values ${s3SourceList}")
+        }
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
@@ -471,6 +503,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
@@ -496,7 +529,6 @@ class Config {
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
             configToBoolean(obj.enableCacheData),
-            configToBoolean(obj.enableStorageVault),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -532,6 +564,7 @@ class Config {
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
@@ -558,16 +591,6 @@ class Config {
         return config
     }
 
-    static String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     static void checkCloudSmokeEnv(Properties properties) {
         // external stage obj info
         String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
@@ -583,8 +606,7 @@ class Config {
                 s3EndpointConf:s3Endpoint,
                 s3BucketConf:s3BucketName,
                 s3AKConf:s3AK,
-                s3SKConf:s3SK,
-                s3ProviderConf:getProvider(s3Endpoint)
+                s3SKConf:s3SK
         ]
         for (final def item in items) {
             if (item.value == null || item.value.isEmpty()) {
@@ -594,6 +616,82 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.s3Source == null) {
+            config.s3Source = "aliyun"
+            log.info("Set s3Source to 'aliyun' because not specify.".toString())
+        }
+
+        if (config.otherConfigs.get("s3Provider") == null) {
+            def s3Provider = "OSS"
+            if (config.s3Source == "aliyun" || config.s3Source == "aliyun-internal") {
+                s3Provider = "OSS"
+            } else if (config.s3Source == "tencent") {
+                s3Provider = "COS"
+            } else if (config.s3Source == "huawei") {
+                s3Provider = "OBS"
+            } else if (config.s3Source == "azure") {
+                s3Provider = "AZURE"
+            } else if (config.s3Source == "gcp") {
+                s3Provider = "GCP"
+            }
+            config.otherConfigs.put("s3Provider", "${s3Provider}")
+            log.info("Set s3Provider to '${s3Provider}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3BucketName") == null) {
+            def s3BucketName = "doris-regression-hk"
+            if (config.s3Source == "aliyun") {
+                s3BucketName = "doris-regression-hk"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3BucketName = "doris-regression"
+            } else if (config.s3Source == "tencent") {
+                s3BucketName = "doris-build-1308700295"
+            } else if (config.s3Source == "huawei") {
+                s3BucketName = "doris-build"
+            } else if (config.s3Source == "azure") {
+                s3BucketName = "qa-build"
+            } else if (config.s3Source == "gcp") {
+                s3BucketName = "doris-regression"
+            }
+            config.otherConfigs.put("s3BucketName", "${s3BucketName}")
+            log.info("Set s3BucketName to '${s3BucketName}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Region") == null) {
+            def s3Region = "oss-cn-hongkong"
+            if (config.s3Source == "aliyun") {
+                s3Region = "oss-cn-hongkong"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Region = "oss-cn-beijing"
+            } else if (config.s3Source == "tencent") {
+                s3Region = "ap-beijing"
+            } else if (config.s3Source == "huawei") {
+                s3Region = "cn-north-4"
+            } else if (config.s3Source == "azure") {
+                s3Region = "azure-region"
+            } else if (config.s3Source == "gcp") {
+                s3Region = "us-central1"
+            }
+            config.otherConfigs.put("s3Region", "${s3Region}")
+            log.info("Set s3Region to '${s3Region}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Endpoint") == null) {
+            def s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            if (config.s3Source == "aliyun") {
+                s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Endpoint = "oss-cn-beijing-internal.aliyuncs.com"
+            } else if (config.s3Source == "tencent") {
+                s3Endpoint = "cos.ap-beijing.myqcloud.com"
+            } else if (config.s3Source == "huawei") {
+                s3Endpoint = "obs.cn-north-4.myhuaweicloud.com"
+            } else if (config.s3Source == "azure") {
+                s3Endpoint = "azure-endpoint"
+            } else if (config.s3Source == "gcp") {
+                s3Endpoint = "storage.googleapis.com"
+            }
+            config.otherConfigs.put("s3Endpoint", "${s3Endpoint}")
+            log.info("Set s3Endpoint to '${s3Endpoint}' because not specify.".toString())
+        }
+
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())
@@ -721,14 +819,9 @@ class Config {
             log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
         }
 
-        if (config.enableStorageVault == null) {
-            config.enableStorageVault = true
-            log.info("Set enableStorageVault to '${config.enableStorageVault}' because not specify.".toString())
-        }
-
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -834,8 +927,25 @@ class Config {
         }
     }
 
+    boolean fetchRunMode() {
+        if (isCloudMode == RunMode.UNKNOWN) {
+            try {
+                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            } catch (Throwable t) {
+                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+            }
+        }
+        return isCloudMode == RunMode.CLOUD
+
+    }
+
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getRootConnection() {
+        return DriverManager.getConnection(jdbcUrl, 'root', '')
     }
 
     Connection getConnectionByDbName(String dbName) {
@@ -861,6 +971,8 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())

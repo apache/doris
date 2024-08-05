@@ -52,10 +52,10 @@ class ConfigOptions {
     static Option realDataOpt
     static Option cacheDataOpt
     static Option enableCacheDataOpt
-    static Option enableStorageVaultOpt
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
+    static Option noKillDockerOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -183,14 +183,6 @@ class ConfigOptions {
                 .longOpt("enableCacheData")
                 .desc("enable caches data for stream load from s3")
                 .build()
-        enableStorageVaultOpt = Option.builder("ESV")
-                .argName("enableStorageVault")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("enableStorageVault")
-                .desc("does cloud mode enable storage vault")
-                .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)
@@ -216,6 +208,12 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("image")
                 .desc("the docker image")
+                .build()
+
+        noKillDockerOpt = Option.builder("noKillDocker")
+                .required(false)
+                .hasArg(false)
+                .desc("don't kill docker containers")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -583,6 +581,7 @@ class ConfigOptions {
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
+                .addOption(noKillDockerOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)

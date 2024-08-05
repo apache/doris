@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
@@ -39,16 +40,18 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -63,22 +66,23 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Insert executor for olap table
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    private long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    protected long txnId = INVALID_TXN_ID;
+    protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
-            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     public long getTxnId() {
@@ -87,23 +91,17 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     public void beginTransaction() {
+        if (isGroupCommitHttpStream()) {
+            LOG.info("skip begin transaction for group commit http stream");
+            return;
+        }
         try {
-            if (ctx.isTxnModel()) {
-                TransactionEntry txnEntry = ctx.getTxnEntry();
-                // check the same label with begin
-                if (this.labelName != null && !this.labelName.equals(txnEntry.getLabel())) {
-                    throw new AnalysisException("Transaction insert expect label " + txnEntry.getLabel()
-                            + ", but got " + this.labelName);
-                }
-                txnEntry.beginTransaction(database, table);
-                this.txnId = txnEntry.getTransactionId();
-                this.labelName = txnEntry.getLabel();
-            } else {
-                this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                        database.getId(), ImmutableList.of(table.getId()), labelName,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                        LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
-            }
+            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    new TxnCoordinator(TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -121,7 +119,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 && physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT;
         try {
             // TODO refactor this to avoid call legacy planner's function
-            int timeout = ctx.getExecTimeout();
+            long timeout = getTimeout();
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
@@ -142,7 +140,28 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
                     && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
-                DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
+                DataSink childFragmentSink = fragment.getChild(0).getSink();
+                DataStreamSink dataStreamSink = null;
+                if (childFragmentSink instanceof MultiCastDataSink) {
+                    MultiCastDataSink multiCastDataSink = (MultiCastDataSink) childFragmentSink;
+                    int outputExchangeId = (fragment.getPlanRoot()).getId().asInt();
+                    // which DataStreamSink link to the output exchangeNode?
+                    for (DataStreamSink currentDataStreamSink : multiCastDataSink.getDataStreamSinks()) {
+                        int sinkExchangeId = currentDataStreamSink.getExchNodeId().asInt();
+                        if (outputExchangeId == sinkExchangeId) {
+                            dataStreamSink = currentDataStreamSink;
+                            break;
+                        }
+                    }
+                    if (dataStreamSink == null) {
+                        throw new IllegalStateException("Can not find DataStreamSink in the MultiCastDataSink");
+                    }
+                } else if (childFragmentSink instanceof DataStreamSink) {
+                    dataStreamSink = (DataStreamSink) childFragmentSink;
+                } else {
+                    throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
+                }
+
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
                 dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
                         database.getId(), olapTableSink.getDstTable(), analyzer));
@@ -157,14 +176,20 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
-        if (state == null) {
-            throw new AnalysisException("txn does not exist: " + txnId);
+        if (!isGroupCommitHttpStream()) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            addTableIndexes(state);
+            if (physicalOlapTableSink.isPartialUpdate()) {
+                state.setSchemaForPartialUpdate((OlapTable) table);
+            }
         }
+    }
+
+    protected void addTableIndexes(TransactionState state) {
         state.addTableIndexes((OlapTable) table);
-        if (physicalOlapTableSink.isPartialUpdate()) {
-            state.setSchemaForPartialUpdate((OlapTable) table);
-        }
     }
 
     @Override
@@ -175,12 +200,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
-        if (ctx.isTxnModel()) {
-            TransactionEntry txnEntry = ctx.getTxnEntry();
-            txnEntry.addCommitInfos((Table) table, coordinator.getCommitInfos());
-            return;
-        }
-
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -198,6 +217,21 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
             txnStatus = TransactionStatus.COMMITTED;
+        }
+        if (Config.isCloudMode()) {
+            String clusterName = ctx.getCloudCluster();
+            if (ctx.getSessionVariable().enableMultiClusterSyncLoad()
+                    && clusterName != null && !clusterName.isEmpty()) {
+                CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                List<List<Backend>> backendsList = infoService
+                                                        .getCloudClusterNames()
+                                                        .stream()
+                                                        .filter(name -> !name.equals(clusterName))
+                                                        .map(name -> infoService.getBackendsByClusterName(name))
+                                                        .collect(Collectors.toList());
+                List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
+                StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
+            }
         }
     }
 
@@ -262,11 +296,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             errMsg = "Record info of insert load with error " + e.getMessage();
         }
 
+        setReturnInfo();
+    }
+
+    protected void setReturnInfo() {
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
         StringBuilder sb = new StringBuilder();
-        sb.append("{'label':'").append(labelName).append("', 'status':'")
-                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        sb.append("{'label':'").append(labelName).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             sb.append("', 'rows':'").append(loadedRows).append("'");
@@ -283,5 +320,13 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
+    }
+
+    public long getTimeout() {
+        return ctx.getExecTimeout();
+    }
+
+    private boolean isGroupCommitHttpStream() {
+        return ConnectContext.get() != null && ConnectContext.get().isGroupCommit();
     }
 }

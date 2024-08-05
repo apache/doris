@@ -23,6 +23,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -54,8 +55,13 @@ public class Tokenize extends ScalarFunction
     }
 
     @Override
-    public void checkLegalityAfterRewrite() {
-        if (!(child(1) instanceof StringLikeLiteral)) {
+    public void checkLegalityBeforeTypeCoercion() {
+        Expression rightChild = child(1);
+        // tokenize(k7, null) could return NULL
+        if (rightChild instanceof NullLiteral) {
+            return;
+        }
+        if (!(rightChild instanceof StringLikeLiteral)) {
             throw new AnalysisException("tokenize second argument must be string literal");
         }
         String properties = ((StringLikeLiteral) child(1)).value;

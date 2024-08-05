@@ -102,6 +102,11 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
     }
 
     @Override
+    public UnboundTVFRelation withRelationId(RelationId relationId) {
+        throw new UnboundException("should not call UnboundTVFRelation's withRelationId method");
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("UnboundTVFRelation",
                 "functionName", functionName,

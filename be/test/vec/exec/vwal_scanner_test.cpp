@@ -20,24 +20,51 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_manager.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
-#include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris {
 
 namespace vectorized {
+
+class TestSplitSourceConnector : public SplitSourceConnector {
+private:
+    std::mutex _range_lock;
+    TFileScanRange _scan_range;
+    int _range_index = 0;
+
+public:
+    TestSplitSourceConnector(const TFileScanRange& scan_range) : _scan_range(scan_range) {}
+
+    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+        std::lock_guard<std::mutex> l(_range_lock);
+        if (_range_index < _scan_range.ranges.size()) {
+            *has_next = true;
+            *range = _scan_range.ranges[_range_index++];
+        } else {
+            *has_next = false;
+        }
+        return Status::OK();
+    }
+
+    int num_scan_ranges() override { return _scan_range.ranges.size(); }
+
+    TFileScanRangeParams* get_params() override { return &_scan_range.params; }
+};
+
 class VWalScannerTest : public testing::Test {
 public:
-    VWalScannerTest() : _runtime_state(TQueryGlobals()) {
+    VWalScannerTest() : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
+        _runtime_state.resize_op_id_to_local_state(-1);
         init();
         _profile = _runtime_state.runtime_profile();
         WARN_IF_ERROR(_runtime_state.init(_unique_id, _query_options, _query_globals, _env),
@@ -73,6 +100,7 @@ private:
 
     TupleId _dst_tuple_id = 0;
     RuntimeState _runtime_state;
+    RuntimeProfile _global_profile;
     RuntimeProfile* _profile;
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
@@ -83,7 +111,7 @@ private:
     TUniqueId _unique_id;
     TQueryOptions _query_options;
     TQueryGlobals _query_globals;
-    std::shared_ptr<NewFileScanNode> _scan_node = nullptr;
+    std::shared_ptr<pipeline::FileScanOperatorX> _scan_node = nullptr;
     std::vector<TFileRangeDesc> _ranges;
     TFileRangeDesc _range_desc;
     TFileScanRange _scan_range;
@@ -227,10 +255,21 @@ void VWalScannerTest::init() {
     _tnode.file_scan_node.tuple_id = 0;
     _tnode.__isset.file_scan_node = true;
 
-    _scan_node = std::make_shared<NewFileScanNode>(&_obj_pool, _tnode, *_desc_tbl);
+    _scan_node =
+            std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
     WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to prepare scan_node");
+
+    auto local_state =
+            pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
+    std::vector<TScanRangeParams> scan_ranges;
+    std::map<int, std::pair<std::shared_ptr<pipeline::LocalExchangeSharedState>,
+                            std::shared_ptr<pipeline::Dependency>>>
+            le_state_map;
+    pipeline::LocalStateInfo info {&_global_profile, scan_ranges, nullptr, le_state_map, 0};
+    WARN_IF_ERROR(local_state->init(&_runtime_state, info), "fail to init local_state");
+    _runtime_state.emplace_local_state(_scan_node->operator_id(), std::move(local_state));
 
     _range_desc.start_offset = 0;
     _range_desc.size = 1000;
@@ -266,8 +305,11 @@ void VWalScannerTest::init() {
 }
 
 void VWalScannerTest::generate_scanner(std::shared_ptr<VFileScanner>& scanner) {
-    scanner = std::make_shared<VFileScanner>(&_runtime_state, _scan_node.get(), -1, _scan_range,
-                                             _profile, _kv_cache.get());
+    auto split_source = std::make_shared<TestSplitSourceConnector>(_scan_range);
+    scanner = std::make_shared<VFileScanner>(
+            &_runtime_state,
+            &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
+            split_source, _profile, _kv_cache.get());
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
@@ -309,14 +351,14 @@ TEST_F(VWalScannerTest, normal) {
 
 TEST_F(VWalScannerTest, fail_with_not_equal) {
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("WalReader::set_column_id_count");
-        sp->clear_call_back("WalReader::set_out_block_column_size");
-    }};
-    sp->set_call_back("WalReader::set_column_id_count",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 2; });
-    sp->set_call_back("WalReader::set_out_block_column_size",
-                      [](auto&& args) { *try_any_cast<size_t*>(args[0]) = 2; });
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "WalReader::set_column_id_count",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 2; }, &guard1);
+    SyncPoint::CallbackGuard guard2;
+    sp->set_call_back(
+            "WalReader::set_out_block_column_size",
+            [](auto&& args) { *try_any_cast<size_t*>(args[0]) = 2; }, &guard2);
     sp->enable_processing();
 
     _runtime_state._wal_id = _txn_id_1;

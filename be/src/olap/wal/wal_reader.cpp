@@ -50,11 +50,8 @@ Status WalReader::init() {
 }
 
 Status WalReader::finalize() {
-    if (file_reader != nullptr) {
-        auto st = file_reader->close();
-        if (!st.ok()) {
-            LOG(WARNING) << "fail to close wal " << _file_name << " st= " << st.to_string();
-        }
+    if (file_reader) {
+        return file_reader->close();
     }
     return Status::OK();
 }
@@ -69,6 +66,9 @@ Status WalReader::read_block(PBlock& block) {
             file_reader->read_at(_offset, {row_len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
     size_t block_len = decode_fixed64_le(row_len_buf);
+    if (block_len == 0) {
+        return Status::DataQualityError("fail to read wal {} ,block is empty", _file_name);
+    }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);

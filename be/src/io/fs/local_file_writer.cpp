@@ -33,9 +33,10 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/data_dir.h"
@@ -78,7 +79,7 @@ size_t LocalFileWriter::bytes_appended() const {
 }
 
 LocalFileWriter::~LocalFileWriter() {
-    if (!_closed) {
+    if (_state == State::OPENED) {
         _abort();
     }
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
@@ -86,7 +87,25 @@ LocalFileWriter::~LocalFileWriter() {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 }
 
-Status LocalFileWriter::close() {
+Status LocalFileWriter::close(bool non_block) {
+    if (_state == State::CLOSED) {
+        return Status::InternalError("LocalFileWriter already closed, file path {}",
+                                     _path.native());
+    }
+    if (_state == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
+        // error status then the code would never call the second close(true)
+        _state = State::CLOSED;
+        return Status::OK();
+    }
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+    } else {
+        _state = State::CLOSED;
+    }
     return _close(_sync_data);
 }
 
@@ -104,7 +123,7 @@ void LocalFileWriter::_abort() {
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
                                       Status::IOError("inject io error"));
-    if (_closed) [[unlikely]] {
+    if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }
     _dirty = true;
@@ -112,7 +131,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     // Convert the results into the iovec vector to request
     // and calculate the total bytes requested.
     size_t bytes_req = 0;
-    struct iovec iov[data_cnt];
+    std::vector<iovec> iov(data_cnt);
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;
@@ -125,9 +144,9 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         // Never request more than IOV_MAX in one request.
         size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t res;
-        RETRY_ON_EINTR(res,
-                       SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov + completed_iov, iov_count),
-                                                    "LocalFileWriter::writev", _fd));
+        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(
+                                    ::writev(_fd, iov.data() + completed_iov, iov_count),
+                                    "LocalFileWriter::writev", _fd));
         if (UNLIKELY(res < 0)) {
             return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }
@@ -159,10 +178,11 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status LocalFileWriter::finalize() {
+// TODO(ByteYue): Refactor this function as FileWriter::flush()
+Status LocalFileWriter::_finalize() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::finalize",
                                       Status::IOError("inject io error"));
-    if (_closed) [[unlikely]] {
+    if (_state == State::OPENED) [[unlikely]] {
         return Status::InternalError("finalize closed file: {}", _path.native());
     }
 
@@ -178,39 +198,42 @@ Status LocalFileWriter::finalize() {
 }
 
 Status LocalFileWriter::_close(bool sync) {
-    if (_closed) {
-        return Status::OK();
-    }
-    if (sync) {
+    auto fd_reclaim_func = [&](Status st) {
+        if (_fd > 0 && 0 != ::close(_fd)) {
+            return localfs_error(errno, fmt::format("failed to {}, along with failed to close {}",
+                                                    st, _path.native()));
+        }
+        _fd = -1;
+        return st;
+    };
+    if (sync && config::sync_file_on_close) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {
-                return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+                return fd_reclaim_func(
+                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
             }
 #else
             if (0 != ::fdatasync(_fd)) [[unlikely]] {
-                return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+                return fd_reclaim_func(
+                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
             }
 #endif
             _dirty = false;
         }
-        RETURN_IF_ERROR(sync_dir(_path.parent_path()));
+        RETURN_IF_ERROR(fd_reclaim_func(sync_dir(_path.parent_path())));
     }
-
-    if (0 != ::close(_fd)) {
-        return localfs_error(errno, fmt::format("failed to close {}", _path.native()));
-    }
-    _closed = true;
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
         // spare '.testfile' to make bad disk checker happy
         if (_path.filename().compare(kTestFilePath)) {
-            return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+            return fd_reclaim_func(
+                    Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno)));
         }
     });
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
-    return Status::OK();
+    return fd_reclaim_func(Status::OK());
 }
 
 } // namespace doris::io

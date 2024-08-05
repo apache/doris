@@ -20,9 +20,8 @@ suite("eager_aggregate_basic") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-
-    sql "SET ENABLE_NEREIDS_RULES=push_down_agg_through_join_one_side"
-    sql "SET ENABLE_NEREIDS_RULES=push_down_agg_through_join"
+    
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library;
@@ -115,6 +114,79 @@ suite("eager_aggregate_basic") {
     qt_4 """
     explain shape plan 
     select
+        a.event_id,
+        b.experiment_id,
+        b.group_id,
+        COUNT(a.event_id)
+    from
+            com_dd_library a
+    join shunt_log_com_dd_library b on
+            a.device_id = b.device_id
+    group by
+            b.group_id,
+            b.experiment_id,
+            a.event_id;
+    """
+
+    qt_with_hint_1 """
+    explain shape plan 
+    select /*+ USE_CBO_RULE(push_down_agg_through_join, push_down_agg_through_join_one_side) */  
+        b.group_id,
+        COUNT(a.event_id)
+    from
+            com_dd_library a
+    join shunt_log_com_dd_library b on
+            a.device_id = b.device_id
+    where
+            a.event_id = "ad_click"
+            and b.experiment_id = 37
+    group by
+            b.group_id;
+    """
+
+    qt_with_hint_2 """
+    explain shape plan 
+    select /*+ USE_CBO_RULE(push_down_agg_through_join, push_down_agg_through_join_one_side) */  
+            a.event_id,
+            b.experiment_id,
+            b.group_id,
+            COUNT(a.event_id)
+    from
+            com_dd_library a
+    join shunt_log_com_dd_library b on
+            a.device_id = b.device_id
+    where
+            b.experiment_id = 73
+    group by
+            b.group_id,
+            b.experiment_id,
+            a.event_id;
+    """
+
+    qt_with_hint_3 """
+    explain shape plan 
+    select /*+ USE_CBO_RULE(push_down_agg_through_join, push_down_agg_through_join_one_side) */  
+            a.event_id,
+            b.experiment_id,
+            b.group_id,
+            COUNT(a.event_id),
+            date_format(a.time_stamp, '%Y-%m-%d') as dayF
+    from
+            com_dd_library a
+    join shunt_log_com_dd_library b on
+            a.device_id = b.device_id
+    where
+            b.experiment_id = 73
+    group by
+            b.group_id,
+            b.experiment_id,
+            a.event_id,
+            dayF;
+    """
+
+    qt_with_hint_4 """
+    explain shape plan 
+    select /*+ USE_CBO_RULE(push_down_agg_through_join, push_down_agg_through_join_one_side) */  
         a.event_id,
         b.experiment_id,
         b.group_id,

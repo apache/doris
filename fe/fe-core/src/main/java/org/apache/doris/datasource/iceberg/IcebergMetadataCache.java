@@ -25,14 +25,15 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
-import avro.shaded.com.google.common.collect.Lists;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -59,7 +60,7 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
@@ -67,11 +68,14 @@ public class IcebergMetadataCache {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
+        if (catalog == null) {
+            throw new UserException("The specified catalog does not exist:" + params.getCatalog());
+        }
         IcebergMetadataCacheKey key =
                 IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
         return snapshotListCache.get(key);
@@ -80,6 +84,20 @@ public class IcebergMetadataCache {
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
         IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
         return tableCache.get(key);
+    }
+
+    public Table getAndCloneTable(CatalogIf catalog, String dbName, String tbName) {
+        Table restTable;
+        synchronized (this) {
+            Table table = getIcebergTable(catalog, dbName, tbName);
+            restTable = SerializableTable.copyOf(table);
+        }
+        return restTable;
+    }
+
+    public Table getRemoteTable(CatalogIf catalog, String dbName, String tbName) {
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
+        return loadTable(key);
     }
 
     @NotNull
@@ -113,7 +131,7 @@ public class IcebergMetadataCache {
     public void invalidateCatalogCache(long catalogId) {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId)
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().catalog.getId() == catalogId)
@@ -127,7 +145,7 @@ public class IcebergMetadataCache {
         snapshotListCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
                         tblName))
-            .forEach(snapshotListCache::invalidate);
+                .forEach(snapshotListCache::invalidate);
 
         tableCache.asMap().entrySet().stream()
                 .filter(entry -> {
@@ -159,7 +177,8 @@ public class IcebergMetadataCache {
 
     private Catalog createIcebergHiveCatalog(String uri, Map<String, String> hdfsConf, Map<String, String> props) {
         // set hdfs configure
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(
+                hdfsConf.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty());
         for (Map.Entry<String, String> entry : hdfsConf.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }

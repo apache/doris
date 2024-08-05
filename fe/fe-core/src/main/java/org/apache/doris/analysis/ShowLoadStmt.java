@@ -50,9 +50,15 @@ public class ShowLoadStmt extends ShowStmt {
     private LimitElement limitElement;
     private List<OrderByElement> orderByElements;
 
-    private String labelValue;
-    private String stateValue;
-    private boolean isAccurateMatch;
+    protected String labelValue;
+    protected String stateValue;
+    protected boolean isAccurateMatch;
+    protected String copyIdValue;
+    protected String tableNameValue;
+    protected String fileValue;
+    protected boolean isCopyIdAccurateMatch;
+    protected boolean isTableNameAccurateMatch;
+    protected boolean isFilesAccurateMatch;
 
     private ArrayList<OrderByPair> orderByPairs;
 
@@ -65,6 +71,8 @@ public class ShowLoadStmt extends ShowStmt {
         this.labelValue = null;
         this.stateValue = null;
         this.isAccurateMatch = false;
+        this.copyIdValue = null;
+        this.isCopyIdAccurateMatch = false;
     }
 
     public String getDbName() {
@@ -93,6 +101,18 @@ public class ShowLoadStmt extends ShowStmt {
         return this.labelValue;
     }
 
+    public String getCopyIdValue() {
+        return this.copyIdValue;
+    }
+
+    public String getTableNameValue() {
+        return this.tableNameValue;
+    }
+
+    public String getFileValue() {
+        return this.fileValue;
+    }
+
     public Set<JobState> getStates() {
         if (Strings.isNullOrEmpty(stateValue)) {
             return null;
@@ -119,6 +139,18 @@ public class ShowLoadStmt extends ShowStmt {
         return isAccurateMatch;
     }
 
+    public boolean isCopyIdAccurateMatch() {
+        return isCopyIdAccurateMatch;
+    }
+
+    public boolean isTableNameAccurateMatch() {
+        return isTableNameAccurateMatch;
+    }
+
+    public boolean isFileAccurateMatch() {
+        return isFilesAccurateMatch;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
@@ -132,15 +164,7 @@ public class ShowLoadStmt extends ShowStmt {
         // analyze where clause if not null
         if (whereClause != null) {
             if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
-
-                // check whether left.columnName equals to right.columnName
-                checkPredicateName(cp.getChild(0), cp.getChild(1));
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
+                analyzeCompoundPredicate(whereClause);
             } else {
                 analyzeSubPredicate(whereClause);
             }
@@ -161,6 +185,17 @@ public class ShowLoadStmt extends ShowStmt {
         }
     }
 
+    protected void analyzeCompoundPredicate(Expr whereClause) throws AnalysisException {
+        CompoundPredicate cp = (CompoundPredicate) whereClause;
+        if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+            throw new AnalysisException("Only allow compound predicate with operator AND");
+        }
+        // check whether left.columnName equals to right.columnName
+        checkPredicateName(cp.getChild(0), cp.getChild(1));
+        analyzeSubPredicate(cp.getChild(0));
+        analyzeSubPredicate(cp.getChild(1));
+    }
+
     private void checkPredicateName(Expr leftChild, Expr rightChild) throws AnalysisException {
         String leftChildColumnName = ((SlotRef) leftChild.getChild(0)).getColumnName();
         String rightChildColumnName = ((SlotRef) rightChild.getChild(0)).getColumnName();
@@ -169,7 +204,7 @@ public class ShowLoadStmt extends ShowStmt {
         }
     }
 
-    private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
+    protected void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
         if (subExpr == null) {
             return;
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -30,10 +31,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +52,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -57,9 +59,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -75,7 +77,7 @@ import java.util.stream.Collectors;
  * if the table has never been loaded * if the table loading failed on the
  * previous attempt
  */
-public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
+public class Database extends MetaObject implements Writable, DatabaseIf<Table>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
@@ -84,12 +86,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    private final ReentrantReadWriteLock rwLock;
+
+    private QueryableReentrantReadWriteLock rwLock;
 
     // table family group map
     private final Map<Long, Table> idToTable;
-    @SerializedName(value = "nameToTable")
-    private Map<String, Table> nameToTable;
+    private ConcurrentMap<String, Table> nameToTable;
     // table name lower cast -> table name
     private final Map<String, String> lowerCaseToTableName;
 
@@ -106,6 +108,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
+    // from dbProperties;
     private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
@@ -122,6 +125,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
+    // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
@@ -134,7 +138,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (this.fullQualifiedName == null) {
             this.fullQualifiedName = "";
         }
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
@@ -174,7 +178,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!this.rwLock.writeLock().tryLock(timeout, unit)) {
+                Thread owner = this.rwLock.getOwner();
+                if (owner != null) {
+                    LOG.info("database[{}] lock is held by: {}", getName(), Util.dumpThread(owner, 10));
+                }
+                return false;
+            }
+            return true;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
@@ -243,6 +254,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         this.replicaQuotaSize = newQuota;
     }
 
+    public DbState getDbState() {
+        return dbState;
+    }
+
     public void setTransactionQuotaSize(long newQuota) {
         writeLock();
         try {
@@ -292,38 +307,29 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
             OlapTable olapTable = (OlapTable) table;
-            olapTable.readLock();
-            try {
-                usedDataSize = usedDataSize + olapTable.getDataSize();
-                usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
-            } finally {
-                olapTable.readUnlock();
-            }
+            usedDataSize = usedDataSize + olapTable.getDataSize();
+            usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
+
         }
         return Pair.of(usedDataSize, usedRemoteDataSize);
     }
 
-    public long getReplicaCountWithLock() {
+    public long getReplicaCount() {
         readLock();
         try {
             long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
-                } finally {
-                    olapTable.readUnlock();
-                }
+                usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
             }
             return usedReplicaCount;
         } finally {
@@ -332,7 +338,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public long getReplicaQuotaLeftWithLock() {
-        long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithLock();
+        long leftReplicaQuota = replicaQuotaSize - getReplicaCount();
         return Math.max(leftReplicaQuota, 0L);
     }
 
@@ -421,6 +427,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Override
     public boolean registerTable(TableIf table) {
         boolean result = true;
         Table olapTable = (Table) table;
@@ -460,6 +467,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public List<Table> getTables() {
         return new ArrayList<>(idToTable.values());
+    }
+
+    public Map<Long, Table> getIdToTableRef() {
+        return idToTable;
+    }
+
+    public List<Long> getTableIds() {
+        return new ArrayList<>(idToTable.keySet());
     }
 
     // tables must get read or write table in fixed order to avoid potential dead lock
@@ -550,7 +565,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         readLock();
         try {
             for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -574,9 +589,76 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public static Database read(DataInput in) throws IOException {
-        Database db = new Database();
-        db.readFields(in);
-        return db;
+        LOG.info("read db from journal {}", in);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            Database db = new Database();
+            db.readFields(in);
+            return db;
+        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        } else {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        }
+    }
+
+    private void writeTables(DataOutput out) throws IOException {
+        out.writeInt(nameToTable.size());
+        for (Table table : nameToTable.values()) {
+            Text.writeString(out, GsonUtils.GSON.toJson(table));
+        }
+    }
+
+    private void readTables(DataInput in) throws IOException {
+        nameToTable = Maps.newConcurrentMap();
+        int numTables = in.readInt();
+        for (int i = 0; i < numTables; ++i) {
+            Table table = Table.read(in);
+            table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+            }
+            String tableName = table.getName();
+            nameToTable.put(tableName, table);
+            idToTable.put(table.getId(), table);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
+                                 "nameToTable should be ConcurrentMap");
+        nameToTable.forEach((tn, tb) -> {
+            tb.setQualifiedDbName(fullQualifiedName);
+            if (tb instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id);
+            }
+            idToTable.put(tb.getId(), tb);
+            lowerCaseToTableName.put(tn.toLowerCase(), tn);
+        });
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
+            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                    String.valueOf(Config.max_running_txn_num_per_db));
+            transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
+        } else {
+            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
+                    ? Config.max_running_txn_num_per_db
+                    : Config.default_db_max_running_txn_num;
+        }
+
+        for (ImmutableList<Function> functions : name2Function.values()) {
+            for (Function function : functions) {
+                try {
+                    FunctionUtil.translateToNereids(this.getFullName(), function);
+                } catch (Exception e) {
+                    LOG.warn("Nereids add function failed", e);
+                }
+            }
+        }
     }
 
     @Override
@@ -592,32 +674,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
-        // write tables
         discardHudiTable();
-        int numTables = nameToTable.size();
-        out.writeInt(numTables);
-        for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
-            entry.getValue().write(out);
-        }
-
-        out.writeLong(dataQuotaBytes);
-        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
-        Text.writeString(out, dbState.name());
-        Text.writeString(out, attachDbName);
-
-        // write functions
-        FunctionUtil.write(out, name2Function);
-
-        // write encryptKeys
-        dbEncryptKey.write(out);
-
-        out.writeLong(replicaQuotaSize);
-        dbProperties.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        writeTables(out);
     }
+
 
     private void discardHudiTable() {
         Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
@@ -637,6 +698,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -734,6 +796,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        Function udfFunction = null;
+        try {
+            // here we must first getFunction, as dropFunctionImpl will remove it
+            udfFunction = getFunction(function);
+        } catch (AnalysisException e) {
+            if (!ifExists) {
+                throw new UserException(e);
+            } else {
+                // ignore it, as drop it if exist, so can't sure it must exist
+                return;
+            }
+        }
+
+        dropFunctionImpl(function, ifExists);
+        if (udfFunction != null && udfFunction.isUDTFunction()) {
+            // all of the table function in doris will have two function
+            // one is the normal, and another is outer, the different of them is deal with
+            // empty: whether need to insert NULL result value
+            FunctionName name = new FunctionName(function.getName().getDb(),
+                    function.getName().getFunction() + "_outer");
+            FunctionSearchDesc functionOuter = new FunctionSearchDesc(name, function.getArgTypes(),
+                    function.isVariadic());
+            dropFunctionImpl(functionOuter, ifExists);
+        }
+    }
+
+    public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
@@ -856,11 +945,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return null;
     }
 
-    @Override
-    public Map<Long, TableIf> getIdToTable() {
-        return new HashMap<>(idToTable);
-    }
-
     public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
         if (PropertyAnalyzer.hasBinlogConfig(properties)) {
@@ -876,7 +960,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

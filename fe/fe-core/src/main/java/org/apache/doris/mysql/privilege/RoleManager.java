@@ -37,10 +37,12 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Streams;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -169,35 +171,36 @@ public class RoleManager implements Writable, GsonPostProcessable {
                     .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
             replaceResourceLevel(stageMap, PrivLevel.STAGE);
 
-            Map<PrivLevel, String> infoMap =
-                    Stream.concat(
-                    Stream.concat(
-                    Stream.concat(
-                            role.getTblPatternToPrivs().entrySet().stream()
-                                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
-                                    .stream(),
-                            Stream.concat(role.getResourcePatternToPrivs().entrySet().stream()
-                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
-                                            .entrySet().stream(),
-                                    role.getWorkloadGroupPatternToPrivs().entrySet().stream()
-                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
-                                            .entrySet().stream())
-                    ),
-                    clusterMap.entrySet().stream()
-                    ), stageMap.entrySet().stream()
-                    ).collect(Collectors.toMap(Entry::getKey, entry -> {
-                                if (entry.getKey() == PrivLevel.GLOBAL) {
-                                    return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
-                                            .orElse(FeConstants.null_string);
-                                } else {
-                                    return entry.getValue().stream()
-                                            .map(priv -> priv.getKey() + ": " + priv.getValue())
-                                            .collect(Collectors.joining("; "));
-                                }
-                            }, (s1, s2) -> s1 + " " + s2
-                    ));
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> storageVaultMap
+                    = role.getStorageVaultPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(storageVaultMap, PrivLevel.STORAGE_VAULT);
+
+            Map<PrivLevel, String> infoMap = Streams.concat(
+                    role.getTblPatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
+                            .stream(),
+                    role.getResourcePatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                            .entrySet().stream(),
+                    role.getWorkloadGroupPatternToPrivs().entrySet().stream()
+                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                            .entrySet().stream(),
+                    clusterMap.entrySet().stream(), stageMap.entrySet().stream(),
+                    storageVaultMap.entrySet().stream()).collect(Collectors.toMap(Entry::getKey, entry -> {
+                        if (entry.getKey() == PrivLevel.GLOBAL) {
+                            return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
+                                    .orElse(FeConstants.null_string);
+                        } else {
+                            return entry.getValue().stream()
+                                    .map(priv -> priv.getKey() + ": " + priv.getValue())
+                                    .collect(Collectors.joining("; "));
+                        }
+                    }, (s1, s2) -> s1 + " " + s2
+            ));
+
             Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
-                        PrivLevel.CLUSTER, PrivLevel.STAGE)
+                        PrivLevel.CLUSTER, PrivLevel.STAGE, PrivLevel.STORAGE_VAULT, PrivLevel.WORKLOAD_GROUP)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -206,6 +209,31 @@ public class RoleManager implements Writable, GsonPostProcessable {
                         info.add(infoItem);
                     });
             results.add(info);
+        }
+    }
+
+    public void getRoleWorkloadGroupPrivs(List<List<String>> result, Set<String> limitedRole) {
+        for (Role role : roles.values()) {
+            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+                continue;
+            }
+
+            if (limitedRole != null && !limitedRole.contains(role.getRoleName())) {
+                continue;
+            }
+            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN) ? "YES" : "NO";
+
+            for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
+                List<String> row = Lists.newArrayList();
+                row.add(role.getRoleName());
+                row.add(entry.getKey().getworkloadGroupName());
+                if (StringUtils.isEmpty(entry.getValue().toString())) {
+                    continue;
+                }
+                row.add(entry.getValue().toString());
+                row.add(isGrantable);
+                result.add(row);
+            }
         }
     }
 

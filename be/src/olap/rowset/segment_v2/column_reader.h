@@ -91,7 +91,7 @@ struct ColumnIteratorOptions {
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type;
+    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
     io::FileReader* file_reader = nullptr; // Ref
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
@@ -114,13 +114,28 @@ public:
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
-
+    static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                               const io::FileReaderSPtr& file_reader,
+                               std::unique_ptr<ColumnReader>* reader);
+    static Status create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                             const io::FileReaderSPtr& file_reader,
+                             std::unique_ptr<ColumnReader>* reader);
+    static Status create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                                uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                std::unique_ptr<ColumnReader>* reader);
+    static Status create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                                   uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                   std::unique_ptr<ColumnReader>* reader);
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
-    ~ColumnReader();
+    virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
+    Status new_array_iterator(ColumnIterator** iterator);
+    Status new_struct_iterator(ColumnIterator** iterator);
+    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
@@ -189,7 +204,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderSPtr file_reader);
+                 io::FileReaderSPtr file_reader, vectorized::DataTypePtr agg_state_ptr = nullptr);
     Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
@@ -250,7 +265,7 @@ private:
     // meta for various column indexes (null if the index is absent)
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
-    mutable std::mutex _load_index_lock;
+    mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
@@ -258,6 +273,8 @@ private:
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+
+    vectorized::DataTypePtr _agg_state_ptr;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
@@ -558,7 +575,7 @@ private:
 class RowIdColumnIterator : public ColumnIterator {
 public:
     RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_first() override {
@@ -600,7 +617,7 @@ public:
 
 private:
     rowid_t _current_rowid = 0;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
 };

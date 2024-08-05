@@ -21,6 +21,7 @@ suite("query16") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
@@ -32,6 +33,7 @@ sql 'set enable_runtime_filter_prune=false'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     qt_ds_shape_16 '''
     explain shape plan

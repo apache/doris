@@ -97,8 +97,8 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
         }
         ++range.first;
     }
-    return Status::InternalError("Could not find local receiver for node {} with instance {}",
-                                 node_id, print_id(fragment_instance_id));
+    return Status::InvalidArgument("Could not find local receiver for node {} with instance {}",
+                                   node_id, print_id(fragment_instance_id));
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,

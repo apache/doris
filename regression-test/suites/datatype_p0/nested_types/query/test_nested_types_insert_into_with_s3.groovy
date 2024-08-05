@@ -22,7 +22,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_s3", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
-    sql 'set enable_nereids_planner=false'
     sql 'set max_allowed_packet=4194304'
 
     String ak = getS3AK()
@@ -204,6 +203,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         select * from s3("uri" = "${orcFiles[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "orc") order by k1 limit 1;
             """
 
@@ -211,6 +211,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} select * from s3("uri" = "${orcFiles[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "orc")
              """
 
@@ -228,6 +229,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
          select * from s3("uri" = "${parquetFiles[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "parquet") order by k1 limit 1;
             """
 
@@ -235,6 +237,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} select * from s3("uri" = "${parquetFiles[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "parquet") order by k1 limit 1;
              """
 
@@ -248,6 +251,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
                 "uri" = "${orcFiles[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "orc") order by k1 limit 1;
             """
 

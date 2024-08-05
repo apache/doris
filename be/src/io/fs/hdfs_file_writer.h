@@ -29,6 +29,7 @@ namespace io {
 class HdfsHandler;
 class BlockFileCache;
 struct FileCacheAllocatorBuilder;
+struct AsyncCloseStatusPack;
 
 class HdfsFileWriter final : public FileWriter {
 public:
@@ -36,34 +37,41 @@ public:
     // - fs_name/path_to_file
     // - /path_to_file
     // TODO(plat1ko): Support related path for cloud mode
-    static Result<FileWriterPtr> create(Path path, HdfsHandler* handler, const std::string& fs_name,
+    static Result<FileWriterPtr> create(Path path, std::shared_ptr<HdfsHandler> handler,
+                                        const std::string& fs_name,
                                         const FileWriterOptions* opts = nullptr);
 
-    HdfsFileWriter(Path path, HdfsHandler* handler, hdfsFile hdfs_file, std::string fs_name,
-                   const FileWriterOptions* opts = nullptr);
+    HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, hdfsFile hdfs_file,
+                   std::string fs_name, const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    State state() const override { return _state; }
+
+    Status close(bool non_block = false) override;
+
+    FileCacheAllocatorBuilder* cache_builder() const override {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
 
 private:
+    Status _close_impl();
     // Flush buffered data into HDFS client and write local file cache if enabled
     // **Notice**: this would clear the underlying buffer
     Status _flush_buffer();
     Status append_hdfs_file(std::string_view content);
     void _write_into_local_file_cache();
     Status _append(std::string_view content);
+    void _flush_and_reset_approximate_jni_buffer_size();
+    Status _acquire_jni_memory(size_t size);
 
     Path _path;
-    HdfsHandler* _hdfs_handler = nullptr;
+    std::shared_ptr<HdfsHandler> _hdfs_handler = nullptr;
     hdfsFile _hdfs_file = nullptr;
     std::string _fs_name;
     size_t _bytes_appended = 0;
-    bool _closed = false;
     bool _sync_file_data;
     std::unique_ptr<FileCacheAllocatorBuilder>
             _cache_builder; // nullptr if disable write file cache
@@ -82,7 +90,12 @@ private:
         std::string _batch_buffer;
     };
     BatchBuffer _batch_buffer;
-    size_t _index_offset;
+    size_t _approximate_jni_buffer_size = 0;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    // We should make sure that close_impl's return value is consistent
+    // So we need add one field to restore the value first time return by calling close_impl
+    Status _st;
+    State _state {State::OPENED};
 };
 
 } // namespace io

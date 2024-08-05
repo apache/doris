@@ -21,6 +21,7 @@ suite("test_pushdown_setop") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
@@ -30,6 +31,8 @@ suite("test_pushdown_setop") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     qt_rf_setop """
     explain shape plan
     select count() from ((select l_linenumber from lineitem) except (select o_orderkey from orders)) T join region on T.l_linenumber = r_regionkey;

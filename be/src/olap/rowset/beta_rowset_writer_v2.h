@@ -80,7 +80,8 @@ public:
                 "add_rowset_for_linked_schema_change is not implemented");
     }
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override;
 
     Status flush() override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");
@@ -108,6 +109,10 @@ public:
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const override { return _segment_creator.num_rows_updated(); }
+    int64_t num_rows_deleted() const override { return _segment_creator.num_rows_deleted(); }
+    int64_t num_rows_new_added() const override { return _segment_creator.num_rows_new_added(); }
     int64_t num_rows_filtered() const override { return _segment_creator.num_rows_filtered(); }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
@@ -124,6 +129,8 @@ public:
                        TabletSchemaSPtr flush_schema) override;
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
+
+    int32_t next_segment_id() { return _segment_creator.next_segment_id(); };
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 

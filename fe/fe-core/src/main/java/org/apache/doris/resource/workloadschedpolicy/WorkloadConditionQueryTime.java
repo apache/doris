@@ -37,9 +37,14 @@ public class WorkloadConditionQueryTime implements WorkloadCondition {
 
     public static WorkloadConditionQueryTime createWorkloadCondition(WorkloadConditionOperator op, String value)
             throws UserException {
-        long longValue = Long.parseLong(value);
-        if (longValue < 0) {
-            throw new UserException("invalid query time value, " + longValue + ", it requires >= 0");
+        long longValue = -1;
+        try {
+            longValue = Long.parseLong(value);
+            if (longValue < 0) {
+                throw new NumberFormatException();
+            }
+        } catch (NumberFormatException e) {
+            throw new UserException("invalid query time value: " + value + ", it requires >= 0");
         }
         return new WorkloadConditionQueryTime(op, longValue);
     }

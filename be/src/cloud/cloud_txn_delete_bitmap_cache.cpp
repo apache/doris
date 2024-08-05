@@ -24,15 +24,15 @@
 #include <shared_mutex>
 
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
 
 CloudTxnDeleteBitmapCache::CloudTxnDeleteBitmapCache(size_t size_in_bytes)
-        : LRUCachePolicy(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE, size_in_bytes,
-                         LRUCacheType::SIZE, 86400, 4),
+        : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE,
+                                       size_in_bytes, LRUCacheType::SIZE, 86400, 4),
           _stop_latch(1) {}
 
 CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {
@@ -53,7 +53,8 @@ Status CloudTxnDeleteBitmapCache::init() {
 Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
-        std::shared_ptr<PartialUpdateInfo>* partial_update_info) {
+        std::shared_ptr<PartialUpdateInfo>* partial_update_info,
+        std::shared_ptr<PublishStatus>* publish_status) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -66,6 +67,26 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *rowset = iter->second.rowset;
         *txn_expiration = iter->second.txn_expiration;
         *partial_update_info = iter->second.partial_update_info;
+        *publish_status = iter->second.publish_status;
+    }
+    RETURN_IF_ERROR(
+            get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr));
+    return Status::OK();
+}
+
+Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
+        TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr* delete_bitmap,
+        RowsetIdUnorderedSet* rowset_ids, std::shared_ptr<PublishStatus>* publish_status) {
+    if (publish_status) {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        TxnKey txn_key(transaction_id, tablet_id);
+        auto iter = _txn_map.find(txn_key);
+        if (iter == _txn_map.end()) {
+            return Status::Error<ErrorCode::NOT_FOUND, false>(
+                    "not found txn info, tablet_id={}, transaction_id={}", tablet_id,
+                    transaction_id);
+        }
+        *publish_status = iter->second.publish_status;
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
@@ -83,7 +104,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         LOG_INFO("cache missed when get delete bitmap")
                 .tag("txn_id", transaction_id)
                 .tag("tablet_id", tablet_id);
-        // Becasue of the rowset_ids become empty, all delete bitmap
+        // Because of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
     }
@@ -103,7 +124,10 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
-        _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info));
+        std::shared_ptr<PublishStatus> publish_status =
+                std::make_shared<PublishStatus>(PublishStatus::INIT);
+        _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info),
+                                   std::move(publish_status));
         _expiration_txn.emplace(txn_expiration, txn_key);
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
@@ -128,7 +152,14 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
 void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transaction_id,
                                                        int64_t tablet_id,
                                                        DeleteBitmapPtr delete_bitmap,
-                                                       const RowsetIdUnorderedSet& rowset_ids) {
+                                                       const RowsetIdUnorderedSet& rowset_ids,
+                                                       PublishStatus publish_status) {
+    {
+        std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        TxnKey txn_key(transaction_id, tablet_id);
+        CHECK(_txn_map.count(txn_key) > 0);
+        *(_txn_map[txn_key].publish_status.get()) = publish_status;
+    }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
 
@@ -152,6 +183,10 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     while (!_expiration_txn.empty()) {
         auto iter = _expiration_txn.begin();
+        if (_txn_map.find(iter->second) == _txn_map.end()) {
+            _expiration_txn.erase(iter);
+            continue;
+        }
         int64_t current_time = duration_cast<std::chrono::seconds>(
                                        std::chrono::system_clock::now().time_since_epoch())
                                        .count();
@@ -171,6 +206,23 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
             _txn_map.erase(iter->second);
         }
         _expiration_txn.erase(iter);
+    }
+}
+
+void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId transaction_id,
+                                                              int64_t tablet_id) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    TxnKey txn_key(transaction_id, tablet_id);
+    auto txn_iter = _txn_map.find(txn_key);
+    if (txn_iter != _txn_map.end()) {
+        LOG_INFO("remove unused tablet txn info")
+                .tag("txn_id", txn_iter->first.txn_id)
+                .tag("tablt_id", txn_iter->first.tablet_id);
+        std::string key_str = std::to_string(txn_iter->first.txn_id) + "/" +
+                              std::to_string(txn_iter->first.tablet_id); // Cache key container
+        CacheKey cache_key(key_str);
+        erase(cache_key);
+        _txn_map.erase(txn_key);
     }
 }
 

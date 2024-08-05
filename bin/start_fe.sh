@@ -176,6 +176,17 @@ if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"
 fi
 
+STDOUT_LOGGER="${LOG_DIR}/fe.out"
+log() {
+    # same datetime format as in fe.log: 2024-06-03 14:54:41,478
+    cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
+    if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+        echo "StdoutLogger ${cur_date} $1"
+    else
+        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
+    fi
+}
+
 # check java version and choose correct JAVA_OPTS
 java_version="$(
     set -e
@@ -183,16 +194,16 @@ java_version="$(
 )"
 if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
-        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
+        log "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 else
-    echo "ERROR: The jdk_version is ${java_version}, must be 17." >>"${LOG_DIR}/fe.out"
+    log "ERROR: The jdk_version is ${java_version}, must be 17."
     exit 1
 fi
-echo "Using Java version ${java_version}" >>"${LOG_DIR}/fe.out"
-echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
+log "Using Java version ${java_version}"
+log "${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=
@@ -207,7 +218,7 @@ done
 # add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
-        CLASSPATH="${f}:${CLASSPATH}"
+        CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
 
@@ -239,7 +250,8 @@ if [[ -n "${JACOCO_COVERAGE_OPT}" ]]; then
     coverage_opt="${JACOCO_COVERAGE_OPT}"
 fi
 
-date >>"${LOG_DIR}/fe.out"
+CUR_DATE=$(date)
+log "start time: ${CUR_DATE}"
 
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
@@ -253,12 +265,12 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
         echo "Internal error, USE IMAGE_TOOL like: ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null &
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${STDOUT_LOGGER}" 2>&1 </dev/null
 fi
 
 if [[ "${OPT_VERSION}" != "" ]]; then

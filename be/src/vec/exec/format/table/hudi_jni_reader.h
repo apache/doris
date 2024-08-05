@@ -27,8 +27,7 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/format/jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -42,7 +41,7 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class HudiJniReader : public GenericReader {
+class HudiJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(HudiJniReader);
 
 public:
@@ -66,11 +65,7 @@ public:
 private:
     const TFileScanRangeParams& _scan_params;
     const THudiFileDesc& _hudi_params;
-    const std::vector<SlotDescriptor*>& _file_slot_descs;
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    std::unique_ptr<JniConnector> _jni_connector;
 };
 
 } // namespace doris::vectorized

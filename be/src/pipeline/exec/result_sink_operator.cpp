@@ -18,37 +18,22 @@
 #include "result_sink_operator.h"
 
 #include <memory>
+#include <utility>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
+#include "util/arrow/row_batch.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/sink/varrow_flight_result_writer.h"
 #include "vec/sink/vmysql_result_writer.h"
-#include "vec/sink/vresult_sink.h"
-
-namespace doris {
-class DataSink;
-} // namespace doris
 
 namespace doris::pipeline {
-
-ResultSinkOperatorBuilder::ResultSinkOperatorBuilder(int32_t id, DataSink* sink)
-        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
-
-OperatorPtr ResultSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ResultSinkOperator>(this, _sink);
-}
-
-ResultSinkOperator::ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-        : DataSinkOperator(operator_builder, sink) {};
-
-bool ResultSinkOperator::can_write() {
-    return _sink->_sender->can_sink();
-}
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -61,11 +46,15 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
 
-    // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
-            state->execution_timeout()));
-    ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
+    if (state->query_options().enable_parallel_result_sink) {
+        _sender = _parent->cast<ResultSinkOperatorX>()._sender;
+    } else {
+        auto& p = _parent->cast<ResultSinkOperatorX>();
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender,
+                state->execution_timeout(), state->batch_size()));
+    }
+    _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
     return Status::OK();
 }
 
@@ -80,10 +69,29 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     }
     // create writer based on sink type
     switch (p._sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile));
+    case TResultSinkType::MYSQL_PROTOCAL: {
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
         break;
+    }
+    case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        if (state->query_options().enable_parallel_result_sink) {
+            state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
+        } else {
+            state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
+                                                                   arrow_schema);
+        }
+        _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
+                _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
+        break;
+    }
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -101,14 +109,16 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     } else {
         _sink_type = sink.type;
     }
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        _result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+    } else {
+        _result_sink_buffer_size_rows = RESULT_SINK_BUFFER_SIZE;
+    }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
 }
 
 Status ResultSinkOperatorX::prepare(RuntimeState* state) {
-    auto fragment_instance_id = state->fragment_instance_id();
-    auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
-                             fragment_instance_id.hi, fragment_instance_id.lo);
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -120,6 +130,12 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+
+    if (state->query_options().enable_parallel_result_sink) {
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->query_id(), _result_sink_buffer_size_rows, &_sender,
+                state->execution_timeout(), state->batch_size()));
+    }
     return Status::OK();
 }
 
@@ -135,7 +151,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, 
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->write(*block));
+    RETURN_IF_ERROR(local_state._writer->write(state, *block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -181,7 +197,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        RETURN_IF_ERROR(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,

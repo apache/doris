@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "agent/be_exec_version_manager.h"
 #define POP true
 #define NOTPOP false
 #define NULLABLE true
@@ -211,8 +212,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -224,9 +225,9 @@ struct PopData : Data {
 };
 
 template <typename T, typename Data>
-struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+struct SampData_OLDER : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -239,6 +240,24 @@ struct SampData : Data {
                 col.get_data().push_back(this->get_samp_result());
             }
             nullable_column.get_null_map_data().push_back(0);
+        }
+    }
+};
+
+template <typename T, typename Data>
+struct SampData : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    void insert_result_into(IColumn& to) const {
+        auto& col = assert_cast<ColVecResult&>(to);
+        if (this->count == 1 || this->count == 0) {
+            col.insert_default();
+        } else {
+            if constexpr (IsDecimalNumber<T>) {
+                col.get_data().push_back(this->get_samp_result().value());
+            } else {
+                col.get_data().push_back(this->get_samp_result());
+            }
         }
     }
 };
@@ -269,7 +288,11 @@ public:
         if constexpr (is_pop) {
             return Data::get_return_type();
         } else {
-            return make_nullable(Data::get_return_type());
+            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
+                return make_nullable(Data::get_return_type());
+            } else {
+                return Data::get_return_type();
+            }
         }
     }
 
@@ -278,7 +301,7 @@ public:
         if constexpr (is_pop) {
             this->data(place).add(columns[0], columns[1], row_num);
         } else {
-            if constexpr (is_nullable) {
+            if constexpr (is_nullable) { //this if check could remove with old function
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
                 if (!nullable_column_x->is_null_at(row_num) &&
@@ -311,6 +334,14 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
+};
+
+template <typename Data, bool is_nullable>
+class AggregateFunctionSamp_OLDER final
+        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
+public:
+    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
+            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>

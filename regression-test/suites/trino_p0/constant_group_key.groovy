@@ -17,14 +17,10 @@
 
 // This suit test remove constant group_by_key 
 suite("constant_group_key") {
-
-    // this case check explain, so we disable nereids
-    sql """set enable_nereids_planner=false"""
-
     //remove constant key
     explain {
         sql("select 'oneline' from nation group by n_nationkey, 'constant1'")
-        contains "group by: `n_nationkey`"
+        contains "group by: n_nationkey"
     }
 
     //reserve constant key in group by
@@ -35,12 +31,7 @@ suite("constant_group_key") {
 
     explain {
         sql("select 'oneline', sum(n_nationkey) from nation group by 'constant1', 'constant2'")
-        contains "group by: 'constant1'"
-    }
-
-    explain {
-        sql("select a from (select '1' as b, 'abc' as a) T  group by b, a")
-        contains "group by: '1', 'abc'"
+        contains "group by: 'constant2'"
     }
 
     sql "drop table if exists cgk_tbl"
@@ -50,8 +41,8 @@ suite("constant_group_key") {
     distributed by hash(a) buckets 1 
     properties ('replication_num'='1');"""
 
-    qt_scalar_count 'select count(*) from cgk_tbl';
+    qt_scalar_count 'select count(*) from cgk_tbl'
     qt_agg_count "select count(*) from cgk_tbl group by 'any const str'"
-    qt_scalar_sum 'select sum(a) from cgk_tbl';
+    qt_scalar_sum 'select sum(a) from cgk_tbl'
     qt_agg_sum "select sum(a) from cgk_tbl group by 'any const str'"
 }

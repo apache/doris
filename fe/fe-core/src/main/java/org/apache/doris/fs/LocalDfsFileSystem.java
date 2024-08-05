@@ -49,6 +49,11 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
+    public Status directoryExists(String dir) {
+        return exists(dir);
+    }
+
+    @Override
     public Status exists(String remotePath) {
         boolean exists = false;
         try {

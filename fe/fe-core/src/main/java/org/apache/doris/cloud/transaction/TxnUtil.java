@@ -46,6 +46,7 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 
 public class TxnUtil {
@@ -217,6 +218,8 @@ public class TxnUtil {
         if (loadJobFinalOperation.getFailMsg() != null) {
             builder.setFailMsg(TxnUtil.failMsgToPb(loadJobFinalOperation.getFailMsg()));
         }
+        // copy into
+        builder.setCopyId(loadJobFinalOperation.getCopyId()).setLoadFilePaths(loadJobFinalOperation.getLoadFilePaths());
 
         attachementBuilder.setLoadJobFinalOperation(builder.build());
         return attachementBuilder.build();
@@ -276,21 +279,22 @@ public class TxnUtil {
                 TxnUtil.etlStatusFromPb(loadJobFinalOperationPB.getLoadingStatus()),
                 loadJobFinalOperationPB.getProgress(), loadJobFinalOperationPB.getLoadStartTimestamp(),
                 loadJobFinalOperationPB.getFinishTimestamp(),
-                TxnUtil.jobStateFromPb(loadJobFinalOperationPB.getJobState()), failMsg);
+                TxnUtil.jobStateFromPb(loadJobFinalOperationPB.getJobState()), failMsg,
+                loadJobFinalOperationPB.getCopyId(), loadJobFinalOperationPB.getLoadFilePaths(), new HashMap<>());
     }
 
     public static TxnCoordinatorPB txnCoordinatorToPb(TxnCoordinator txnCoordinator) {
         TxnCoordinatorPB.Builder builder = TxnCoordinatorPB.newBuilder();
         builder.setSourceType(TxnSourceTypePB.forNumber(txnCoordinator.sourceType.value()));
+        builder.setId(txnCoordinator.id);
         builder.setIp(txnCoordinator.ip);
+        builder.setStartTime(txnCoordinator.startTime);
         return builder.build();
     }
 
     public static TxnCoordinator txnCoordinatorFromPb(TxnCoordinatorPB txnCoordinatorPB) {
-        TxnCoordinator txnCoordinator = new TxnCoordinator();
-        txnCoordinator.sourceType = TxnSourceType.valueOf(txnCoordinatorPB.getSourceType().getNumber());
-        txnCoordinator.ip = txnCoordinatorPB.getIp();
-        return txnCoordinator;
+        return new TxnCoordinator(TxnSourceType.valueOf(txnCoordinatorPB.getSourceType().getNumber()),
+                txnCoordinatorPB.getId(), txnCoordinatorPB.getIp(), txnCoordinatorPB.getStartTime());
     }
 
     public static TransactionState transactionStateFromPb(TxnInfoPB txnInfo) {

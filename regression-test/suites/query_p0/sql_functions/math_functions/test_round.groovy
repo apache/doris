@@ -15,7 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-    suite("test_round") {
+suite("test_round") {
+    sql "set enable_fold_constant_by_be=false;"
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+
+    qt_select "SELECT round(123.123, 1.123);"
+    qt_select """SELECT round(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT truncate(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT truncate(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT ceil(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT ceil(123.123, -1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round_bankers(123.123, 1.123) FROM numbers("number"="10");"""
+    qt_select """SELECT round_bankers(123.123, -1.123) FROM numbers("number"="10");"""
+    sql """drop table if exists test_round_1; """
+    sql """
+        create table test_round_1(big_key bigint not NULL)
+                DISTRIBUTED BY HASH(big_key) BUCKETS 1 PROPERTIES ("replication_num" = "1");
+    """
+    qt_select """SELECT truncate(cast(round(8990.65 - 4556.2354, 2.4652) as Decimal(9,4)), 2);"""
+    qt_select """SELECT cast(round(round(465.56,min(-5.987)),2) as DECIMAL)"""
+    qt_select """
+        SELECT truncate(100,2)<-2308.57 , cast(round(round(465.56,min(-5.987)),2) as DECIMAL) , cast(truncate(round(8990.65-4556.2354,2.4652),2)as DECIMAL) from test_round_1;
+    """
+
+    qt_select """
+        SELECT truncate(123456789.123456789, -9);
+    """
+
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
     qt_select "SELECT round_bankers(10.12345)"
@@ -61,6 +89,11 @@
     qt_select """ SELECT ceil(col1, 7), ceil(col2, 7), ceil(col3, 7) FROM `${tableName}`; """
     qt_select """ SELECT truncate(col1, 7), truncate(col2, 7), truncate(col3, 7) FROM `${tableName}`; """
     qt_select """ SELECT round_bankers(col1, 7), round_bankers(col2, 7), round_bankers(col3, 7) FROM `${tableName}`; """
+
+    qt_select_fix """ SELECT round(col1, 6.234), round(col2, 6.234), round(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT floor(col1, 6.234), floor(col2, 6.234), floor(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT truncate(col1, 6.234), truncate(col2, 6.234), truncate(col3, 6.234) FROM `${tableName}`; """
+    qt_select_fix """ SELECT round_bankers(col1, 6.234), round_bankers(col2, 6.234), round_bankers(col3, 6.234) FROM `${tableName}`; """
 
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 
@@ -143,4 +176,125 @@
     qt_query """ select cast(round(sum(d1), 2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3),2) as decimalv3(27, 3)) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), -2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), -4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
+
+    /// Testing with enhanced round function, which can deal with scale being a column, like this:
+    /// func(Column, Column), func(ColumnConst, Column).
+    /// Consider truncate() has been tested in test_function_truncate.groovy, so we focus on the rest here.
+    sql """DROP TABLE IF EXISTS test_enhanced_round;"""
+    sql """
+        CREATE TABLE test_enhanced_round (
+            rid int, flo float, dou double,
+            dec90 decimal(9, 0), dec91 decimal(9, 1), dec99 decimal(9, 9),
+            dec100 decimal(10,0), dec109 decimal(10,9), dec1010 decimal(10,10),
+            number int DEFAULT 1)
+        DISTRIBUTED BY HASH(rid)
+        PROPERTIES("replication_num" = "1" );
+    """
+    sql """
+        INSERT INTO test_enhanced_round
+        VALUES
+        (1, 12345.123, 123456789.123456789,
+            123456789, 12345678.1, 0.123456789,
+            123456789.1, 1.123456789, 0.123456789, 1);
+    """
+    sql """
+        INSERT INTO test_enhanced_round
+        VALUES
+        (2, 12345.123, 123456789.123456789,
+            123456789, 12345678.1, 0.123456789,
+            123456789.1, 1.123456789, 0.123456789, 1);
+    """
+    qt_floor_dec9 """
+        SELECT number, dec90, floor(dec90, number), dec91, floor(dec91, number), dec99, floor(dec99, number) FROM test_enhanced_round order by rid;
+    """
+    qt_floor_dec10 """
+        SELECT number, dec100, floor(dec100, number), dec109, floor(dec109, number), dec1010, floor(dec1010, number) FROM test_enhanced_round order by rid;
+    """
+    qt_floor_flo """
+        SELECT number, flo, floor(flo, number + 1), dou, floor(dou, number + 2) FROM test_enhanced_round order by rid;
+    """
+    qt_ceil_dec9 """
+        SELECT number, dec90, ceil(dec90, number), dec91, ceil(dec91, number), dec99, ceil(dec99, number) FROM test_enhanced_round order by rid;
+    """
+    qt_ceil_dec10 """
+        SELECT number, dec100, ceil(dec100, number), dec109, ceil(dec109, number), dec1010, ceil(dec1010, number) FROM test_enhanced_round order by rid;
+    """
+    qt_ceil_flo """
+        SELECT number, flo, ceil(flo, number - 1), dou, ceil(dou, number - 2) FROM test_enhanced_round order by rid;
+    """
+    qt_round_dec9 """
+        SELECT number, dec90, round(dec90, number), dec91, round(dec91, number), dec99, round(dec99, number) FROM test_enhanced_round order by rid;
+    """
+    qt_round_dec10 """
+        SELECT number, dec100, round(dec100, number), dec109, round(dec109, number), dec1010, round(dec1010, number) FROM test_enhanced_round order by rid;
+    """
+    qt_round_flo """
+        SELECT number, flo, round(flo, number - 2), dou, round(dou, number - 3) FROM test_enhanced_round order by rid;
+    """
+    qt_round_bankers_dec9 """
+        SELECT number, dec90, round_bankers(dec90, number), dec91, round_bankers(dec91, number), dec99, round_bankers(dec99, number) FROM test_enhanced_round order by rid;
+    """
+    qt_round_bankers_dec10 """
+        SELECT number, dec100, round_bankers(dec100, number), dec109, round_bankers(dec109, number), dec1010, round_bankers(dec1010, number) FROM test_enhanced_round order by rid;
+    """
+    qt_round_bankers_flo """
+        SELECT number, flo, round_bankers(flo, number - 2), dou, round_bankers(dou, number - 3) FROM test_enhanced_round order by rid;
+    """
+
+    qt_all_funcs_compare_dec """
+        SELECT number + 4 as new_number, dec109, truncate(dec109, number + 4) as t_res, floor(dec109, number + 4) as f_res, ceil(dec109, number + 4) as c_res, round(dec109, number + 4) as r_res, 
+                round_bankers(dec109, number + 4) as rb_res FROM test_enhanced_round where rid = 1;
+    """
+    qt_bankers_compare """
+        SELECT number * 2.5 as input1, number - 1 as input2, round(number * 2.5, number - 1) as r_res, round_bankers(number * 2.5, number - 1) as rb_res FROM test_enhanced_round where rid = 1;
+    """
+    qt_nested_func """
+        SELECT number, floor(floor(number * floor(number) + 1), ceil(floor(number))) as nested_col FROM test_enhanced_round where rid = 1;
+    """
+    qt_pos_zero_neg_compare """
+        SELECT number, dou, ceil(dou, (-2) * number), ceil(dou, 0 * number), ceil(dou, 2 * number) FROM test_enhanced_round;
+    """
+    qt_cast_dec """
+        SELECT round(cast(0 as Decimal(9,8)), 10), round(cast(0 as Decimal(9,8)), 2);
+    """
+    //For func(x, d), if d is a column and x has Decimal type, scale of result Decimal will always be same with input Decimal.
+    qt_col_const_compare """
+        SELECT number, dec109, floor(dec109, number) as f_col_col, floor(dec109, 1) as f_col_const, 
+        floor(1.123456789, number) as f_const_col, floor(1.123456789, 1) as f_const_const FROM test_enhanced_round limit 1;
+    """
+
+    sql """DROP TABLE IF EXISTS test_enhanced_round_dec128;"""
+        sql """
+        CREATE TABLE test_enhanced_round_dec128 (
+            rid int, dec190 decimal(19,0), dec199 decimal(19,9), dec1919 decimal(19,19),
+                     dec380 decimal(38,0), dec3819 decimal(38,19), dec3838 decimal(38,38),
+                     number int DEFAULT 1
+        )
+        DISTRIBUTED BY HASH(rid)
+        PROPERTIES("replication_num" = "1" );
+    """
+    sql """
+        INSERT INTO test_enhanced_round_dec128
+            VALUES
+        (1, 1234567891234567891.0, 1234567891.123456789, 0.1234567891234567891,
+            12345678912345678912345678912345678912.0, 
+            1234567891234567891.1234567891234567891,
+            0.12345678912345678912345678912345678912345678912345678912345678912345678912, 1);
+    """
+    qt_floor_dec128 """
+        SELECT number, dec190, floor(dec190, 0), floor(dec190, number), dec199, floor(dec199, 0), floor(dec199, number), 
+            dec1919, floor(dec1919, 0), floor(dec1919, number) FROM test_enhanced_round_dec128 order by rid;
+    """
+    qt_ceil_dec128 """
+        SELECT number, dec190, ceil(dec190, 0), ceil(dec190, number), dec199, ceil(dec199, 0), ceil(dec199, number), 
+            dec1919, ceil(dec1919, 0), ceil(dec1919, number) FROM test_enhanced_round_dec128 order by rid;
+    """
+    qt_round_dec128 """
+        SELECT number, dec190, round(dec190, 0), round(dec190, number), dec199, round(dec199, 0), round(dec199, number), 
+            dec1919, round(dec1919, 0), round(dec1919, number) FROM test_enhanced_round_dec128 order by rid;
+    """
+    qt_round_bankers_dec128 """
+        SELECT number, dec190, round_bankers(dec190, 0), round_bankers(dec190, number), dec199, round_bankers(dec199, 0), round_bankers(dec199, number), 
+            dec1919, round_bankers(dec1919, 0), round_bankers(dec1919, number) FROM test_enhanced_round_dec128 order by rid;
+    """
 }

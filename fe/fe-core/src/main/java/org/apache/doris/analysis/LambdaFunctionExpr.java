@@ -23,23 +23,28 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
 public class LambdaFunctionExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(LambdaFunctionExpr.class);
+    @SerializedName("ns")
     private ArrayList<String> names = new ArrayList<>();
-    private ArrayList<Expr> slotExpr = new ArrayList<>();
+    @SerializedName("ses")
+    private ArrayList<Expr> slotExprs = new ArrayList<>();
+    @SerializedName("ps")
     private ArrayList<Expr> params = new ArrayList<>();
     private int columnId = 0;
 
+    private LambdaFunctionExpr() {
+        // use for serde only
+    }
+
     public LambdaFunctionExpr(Expr e, String arg, List<Expr> params) {
         this.names.add(arg);
-        this.slotExpr.add(e);
+        this.slotExprs.add(e);
         this.params.addAll(params);
         columnId = 0;
         this.setType(Type.LAMBDA_FUNCTION);
@@ -47,18 +52,18 @@ public class LambdaFunctionExpr extends Expr {
 
     public LambdaFunctionExpr(Expr e, ArrayList<String> args, List<Expr> params) {
         this.names.addAll(args);
-        this.slotExpr.add(e);
+        this.slotExprs.add(e);
         this.params.addAll(params);
         columnId = 0;
         this.setType(Type.LAMBDA_FUNCTION);
     }
 
     // for Nereids
-    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExpr) {
-        this.slotExpr.add(lambdaBody);
-        this.slotExpr.addAll(slotExpr);
+    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExprs) {
+        this.slotExprs.add(lambdaBody);
+        this.slotExprs.addAll(slotExprs);
         this.names.addAll(argNames);
-        this.params.addAll(slotExpr);
+        this.params.addAll(slotExprs);
         this.children.add(lambdaBody);
         this.setType(Type.LAMBDA_FUNCTION);
     }
@@ -66,7 +71,7 @@ public class LambdaFunctionExpr extends Expr {
     public LambdaFunctionExpr(LambdaFunctionExpr rhs) {
         super(rhs);
         this.names.addAll(rhs.names);
-        this.slotExpr.addAll(rhs.slotExpr);
+        this.slotExprs.addAll(rhs.slotExprs);
         this.params.addAll(rhs.params);
         this.columnId = rhs.columnId;
     }
@@ -78,11 +83,11 @@ public class LambdaFunctionExpr extends Expr {
                     + params.size());
         }
         if (this.children.size() == 0) {
-            this.children.add(slotExpr.get(0));
+            this.children.add(slotExprs.get(0));
         }
         HashSet<String> nameSet = new HashSet<>();
         // the first is lambda
-        int size = slotExpr.size();
+        int size = slotExprs.size();
         for (int i = size - 1; i < names.size(); ++i) {
             if (nameSet.contains(names.get(i))) {
                 throw new AnalysisException(
@@ -109,15 +114,15 @@ public class LambdaFunctionExpr extends Expr {
             column.setNullable(true);
             column.setType(((ArrayType) paramType).getItemType());
             columnId = columnId + 1;
-            replaceExpr(names.get(i), column, slotExpr);
+            replaceExpr(names.get(i), column, slotExprs);
         }
-        if (slotExpr.size() != params.size() + 1) {
+        if (slotExprs.size() != params.size() + 1) {
             String msg = new String();
-            for (Expr s : slotExpr) {
+            for (Expr s : slotExprs) {
                 msg = msg + s.debugString() + " ,";
             }
             throw new AnalysisException(
-                    "Lambda columnref size: is " + (slotExpr.size() - 1) + " but input params size is "
+                    "Lambda columnref size: is " + (slotExprs.size() - 1) + " but input params size is "
                             + params.size() + ". the replaceExpr of columnref is " + msg);
         }
         this.children.get(0).analyze(analyzer);
@@ -126,7 +131,7 @@ public class LambdaFunctionExpr extends Expr {
     @Override
     protected String toSqlImpl() {
         String nameStr = "";
-        Expr lambdaExpr = slotExpr.get(0);
+        Expr lambdaExpr = slotExprs.get(0);
         int exprSize = names.size();
         for (int i = 0; i < exprSize; ++i) {
             nameStr = nameStr + names.get(i);
@@ -156,13 +161,13 @@ public class LambdaFunctionExpr extends Expr {
     }
 
     public ArrayList<Expr> getSlotExprs() {
-        return slotExpr;
+        return slotExprs;
     }
 
     @Override
     public boolean isNullable() {
-        for (int i = 1; i < slotExpr.size(); ++i) {
-            if (slotExpr.get(i).isNullable()) {
+        for (int i = 1; i < slotExprs.size(); ++i) {
+            if (slotExprs.get(i).isNullable()) {
                 return true;
             }
         }

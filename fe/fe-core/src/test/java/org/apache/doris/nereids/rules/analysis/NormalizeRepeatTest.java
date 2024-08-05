@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -41,7 +42,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Slot name = scan1.getOutput().get(1);
         Alias alias = new Alias(new Sum(name), "sum(name)");
         Plan plan = new LogicalRepeat<>(
-                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
                 ImmutableList.of(idNotNull, alias),
                 scan1
         );
@@ -49,6 +50,42 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
                 .applyTopDown(new NormalizeRepeat())
                 .matches(
                         logicalRepeat().when(repeat -> repeat.getOutputExpressions().get(0).nullable())
+                );
+    }
+
+    @Test
+    public void testEliminateRepeat() {
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new Sum(name), "sum(name)");
+        Plan plan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(idNotNull, alias),
+                scan1
+        );
+        PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
+                .applyTopDown(new NormalizeRepeat())
+                .matchesFromRoot(
+                        logicalAggregate(logicalOlapScan())
+                );
+    }
+
+    @Test
+    public void testNoEliminateRepeat() {
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new GroupingId(name), "grouping_id(name)");
+        Plan plan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(idNotNull, alias),
+                scan1
+        );
+        PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
+                .applyTopDown(new NormalizeRepeat())
+                .matchesFromRoot(
+                        logicalAggregate(logicalRepeat(logicalOlapScan()))
                 );
     }
 }

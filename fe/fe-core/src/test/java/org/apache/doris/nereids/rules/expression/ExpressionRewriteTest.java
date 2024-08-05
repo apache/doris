@@ -234,13 +234,13 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         // decimal literal
         assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
-                new DecimalLiteral(new BigDecimal("1.000000000")));
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(15, 9), new BigDecimal("1.000000000")));
         assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
-                new DecimalLiteral(new BigDecimal("1.000000000")));
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(15, 9), new BigDecimal("1.000000000")));
         assertRewrite(new Cast(new IntegerLiteral(1), DecimalV2Type.createDecimalV2Type(15, 9)),
-                new DecimalLiteral(new BigDecimal("1.000000000")));
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(15, 9), new BigDecimal("1.000000000")));
         assertRewrite(new Cast(new BigIntLiteral(1L), DecimalV2Type.createDecimalV2Type(15, 9)),
-                new DecimalLiteral(new BigDecimal("1.000000000")));
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(15, 9), new BigDecimal("1.000000000")));
     }
 
     @Test

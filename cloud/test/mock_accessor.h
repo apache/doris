@@ -17,124 +17,44 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <mutex>
 #include <set>
 
-#include "common/sync_point.h"
-#include "recycler/s3_accessor.h"
+#include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
 
-class MockS3Accessor final : public S3Accessor {
+class MockAccessor final : public StorageVaultAccessor {
 public:
-    explicit MockS3Accessor(const S3Conf& conf) : S3Accessor(conf) {}
-    ~MockS3Accessor() override = default;
+    explicit MockAccessor();
 
-    const std::string& path() const override { return path_; }
+    ~MockAccessor() override;
 
-    // returns 0 for success otherwise error
-    int init() override { return 0; }
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
 
-    // returns 0 for success otherwise error
-    int delete_objects_by_prefix(const std::string& relative_path) override {
-        TEST_SYNC_POINT_CALLBACK("MockS3Accessor::delete_objects_by_prefix", nullptr);
-        LOG(INFO) << "delete object of prefix=" << relative_path;
-        std::lock_guard lock(mtx_);
-        if (relative_path.empty()) {
-            objects_.clear();
-            return 0;
-        }
-        auto begin = objects_.lower_bound(relative_path);
-        if (begin == objects_.end()) {
-            return 0;
-        }
-        auto path1 = relative_path;
-        path1.back() += 1;
-        auto end = objects_.lower_bound(path1);
-        objects_.erase(begin, end);
-        return 0;
-    }
+    int delete_directory(const std::string& dir_path) override;
 
-    // returns 0 for success otherwise error
-    int delete_objects(const std::vector<std::string>& relative_paths) override {
-        TEST_SYNC_POINT_CALLBACK("MockS3Accessor::delete_objects", nullptr);
-        {
-            [[maybe_unused]] int ret = -1;
-            TEST_SYNC_POINT_RETURN_WITH_VALUE("MockS3Accessor::delete_objects_ret", &ret);
-        }
-        for (auto& path : relative_paths) {
-            LOG(INFO) << "delete object path=" << path;
-        }
-        std::lock_guard lock(mtx_);
-        for (auto& path : relative_paths) {
-            objects_.erase(path);
-        }
-        return 0;
-    }
+    int delete_all(int64_t expiration_time = 0) override;
 
-    // returns 0 for success otherwise error
-    int delete_object(const std::string& relative_path) override {
-        LOG(INFO) << "delete object path=" << relative_path;
-        std::lock_guard lock(mtx_);
-        objects_.erase(relative_path);
-        return 0;
-    }
+    int delete_files(const std::vector<std::string>& paths) override;
 
-    // for test
-    // returns 0 for success otherwise error
-    int put_object(const std::string& relative_path, const std::string& content) override {
-        std::lock_guard lock(mtx_);
-        objects_.insert(relative_path);
-        return 0;
-    }
+    int delete_file(const std::string& path) override;
 
-    // returns 0 for success otherwise error
-    int list(const std::string& relative_path, std::vector<ObjectMeta>* paths) override {
-        std::lock_guard lock(mtx_);
-        if (relative_path.empty()) {
-            for (const auto& obj : objects_) {
-                paths->push_back({obj});
-            }
-            return 0;
-        }
-        auto begin = objects_.lower_bound(relative_path);
-        if (begin == objects_.end()) {
-            return 0;
-        }
-        auto path1 = relative_path;
-        path1.back() += 1;
-        auto end = objects_.lower_bound(path1);
-        for (auto it = begin; it != end; ++it) {
-            paths->push_back({*it});
-        }
-        return 0;
-    }
+    int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
 
-    int exist(const std::string& relative_path) override {
-        std::lock_guard lock(mtx_);
-        return !objects_.count(relative_path);
-    }
+    int list_all(std::unique_ptr<ListIterator>* res) override;
 
-    // delete objects which last modified time is less than the input expired time and under the input relative path
-    // returns 0 for success otherwise error
-    int delete_expired_objects(const std::string& relative_path, int64_t expired_time) override {
-        return 0;
-    }
+    int put_file(const std::string& path, const std::string& content) override;
 
-    int get_bucket_lifecycle(int64_t* expiration_days) override {
-        *expiration_days = 7;
-        return 0;
-    }
-
-    int check_bucket_versioning() override { return 0; }
+    int exists(const std::string& path) override;
 
 private:
-    std::string path_;
+    int delete_prefix_impl(const std::string& path_prefix);
+
+    auto get_prefix_range(const std::string& path_prefix);
 
     std::mutex mtx_;
-    std::set<std::string> objects_; // store objects' relative path
+    std::set<std::string> objects_;
 };
 
 } // namespace doris::cloud

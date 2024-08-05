@@ -17,53 +17,44 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * Propagate fd, keep children's fd
  */
 public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFunctionalDependencies();
+            return child(0).getLogicalProperties().getTrait();
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        DataTrait.Builder builder = new DataTrait.Builder();
         children().stream()
-                .map(p -> p.getLogicalProperties().getFunctionalDependencies())
-                .forEach(builder::addFunctionalDependencies);
-        ImmutableSet<FdItem> fdItems = computeFdItems();
-        builder.addFdItems(fdItems);
+                .map(p -> p.getLogicalProperties().getTrait())
+                .forEach(builder::addDataTrait);
         return builder.build();
     }
 
     @Override
-    default ImmutableSet<FdItem> computeFdItems() {
-        if (children().size() == 1) {
-            // Note when changing function dependencies, we always clone it.
-            // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
-        }
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        children().stream()
-                .map(p -> p.getLogicalProperties().getFunctionalDependencies().getFdItems())
-                .forEach(builder::addAll);
-        return builder.build();
+    default void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
     }
 
     @Override
-    default void computeUnique(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    default void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
     }
 
     @Override
-    default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    default void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    default void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child(0).getLogicalProperties().getTrait());
     }
 }

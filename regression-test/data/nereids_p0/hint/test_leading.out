@@ -2152,36 +2152,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
 
 Hint log:
 Used: [broadcast]_2
 UnUsed:
-SyntaxError:
-
--- !select90_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select90_3 --
@@ -2189,47 +2166,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2 [shuffle]_3
 UnUsed:
-SyntaxError:
-
--- !select90_4 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: [shuffle]_3
-UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select90_5 --
@@ -2237,142 +2182,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2 [shuffle]_3
 UnUsed:
-SyntaxError:
-
--- !select90_6 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
-SyntaxError:
-
--- !select91_1 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 t2 t3 )
-UnUsed: [broadcast]_2 [shuffle]_3
-SyntaxError:
-
--- !select91_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 t2 t3 )
-UnUsed: [broadcast]_2 [shuffle]_3
-SyntaxError:
-
--- !select91_3 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 t2 t3 )
-UnUsed: [broadcast]_2 [shuffle]_3
-SyntaxError:
-
--- !select91_4 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 t2 t3 )
-UnUsed: [shuffle]_2 [broadcast]_3
 SyntaxError:
 
 -- !select92_1 --
@@ -2380,21 +2198,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t1 shuffle t2 broadcast t3 )
+Used: leading(t1 shuffle t2 broadcast t3 )  
 UnUsed:
 SyntaxError:
 
@@ -2403,21 +2214,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t1 shuffle { t2 broadcast t3 } )
+Used: leading(t1 shuffle { t2 broadcast t3 } )  
 UnUsed:
 SyntaxError:
 
@@ -2426,21 +2230,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:   leading(t1 shuffle { t3 broadcast t2 } )
+Used: leading(t1 shuffle { t3 broadcast t2 } )  
 UnUsed:
 SyntaxError:
 
@@ -2449,21 +2246,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t2 shuffle t1 broadcast t3 )
+Used: leading(t2 shuffle t1 broadcast t3 )  
 UnUsed:
 SyntaxError:
 
@@ -2472,20 +2262,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t2 shuffle { t1 broadcast t3 } )
+Used: leading(t2 shuffle { t1 broadcast t3 } )  
 UnUsed:
 SyntaxError:
 
@@ -2494,20 +2278,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:   leading(t2 shuffle { t3 broadcast t1 } )
+Used: leading(t2 shuffle { t3 broadcast t1 } )  
 UnUsed:
 SyntaxError:
 
@@ -2516,22 +2294,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t1 t2 broadcast t3 )
-UnUsed:
+Used: leading(t1 t2 broadcast t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select93_2 --
@@ -2539,22 +2310,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t1 { t2 broadcast t3 } )
-UnUsed:
+Used: leading(t1 { t2 broadcast t3 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select93_3 --
@@ -2562,22 +2326,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:  leading(t1 { t3 broadcast t2 } )
-UnUsed:
+Used: leading(t1 { t3 broadcast t2 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select93_4 --
@@ -2585,22 +2342,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t2 t1 broadcast t3 )
-UnUsed:
+Used: leading(t2 t1 broadcast t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select93_5 --
@@ -2608,21 +2358,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t2 { t1 broadcast t3 } )
-UnUsed:
+Used: leading(t2 { t1 broadcast t3 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select93_6 --
@@ -2630,21 +2374,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:  leading(t2 { t3 broadcast t1 } )
-UnUsed:
+Used: leading(t2 { t3 broadcast t1 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2652,22 +2390,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t1 shuffle t2 t3 )
-UnUsed:
+Used: leading(t1 shuffle t2 t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2675,22 +2406,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t1 shuffle { t2 t3 } )
-UnUsed:
+Used: leading(t1 shuffle { t2 t3 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2698,22 +2422,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:  leading(t1 shuffle { t3 t2 } )
-UnUsed:
+Used: leading(t1 shuffle { t3 t2 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2721,22 +2438,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t2 shuffle t1 t3 )
-UnUsed:
+Used: leading(t2 shuffle t1 t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2744,21 +2454,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t2 shuffle { t1 t3 } )
-UnUsed:
+Used: leading(t2 shuffle { t1 t3 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select94_2 --
@@ -2766,21 +2470,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2) and (t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t2]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:  leading(t2 shuffle { t3 t1 } )
-UnUsed:
+Used: leading(t2 shuffle { t3 t1 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select95_1 --
@@ -2788,68 +2486,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t1 broadcast t2 t3 )
-UnUsed:
-SyntaxError:
-
--- !select95_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 leading(t1 broadcast { t2 t3 })
-SyntaxError:
-
--- !select95_3 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 leading(t1 broadcast { t3 t2 })
+Used: leading(t1 broadcast t2 t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select95_4 --
@@ -2857,91 +2502,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:  leading(t2 broadcast t1 t3 )
-UnUsed:
-SyntaxError:
-
--- !select95_5 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 leading(t2 broadcast { t1 t3 })
-SyntaxError:
-
--- !select95_6 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 leading(t2 broadcast { t3 t1 })
-SyntaxError:
-
--- !select95_7 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed:  leading(t3 broadcast t1 t2)
+Used: leading(t2 broadcast t1 t3 ) 
+UnUsed: 
 SyntaxError:
 
 -- !select95_8 --
@@ -2949,22 +2518,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:  leading(t3 broadcast { t1 t2 } )
-UnUsed:
+Used: leading(t3 broadcast { t1 t2 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select95_9 --
@@ -2972,22 +2534,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:  leading(t3 broadcast { t2 t1 } )
-UnUsed:
+Used: leading(t3 broadcast { t2 t1 } ) 
+UnUsed: 
 SyntaxError:
 
 -- !select96_1 --
@@ -2995,68 +2550,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t1 shuffle t2 broadcast t3 )
+Used: leading(t1 shuffle t2 broadcast t3 )  
 UnUsed:
-SyntaxError:
-
--- !select96_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [shuffle]_2 [broadcast]_3 leading(t1 shuffle { t2 broadcast t3 })
-SyntaxError:
-
--- !select96_3 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [shuffle]_2 [broadcast]_3 leading(t1 shuffle { t3 broadcast t2 })
 SyntaxError:
 
 -- !select96_4 --
@@ -3064,91 +2566,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t2 shuffle t1 broadcast t3 )
+Used: leading(t2 shuffle t1 broadcast t3 )  
 UnUsed:
-SyntaxError:
-
--- !select96_5 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [shuffle]_2  leading(t2 shuffle { t1 broadcast t3 })
-SyntaxError:
-
--- !select96_6 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [shuffle]_2  leading(t2 shuffle { t3 broadcast t1 })
-SyntaxError:
-
--- !select96_7 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed:  [broadcast]_3 leading(t3 shuffle t1 broadcast t2)
 SyntaxError:
 
 -- !select96_8 --
@@ -3156,21 +2582,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:   leading(t3 shuffle { t1 broadcast t2 } )
+Used: leading(t3 shuffle { t1 broadcast t2 } )  
 UnUsed:
 SyntaxError:
 
@@ -3179,21 +2598,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:   leading(t3 shuffle { t2 broadcast t1 } )
+Used: leading(t3 shuffle { t2 broadcast t1 } )  
 UnUsed:
 SyntaxError:
 
@@ -3202,69 +2614,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN shuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t1 broadcast t2 shuffle t3 )
+Used: leading(t1 broadcast t2 shuffle t3 )  
 UnUsed:
-SyntaxError:
-
--- !select97_2 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 [shuffle]_3 leading(t1 broadcast { t2 shuffle t3 })
-SyntaxError:
-
--- !select97_3 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2 [shuffle]_3 leading(t1 broadcast { t3 shuffle t2 })
 SyntaxError:
 
 -- !select97_4 --
@@ -3272,91 +2630,15 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:   leading(t2 broadcast t1 shuffle t3 )
+Used: leading(t2 broadcast t1 shuffle t3 )  
 UnUsed:
-SyntaxError:
-
--- !select97_5 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2  leading(t2 broadcast { t1 shuffle t3 })
-SyntaxError:
-
--- !select97_6 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed: [broadcast]_2  leading(t2 broadcast { t3 shuffle t1 })
-SyntaxError:
-
--- !select97_7 --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
-
-Hint log:
-Used:
-UnUsed:  [shuffle]_3 leading(t3 broadcast t1 shuffle t2)
 SyntaxError:
 
 -- !select97_8 --
@@ -3364,21 +2646,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 
 Hint log:
-Used:   leading(t3 broadcast { t1 shuffle t2 } )
+Used: leading(t3 broadcast { t1 shuffle t2 } )  
 UnUsed:
 SyntaxError:
 
@@ -3387,21 +2662,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------PhysicalOlapScan[t3]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t1]
 
 Hint log:
-Used:   leading(t3 broadcast { t2 shuffle t1 } )
+Used: leading(t3 broadcast { t2 shuffle t1 } )  
 UnUsed:
 SyntaxError:
 

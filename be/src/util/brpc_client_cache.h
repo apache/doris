@@ -111,7 +111,8 @@ public:
 
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
                                                const std::string& protocol = "baidu_std",
-                                               const std::string& connect_type = "") {
+                                               const std::string& connect_type = "",
+                                               const std::string& connection_group = "") {
         brpc::ChannelOptions options;
         if constexpr (std::is_same_v<T, PFunctionService_Stub>) {
             options.protocol = config::function_service_protocol;
@@ -121,7 +122,11 @@ public:
         if (connect_type != "") {
             options.connection_type = connect_type;
         }
+        if (connection_group != "") {
+            options.connection_group = connection_group;
+        }
         options.connect_timeout_ms = 2000;
+        options.timeout_ms = 2000;
         options.max_retry = 10;
 
         std::unique_ptr<brpc::Channel> channel(new brpc::Channel());

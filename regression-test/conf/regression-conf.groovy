@@ -89,8 +89,9 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
-    "cloud_p0/cache" +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "cloud_p0/cache," +
+    "zzz_the_end_sentinel_do_not_touch," +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -103,12 +104,20 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak=""
-sk=""
+
+// for s3 releated cases, "aliyun" or "aliyun-internal" or "tencent" or "huawei" or "azure" or "gcp"
+// if s3Source is set,  s3Endpoint s3BucketName s3Region s3Provider will be filled with default value if not set
+s3Source="aliyun"
+// s3Endpoint = ""
+// s3BucketName = ""
+// s3Region = ""
+// s3Provider = ""
+ak="***********"
+sk="***********"
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
-// See `docker/thirdparties/start-thirdparties-docker.sh`
+// See `docker/thirdparties/run-thirdparties-docker.sh`
 enableJdbcTest=false
 mysql_57_port=3316
 pg_14_port=5442
@@ -121,23 +130,32 @@ db2_11_port=50000
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
-// See `docker/thirdparties/start-thirdparties-docker.sh`
+// See `docker/thirdparties/run-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
-hms_port=9083
-hdfs_port=8020
-hiveServerPort=10000
-hive_pg_port=5432
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
-// See `docker/thirdparties/start-thirdparties-docker.sh`
+// See `docker/thirdparties/run-thirdparties-docker.sh`
 enableKafkaTest=false
 kafka_port=19193
 
 // elasticsearch catalog test config
-// See `docker/thirdparties/start-thirdparties-docker.sh`
+// See `docker/thirdparties/run-thirdparties-docker.sh`
 enableEsTest=false
+es_5_port=59200
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
@@ -184,13 +202,9 @@ aliYunSk="***********"
 hwYunAk="***********"
 hwYunSk="***********"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 9090
+extArrowFlightSqlPort = 8080
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
@@ -207,3 +221,21 @@ max_failure_num=0
 s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false
+
+enableKerberosTest=false
+kerberosHmsPort=9883
+kerberosHdfsPort=8820
+
+
+// LakeSoul catalog test config
+enableLakesoulTest = false
+lakesoulPGUser="*******"
+lakesoulPGPwd="*******"
+lakesoulPGUrl="*******"
+lakesoulMinioAK="*******"
+lakesoulMinioSK="*******"
+lakesoulMinioEndpoint="*******"
+

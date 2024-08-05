@@ -30,7 +30,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -80,6 +79,7 @@ import java.util.stream.Collectors;
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
  * clauses.
  */
+@Deprecated
 public class SelectStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
@@ -564,6 +564,7 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
+            originalExpr = new ArrayList<>(resultExprs);
         } else {
             if (needToSql) {
                 originalExpr = new ArrayList<>();
@@ -1086,7 +1087,7 @@ public class SelectStmt extends QueryStmt {
                 break;
             }
             long rowCount = 0;
-            if (tblRef.getTable().getType() == TableType.OLAP) {
+            if (tblRef.getTable().isManagedTable()) {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
@@ -2781,6 +2782,10 @@ public class SelectStmt extends QueryStmt {
         if (isPointQuery) {
             return true;
         }
+        if (ConnectContext.get() == null
+                    || !ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
+            return false;
+        }
         eqPredicates = new TreeMap<SlotRef, Expr>(
                 new Comparator<SlotRef>() {
                     @Override
@@ -2821,7 +2826,7 @@ public class SelectStmt extends QueryStmt {
         if (eqPredicates == null) {
             return false;
         }
-        if (!olapTable.getEnableUniqueKeyMergeOnWrite() || !olapTable.storeRowColumn()) {
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
             return false;
         }
         // check if PK columns are fully matched with predicate
@@ -2894,5 +2899,10 @@ public class SelectStmt extends QueryStmt {
     public void resetSelectList(SelectList selectList) {
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

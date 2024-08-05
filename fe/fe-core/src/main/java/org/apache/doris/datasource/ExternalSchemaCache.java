@@ -31,8 +31,8 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -42,7 +42,7 @@ public class ExternalSchemaCache {
     private static final Logger LOG = LogManager.getLogger(ExternalSchemaCache.class);
     private final ExternalCatalog catalog;
 
-    private LoadingCache<SchemaCacheKey, ImmutableList<Column>> schemaCache;
+    private LoadingCache<SchemaCacheKey, Optional<SchemaCacheValue>> schemaCache;
 
     public ExternalSchemaCache(ExternalCatalog catalog, ExecutorService executor) {
         this.catalog = catalog;
@@ -57,7 +57,7 @@ public class ExternalSchemaCache {
                 Config.max_external_schema_cache_num,
                 false,
                 null);
-        schemaCache = schemaCacheeFactory.buildCache(key -> loadSchema(key), executor);
+        schemaCache = schemaCacheeFactory.buildCache(key -> loadSchema(key), null, executor);
     }
 
     private void initMetrics() {
@@ -73,22 +73,22 @@ public class ExternalSchemaCache {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(schemaCacheGauge);
     }
 
-    private ImmutableList<Column> loadSchema(SchemaCacheKey key) {
-        ImmutableList<Column> schema = ImmutableList.copyOf(catalog.getSchema(key.dbName, key.tblName));
+    private Optional<SchemaCacheValue> loadSchema(SchemaCacheKey key) {
+        Optional<SchemaCacheValue> schema = catalog.getSchema(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("load schema for {} in catalog {}", key, catalog.getName());
         }
         return schema;
     }
 
-    public List<Column> getSchema(String dbName, String tblName) {
+    public Optional<SchemaCacheValue> getSchemaValue(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
         return schemaCache.get(key);
     }
 
     public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        schemaCache.put(key, schema);
+        schemaCache.put(key, Optional.of(new SchemaCacheValue(schema)));
     }
 
     public void invalidateTableCache(String dbName, String tblName) {

@@ -21,6 +21,7 @@ suite("query72") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
@@ -30,6 +31,8 @@ suite("query72") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """select /*+ SET_VAR(max_join_number_bushy_tree=10, memo_max_group_expression_size=15000)*/  i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq

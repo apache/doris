@@ -31,4 +31,9 @@ public abstract class ShowStmt extends StatementBase {
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
+    }
 }

@@ -31,7 +31,6 @@
 
 namespace doris {
 
-class QueryStatisticsRecvr;
 class PNodeStatistics;
 class PQueryStatistics;
 
@@ -53,76 +52,52 @@ public:
 
     void merge(const QueryStatistics& other);
 
-    void add_scan_rows(int64_t delta_scan_rows) {
-        this->scan_rows.fetch_add(delta_scan_rows, std::memory_order_relaxed);
+    void add_scan_rows(int64_t delta_scan_rows) { scan_rows += delta_scan_rows; }
+
+    void add_scan_bytes(int64_t delta_scan_bytes) { scan_bytes += delta_scan_bytes; }
+
+    void add_cpu_nanos(int64_t delta_cpu_time) { cpu_nanos += delta_cpu_time; }
+
+    void add_shuffle_send_bytes(int64_t delta_bytes) { shuffle_send_bytes += delta_bytes; }
+
+    void add_shuffle_send_rows(int64_t delta_rows) { shuffle_send_rows += delta_rows; }
+
+    void add_scan_bytes_from_local_storage(int64_t scan_bytes_from_local_storage) {
+        _scan_bytes_from_local_storage += scan_bytes_from_local_storage;
     }
 
-    void add_scan_bytes(int64_t delta_scan_bytes) {
-        this->scan_bytes.fetch_add(delta_scan_bytes, std::memory_order_relaxed);
+    void add_scan_bytes_from_remote_storage(int64_t scan_bytes_from_remote_storage) {
+        _scan_bytes_from_remote_storage += scan_bytes_from_remote_storage;
     }
 
-    void add_cpu_nanos(int64_t delta_cpu_time) {
-        this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
-    }
-
-    void add_shuffle_send_bytes(int64_t delta_bytes) {
-        this->shuffle_send_bytes.fetch_add(delta_bytes, std::memory_order_relaxed);
-    }
-
-    void add_shuffle_send_rows(int64_t delta_rows) {
-        this->shuffle_send_rows.fetch_add(delta_rows, std::memory_order_relaxed);
-    }
-
-    void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
+    void add_returned_rows(int64_t num_rows) { returned_rows += num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
-        this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
+        this->max_peak_memory_bytes = max_peak_memory_bytes;
     }
 
     void set_current_used_memory_bytes(int64_t current_used_memory) {
-        this->current_used_memory_bytes.store(current_used_memory, std::memory_order_relaxed);
-    }
-
-    void merge(QueryStatisticsRecvr* recvr);
-
-    void merge(QueryStatisticsRecvr* recvr, int sender_id);
-
-    void clearNodeStatistics();
-
-    void clear() {
-        scan_rows.store(0, std::memory_order_relaxed);
-        scan_bytes.store(0, std::memory_order_relaxed);
-        cpu_nanos.store(0, std::memory_order_relaxed);
-        shuffle_send_bytes.store(0, std::memory_order_relaxed);
-        shuffle_send_rows.store(0, std::memory_order_relaxed);
-
-        returned_rows = 0;
-        max_peak_memory_bytes.store(0, std::memory_order_relaxed);
-        clearNodeStatistics();
-        //clear() is used before collection, so calling "clear" is equivalent to being collected.
-        set_collected();
+        current_used_memory_bytes = current_used_memory;
     }
 
     void to_pb(PQueryStatistics* statistics);
     void to_thrift(TQueryStatistics* statistics) const;
     void from_pb(const PQueryStatistics& statistics);
     bool collected() const { return _collected; }
-    void set_collected() { _collected = true; }
 
-    int64_t get_scan_rows() { return scan_rows.load(std::memory_order_relaxed); }
-    int64_t get_scan_bytes() { return scan_bytes.load(std::memory_order_relaxed); }
-    int64_t get_current_used_memory_bytes() {
-        return current_used_memory_bytes.load(std::memory_order_relaxed);
-    }
+    int64_t get_scan_rows() { return scan_rows; }
+    int64_t get_scan_bytes() { return scan_bytes; }
+    int64_t get_current_used_memory_bytes() { return current_used_memory_bytes; }
 
 private:
-    friend class QueryStatisticsRecvr;
     std::atomic<int64_t> scan_rows;
     std::atomic<int64_t> scan_bytes;
     std::atomic<int64_t> cpu_nanos;
+    std::atomic<int64_t> _scan_bytes_from_local_storage;
+    std::atomic<int64_t> _scan_bytes_from_remote_storage;
     // number rows returned by query.
     // only set once by result sink when closing.
-    int64_t returned_rows;
+    std::atomic<int64_t> returned_rows;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
     std::atomic<int64_t> max_peak_memory_bytes;
@@ -134,30 +109,5 @@ private:
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
-class QueryStatisticsRecvr {
-public:
-    ~QueryStatisticsRecvr() = default;
-
-    // Transmitted via RPC, incurring serialization overhead.
-    void insert(const PQueryStatistics& statistics, int sender_id);
-
-    // using local_exchange for transmission, only need to hold a shared pointer.
-    void insert(QueryStatisticsPtr statistics, int sender_id);
-
-    QueryStatisticsPtr find(int sender_id);
-
-private:
-    friend class QueryStatistics;
-
-    void merge(QueryStatistics* statistics) {
-        std::lock_guard<std::mutex> l(_lock);
-        for (auto& pair : _query_statistics) {
-            statistics->merge(*(pair.second));
-        }
-    }
-
-    std::map<int, QueryStatisticsPtr> _query_statistics;
-    std::mutex _lock;
-};
 
 } // namespace doris

@@ -18,6 +18,7 @@
 #include "olap/segment_loader.h"
 
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "util/stopwatch.hpp"
@@ -39,8 +40,9 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
-    auto* lru_handle = LRUCachePolicy::insert(
-            key.encode(), &value, 1, value.segment->meta_mem_usage(), CachePriority::NORMAL);
+    auto* lru_handle = LRUCachePolicyTrackingManual::insert(
+            key.encode(), &value, value.segment->meta_mem_usage(), value.segment->meta_mem_usage(),
+            CachePriority::NORMAL);
     handle->push_segment(this, lru_handle);
 }
 
@@ -49,7 +51,8 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                    SegmentCacheHandle* cache_handle, bool use_cache) {
+                                    SegmentCacheHandle* cache_handle, bool use_cache,
+                                    bool need_load_pk_index_and_bf) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
@@ -60,9 +63,13 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         }
         segment_v2::SegmentSharedPtr segment;
         RETURN_IF_ERROR(rowset->load_segment(i, &segment));
+        if (need_load_pk_index_and_bf) {
+            RETURN_IF_ERROR(segment->load_pk_index_and_bf());
+        }
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache
             auto* cache_value = new SegmentCache::CacheValue();
+            _cache_mem_usage += segment->meta_mem_usage();
             cache_value->segment = std::move(segment);
             _segment_cache->insert(cache_key, *cache_value, cache_handle);
         } else {

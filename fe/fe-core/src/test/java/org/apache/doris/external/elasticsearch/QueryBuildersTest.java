@@ -86,6 +86,15 @@ public class QueryBuildersTest {
         Assertions.assertEquals("{\"term\":{\"k2\":\"2023-02-19T22:00:00.000+08:00\"}}",
                 QueryBuilders.toEsDsl(dateTimeEqExpr, new ArrayList<>(), new HashMap<>(),
                         BuilderOptions.builder().needCompatDateFields(Lists.newArrayList("k2")).build()).toJson());
+        SlotRef k3 = new SlotRef(null, "k3");
+        Expr stringLiteral = new StringLiteral("");
+        Expr stringNeExpr = new BinaryPredicate(Operator.NE, k3, stringLiteral);
+        Assertions.assertEquals("{\"bool\":{\"must\":{\"exists\":{\"field\":\"k3\"}},\"must_not\":{\"term\":{\"k3\":\"\"}}}}",
+                QueryBuilders.toEsDsl(stringNeExpr).toJson());
+        stringLiteral = new StringLiteral("message");
+        stringNeExpr = new BinaryPredicate(Operator.NE, k3, stringLiteral);
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k3\":\"message\"}}}}",
+                QueryBuilders.toEsDsl(stringNeExpr).toJson());
     }
 
     @Test

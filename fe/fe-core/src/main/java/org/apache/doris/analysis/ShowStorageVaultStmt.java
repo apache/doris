@@ -19,12 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -41,11 +40,16 @@ public class ShowStorageVaultStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        if (Config.isNotCloudMode()) {
+            throw new AnalysisException("Storage Vault is only supported for cloud mode");
         }
+        if (!FeConstants.runningUnitTest) {
+            // In legacy cloud mode, some s3 back-ended storage does need to use storage vault.
+            if (!((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+                throw new AnalysisException("Your cloud instance doesn't support storage vault");
+            }
+        }
+        super.analyze(analyzer);
     }
 
     @Override

@@ -61,7 +61,8 @@ public enum ErrorCode {
     ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed"
             + " with this MySQL version"),
     ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
-    ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s'"),
+    ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s',"
+                    + "the similar variables are %s"),
     ERR_BAD_SLAVE(1200, new byte[]{'H', 'Y', '0', '0', '0'}, "The server is not configured as slave; fix in config "
             + "file or with CHANGE MASTER TO"),
     ERR_MASTER_INF(1201, new byte[]{'H', 'Y', '0', '0', '0'}, "Could not initialize master info structure; more error"
@@ -82,6 +83,10 @@ public enum ErrorCode {
 
     ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR(1223, new byte[] {'4', '2', '0', '0', '0'}, "Access denied; you need all "
             + " %s privilege(s) for this operation"),
+
+    ERR_RESOURCE_ACCESS_DENIED_ERROR(1222, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on resource %s for this operation"),
+
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be "
             + "used with SET GLOBAL"),
     ERR_GLOBAL_VARIABLE(1229, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a GLOBAL variable and should be "
@@ -262,7 +267,7 @@ public enum ErrorCode {
     ERR_VIEW_NO_EXPLAIN(1345, new byte[]{'H', 'Y', '0', '0', '0'}, "EXPLAIN/SHOW can not be issued; lacking "
             + "privileges for underlying table"),
     ERR_FRM_UNKNOWN_TYPE(1346, new byte[]{'H', 'Y', '0', '0', '0'}, "File '%s' has unknown type '%s' in its header"),
-    ERR_WRONG_OBJECT(1347, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s.%s' is not %s"),
+    ERR_WRONG_OBJECT(1347, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s.%s' is not %s. %s."),
     ERR_NONUPDATEABLE_COLUMN(1348, new byte[]{'H', 'Y', '0', '0', '0'}, "Column '%s' is not updatable"),
     ERR_VIEW_SELECT_DERIVED(1349, new byte[]{'H', 'Y', '0', '0', '0'}, "View's SELECT contains a subquery in the FROM"
             + " clause"),
@@ -1110,7 +1115,7 @@ public enum ErrorCode {
     ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION(5059, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster '%s' has backends in decommission"),
     ERR_WRONG_NAME_FORMAT(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Incorrect %s name '%s'"),
+            "Incorrect %s name '%s', required format is '%s'"),
     ERR_COMMON_ERROR(5064, new byte[]{'4', '2', '0', '0', '0'},
             "%s"),
     ERR_COLOCATE_FEATURE_DISABLED(5063, new byte[]{'4', '2', '0', '0', '0'},
@@ -1122,9 +1127,9 @@ public enum ErrorCode {
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Colocate tables must have same replication allocation: { %s } should be { %s }"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Colocate tables must have same bucket num: %s"),
+            "Colocate tables must have same bucket num: %s should be %s"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Colocate tables distribution columns size must be same : %s"),
+            "Colocate tables distribution columns size must be same: %s should be %s"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Colocate tables distribution columns must have the same data type: %s should be %s"),
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[]{'4', '2', '0', '0', '0'},

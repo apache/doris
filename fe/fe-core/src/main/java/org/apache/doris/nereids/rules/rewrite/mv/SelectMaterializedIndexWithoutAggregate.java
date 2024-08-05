@@ -27,7 +27,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -65,6 +64,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // Project(Filter(Scan))
                 logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = ctx.root;
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
@@ -87,6 +89,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // Filter(Project(Scan))
                 logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = ctx.root;
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
@@ -106,6 +111,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // Filter(Scan)
                 logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalFilter<LogicalOlapScan> filter = ctx.root;
                             LogicalOlapScan scan = filter.child();
                             LogicalOlapScan mvPlan = select(
@@ -127,6 +135,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // Project(Scan)
                 logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalProject<LogicalOlapScan> project = ctx.root;
                             LogicalOlapScan scan = project.child();
 
@@ -147,6 +158,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 logicalOlapScan()
                         .when(this::shouldSelectIndexWithoutAgg)
                         .thenApplyNoThrow(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableSyncMvCostBasedRewrite()) {
+                                return ctx.root;
+                            }
                             LogicalOlapScan scan = ctx.root;
 
                             LogicalOlapScan mvPlan = select(
@@ -185,7 +199,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 break;
             case DUP_KEYS:
                 if (table.getIndexIdToMeta().size() == 1) {
-                    return scan.withMaterializedIndexSelected(PreAggStatus.on(), baseIndexId);
+                    return scan.withMaterializedIndexSelected(baseIndexId);
                 }
                 break;
             default:
@@ -206,23 +220,14 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                     .filter(index -> !indexHasAggregate(index, scan)).filter(index -> containAllRequiredColumns(index,
                             scan, requiredScanOutputSupplier.get(), requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());
-            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get(), requiredExpr.get());
             // this is fail-safe for select mv
             // select baseIndex if bestIndex's slots' data types are different from baseIndex
             bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
-            return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
+            return scan.withMaterializedIndexSelected(bestIndex);
         } else {
-            final PreAggStatus preAggStatus;
-            if (preAggEnabledByHint(scan)) {
-                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
-                preAggStatus = PreAggStatus.on();
-            } else {
-                // if PreAggStatus is OFF, we use the message from SelectMaterializedIndexWithAggregate
-                preAggStatus = scan.getPreAggStatus().isOff() ? scan.getPreAggStatus()
-                        : PreAggStatus.off("No aggregate on scan.");
-            }
             if (table.getIndexIdToMeta().size() == 1) {
-                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+                return scan.withMaterializedIndexSelected(baseIndexId);
             }
             int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
             // No aggregate on scan.
@@ -235,13 +240,13 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
             if (candidates.size() == 1) {
                 // `candidates` only have base index.
-                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+                return scan.withMaterializedIndexSelected(baseIndexId);
             } else {
-                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get(), requiredExpr.get());
                 // this is fail-safe for select mv
                 // select baseIndex if bestIndex's slots' data types are different from baseIndex
                 bestIndex = isSameDataType(scan, bestIndex, requiredSlots.get()) ? bestIndex : baseIndexId;
-                return scan.withMaterializedIndexSelected(preAggStatus, bestIndex);
+                return scan.withMaterializedIndexSelected(bestIndex);
             }
         }
     }

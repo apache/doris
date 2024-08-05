@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,15 +44,23 @@ public class TableBinlog {
 
     private long dbId;
     private long tableId;
+    private long binlogSize;
     private ReentrantReadWriteLock lock;
     private TreeSet<TBinlog> binlogs;
+
+    // Pair(commitSeq, timestamp), used for gc
+    // need UpsertRecord to add timestamps for gc
+    private List<Pair<Long, Long>> timestamps;
+
     private BinlogConfigCache binlogConfigCache;
 
     public TableBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog, long dbId, long tableId) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.binlogSize = 0;
         lock = new ReentrantReadWriteLock();
         binlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
+        timestamps = Lists.newArrayList();
 
         TBinlog dummy;
         if (binlog.getType() == TBinlogType.DUMMY) {
@@ -75,18 +84,25 @@ public class TableBinlog {
     public void recoverBinlog(TBinlog binlog) {
         TBinlog dummy = getDummyBinlog();
         if (binlog.getCommitSeq() > dummy.getCommitSeq()) {
-            binlogs.add(binlog);
-            ++binlog.table_ref;
+            addBinlogWithoutCheck(binlog);
         }
     }
 
     public void addBinlog(TBinlog binlog) {
         lock.writeLock().lock();
         try {
-            binlogs.add(binlog);
-            ++binlog.table_ref;
+            addBinlogWithoutCheck(binlog);
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    private void addBinlogWithoutCheck(TBinlog binlog) {
+        binlogs.add(binlog);
+        ++binlog.table_ref;
+        binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
+        if (binlog.getTimestamp() > 0) {
+            timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
         }
     }
 
@@ -108,7 +124,7 @@ public class TableBinlog {
         }
     }
 
-    private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(long expired, BinlogComparator checker) {
+    private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(BinlogComparator checker) {
         if (binlogs.size() <= 1) {
             return null;
         }
@@ -119,9 +135,10 @@ public class TableBinlog {
         TBinlog lastExpiredBinlog = null;
         while (iter.hasNext()) {
             TBinlog binlog = iter.next();
-            if (checker.isExpired(binlog, expired)) {
+            if (checker.isExpired(binlog)) {
                 lastExpiredBinlog = binlog;
                 --binlog.table_ref;
+                binlogSize -= BinlogUtils.getApproximateMemoryUsage(binlog);
                 if (binlog.getType() == TBinlogType.UPSERT) {
                     tombstoneUpsert = binlog;
                 }
@@ -135,9 +152,15 @@ public class TableBinlog {
             return null;
         }
 
-        dummyBinlog.setCommitSeq(lastExpiredBinlog.getCommitSeq());
+        long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
+        dummyBinlog.setCommitSeq(expiredCommitSeq);
 
-        return Pair.of(tombstoneUpsert, lastExpiredBinlog.getCommitSeq());
+        Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
+        while (timeIterator.hasNext() && timeIterator.next().first <= expiredCommitSeq) {
+            timeIterator.remove();
+        }
+
+        return Pair.of(tombstoneUpsert, expiredCommitSeq);
     }
 
     // this method call when db binlog enable
@@ -147,8 +170,8 @@ public class TableBinlog {
         // step 1: get tombstoneUpsertBinlog and dummyBinlog
         lock.writeLock().lock();
         try {
-            BinlogComparator check = (binlog, expire) -> binlog.getCommitSeq() <= expire;
-            tombstoneInfo = getLastUpsertAndLargestCommitSeq(expiredCommitSeq, check);
+            BinlogComparator check = (binlog) -> binlog.getCommitSeq() <= expiredCommitSeq;
+            tombstoneInfo = getLastUpsertAndLargestCommitSeq(check);
         } finally {
             lock.writeLock().unlock();
         }
@@ -171,7 +194,7 @@ public class TableBinlog {
     }
 
     // this method call when db binlog disable
-    public BinlogTombstone ttlGc() {
+    public BinlogTombstone gc() {
         // step 1: get expire time
         BinlogConfig tableBinlogConfig = binlogConfigCache.getTableBinlogConfig(dbId, tableId);
         if (tableBinlogConfig == null) {
@@ -179,19 +202,43 @@ public class TableBinlog {
         }
 
         long ttlSeconds = tableBinlogConfig.getTtlSeconds();
+        long maxBytes = tableBinlogConfig.getMaxBytes();
+        long maxHistoryNums = tableBinlogConfig.getMaxHistoryNums();
         long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
-        if (expiredMs < 0) {
-            return null;
-        }
-        LOG.info("ttl gc. dbId: {}, tableId: {}, expiredMs: {}", dbId, tableId, expiredMs);
+        LOG.info(
+                "gc table binlog. dbId: {}, tableId: {}, expiredMs: {}, ttlSecond: {}, maxBytes: {}, "
+                        + "maxHistoryNums: {}, now: {}",
+                dbId, tableId, expiredMs, ttlSeconds, maxBytes, maxHistoryNums, System.currentTimeMillis());
 
         // step 2: get tombstoneUpsertBinlog and dummyBinlog
         Pair<TBinlog, Long> tombstoneInfo;
         lock.writeLock().lock();
         try {
-            BinlogComparator check = (binlog, expire) -> binlog.getTimestamp() <= expire;
-            tombstoneInfo = getLastUpsertAndLargestCommitSeq(expiredMs, check);
+            // find the last expired commit seq.
+            long expiredCommitSeq = -1;
+            Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
+            while (timeIterator.hasNext()) {
+                Pair<Long, Long> entry = timeIterator.next();
+                if (expiredMs < entry.second) {
+                    break;
+                }
+                expiredCommitSeq = entry.first;
+            }
+
+            final long lastExpiredCommitSeq = expiredCommitSeq;
+            BinlogComparator check = (binlog) -> {
+                // NOTE: TreeSet read size during iterator remove is valid.
+                //
+                // The expired conditions in order:
+                // 1. expired time
+                // 2. the max bytes
+                // 3. the max history num
+                return binlog.getCommitSeq() <= lastExpiredCommitSeq
+                        || maxBytes < binlogSize
+                        || maxHistoryNums < binlogs.size();
+            };
+            tombstoneInfo = getLastUpsertAndLargestCommitSeq(check);
         } finally {
             lock.writeLock().unlock();
         }
@@ -216,25 +263,8 @@ public class TableBinlog {
     public void replayGc(long largestExpiredCommitSeq) {
         lock.writeLock().lock();
         try {
-            long lastSeq = -1;
-            Iterator<TBinlog> iter = binlogs.iterator();
-            TBinlog dummyBinlog = iter.next();
-
-            while (iter.hasNext()) {
-                TBinlog binlog = iter.next();
-                long commitSeq = binlog.getCommitSeq();
-                if (commitSeq <= largestExpiredCommitSeq) {
-                    lastSeq = commitSeq;
-                    --binlog.table_ref;
-                    iter.remove();
-                } else {
-                    break;
-                }
-            }
-
-            if (lastSeq != -1) {
-                dummyBinlog.setCommitSeq(lastSeq);
-            }
+            BinlogComparator checker = (binlog) -> binlog.getCommitSeq() <= largestExpiredCommitSeq;
+            getLastUpsertAndLargestCommitSeq(checker);
         } finally {
             lock.writeLock().unlock();
         }
@@ -278,6 +308,8 @@ public class TableBinlog {
             info.add(dropped);
             String binlogLength = String.valueOf(binlogs.size());
             info.add(binlogLength);
+            String binlogSize = String.valueOf(this.binlogSize);
+            info.add(binlogSize);
             String firstBinlogCommittedTime = null;
             String readableFirstBinlogCommittedTime = null;
             for (TBinlog binlog : binlogs) {
@@ -305,10 +337,16 @@ public class TableBinlog {
             info.add(lastBinlogCommittedTime);
             info.add(readableLastBinlogCommittedTime);
             String binlogTtlSeconds = null;
+            String binlogMaxBytes = null;
+            String binlogMaxHistoryNums = null;
             if (binlogConfig != null) {
                 binlogTtlSeconds = String.valueOf(binlogConfig.getTtlSeconds());
+                binlogMaxBytes = String.valueOf(binlogConfig.getMaxBytes());
+                binlogMaxHistoryNums = String.valueOf(binlogConfig.getMaxHistoryNums());
             }
             info.add(binlogTtlSeconds);
+            info.add(binlogMaxBytes);
+            info.add(binlogMaxHistoryNums);
 
             result.addRow(info);
         } finally {

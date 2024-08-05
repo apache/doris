@@ -17,17 +17,27 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class RoutineLoadOperation implements Writable {
+    @SerializedName("id")
     private long id;
+    @SerializedName("js")
     private JobState jobState;
+    @SerializedName("rs")
+    private ErrorReason reason;
 
     private RoutineLoadOperation() {
     }
@@ -35,6 +45,12 @@ public class RoutineLoadOperation implements Writable {
     public RoutineLoadOperation(long id, JobState jobState) {
         this.id = id;
         this.jobState = jobState;
+    }
+
+    public RoutineLoadOperation(long id, JobState jobState, ErrorReason reason) {
+        this.id = id;
+        this.jobState = jobState;
+        this.reason = reason;
     }
 
     public long getId() {
@@ -45,18 +61,26 @@ public class RoutineLoadOperation implements Writable {
         return jobState;
     }
 
+    public ErrorReason getErrorReason() {
+        return reason;
+    }
+
     public static RoutineLoadOperation read(DataInput in) throws IOException {
-        RoutineLoadOperation operation = new RoutineLoadOperation();
-        operation.readFields(in);
-        return operation;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            RoutineLoadOperation operation = new RoutineLoadOperation();
+            operation.readFields(in);
+            return operation;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadOperation.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, jobState.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         jobState = JobState.valueOf(Text.readString(in));

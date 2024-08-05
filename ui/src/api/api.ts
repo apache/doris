@@ -101,7 +101,7 @@ export function getDatabaseList<T>(data?: any): Promise<Result<T>> {
 }
 
 export function doQuery<T>(data: any): Promise<Result<T>> {
-    return request(`/api/query/default_cluster/${data.db_name}`, {
+    return request(`/api/query/internal/${data.db_name}`, {
         method: 'POST', ...data,
     });
 }

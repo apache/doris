@@ -54,7 +54,7 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    void refresh_wg_memory_info();
+    void refresh_wg_weighted_memory_limit();
 
 private:
     std::shared_mutex _group_mutex;

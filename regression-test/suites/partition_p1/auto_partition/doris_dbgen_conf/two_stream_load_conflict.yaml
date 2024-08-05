@@ -20,3 +20,7 @@ tables:
     col1:
       range: {min: "2020-01-01 00:00:00", max: "2023-12-31 23:59:59"}
       force_not_null: true
+  concurrent:
+    col1:
+      range: { min: "2020-01-01 00:00:00", max: "2023-12-31 23:59:59" }
+      force_not_null: true

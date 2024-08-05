@@ -19,7 +19,9 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -29,9 +31,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.LinkedList;
@@ -53,58 +59,80 @@ public class RuntimeProfile {
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";
     public static String SUM_TIME_PRE = "sum ";
+    @SerializedName(value = "counterTotalTime")
     private Counter counterTotalTime;
-    private double localTimePercent;
-
+    @SerializedName(value = "localTimePercent")
+    private double localTimePercent = 0;
+    @SerializedName(value = "infoStrings")
     private Map<String, String> infoStrings = Maps.newHashMap();
+    @SerializedName(value = "infoStringsDisplayOrder")
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
-    private ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
+    private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
+    @SerializedName(value = "counterMap")
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    @SerializedName(value = "childCounterMap")
     private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
-    private ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
-
+    private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
+    @SerializedName(value = "childMap")
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
+    @SerializedName(value = "childList")
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
-    private ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
-
+    private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
+    @SerializedName(value = "planNodeInfos")
     private List<String> planNodeInfos = Lists.newArrayList();
-    // name should not changed.
-    private final String name;
 
+    @SerializedName(value = "name")
+    private String name = "";
+    @SerializedName(value = "timestamp")
     private Long timestamp = -1L;
-
+    @SerializedName(value = "isDone")
     private Boolean isDone = false;
+    @SerializedName(value = "isCancel")
     private Boolean isCancel = false;
     // In pipelineX, we have explicitly split the Operator into sink and operator,
     // and we can distinguish them using tags.
     // In the old pipeline, we can only differentiate them based on their position
     // in the profile, which is quite tricky and only transitional.
-    private Boolean isPipelineX = false;
+    @SerializedName(value = "isSinkOperator")
     private Boolean isSinkOperator = false;
-
+    @SerializedName(value = "nodeid")
     private int nodeid = -1;
 
+    public RuntimeProfile() {
+        init();
+    }
+
     public RuntimeProfile(String name) {
-        this.localTimePercent = 0;
         if (Strings.isNullOrEmpty(name)) {
             throw new RuntimeException("Profile name must not be null");
         }
         this.name = name;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 1);
         this.counterMap.put("TotalTime", counterTotalTime);
+        init();
     }
 
     public RuntimeProfile(String name, int nodeId) {
-        this.localTimePercent = 0;
         if (Strings.isNullOrEmpty(name)) {
             throw new RuntimeException("Profile name must not be null");
         }
         this.name = name;
+        this.nodeid = nodeId;
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0, 3);
         this.counterMap.put("TotalTime", counterTotalTime);
-        this.nodeid = nodeId;
+        init();
+    }
+
+    private void init() {
+        this.infoStringsLock = new ReentrantReadWriteLock();
+        this.childLock = new ReentrantReadWriteLock();
+        this.counterLock = new ReentrantReadWriteLock();
+    }
+
+    public static RuntimeProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
     }
 
     public void setIsCancel(Boolean isCancel) {
@@ -141,10 +169,6 @@ public class RuntimeProfile {
 
     public Boolean sinkOperator() {
         return this.isSinkOperator;
-    }
-
-    public void setIsPipelineX(boolean isPipelineX) {
-        this.isPipelineX = isPipelineX;
     }
 
     public Map<String, Counter> getCounterMap() {
@@ -358,29 +382,16 @@ public class RuntimeProfile {
         return brief;
     }
 
-    private void printActimeCounter(StringBuilder builder, boolean isPipelineX) {
-        if (!isPipelineX) {
-            Counter counter = this.counterMap.get("TotalTime");
-            Preconditions.checkState(counter != null);
-            if (counter.getValue() != 0) {
-                try (Formatter fmt = new Formatter()) {
-                    builder.append("(Active: ")
-                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
-                            .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
-                            .append("%)");
-                }
-            }
-        } else {
-            Counter counter = this.counterMap.get("ExecTime");
-            if (counter == null) {
-                counter = this.counterMap.get("TotalTime");
-            }
-            if (counter.getValue() != 0) {
-                try (Formatter fmt = new Formatter()) {
-                    builder.append("(ExecTime: ")
-                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
-                            .append(")");
-                }
+    private void printActimeCounter(StringBuilder builder) {
+        Counter counter = this.counterMap.get("ExecTime");
+        if (counter == null) {
+            counter = this.counterMap.get("TotalTime");
+        }
+        if (counter.getValue() != 0) {
+            try (Formatter fmt = new Formatter()) {
+                builder.append("(ExecTime: ")
+                        .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
+                        .append(")");
             }
         }
     }
@@ -391,14 +402,10 @@ public class RuntimeProfile {
     // 3. Counters
     // 4. Children
     public void prettyPrint(StringBuilder builder, String prefix) {
-        prettyPrint(builder, prefix, false);
-    }
-
-    public void prettyPrint(StringBuilder builder, String prefix, boolean isPipelineX) {
         // 1. profile name
         builder.append(prefix).append(name).append(":");
         // total time
-        printActimeCounter(builder, isPipelineX);
+        printActimeCounter(builder);
 
         builder.append("\n");
 
@@ -432,7 +439,7 @@ public class RuntimeProfile {
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
-                profile.prettyPrint(builder, prefix + (indent ? "  " : ""), isPipelineX);
+                profile.prettyPrint(builder, prefix + (indent ? "  " : ""));
             }
         } finally {
             childLock.readLock().unlock();
@@ -467,7 +474,7 @@ public class RuntimeProfile {
 
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        prettyPrint(builder, "", isPipelineX);
+        prettyPrint(builder, "");
         return builder.toString();
     }
 
@@ -628,7 +635,13 @@ public class RuntimeProfile {
         childLock.writeLock().lock();
         try {
             if (childMap.containsKey(child.name)) {
-                childList.removeIf(e -> e.first.name.equals(child.name));
+                // Pipeline/Instance has alread finished.
+                // This could happen because the report profile rpc is async.
+                if (childMap.get(child.name).getIsDone() || childMap.get(child.name).getIsCancel()) {
+                    return;
+                } else {
+                    childList.removeIf(e -> e.first.name.equals(child.name));
+                }
             }
             this.childMap.put(child.name, child);
             Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
@@ -762,5 +775,9 @@ public class RuntimeProfile {
 
     public Map<String, String> getInfoStrings() {
         return infoStrings;
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 }

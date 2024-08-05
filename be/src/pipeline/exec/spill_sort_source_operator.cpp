@@ -18,6 +18,8 @@
 #include "spill_sort_source_operator.h"
 
 #include "common/status.h"
+#include "pipeline/exec/spill_utils.h"
+#include "runtime/fragment_mgr.h"
 #include "sort_source_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -64,11 +66,8 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    if (Base::_shared_state->enable_spill) {
-        dec_running_big_mem_op_num(state);
-    }
-    RETURN_IF_ERROR(Base::close(state));
-    return Status::OK();
+    dec_running_big_mem_op_num(state);
+    return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
     int count = _external_sort_bytes_threshold / SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES;
@@ -80,31 +79,14 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                << " merge spill data";
     _dependency->Dependency::block();
 
-    Status status;
-    Defer defer {[&]() {
-        if (!status.ok()) {
-            _dependency->Dependency::set_ready();
-        }
-    }};
-
-    auto execution_context = state->get_task_execution_context();
-    _shared_state_holder = _shared_state->shared_from_this();
     auto query_id = state->query_id();
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
 
-    auto spill_func = [this, state, query_id, &parent, execution_context, submit_timer] {
-        auto execution_context_lock = execution_context.lock();
-        if (!execution_context_lock) {
-            LOG(INFO) << "query " << print_id(query_id)
-                      << " execution_context released, maybe query was cancelled.";
-            return Status::OK();
-        }
-
+    auto spill_func = [this, state, query_id, &parent, submit_timer] {
         _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
         SCOPED_TIMER(_spill_merge_sort_timer);
-        SCOPED_ATTACH_TASK(state);
         Defer defer {[&]() {
             if (!_status.ok() || state->is_cancelled()) {
                 if (!_status.ok()) {
@@ -126,7 +108,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         vectorized::SpillStreamSPtr tmp_stream;
         while (!state->is_cancelled()) {
             int max_stream_count = _calc_spill_blocks_to_merge();
-            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->id()
+            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
                        << " merge spill streams, streams count: "
                        << _shared_state->sorted_streams.size()
                        << ", curren merge max stream count: " << max_stream_count;
@@ -145,14 +127,13 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 
             {
                 _status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                        state, tmp_stream, print_id(state->query_id()), "sort", _parent->id(),
+                        state, tmp_stream, print_id(state->query_id()), "sort", _parent->node_id(),
                         _shared_state->spill_block_batch_row_count,
                         SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
                 RETURN_IF_ERROR(_status);
                 _status = tmp_stream->prepare_spill();
                 RETURN_IF_ERROR(_status);
 
-                Defer defer {[&]() { tmp_stream->end_spill(_status); }};
                 _shared_state->sorted_streams.emplace_back(tmp_stream);
 
                 bool eos = false;
@@ -163,10 +144,24 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                     merge_sorted_block.clear_column_data();
                     {
                         SCOPED_TIMER(Base::_spill_recover_time);
-                        _status = _merger->get_next(&merge_sorted_block, &eos);
+                        DBUG_EXECUTE_IF("fault_inject::spill_sort_source::recover_spill_data", {
+                            _status = Status::Error<INTERNAL_ERROR>(
+                                    "fault_inject spill_sort_source "
+                                    "recover_spill_data failed");
+                        });
+                        if (_status.ok()) {
+                            _status = _merger->get_next(&merge_sorted_block, &eos);
+                        }
                     }
                     RETURN_IF_ERROR(_status);
                     _status = tmp_stream->spill_block(state, merge_sorted_block, eos);
+                    if (_status.ok()) {
+                        DBUG_EXECUTE_IF("fault_inject::spill_sort_source::spill_merged_data", {
+                            _status = Status::Error<INTERNAL_ERROR>(
+                                    "fault_inject spill_sort_source "
+                                    "spill_merged_data failed");
+                        });
+                    }
                     RETURN_IF_ERROR(_status);
                 }
             }
@@ -177,8 +172,19 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         }
         return Status::OK();
     };
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_async_task_thread_pool()->submit_func(
-            spill_func);
+
+    auto exception_catch_func = [this, spill_func]() {
+        _status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
+    };
+
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_source::merge_sort_spill_data_submit_func", {
+        return Status::Error<INTERNAL_ERROR>(
+                "fault_inject spill_sort_source "
+                "merge_sort_spill_data submit_func failed");
+    });
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+            std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                                            exception_catch_func));
 }
 
 Status SpillSortLocalState::_create_intermediate_merger(
@@ -213,7 +219,7 @@ Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 
     _runtime_state->set_desc_tbl(&state->desc_tbl());
     _runtime_state->resize_op_id_to_local_state(state->max_operator_id());
-    _runtime_state->set_pipeline_x_runtime_filter_mgr(state->local_runtime_filter_mgr());
+    _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     DCHECK(_shared_state->in_mem_shared_state);
     LocalStateInfo state_info {
@@ -266,13 +272,11 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
             local_state._current_merging_streams.clear();
         }
     }};
-    if (local_state.Base::_shared_state->enable_spill) {
-        local_state.inc_running_big_mem_op_num(state);
-    }
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    if (local_state.Base::_shared_state->enable_spill && local_state._shared_state->is_spilled) {
+    if (local_state._shared_state->is_spilled) {
         if (!local_state._merger) {
             local_state._status = local_state.initiate_merge_sort_spill_streams(state);
             return local_state._status;

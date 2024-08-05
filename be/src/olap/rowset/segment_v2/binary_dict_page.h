@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/hash/string_hash.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -35,6 +34,7 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -57,9 +57,12 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.
-class BinaryDictPageBuilder : public PageBuilder {
+class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
 public:
-    BinaryDictPageBuilder(const PageBuilderOptions& options);
+    using Self = BinaryDictPageBuilder;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override;
 
     bool is_page_full() override;
 
@@ -67,7 +70,7 @@ public:
 
     OwnedSlice finish() override;
 
-    void reset() override;
+    Status reset() override;
 
     size_t count() const override;
 
@@ -80,6 +83,8 @@ public:
     Status get_last_value(void* value) const override;
 
 private:
+    BinaryDictPageBuilder(const PageBuilderOptions& options);
+
     PageBuilderOptions _options;
     bool _finished;
 
@@ -90,9 +95,7 @@ private:
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
-        size_t operator()(const Slice& slice) const {
-            return HashStringThoroughly(slice.data, slice.size);
-        }
+        size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
     };
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
@@ -140,6 +143,8 @@ private:
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+
+    std::vector<int32_t> _buffer;
 };
 
 } // namespace segment_v2

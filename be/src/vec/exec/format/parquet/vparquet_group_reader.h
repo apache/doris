@@ -29,7 +29,6 @@
 
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
-#include "vec/common/allocator.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
@@ -95,6 +94,7 @@ public:
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
+        VExprContextSPtrs missing_columns_conjuncts;
         // lazy read missing columns or all missing columns
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type

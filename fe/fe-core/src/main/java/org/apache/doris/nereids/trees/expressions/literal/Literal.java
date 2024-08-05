@@ -19,8 +19,11 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.ByteBufferUtil;
+import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -28,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -40,6 +44,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -395,5 +401,200 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return getValue().equals(BigDecimal.ZERO);
         }
         return false;
+    }
+
+    /**
+    ** get paramter length, port from  mysql get_param_length
+    **/
+    public static int getParmLen(ByteBuffer data) {
+        int maxLen = data.remaining();
+        if (maxLen < 1) {
+            return 0;
+        }
+        // get and advance 1 byte
+        int len = MysqlProto.readInt1(data);
+        if (len == 252) {
+            if (maxLen < 3) {
+                return 0;
+            }
+            // get and advance 2 bytes
+            return MysqlProto.readInt2(data);
+        } else if (len == 253) {
+            if (maxLen < 4) {
+                return 0;
+            }
+            // get and advance 3 bytes
+            return MysqlProto.readInt3(data);
+        } else if (len == 254) {
+            /*
+            In our client-server protocol all numbers bigger than 2^24
+            stored as 8 bytes with uint8korr. Here we always know that
+            parameter length is less than 2^4 so we don't look at the second
+            4 bytes. But still we need to obey the protocol hence 9 in the
+            assignment below.
+            */
+            if (maxLen < 9) {
+                return 0;
+            }
+            len = MysqlProto.readInt4(data);
+            MysqlProto.readFixedString(data, 4);
+            return len;
+        } else if (len == 255) {
+            return 0;
+        } else {
+            return len;
+        }
+    }
+
+    /**
+     * Retrieves a Literal object based on the MySQL type and the data provided.
+     *
+     * @param mysqlType the MySQL type identifier
+     * @param isUnsigned true if it is an unsigned type
+     * @param data      the ByteBuffer containing the data
+     * @return a Literal object corresponding to the MySQL type
+     * @throws AnalysisException if the MySQL type is unsupported or if data conversion fails
+     * @link  <a href="https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html">...</a>.
+     */
+    public static Literal getLiteralByMysqlType(MysqlColType mysqlType, boolean isUnsigned, ByteBuffer data)
+            throws AnalysisException {
+        Literal literal = null;
+        // If this is an unsigned numeric type, we convert it by using larger data types. For example, we can use
+        // small int to represent unsigned tiny int (0-255), big int to represent unsigned ints (0-2 ^ 32-1),
+        // and so on.
+        switch (mysqlType) {
+            case MYSQL_TYPE_TINY:
+                literal = !isUnsigned
+                    ? new TinyIntLiteral(data.get()) :
+                        new SmallIntLiteral(ByteBufferUtil.getUnsignedByte(data));
+                break;
+            case MYSQL_TYPE_SHORT:
+                literal = !isUnsigned
+                    ? new SmallIntLiteral((short) data.getChar()) :
+                        new IntegerLiteral(ByteBufferUtil.getUnsignedShort(data));
+                break;
+            case MYSQL_TYPE_LONG:
+                literal = !isUnsigned
+                    ? new IntegerLiteral(data.getInt()) :
+                        new BigIntLiteral(ByteBufferUtil.getUnsignedInt(data));
+                break;
+            case MYSQL_TYPE_LONGLONG:
+                literal = !isUnsigned
+                    ? new BigIntLiteral(data.getLong()) :
+                        new LargeIntLiteral(new BigInteger(Long.toUnsignedString(data.getLong())));
+                break;
+            case MYSQL_TYPE_FLOAT:
+                literal = new FloatLiteral(data.getFloat());
+                break;
+            case MYSQL_TYPE_DOUBLE:
+                literal = new DoubleLiteral(data.getDouble());
+                break;
+            case MYSQL_TYPE_DECIMAL:
+            case MYSQL_TYPE_NEWDECIMAL:
+                literal = handleDecimalLiteral(data);
+                break;
+            case MYSQL_TYPE_DATE:
+                literal = handleDateLiteral(data);
+                break;
+            case MYSQL_TYPE_DATETIME:
+            case MYSQL_TYPE_TIMESTAMP:
+            case MYSQL_TYPE_TIMESTAMP2:
+                literal = handleDateTimeLiteral(data);
+                break;
+            case MYSQL_TYPE_STRING:
+            case MYSQL_TYPE_VARSTRING:
+                literal = handleStringLiteral(data);
+                break;
+            case MYSQL_TYPE_VARCHAR:
+                literal = handleVarcharLiteral(data);
+                break;
+            default:
+                throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
+        }
+        return literal;
+    }
+
+    private static Literal handleDecimalLiteral(ByteBuffer data) throws AnalysisException {
+        int len = getParmLen(data);
+        byte[] bytes = new byte[len];
+        data.get(bytes);
+        try {
+            String value = new String(bytes);
+            BigDecimal v = new BigDecimal(value);
+            if (Config.enable_decimal_conversion) {
+                return new DecimalV3Literal(v);
+            }
+            return new DecimalLiteral(v);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid decimal literal", e);
+        }
+    }
+
+    private static Literal handleDateLiteral(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (len >= 4) {
+            int year = (int) data.getChar();
+            int month = (int) data.get();
+            int day = (int) data.get();
+            if (Config.enable_date_conversion) {
+                return new DateV2Literal(year, month, day);
+            }
+            return new DateLiteral(year, month, day);
+        } else {
+            if (Config.enable_date_conversion) {
+                return new DateV2Literal(0, 1, 1);
+            }
+            return new DateLiteral(0, 1, 1);
+        }
+    }
+
+    private static Literal handleDateTimeLiteral(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (len >= 4) {
+            int year = (int) data.getChar();
+            int month = (int) data.get();
+            int day = (int) data.get();
+            int hour = 0;
+            int minute = 0;
+            int second = 0;
+            int microsecond = 0;
+            if (len > 4) {
+                hour = (int) data.get();
+                minute = (int) data.get();
+                second = (int) data.get();
+            }
+            if (len > 7) {
+                microsecond = data.getInt();
+            }
+            if (Config.enable_date_conversion) {
+                return new DateTimeV2Literal(DateTimeV2Type.MAX, year, month, day, hour, minute, second, microsecond);
+            }
+            return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second, microsecond);
+        } else {
+            if (Config.enable_date_conversion) {
+                return new DateTimeV2Literal(0, 1, 1, 0, 0, 0);
+            }
+            return new DateTimeLiteral(0, 1, 1, 0, 0, 0);
+        }
+    }
+
+    private static Literal handleStringLiteral(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        strLen = Math.min(strLen, data.remaining());
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new StringLiteral(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    private static Literal handleVarcharLiteral(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        strLen = Math.min(strLen, data.remaining());
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
 }

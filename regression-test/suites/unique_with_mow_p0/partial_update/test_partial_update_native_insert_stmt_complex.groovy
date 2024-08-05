@@ -25,10 +25,6 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-
-            sql "set enable_nereids_dml=false;"
-            sql "set experimental_enable_nereids_planner=false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
 
             // test complex partial update
@@ -93,7 +89,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
                 sql """insert into ${tbName1}
                 select ${tbName2}.id, ${tbName2}.c1, ${tbName2}.c3 * 100
                 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id; """
-                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
+                exception "insert into cols should be corresponding to the query output"
             }
             sql "truncate table ${tbName1};"
             sql "truncate table ${tbName2};"

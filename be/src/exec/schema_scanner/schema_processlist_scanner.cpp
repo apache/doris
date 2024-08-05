@@ -19,9 +19,11 @@
 
 #include <gen_cpp/FrontendService_types.h>
 
+#include <exception>
 #include <vector>
 
 #include "exec/schema_scanner/schema_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -30,15 +32,20 @@
 namespace doris {
 
 std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_columns = {
+        {"CURRENT_CONNECTED", TYPE_VARCHAR, sizeof(StringRef), false},
         {"ID", TYPE_LARGEINT, sizeof(int128_t), false},
         {"USER", TYPE_VARCHAR, sizeof(StringRef), false},
         {"HOST", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"LOGIN_TIME", TYPE_DATETIMEV2, sizeof(DateTimeV2ValueType), false},
         {"CATALOG", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DB", TYPE_VARCHAR, sizeof(StringRef), false},
         {"COMMAND", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TIME", TYPE_INT, sizeof(int32_t), false},
         {"STATE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"INFO", TYPE_VARCHAR, sizeof(StringRef), false}};
+        {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"INFO", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"FE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CLOUD_CLUSTER", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaProcessListScanner::SchemaProcessListScanner()
         : SchemaScanner(_s_processlist_columns, TSchemaTableType::SCH_PROCESSLIST) {}
@@ -56,7 +63,7 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaProcessListScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaProcessListScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -90,48 +97,36 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
             const auto& row = process_list[row_idx];
+            if (row.size() != _s_processlist_columns.size()) {
+                return Status::InternalError(
+                        "process list meet invalid schema, schema_size={}, input_data_size={}",
+                        _s_processlist_columns.size(), row.size());
+            }
 
             // Fetch and store the column value based on its index
             std::string& column_value =
                     column_values[row_idx]; // Reference to the actual string in the vector
-
-            switch (col_idx) {
-            case 0:
-                column_value = row.size() > 1 ? row[1] : "";
-                break; // ID
-            case 1:
-                column_value = row.size() > 2 ? row[2] : "";
-                break; // USER
-            case 2:
-                column_value = row.size() > 3 ? row[3] : "";
-                break; // HOST
-            case 3:
-                column_value = row.size() > 5 ? row[5] : "";
-                break; // CATALOG
-            case 4:
-                column_value = row.size() > 6 ? row[6] : "";
-                break; // DB
-            case 5:
-                column_value = row.size() > 7 ? row[7] : "";
-                break; // COMMAND
-            case 6:
-                column_value = row.size() > 8 ? row[8] : "";
-                break; // TIME
-            case 7:
-                column_value = row.size() > 9 ? row[9] : "";
-                break; // STATE
-            case 8:
-                column_value = row.size() > 11 ? row[11] : "";
-                break; // INFO
-            default:
-                column_value = "";
-                break;
-            }
+            column_value = row[col_idx];
 
             if (_s_processlist_columns[col_idx].type == TYPE_LARGEINT ||
                 _s_processlist_columns[col_idx].type == TYPE_INT) {
-                int128_t val = !column_value.empty() ? std::stoll(column_value) : 0;
-                int_vals[row_idx] = val;
+                try {
+                    int128_t val = !column_value.empty() ? std::stoll(column_value) : 0;
+                    int_vals[row_idx] = val;
+                } catch (const std::exception& e) {
+                    return Status::InternalError(
+                            "process list meet invalid data, column={}, data={}, reason={}",
+                            _s_processlist_columns[col_idx].name, column_value, e.what());
+                }
+                datas[row_idx] = &int_vals[row_idx];
+            } else if (_s_processlist_columns[col_idx].type == TYPE_DATETIMEV2) {
+                auto* dv = reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(&int_vals[row_idx]);
+                if (!dv->from_date_str(column_value.data(), column_value.size(), -1,
+                                       config::allow_zero_date)) {
+                    return Status::InternalError(
+                            "process list meet invalid data, column={}, data={}, reason={}",
+                            _s_processlist_columns[col_idx].name, column_value);
+                }
                 datas[row_idx] = &int_vals[row_idx];
             } else {
                 str_refs[row_idx] =

@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -108,10 +109,14 @@ public class RefreshManager {
 
     private void refreshDbInternal(long catalogId, long dbId, boolean invalidCache) {
         ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-        ExternalDatabase db = catalog.getDbForReplay(dbId);
-        db.setUnInitialized(invalidCache);
-        LOG.info("refresh database {} in catalog {} with invalidCache {}", db.getFullName(), catalog.getName(),
-                invalidCache);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbId);
+        // Database may not exist if 'use_meta_cache' is true.
+        // Because each FE fetch the meta data independently.
+        db.ifPresent(e -> {
+            e.setUnInitialized(invalidCache);
+            LOG.info("refresh database {} in catalog {} with invalidCache {}", e.getFullName(),
+                    catalog.getName(), invalidCache);
+        });
     }
 
     // Refresh table
@@ -163,13 +168,22 @@ public class RefreshManager {
             LOG.warn("failed to find catalog replaying refresh table {}", log.getCatalogId());
             return;
         }
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        TableIf table = db.getTableForReplay(log.getTableId());
-        refreshTableInternal(catalog, db, table, log.getLastUpdateTime());
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(log.getDbId());
+        // See comment in refreshDbInternal for why db and table may be null.
+        if (!db.isPresent()) {
+            LOG.warn("failed to find db replaying refresh table {}", log.getDbId());
+            return;
+        }
+        Optional<? extends ExternalTable> table = db.get().getTableForReplay(log.getTableId());
+        if (!table.isPresent()) {
+            LOG.warn("failed to find table replaying refresh table {}", log.getTableId());
+            return;
+        }
+        refreshTableInternal(catalog, db.get(), table.get(), log.getLastUpdateTime());
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
-            long updateTime, boolean ignoreIfNotExists) throws DdlException {
+            long updateTime) throws DdlException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -179,17 +193,11 @@ public class RefreshManager {
         }
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
             return;
         }
         refreshTableInternal(catalog, db, table, updateTime);

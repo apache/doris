@@ -36,6 +36,7 @@
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
 #include "util/blocking_queue.hpp"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
@@ -218,6 +219,16 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.start();
         std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
+        DBUG_EXECUTE_IF("KafkaDataConsumer.group_consume.out_of_range", {
+            done = true;
+            std::stringstream ss;
+            ss << "Offset out of range"
+               << ", consume partition " << msg->partition() << ", consume offset "
+               << msg->offset();
+            LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << ss.str();
+            st = Status::InternalError<false>(ss.str());
+            break;
+        });
         switch (msg->err()) {
         case RdKafka::ERR_NO_ERROR:
             if (_consuming_partition_ids.count(msg->partition()) <= 0) {
@@ -253,15 +264,29 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             LOG(INFO) << "consumer meet partition eof: " << _id
                       << " partition offset: " << msg->offset();
             _consuming_partition_ids.erase(msg->partition());
-            if (_consuming_partition_ids.size() <= 0) {
+            if (!queue->blocking_put(msg.get())) {
                 done = true;
+            } else if (_consuming_partition_ids.size() <= 0) {
+                msg.release();
+                done = true;
+            } else {
+                msg.release();
             }
+            break;
+        }
+        case RdKafka::ERR_OFFSET_OUT_OF_RANGE: {
+            done = true;
+            std::stringstream ss;
+            ss << msg->errstr() << ", consume partition " << msg->partition() << ", consume offset "
+               << msg->offset();
+            LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << ss.str();
+            st = Status::InternalError<false>(ss.str());
             break;
         }
         default:
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << msg->errstr();
             done = true;
-            st = Status::InternalError(msg->errstr());
+            st = Status::InternalError<false>(msg->errstr());
             break;
         }
 
@@ -300,7 +325,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     // get topic metadata
     RdKafka::Metadata* metadata = nullptr;
     RdKafka::ErrorCode err =
-            _k_consumer->metadata(true /* for this topic */, topic, &metadata, 5000);
+            _k_consumer->metadata(false /* for this topic */, topic, &metadata, 5000);
     if (err != RdKafka::ERR_NO_ERROR) {
         std::stringstream ss;
         ss << "failed to get partition meta: " << RdKafka::err2str(err);
@@ -409,6 +434,51 @@ Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         PIntegerPair pair;
         pair.set_key(partition_id);
         pair.set_val(high);
+        offsets->push_back(std::move(pair));
+    }
+
+    return Status::OK();
+}
+
+Status KafkaDataConsumer::get_real_offsets_for_partitions(
+        const std::vector<PIntegerPair>& offset_flags, std::vector<PIntegerPair>* offsets,
+        int timeout) {
+    MonotonicStopWatch watch;
+    watch.start();
+    for (const auto& entry : offset_flags) {
+        PIntegerPair pair;
+        if (UNLIKELY(entry.val() >= 0)) {
+            pair.set_key(entry.key());
+            pair.set_val(entry.val());
+            offsets->push_back(std::move(pair));
+            continue;
+        }
+
+        int64_t low = 0;
+        int64_t high = 0;
+        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
+        if (UNLIKELY(timeout_ms <= 0)) {
+            return Status::InternalError("get kafka real offsets for partitions timeout");
+        }
+
+        RdKafka::ErrorCode err =
+                _k_consumer->query_watermark_offsets(_topic, entry.key(), &low, &high, timeout_ms);
+        if (UNLIKELY(err != RdKafka::ERR_NO_ERROR)) {
+            std::stringstream ss;
+            ss << "failed to get latest offset for partition: " << entry.key()
+               << ", err: " << RdKafka::err2str(err);
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+
+        pair.set_key(entry.key());
+        if (entry.val() == -1) {
+            // OFFSET_END_VAL = -1
+            pair.set_val(high);
+        } else if (entry.val() == -2) {
+            // OFFSET_BEGINNING_VAL = -2
+            pair.set_val(low);
+        }
         offsets->push_back(std::move(pair));
     }
 

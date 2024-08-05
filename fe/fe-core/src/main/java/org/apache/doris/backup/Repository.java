@@ -17,31 +17,36 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -90,7 +95,7 @@ import java.util.UUID;
  *                 * __10023_seg2.dat.DNW231dnklawd
  *                 * __10023.hdr.dnmwDDWI92dDko
  */
-public class Repository implements Writable {
+public class Repository implements Writable, GsonPostProcessable {
     public static final String PREFIX_REPO = "__palo_repository_";
     public static final String PREFIX_SNAPSHOT_DIR = "__ss_";
     public static final String PREFIX_DB = "__db_";
@@ -109,19 +114,25 @@ public class Repository implements Writable {
     private static final String PATH_DELIMITER = "/";
     private static final String CHECKSUM_SEPARATOR = ".";
 
+    @SerializedName("id")
     private long id;
+    @SerializedName("n")
     private String name;
     private String errMsg;
+    @SerializedName("ct")
     private long createTime;
 
     // If True, user can not backup data to this repo.
+    @SerializedName("iro")
     private boolean isReadOnly;
 
     // BOS location should start with "bos://your_bucket_name/"
     // and the specified bucket should exist.
+    @SerializedName("lo")
     private String location;
 
-    private RemoteFileSystem fileSystem;
+    @SerializedName("fs")
+    private PersistentFileSystem fileSystem;
 
     private Repository() {
         // for persist
@@ -143,7 +154,7 @@ public class Repository implements Writable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -183,9 +194,26 @@ public class Repository implements Writable {
     }
 
     public static Repository read(DataInput in) throws IOException {
-        Repository repo = new Repository();
-        repo.readFields(in);
-        return repo;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            Repository repo = new Repository();
+            repo.readFields(in);
+            return repo;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
+        if (this.fileSystem.properties.containsKey(PersistentFileSystem.STORAGE_TYPE)) {
+            type = StorageBackend.StorageType.valueOf(
+                    this.fileSystem.properties.get(PersistentFileSystem.STORAGE_TYPE));
+            this.fileSystem.properties.remove(PersistentFileSystem.STORAGE_TYPE);
+        }
+        this.fileSystem = FileSystemFactory.get(this.fileSystem.getName(),
+                type,
+                this.fileSystem.getProperties());
     }
 
     public long getId() {
@@ -208,7 +236,7 @@ public class Repository implements Writable {
         return errMsg;
     }
 
-    public RemoteFileSystem getRemoteFileSystem() {
+    public PersistentFileSystem getRemoteFileSystem() {
         return fileSystem;
     }
 
@@ -220,26 +248,6 @@ public class Repository implements Writable {
     public Status initRepository() {
         if (FeConstants.runningUnitTest) {
             return Status.OK;
-        }
-
-        // A temporary solution is to delete all stale snapshots before creating an S3 repository
-        // so that we can add regression tests about backup/restore.
-        //
-        // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem) {
-            String deleteStaledSnapshots = fileSystem.getProperties()
-                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
-            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
-                // delete with prefix:
-                // eg. __palo_repository_repo_name/
-                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
-                LOG.info("property {} is set, delete snapshots with prefix: {}",
-                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = ((S3FileSystem) fileSystem).deleteDirectory(snapshotPrefix);
-                if (!st.ok()) {
-                    return st;
-                }
-            }
         }
 
         String repoInfoFilePath = assembleRepoInfoFilePath();
@@ -389,6 +397,9 @@ public class Repository implements Writable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
@@ -557,7 +568,7 @@ public class Repository implements Writable {
             if (!st.ok()) {
                 return st;
             }
-        } else if (fileSystem instanceof S3FileSystem) {
+        } else if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             }
@@ -743,8 +754,9 @@ public class Repository implements Writable {
         stmtBuilder.append("\"");
 
         stmtBuilder.append("\nPROPERTIES\n(");
-        stmtBuilder.append(new PrintableMap<>(this.getRemoteFileSystem().getProperties(), " = ",
-                true, true, true));
+        Map<String, String> properties = new HashMap();
+        properties.putAll(this.getRemoteFileSystem().getProperties());
+        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }
@@ -834,14 +846,10 @@ public class Repository implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, name);
-        out.writeBoolean(isReadOnly);
-        Text.writeString(out, location);
-        fileSystem.write(out);
-        out.writeLong(createTime);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         name = Text.readString(in);

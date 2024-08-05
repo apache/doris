@@ -68,6 +68,11 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     }
 
     @Override
+    public LogicalTVFRelation withRelationId(RelationId relationId) {
+        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty());
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -99,7 +104,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     public List<Slot> computeOutput() {
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier, this))
+                .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier))
                 .collect(ImmutableList.toImmutableList());
     }
 

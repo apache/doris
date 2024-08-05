@@ -36,7 +36,6 @@ class StorageEngine;
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
-class LoadStreamMgr;
 class RuntimeState;
 
 template <typename T>
@@ -162,11 +161,6 @@ public:
                           const ::doris::PSyncFilterSizeRequest* request,
                           ::doris::PSyncFilterSizeResponse* response,
                           ::google::protobuf::Closure* done) override;
-
-    void apply_filter(::google::protobuf::RpcController* controller,
-                      const ::doris::PPublishFilterRequest* request,
-                      ::doris::PPublishFilterResponse* response,
-                      ::google::protobuf::Closure* done) override;
     void apply_filterv2(::google::protobuf::RpcController* controller,
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
@@ -231,6 +225,15 @@ public:
                               PJdbcTestConnectionResult* result,
                               google::protobuf::Closure* done) override;
 
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -266,8 +269,6 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 // `StorageEngine` mixin for `PInternalService`
@@ -293,11 +294,6 @@ public:
     void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
                                     const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response,
-                                    google::protobuf::Closure* done) override;
-
-    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                    const PFetchRemoteSchemaRequest* request,
-                                    PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
 
 private:

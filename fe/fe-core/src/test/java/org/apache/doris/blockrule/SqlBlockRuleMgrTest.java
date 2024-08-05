@@ -207,10 +207,8 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr,
                 connectContext);
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                String.format("the sql block rule %s not exist", ruleName),
+        ExceptionChecker.expectThrowsNoException(
                 () -> Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt));
-
     }
 
     @Test

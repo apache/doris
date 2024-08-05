@@ -46,9 +46,11 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -316,6 +318,10 @@ public class FileGroupInfo {
             rangeDesc.setSize(rangeBytes);
             rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
+            if (getFileType() == TFileType.FILE_HDFS) {
+                URI fileUri = new Path(fileStatus.path).toUri();
+                rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+            }
         } else {
             // for stream load
             if (getFileType() == TFileType.FILE_LOCAL) {

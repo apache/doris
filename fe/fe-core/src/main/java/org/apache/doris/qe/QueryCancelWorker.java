@@ -17,14 +17,19 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
+
 public class QueryCancelWorker extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(QueryCancelWorker.class);
     private SystemInfoService systemInfoService;
 
     public QueryCancelWorker(SystemInfoService systemInfoService) {
@@ -33,13 +38,18 @@ public class QueryCancelWorker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        List<Backend> allBackends = systemInfoService.getAllBackends();
+        List<Backend> allBackends;
+        try {
+            allBackends = systemInfoService.getAllBackendsByAllCluster().values().asList();
+        } catch (Exception e) {
+            LOG.warn("failed to get backends by current cluster", e);
+            return;
+        }
 
         for (Coordinator co : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
-            if (co.shouldCancel(allBackends)) {
-                // TODO(zhiqiang): We need more clear cancel message, so that user can figure out what happened
-                //  by searching log.
-                co.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            Status status = co.shouldCancel(allBackends);
+            if (!status.ok()) {
+                co.cancel(status);
             }
         }
     }

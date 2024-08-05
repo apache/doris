@@ -336,6 +336,7 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
                     .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
+                    .put(PrimitiveType.STRUCT, Sets.newHashSet(ArrayList.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -412,6 +413,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.INVALID_TYPE);
     }
 
+    public boolean isUnsupported() {
+        return isScalarType(PrimitiveType.UNSUPPORTED);
+    }
+
     public boolean isValid() {
         return !isInvalid();
     }
@@ -447,32 +452,34 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql) {
-        if (isDatetimeV2()) {
-            StringBuilder typeStr = new StringBuilder("DATETIME");
+        if (isDatetime() || isDatetimeV2()) {
+            StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
-        } else if (isDateV2()) {
-            return "DATE";
-        } else if (isDecimalV3()) {
-            StringBuilder typeStr = new StringBuilder("DECIMAL");
+        } else if (isDate() || isDateV2()) {
+            return "date";
+        } else if (isDecimalV2() || isDecimalV3()) {
+            StringBuilder typeStr = new StringBuilder("decimal");
             ScalarType sType = (ScalarType) this;
             int scale = sType.getScalarScale();
             int precision = sType.getScalarPrecision();
-            // not default
-            if (!sType.isDefaultDecimal()) {
-                typeStr.append("(").append(precision).append(", ").append(scale)
-                        .append(")");
+            typeStr.append("(").append(precision).append(",").append(scale).append(")");
+            return typeStr.toString();
+        } else if (isTime() || isTimeV2()) {
+            StringBuilder typeStr = new StringBuilder("time");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
         } else if (isArrayType()) {
             String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
-            return "ARRAY<" + nestedDesc + ">";
+            return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
             String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
             String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
-            return "MAP<" + keyDesc + "," + valueDesc + ">";
+            return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
@@ -480,7 +487,7 @@ public abstract class Type {
                 StructField field = structType.getFields().get(i);
                 fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
             }
-            return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
+            return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
             return this.toSql();
         }
@@ -596,7 +603,7 @@ public abstract class Type {
     }
 
     public boolean isScalarType(PrimitiveType t) {
-        return isScalarType() && ((ScalarType) this).getPrimitiveType() == t;
+        return isScalarType() && this.getPrimitiveType() == t;
     }
 
     public boolean isFixedPointType() {
@@ -626,11 +633,6 @@ public abstract class Type {
 
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);
-    }
-
-    // TODO: Handle complex types properly. Some instances may be fixed length.
-    public boolean isFixedLengthType() {
-        return false;
     }
 
     public boolean isNumericType() {
@@ -675,7 +677,7 @@ public abstract class Type {
     }
 
     public boolean isAggStateType() {
-        return isScalarType(PrimitiveType.AGG_STATE);
+        return this instanceof AggStateType;
     }
 
     public boolean isMultiRowType() {
@@ -767,13 +769,6 @@ public abstract class Type {
         return -1;
     }
 
-    /**
-     * Indicates whether we support partitioning tables on columns of this type.
-     */
-    public boolean supportsTablePartitioning() {
-        return false;
-    }
-
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.INVALID_TYPE;
     }
@@ -841,6 +836,9 @@ public abstract class Type {
     }
 
     public static boolean canCastTo(Type sourceType, Type targetType) {
+        if (targetType.isJsonbType() && sourceType.isComplexType()) {
+            return true;
+        }
         if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
             // variant could cast to scalar types and array
             return true;
@@ -858,6 +856,27 @@ public abstract class Type {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
+        } else if (sourceType.isAggStateType() && targetType.getPrimitiveType().isCharFamily()) {
+            return true;
+        } else if (sourceType.isAggStateType() && targetType.isAggStateType()) {
+            AggStateType sourceAggState = (AggStateType) sourceType;
+            AggStateType targetAggState = (AggStateType) targetType;
+            if (!sourceAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())) {
+                return false;
+            }
+            if (sourceAggState.getSubTypes().size() != targetAggState.getSubTypes().size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
+                // target subtype is not null but source subtype is nullable
+                if (!targetAggState.getSubTypeNullables().get(i) && sourceAggState.getSubTypeNullables().get(i)) {
+                    return false;
+                }
+                if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
+                    return false;
+                }
+            }
+            return true;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -963,7 +982,7 @@ public abstract class Type {
             MapType mapType = (MapType) this;
             return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
-            Preconditions.checkState(isScalarType());
+            Preconditions.checkState(isScalarType() || isAggStateType());
         }
         return false;
     }

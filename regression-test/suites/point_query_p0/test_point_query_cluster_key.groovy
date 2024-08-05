@@ -30,7 +30,7 @@ suite("test_point_query_cluster_key") {
     try {
         set_be_config.call("disable_storage_row_cache", "false")
         // nereids do not support point query now
-        sql """set enable_nereids_planner=false"""
+        sql """set enable_nereids_planner=true"""
 
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
@@ -139,7 +139,7 @@ suite("test_point_query_cluster_key") {
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
             def result1 = connect(user=user, password=password, url=prepare_url) {
-                def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)
                 stmt.setBigDecimal(2, new BigDecimal("119291.11"))
@@ -175,13 +175,14 @@ suite("test_point_query_cluster_key") {
                 qe_point_select stmt
                 stmt.close()
 
-                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
-                stmt.setBigDecimal(1, new BigDecimal("991129292901.11138"))
-                stmt.setString(2, "dd")
+                stmt.setInt(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("991129292901.11138"))
+                stmt.setString(3, "dd")
                 qe_point_select stmt
 
-                def stmt_fn = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
+                def stmt_fn = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
                 assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt_fn.setInt(1, 1231)
                 stmt_fn.setBigDecimal(2, new BigDecimal("119291.11"))
@@ -195,8 +196,8 @@ suite("test_point_query_cluster_key") {
                 """
                 sleep(1);
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
-                stmt.setBigDecimal(1, new BigDecimal("120939.11130"))
-                stmt.setString(2, "a    ddd")
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
@@ -222,17 +223,17 @@ suite("test_point_query_cluster_key") {
             }
             // disable useServerPrepStmts
             def result2 = connect(user=user, password=password, url=context.config.jdbcUrl) {
-                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
-                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
-                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 // prepared text
-                sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
-                qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
+                // qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt1 using (1237, 120939.11130, 'a    ddd')"""
 
-                sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
-                qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
-                qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
+                // sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %"""
+                // qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
+                // qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
                 tableName = "test_query_cluster_key"
                 sql """DROP TABLE IF EXISTS ${tableName}"""
                 sql """CREATE TABLE ${tableName} (
@@ -254,7 +255,7 @@ suite("test_point_query_cluster_key") {
                     "disable_auto_compaction" = "false"
                     );"""
                 sql """insert into ${tableName} values (0, "1", "2", "3")"""
-                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where customer_key = 0"""
             }
         }
     } finally {

@@ -91,4 +91,9 @@ public class CreateEncryptKeyStmt extends DdlStmt {
                 .append(encryptKeyName.getKeyName()).append(" AS \"").append(keyString).append("\"");
         return stringBuilder.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

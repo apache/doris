@@ -63,9 +63,4 @@ suite("test_predicate_with_implicit_cast") {
 
     // with nereids planner
     q01()
-
-    sql """set enable_nereids_planner=false;"""
-
-    // with legacy planner
-    q01()
 }

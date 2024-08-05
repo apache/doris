@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -34,12 +33,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -239,35 +232,5 @@ public class ExprTest {
         SlotRef srcSlotRef = castExpr.getSrcSlotRef();
         Assert.assertTrue(srcSlotRef != null);
         Assert.assertTrue(srcSlotRef == slotRef);
-    }
-
-    @Test
-    public void testPersist() throws IOException {
-        // 1. Write objects to file
-        File file = new File("./expr_test");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-
-        // cos(1) + (100 / 200)
-        Expr child1 = new IntLiteral(1);
-        Expr functionCall = new FunctionCallExpr("cos", Lists.newArrayList(child1));
-        Expr child21 = new IntLiteral(100);
-        Expr child22 = new IntLiteral(200);
-        Expr arithExpr1 = new ArithmeticExpr(Operator.DIVIDE, child21, child22);
-        Expr arithExpr2 = new ArithmeticExpr(Operator.ADD, functionCall, arithExpr1);
-
-        Expr.writeTo(arithExpr2, dos);
-        dos.flush();
-        dos.close();
-
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        Expr readExpr = Expr.readIn(dis);
-        Assert.assertTrue(readExpr instanceof ArithmeticExpr);
-        Assert.assertEquals("(cos(1) + (100 / 200))", readExpr.toSql());
-
-        // 3. delete files
-        dis.close();
-        file.delete();
     }
 }

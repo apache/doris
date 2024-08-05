@@ -31,12 +31,14 @@ OPTS="$(getopt \
     -o '' \
     -l 'daemon' \
     -l 'console' \
+    -l 'version' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_CONSOLE=0
+RUN_VERSION=0
 while true; do
     case "$1" in
     --daemon)
@@ -45,6 +47,10 @@ while true; do
         ;;
     --console)
         RUN_CONSOLE=1
+        shift
+        ;;
+    --version)
+        RUN_VERSION=1
         shift
         ;;
     --)
@@ -63,6 +69,111 @@ DORIS_HOME="$(
     pwd
 )"
 export DORIS_HOME
+
+# export env variables from be.conf
+#
+# LOG_DIR
+# PID_DIR
+export LOG_DIR="${DORIS_HOME}/log"
+PID_DIR="$(
+    cd "${curdir}"
+    pwd
+)"
+export PID_DIR
+
+# read from be.conf
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
+    fi
+done <"${DORIS_HOME}/conf/be.conf"
+
+STDOUT_LOGGER="${LOG_DIR}/be.out"
+log() {
+    # same datetime format as in fe.log: 2024-06-03 14:54:41,478
+    cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
+    if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+        echo "StdoutLogger ${cur_date} $1"
+    else
+        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
+    fi
+}
+
+jdk_version() {
+    local java_cmd="${1}"
+    local result
+    local IFS=$'\n'
+
+    if ! command -v "${java_cmd}" >/dev/null; then
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${STDOUT_LOGGER}"
+        result=no_java
+        return 1
+    else
+        echo "INFO: java_cmd ${java_cmd}" >>"${STDOUT_LOGGER}"
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
+        echo "INFO: jdk_version ${result}" >>"${STDOUT_LOGGER}"
+    fi
+    echo "${result}"
+    return 0
+}
+
+setup_java_env() {
+    local java_version
+
+    if [[ -z "${JAVA_HOME}" ]]; then
+        return 1
+    fi
+
+    local jvm_arch='amd64'
+    if [[ "$(uname -m)" == 'aarch64' ]]; then
+        jvm_arch='aarch64'
+    fi
+    java_version="$(
+        set -e
+        jdk_version "${JAVA_HOME}/bin/java"
+    )"
+    if [[ "${java_version}" -gt 8 ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${DYLD_LIBRARY_PATH}"
+        fi
+        # JAVA_HOME is jdk
+    elif [[ -d "${JAVA_HOME}/jre" ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/server:${JAVA_HOME}/jre/lib:${DYLD_LIBRARY_PATH}"
+        fi
+        # JAVA_HOME is jre
+    else
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        if [[ "$(uname -s)" == 'Darwin' ]]; then
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${DYLD_LIBRARY_PATH}"
+        fi
+    fi
+}
+
+# prepare jvm if needed
+setup_java_env || true
+
+if [[ "${RUN_VERSION}" -eq 1 ]]; then
+    chmod 755 "${DORIS_HOME}/lib/doris_be"
+    "${DORIS_HOME}"/lib/doris_be --version
+    exit 1
+fi
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
     MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
@@ -140,68 +251,15 @@ export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
-#echo ${DORIS_CLASSPATH}
+# log ${DORIS_CLASSPATH}
 
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
-
-jdk_version() {
-    local java_cmd="${1}"
-    local result
-    local IFS=$'\n'
-
-    if ! command -v "${java_cmd}" >/dev/null; then
-        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
-        result=no_java
-        return 1
-    else
-        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
-        local version
-        # remove \r for Cygwin
-        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
-        version="${version//\"/}"
-        if [[ "${version}" =~ ^1\. ]]; then
-            result="$(echo "${version}" | awk -F '.' '{print $2}')"
-        else
-            result="$(echo "${version}" | awk -F '.' '{print $1}')"
-        fi
-        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
-    fi
-    echo "${result}"
-    return 0
-}
-
-# export env variables from be.conf
-#
-# LOG_DIR
-# PID_DIR
-export LOG_DIR="${DORIS_HOME}/log"
-PID_DIR="$(
-    cd "${curdir}"
-    pwd
-)"
-export PID_DIR
 
 # set odbc conf path
 export ODBCSYSINI="${DORIS_HOME}/conf"
 
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
-
-# filter known leak
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
-export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
-
-while read -r line; do
-    envline="$(echo "${line}" |
-        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
-        sed 's/^[[:blank:]]*//g' |
-        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
-        true)"
-    envline="$(eval "echo ${envline}")"
-    if [[ "${envline}" == *"="* ]]; then
-        eval 'export "${envline}"'
-    fi
-done <"${DORIS_HOME}/conf/be.conf"
 
 if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     # shellcheck disable=1091
@@ -220,7 +278,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -241,7 +299,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_be"
-echo "Start time: $(date)" >>"${LOG_DIR}/be.out"
+log "Start time: $(date)"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
@@ -251,9 +309,13 @@ fi
 
 export AWS_MAX_ATTEMPTS=2
 
+# filter known leak
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
+export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -288,7 +350,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -336,23 +398,29 @@ fi
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 
-# echo "CLASSPATH: ${CLASSPATH}"
-# echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
-# echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
+# log "CLASSPATH: ${CLASSPATH}"
+# log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+# log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
     JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+    export JEMALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
+    export MALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
+    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    else
+        nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null

@@ -42,7 +42,6 @@ namespace doris::io {
             AsyncIO::run_task(task, _type);                 \
         }                                                   \
         if (!_s) {                                          \
-            LOG(WARNING) << _s;                             \
             _s = Status::Error<false>(_s.code(), _s.msg()); \
         }                                                   \
         return _s;                                          \

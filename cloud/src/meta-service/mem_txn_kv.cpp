@@ -27,7 +27,7 @@
 #include <ostream>
 #include <string>
 
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 #include "txn_kv.h"
 
@@ -38,7 +38,7 @@ int MemTxnKv::init() {
 }
 
 TxnErrorCode MemTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
-    auto t = new memkv::Transaction(this->shared_from_this());
+    auto* t = new memkv::Transaction(this->shared_from_this());
     txn->reset(t);
     return TxnErrorCode::TXN_OK;
 }
@@ -218,6 +218,12 @@ int64_t MemTxnKv::get_last_read_version() {
     return read_version_;
 }
 
+std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin, std::string end,
+                                                               FullRangeGetIteratorOptions opts) {
+    return std::make_unique<memkv::FullRangeGetIterator>(std::move(begin), std::move(end),
+                                                         std::move(opts));
+}
+
 } // namespace doris::cloud
 
 namespace doris::cloud::memkv {
@@ -241,6 +247,9 @@ void Transaction::put(std::string_view key, std::string_view val) {
     std::string v(val.data(), val.size());
     writes_.insert_or_assign(k, v);
     op_list_.emplace_back(ModifyOpType::PUT, k, v);
+    ++num_put_keys_;
+    put_bytes_ += key.size() + val.size();
+    approximate_bytes_ += key.size() + val.size();
 }
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
@@ -345,6 +354,10 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     std::string v(val.data(), val.size());
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
+
+    ++num_put_keys_;
+    put_bytes_ += key_prefix.size() + val.size();
+    approximate_bytes_ += key_prefix.size() + val.size();
 }
 
 void Transaction::atomic_set_ver_value(std::string_view key, std::string_view value) {
@@ -353,6 +366,10 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     std::string v(value.data(), value.size());
     unreadable_keys_.insert(k);
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_VAL, k, v);
+
+    ++num_put_keys_;
+    put_bytes_ += key.size() + value.size();
+    approximate_bytes_ += key.size() + value.size();
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {
@@ -361,6 +378,19 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     memcpy(v.data(), &to_add, sizeof(to_add));
     std::lock_guard<std::mutex> l(lock_);
     op_list_.emplace_back(ModifyOpType::ATOMIC_ADD, std::move(k), std::move(v));
+
+    ++num_put_keys_;
+    put_bytes_ += key.size() + 8;
+    approximate_bytes_ += key.size() + 8;
+}
+
+bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
+    if (data.size() != sizeof(int64_t)) {
+        return false;
+    }
+
+    memcpy(val, data.data(), sizeof(*val));
+    return true;
 }
 
 void Transaction::remove(std::string_view key) {
@@ -371,6 +401,10 @@ void Transaction::remove(std::string_view key) {
     end_key.push_back(0x0);
     remove_ranges_.emplace_back(k, end_key);
     op_list_.emplace_back(ModifyOpType::REMOVE, k, "");
+
+    ++num_del_keys_;
+    delete_bytes_ += key.size();
+    approximate_bytes_ += key.size();
 }
 
 void Transaction::remove(std::string_view begin, std::string_view end) {
@@ -387,6 +421,9 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
         remove_ranges_.emplace_back(begin_k, end_k);
         op_list_.emplace_back(ModifyOpType::REMOVE_RANGE, begin_k, end_k);
     }
+    ++num_del_keys_;
+    delete_bytes_ += begin.size() + end.size();
+    approximate_bytes_ += begin.size() + end.size();
 }
 
 TxnErrorCode Transaction::commit() {
@@ -444,6 +481,49 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
     return TxnErrorCode::TXN_OK;
+}
+
+FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
+                                           FullRangeGetIteratorOptions opts)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {}
+
+FullRangeGetIterator::~FullRangeGetIterator() = default;
+
+bool FullRangeGetIterator::has_next() {
+    if (!is_valid_) {
+        return false;
+    }
+
+    if (!inner_iter_) {
+        auto* txn = opts_.txn;
+        if (!txn) {
+            // Create a new txn for each inner range get
+            std::unique_ptr<cloud::Transaction> txn1;
+            TxnErrorCode err = opts_.txn_kv->create_txn(&txn_);
+            if (err != TxnErrorCode::TXN_OK) {
+                is_valid_ = false;
+                return false;
+            }
+
+            txn = txn_.get();
+        }
+
+        TxnErrorCode err = txn->get(begin_, end_, &inner_iter_, opts_.snapshot, 0);
+        if (err != TxnErrorCode::TXN_OK) {
+            is_valid_ = false;
+            return false;
+        }
+    }
+
+    return inner_iter_->has_next();
+}
+
+std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {
+    if (!has_next()) {
+        return std::nullopt;
+    }
+
+    return inner_iter_->next();
 }
 
 } // namespace doris::cloud::memkv

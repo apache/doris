@@ -18,7 +18,6 @@
 package org.apache.doris.common.security.authentication;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,6 +25,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 
+@Deprecated
 public class HadoopUGI {
     private static final Logger LOG = LogManager.getLogger(HadoopUGI.class);
 
@@ -38,66 +38,30 @@ public class HadoopUGI {
         if (config == null || !config.isValid()) {
             return null;
         }
-        UserGroupInformation ugi;
         if (config instanceof KerberosAuthenticationConfig) {
-            KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
-            Configuration hadoopConf = krbConfig.getConf();
-            hadoopConf.set(AuthenticationConfig.HADOOP_KERBEROS_AUTHORIZATION, "true");
-            UserGroupInformation.setConfiguration(hadoopConf);
-            String principal = krbConfig.getKerberosPrincipal();
             try {
-                //  login hadoop with keytab and try checking TGT
-                ugi = UserGroupInformation.getLoginUser();
-                LOG.debug("Current login user: {}", ugi.getUserName());
-                if (ugi.hasKerberosCredentials() && StringUtils.equals(ugi.getUserName(), principal)) {
-                    // if the current user is logged by kerberos and is the same user
-                    // just use checkTGTAndReloginFromKeytab because this method will only relogin
-                    // when the TGT is expired or is close to expiry
-                    ugi.checkTGTAndReloginFromKeytab();
-                    return ugi;
+                // TODO: remove after iceberg and hudi kerberos test case pass
+                try {
+                    //  login hadoop with keytab and try checking TGT
+                    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
+                    LOG.debug("Current login user: {}", ugi.getUserName());
+                    String principal = ((KerberosAuthenticationConfig) config).getKerberosPrincipal();
+                    if (ugi.hasKerberosCredentials() && StringUtils.equals(ugi.getUserName(), principal)) {
+                        // if the current user is logged by kerberos and is the same user
+                        // just use checkTGTAndReloginFromKeytab because this method will only relogin
+                        // when the TGT is expired or is close to expiry
+                        ugi.checkTGTAndReloginFromKeytab();
+                        return ugi;
+                    }
+                } catch (IOException e) {
+                    LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
                 }
-            } catch (IOException e) {
-                LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
-            }
-            try {
-                ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, krbConfig.getKerberosKeytab());
-                UserGroupInformation.setLoginUser(ugi);
-                LOG.debug("Login by kerberos authentication with principal: {}", principal);
-                return ugi;
+                return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config).getUGI();
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         } else {
-            String hadoopUserName = ((SimpleAuthenticationConfig) config).getUsername();
-            if (hadoopUserName == null) {
-                hadoopUserName = "hadoop";
-                LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
-            }
-            ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-            UserGroupInformation.setLoginUser(ugi);
-            LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
-            return ugi;
-        }
-    }
-
-    /**
-     * use for HMSExternalCatalog to login
-     * @param config auth config
-     */
-    public static void tryKrbLogin(String catalogName, AuthenticationConfig config) {
-        if (config instanceof KerberosAuthenticationConfig) {
-            KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
-            try {
-                /**
-                 * Because metastore client is created by using
-                 * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
-                 * it will relogin when TGT is expired, so we don't need to relogin manually.
-                 */
-                UserGroupInformation.loginUserFromKeytab(krbConfig.getKerberosPrincipal(),
-                        krbConfig.getKerberosKeytab());
-            } catch (IOException e) {
-                throw new RuntimeException("login with kerberos auth failed for catalog: " + catalogName, e);
-            }
+            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config).getUGI();
         }
     }
 
@@ -105,7 +69,9 @@ public class HadoopUGI {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {
             if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
+                if (authConf instanceof KerberosAuthenticationConfig) {
+                    ugi.checkTGTAndReloginFromKeytab();
+                }
                 return ugi.doAs(action);
             } else {
                 return action.run();

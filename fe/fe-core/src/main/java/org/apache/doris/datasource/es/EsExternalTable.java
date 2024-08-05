@@ -20,11 +20,13 @@ package org.apache.doris.datasource.es;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Elasticsearch external table.
@@ -69,9 +71,11 @@ public class EsExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         EsRestClient restClient = ((EsExternalCatalog) catalog).getEsRestClient();
-        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId());
+        return Optional.of(new SchemaCacheValue(
+                EsUtil.genColumnsFromEs(restClient, name, null,
+                        ((EsExternalCatalog) catalog).enableMappingEsId())));
     }
 
     private EsTable toEsTable() {

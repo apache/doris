@@ -18,14 +18,15 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.planner.Planner;
 
-import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class PrepareStmtContext {
-    public PrepareStmt stmt;
+    private static final Logger LOG = LogManager.getLogger(PrepareStmtContext.class);
+    public StatementBase stmt;
     public ConnectContext ctx;
     public Planner planner;
     public Analyzer analyzer;
@@ -34,15 +35,11 @@ public class PrepareStmtContext {
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
 
-    public PrepareStmtContext(PrepareStmt stmt, ConnectContext ctx, Planner planner,
+    public PrepareStmtContext(StatementBase stmt, ConnectContext ctx, Planner planner,
                                     Analyzer analyzer, String stmtString) {
         this.stmt = stmt;
         this.ctx = ctx;
         this.planner = planner;
-        // Only support OriginalPlanner for now
-        if (planner != null) {
-            Preconditions.checkState(planner instanceof OriginalPlanner);
-        }
         this.analyzer = analyzer;
         this.stmtString = stmtString;
     }

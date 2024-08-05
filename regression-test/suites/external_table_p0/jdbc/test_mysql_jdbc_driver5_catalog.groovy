@@ -180,7 +180,6 @@ suite("test_mysql_jdbc_driver5_catalog", "p0,external,mysql,external_docker,exte
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
             order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
-            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
             explain {
                 sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
                 contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""

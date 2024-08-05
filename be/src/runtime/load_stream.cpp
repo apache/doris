@@ -30,6 +30,7 @@
 #include <memory>
 #include <sstream>
 
+#include "bvar/bvar.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
@@ -39,6 +40,7 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
@@ -48,6 +50,7 @@
 
 namespace doris {
 
+bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
@@ -82,6 +85,7 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
             .load_id = _load_id,
             .table_schema_param = schema,
             // TODO(plat1ko): write_file_cache
+            .storage_vault_id {},
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
@@ -134,15 +138,23 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     // Each sender sends data in one segment sequential, so we also do not
     // need a lock here.
     bool eos = header.segment_eos();
+    FileType file_type = header.file_type();
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto flush_func = [this, new_segid, eos, buf, header]() {
+    auto flush_func = [this, new_segid, eos, buf, header, file_type]() {
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
-        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (eos && st.ok()) {
-            st = _load_stream_writer->close_segment(new_segid);
+            if (file_type == FileType::SEGMENT_FILE || file_type == FileType::INVERTED_INDEX_FILE) {
+                st = _load_stream_writer->close_writer(new_segid, file_type);
+            } else {
+                st = Status::InternalError(
+                        "appent data failed, file type error, file type = {}, "
+                        "segment_id={}",
+                        file_type, new_segid);
+            }
         }
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);
@@ -242,6 +254,11 @@ Status TabletStream::close() {
     if (!_failed_st->ok()) {
         return *_failed_st;
     }
+    if (_next_segid.load() != _num_segments) {
+        return Status::Corruption(
+                "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
+                _num_segments, _next_segid.load(), print_id(_load_id));
+    }
 
     Status st = Status::OK();
     auto close_func = [this, &mu, &cv, &st]() {
@@ -305,11 +322,17 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
     for (const auto& tablet : tablets_to_commit) {
+        if (_id != tablet.index_id()) {
+            continue;
+        }
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
-        if (it == _tablet_streams_map.end() && _id == tablet.index_id()) {
+        if (it == _tablet_streams_map.end()) {
             RETURN_IF_ERROR(
                     _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id()));
+            tablet_stream->add_num_segments(tablet.num_segments());
+        } else {
+            it->second->add_num_segments(tablet.num_segments());
         }
     }
 
@@ -330,15 +353,17 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
 // 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
         : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
+    g_load_stream_cnt << 1;
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid);
+            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
     if (query_context != nullptr) {
-        _query_thread_context = {load_tid, query_context->query_mem_tracker};
+        _query_thread_context = {load_tid, query_context->query_mem_tracker,
+                                 query_context->workload_group()};
     } else {
         _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
                                                    MemTrackerLimiter::Type::LOAD,
@@ -354,13 +379,14 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
 }
 
 LoadStream::~LoadStream() {
+    g_load_stream_cnt << -1;
     LOG(INFO) << "load stream is deconstructed " << *this;
 }
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
     _total_streams = request->total_streams();
-    DCHECK(_total_streams > 0) << "total streams should be greator than 0";
+    _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));

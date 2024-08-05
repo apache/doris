@@ -21,6 +21,7 @@ suite("q12") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
     sql 'set parallel_pipeline_task_num=8'
@@ -31,6 +32,8 @@ suite("q12") {
 sql 'set forbid_unknown_col_stats=false;'
 sql 'set enable_runtime_filter_prune=true'
 sql 'set enable_stats=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     qt_select """
     explain shape plan
     select 

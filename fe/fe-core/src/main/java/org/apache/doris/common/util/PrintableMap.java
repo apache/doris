@@ -55,8 +55,15 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
-        SENSITIVE_KEY.addAll(Arrays.asList(S3Properties.SECRET_KEY, ObsProperties.SECRET_KEY, OssProperties.SECRET_KEY,
-                GCSProperties.SECRET_KEY, CosProperties.SECRET_KEY, GlueProperties.SECRET_KEY, MCProperties.SECRET_KEY,
+        SENSITIVE_KEY.addAll(Arrays.asList(
+                S3Properties.SECRET_KEY,
+                S3Properties.Env.SECRET_KEY,
+                ObsProperties.SECRET_KEY,
+                OssProperties.SECRET_KEY,
+                GCSProperties.SECRET_KEY,
+                CosProperties.SECRET_KEY,
+                GlueProperties.SECRET_KEY,
+                MCProperties.SECRET_KEY,
                 DLFProperties.SECRET_KEY));
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);

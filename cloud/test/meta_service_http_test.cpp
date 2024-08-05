@@ -36,8 +36,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
@@ -94,16 +94,20 @@ public:
     HttpContext(bool mock_resource_mgr = false)
             : meta_service_(get_meta_service(mock_resource_mgr)) {
         auto sp = SyncPoint::get_instance();
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                          [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-        sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-        sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                          [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-        sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                          [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* key = try_any_cast<std::string*>(args[0]);
+            *key = "test";
+            auto* ret = try_any_cast<int*>(args[1]);
+            *ret = 0;
+        });
         sp->enable_processing();
 
         brpc::ServerOptions options;
@@ -596,6 +600,8 @@ TEST(MetaServiceHttpTest, InstanceTestWithVersion) {
 }
 
 TEST(MetaServiceHttpTest, AlterClusterTest) {
+    config::enable_cluster_name_check = true;
+
     HttpContext ctx;
     {
         CreateInstanceRequest req;
@@ -625,6 +631,71 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         req.mutable_cluster()->set_cluster_name(mock_cluster_name);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("中文not-support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name("   ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support  ");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(" not_support");
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
@@ -883,18 +954,25 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     config::arn_id = "iam_arn";

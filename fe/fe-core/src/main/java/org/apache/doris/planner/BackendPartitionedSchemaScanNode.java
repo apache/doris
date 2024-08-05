@@ -55,10 +55,17 @@ import java.util.Set;
 public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
     public static final Set<String> BACKEND_TABLE = new HashSet<>();
+    // NOTE: when add a new schema table for BackendPartitionedSchemaScanNode,
+    // you need to the table's backend column id name to BACKEND_ID_COLUMN_SET
+    // it's used to backend pruner, see computePartitionInfo;
+    public static final Set<String> BEACKEND_ID_COLUMN_SET = new HashSet<>();
 
     static {
         BACKEND_TABLE.add("rowsets");
+        BEACKEND_ID_COLUMN_SET.add("backend_id");
+
         BACKEND_TABLE.add("backend_active_tasks");
+        BEACKEND_ID_COLUMN_SET.add("be_id");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -113,7 +120,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         scanRangeLocations = new ArrayList<>();
         for (Long partitionID : selectedPartitionIds) {
             Long backendId = partitionIDToBackendID.get(partitionID);
-            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
             if (!be.isAlive()) {
                 throw new AnalysisException("backend " + be.getId() + " is not alive.");
             }
@@ -127,10 +134,10 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         }
     }
 
-    private void computePartitionInfo() throws AnalysisException {
+    private void computePartitionInfo() throws UserException {
         List<Column> partitionColumns = new ArrayList<>();
         for (SlotDescriptor slotDesc : desc.getSlots()) {
-            if ("BACKEND_ID".equalsIgnoreCase(slotDesc.getColumn().getName())) {
+            if (BEACKEND_ID_COLUMN_SET.contains(slotDesc.getColumn().getName().toLowerCase())) {
                 partitionColumns.add(slotDesc.getColumn());
                 break;
             }
@@ -148,11 +155,11 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
      * @param partitionColumns The Columns we want to create partitionInfo
      * @throws AnalysisException
      */
-    private void createPartitionInfo(List<Column> partitionColumns) throws AnalysisException {
+    private void createPartitionInfo(List<Column> partitionColumns) throws UserException {
         backendPartitionInfo = new PartitionInfo(PartitionType.LIST, partitionColumns);
         partitionIDToBackendID = new HashMap<>();
         long partitionID = 0;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 // create partition key
                 PartitionKey partitionKey = new PartitionKey();

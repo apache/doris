@@ -393,8 +393,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        order_qt_q06 """ select * from all_types_${format_compression};
-        """
     }
 
     def q02 = { String format_compression, String catalog_name ->
@@ -444,9 +442,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        order_qt_q05 """
-        select * from all_types_${format_compression};
-        """
     }
     def q03 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q03; """)
@@ -880,11 +875,17 @@ INSERT INTO all_types_par_${format_compression}_${catalog_name}_q03
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        setHivePrefix(hivePrefix)
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-            String catalog_name = "test_hive_write_insert"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String catalog_name = "test_${hivePrefix}_write_insert"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""

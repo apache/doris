@@ -147,13 +147,13 @@ public:
     ::doris::TTableType::type table_type() const { return _table_type; }
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
-    int32_t table_id() const { return _table_id; }
+    int64_t table_id() const { return _table_id; }
 
 private:
     ::doris::TTableType::type _table_type;
     std::string _name;
     std::string _database;
-    int32_t _table_id;
+    int64_t _table_id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -437,8 +437,6 @@ public:
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
-        _num_materialized_slots = 0;
-        _num_slots = 0;
         auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
@@ -500,10 +498,10 @@ private:
     std::vector<int> _tuple_idx_map;
 
     // Provide quick way to check if there are variable length slots.
-    bool _has_varlen_slots;
+    bool _has_varlen_slots = false;
 
-    int _num_materialized_slots;
-    int _num_slots;
+    int _num_materialized_slots = 0;
+    int _num_slots = 0;
 };
 
 } // namespace doris

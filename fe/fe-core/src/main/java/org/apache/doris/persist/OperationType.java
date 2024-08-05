@@ -56,13 +56,20 @@ public class OperationType {
     public static final short OP_REPLACE_TABLE = 212;
 
     // 20~29 120~129 220~229 ...
+    @Deprecated
     public static final short OP_START_ROLLUP = 20;
+    @Deprecated
     public static final short OP_FINISH_ROLLUP = 21;
+    @Deprecated
     public static final short OP_CANCEL_ROLLUP = 23;
     public static final short OP_DROP_ROLLUP = 24;
+    @Deprecated
     public static final short OP_START_SCHEMA_CHANGE = 25;
+    @Deprecated
     public static final short OP_FINISH_SCHEMA_CHANGE = 26;
+    @Deprecated
     public static final short OP_CANCEL_SCHEMA_CHANGE = 27;
+    @Deprecated
     public static final short OP_CLEAR_ROLLUP_INFO = 28;
     public static final short OP_FINISH_CONSISTENCY_CHECK = 29;
     public static final short OP_RENAME_ROLLUP = 120;
@@ -83,11 +90,17 @@ public class OperationType {
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
+    @Deprecated
     public static final short OP_LOAD_START = 30;
+    @Deprecated
     public static final short OP_LOAD_ETL = 31;
+    @Deprecated
     public static final short OP_LOAD_LOADING = 32;
+    @Deprecated
     public static final short OP_LOAD_QUORUM = 33;
+    @Deprecated
     public static final short OP_LOAD_DONE = 34;
+    @Deprecated
     public static final short OP_LOAD_CANCEL = 35;
     public static final short OP_EXPORT_CREATE = 36;
     public static final short OP_EXPORT_UPDATE_STATE = 37;
@@ -115,6 +128,7 @@ public class OperationType {
     public static final short OP_ADD_FRONTEND = 55;
     public static final short OP_ADD_FIRST_FRONTEND = 56;
     public static final short OP_REMOVE_FRONTEND = 57;
+    @Deprecated
     public static final short OP_SET_LOAD_ERROR_HUB = 58;
     public static final short OP_HEARTBEAT = 59;
     public static final short OP_CREATE_USER = 62;
@@ -136,19 +150,28 @@ public class OperationType {
     @Deprecated
     // remove be removed in 3.0
     public static final short OP_CREATE_CLUSTER = 74;
+    @Deprecated
     public static final short OP_DROP_CLUSTER = 75;
+    @Deprecated
     public static final short OP_EXPAND_CLUSTER = 76;
+    @Deprecated
     public static final short OP_MIGRATE_CLUSTER = 77;
+    @Deprecated
     public static final short OP_LINK_CLUSTER = 78;
+    @Deprecated
     public static final short OP_ENTER_CLUSTER = 79;
+    @Deprecated
     public static final short OP_SHOW_CLUSTERS = 80;
+    @Deprecated
     public static final short OP_UPDATE_DB = 82;
+    @Deprecated
     public static final short OP_DROP_LINKDB = 83;
     public static final short OP_GLOBAL_VARIABLE_V2 = 84;
 
     public static final short OP_ADD_BROKER = 85;
     public static final short OP_DROP_BROKER = 86;
     public static final short OP_DROP_ALL_BROKER = 87;
+    @Deprecated
     public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
@@ -169,7 +192,9 @@ public class OperationType {
     @Deprecated
     // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
+    @Deprecated
     public static final short OP_FINISHING_ROLLUP = 102;
+    @Deprecated
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
     @Deprecated
@@ -178,6 +203,7 @@ public class OperationType {
     public static final short OP_BATCH_REMOVE_TXNS_V2 = 106;
 
     // routine load 110~120
+    @Deprecated
     public static final short OP_ROUTINE_LOAD_JOB = 110;
     public static final short OP_ALTER_ROUTINE_LOAD_JOB = 111;
 
@@ -265,6 +291,7 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
     public static final short OP_INIT_CATALOG = 325;
+    public static final short OP_INIT_CATALOG_COMP = 10325; // compatible with old cloud code.
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
@@ -307,6 +334,7 @@ public class OperationType {
     // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
     public static final short OP_COOLDOWN_DELETE = 402;
+    @Deprecated
     public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
 
     // workload group 410 ~ 419
@@ -325,6 +353,7 @@ public class OperationType {
 
     public static final short OP_CREATE_ANALYSIS_TASK = 430;
 
+    @Deprecated
     public static final short OP_DELETE_ANALYSIS_TASK = 431;
 
     public static final short OP_CREATE_ANALYSIS_JOB = 432;
@@ -386,6 +415,7 @@ public class OperationType {
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
+    @Deprecated
     public static final short OP_MODIFY_TTL_SECONDS = 1001;
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
 

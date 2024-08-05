@@ -39,7 +39,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "schema_desc.h"
-#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -124,12 +123,17 @@ Status RowGroupReader::init(
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
-    for (auto& read_col : _read_columns) {
-        auto field = const_cast<FieldSchema*>(schema.get_column(read_col));
+    for (const auto& read_col : _read_columns) {
+        auto* field = const_cast<FieldSchema*>(schema.get_column(read_col));
+        auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
+        // TODO : support rested column types
+        const tparquet::OffsetIndex* offset_index =
+                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
+                                                                      : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size));
+                                                    max_buf_size, offset_index));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -170,6 +174,10 @@ Status RowGroupReader::init(
             }
         }
     }
+    //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+    _filter_conjuncts.insert(_filter_conjuncts.end(),
+                             _lazy_read_ctx.missing_columns_conjuncts.begin(),
+                             _lazy_read_ctx.missing_columns_conjuncts.end());
     RETURN_IF_ERROR(_rewrite_dict_predicates());
     return Status::OK();
 }
@@ -199,20 +207,19 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
         return false;
     }
 
-    // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
     std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
+        // TODO: The current implementation of dictionary filtering does not take into account
+        //  the implementation of NULL values because the dictionary itself does not contain
+        //  NULL value encoding. As a result, many NULL-related functions or expressions
+        //  cannot work properly, such as is null, is not null, coalesce, etc.
+        //  Here we first disable dictionary filtering when predicate contains functions.
+        //  Implementation of NULL value dictionary filtering will be carried out later.
         if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
-            std::string is_null_str;
-            std::string function_name = expr->fn().name.function_name;
-            if (function_name.compare("is_null_pred") == 0 ||
-                function_name.compare("is_not_null_pred") == 0) {
+            return false;
+        }
+        for (auto& child : expr->children()) {
+            if (!visit_function_call(child.get())) {
                 return false;
-            }
-        } else {
-            for (auto& child : expr->children()) {
-                if (!visit_function_call(child.get())) {
-                    return false;
-                }
             }
         }
         return true;
@@ -624,13 +631,10 @@ Status RowGroupReader::_fill_partition_columns(
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -879,7 +883,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
 
         // 4. Rewrite conjuncts.
-        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
+        RETURN_IF_ERROR(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();
@@ -908,7 +912,6 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
             texpr_node.__set_opcode(TExprOpcode::EQ);
             texpr_node.__set_fn(fn);
-            texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
             root = VectorizedFnCall::create_shared(texpr_node);

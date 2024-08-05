@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -199,6 +201,14 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         if (targetTable.isPartitionDistributed()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
             if (distributionInfo instanceof HashDistributionInfo) {
+                // Do not enable shuffle for duplicate key tables when its tablet num is less than threshold.
+                if (targetTable.getKeysType() == KeysType.DUP_KEYS) {
+                    final long partitionNums = targetTable.getPartitionInfo().getAllPartitions().size();
+                    final long tabletNums = partitionNums * distributionInfo.getBucketNum();
+                    if (tabletNums < Config.min_tablets_for_dup_table_shuffle) {
+                        return PhysicalProperties.ANY;
+                    }
+                }
                 return PhysicalProperties.TABLET_ID_SHUFFLE;
             } else if (distributionInfo instanceof RandomDistributionInfo) {
                 return PhysicalProperties.ANY;

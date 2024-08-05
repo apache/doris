@@ -97,7 +97,7 @@ suite("test_outfile_orc_timestamp", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_tvf1 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
                             "ACCESS_KEY"= "${ak}",
                             "SECRET_KEY" = "${sk}",
                             "format" = "orc",

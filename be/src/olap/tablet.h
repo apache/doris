@@ -110,6 +110,8 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
+    const std::string& tablet_path() const { return _tablet_path; }
+
     bool set_tablet_schema_into_rowset_meta();
     Status init();
     bool init_succeeded();
@@ -190,6 +192,13 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
+
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
@@ -249,11 +258,15 @@ public:
         _last_base_compaction_schedule_millis = millis;
     }
 
+    void set_last_single_compaction_failure_status(std::string status) {
+        _last_single_compaction_failure_status = std::move(status);
+    }
+
+    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    bool check_path(const std::string& check_path) const;
 
     TabletInfo get_tablet_info() const;
 
@@ -261,13 +274,11 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
-            const std::set<int32_t>& alter_index_uids, bool is_drop_op);
+            const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
     // used for single compaction to get the local versions
     // Single compaction does not require remote rowsets and cannot violate the cooldown semantics
     std::vector<Version> get_all_local_versions();
-
-    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -310,6 +321,14 @@ public:
     }
 
     std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
+
+    void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
+        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+    }
+
+    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -402,18 +421,6 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
-                          bool include_stale = false) {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
-            visitor(rs);
-        }
-    }
-
     std::vector<std::string> get_binlog_filepath(std::string_view binlog_version) const;
     std::pair<std::string, int64_t> get_binlog_info(std::string_view binlog_version) const;
     std::string get_rowset_binlog_meta(std::string_view binlog_version,
@@ -459,6 +466,12 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
+    void set_is_full_compaction_running(bool is_full_compaction_running) {
+        _is_full_compaction_running = is_full_compaction_running;
+    }
+    inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
+    void clear_cache() override;
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -478,6 +491,9 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
 
+    std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
+                                                                     int64_t max_start_version);
+
     void _init_context_common_fields(RowsetWriterContext& context);
 
     ////////////////////////////////////////////////////////////////////////////
@@ -485,7 +501,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(RowsetSharedPtr rowset);
     Status _follow_cooldowned_data();
-    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+    Status _read_cooldown_meta(const StorageResource& storage_resource,
                                TabletMetaPB* tablet_meta_pb);
     bool _has_data_to_cooldown();
     int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
@@ -493,12 +509,16 @@ private:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
+    void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
+
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
     StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
+
+    std::string _tablet_path;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
@@ -538,6 +558,10 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
     std::string _last_base_compaction_status;
 
+    // single replica compaction status
+    std::string _last_single_compaction_failure_status;
+    Version _last_fetched_version;
+
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
@@ -569,6 +593,11 @@ private:
     std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
+
+    // partition's visible version. it sync from fe, but not real-time.
+    std::shared_ptr<const VersionWithTime> _visible_version;
+
+    std::atomic_bool _is_full_compaction_running = false;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

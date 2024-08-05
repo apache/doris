@@ -22,23 +22,13 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
-#include "vec/exec/vexchange_node.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, SourceOperator)
-
-bool ExchangeSourceOperator::can_read() {
-    return _node->_stream_recvr->ready_to_read();
-}
-
-bool ExchangeSourceOperator::is_pending_finish() const {
-    return false;
-}
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
@@ -81,7 +71,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                            "SHUFFLE_DATA_DEPENDENCY", state->get_query_ctx());
+                                            "SHUFFLE_DATA_DEPENDENCY");
         queues[i]->set_dependency(deps[i]);
         metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
@@ -94,9 +84,10 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-
-    RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
-            state, vsort_exec_exprs));
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    if (p.is_merging()) {
+        RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, vsort_exec_exprs));
+    }
     return Status::OK();
 }
 
@@ -149,6 +140,11 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
     auto& local_state = get_local_state(state);
+    Defer is_eos([&]() {
+        if (*eos) {
+            local_state.stream_recvr->set_sink_dep_always_ready();
+        }
+    });
     SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(

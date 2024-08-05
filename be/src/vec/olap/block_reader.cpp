@@ -164,9 +164,9 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-void BlockReader::_init_agg_state(const ReaderParams& read_params) {
+Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     if (_eof) {
-        return;
+        return Status::OK();
     }
 
     _stored_data_columns =
@@ -182,7 +182,14 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         AggregateFunctionPtr function =
                 column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
 
-        DCHECK(function != nullptr);
+        // to avoid coredump when something goes wrong(i.e. column missmatch)
+        if (!function) {
+            return Status::InternalError(
+                    "Failed to init reader when init agg state: "
+                    "tablet_id: {}, schema_hash: {}, reader_type: {}, version: {}",
+                    read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
+                    int(read_params.reader_type), read_params.version.to_string());
+        }
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
@@ -195,6 +202,8 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         // calculate `_has_variable_length_tag` tag. like string, array, map
         _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
+
+    return Status::OK();
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
@@ -247,7 +256,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
-        _init_agg_state(read_params);
+        RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
@@ -368,8 +377,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < _reader_context.batch_size);
 
-    // do filter delete row in base compaction, only base compaction need to do the job
-    if (_filter_delete) {
+    if (_delete_sign_available) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {

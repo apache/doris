@@ -5,34 +5,30 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF4 ss_store_sk->[s_store_sk]
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF4 s_store_sk->[ss_store_sk]
 ------------PhysicalProject
---------------PhysicalOlapScan[store] apply RFs: RF4
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)) otherCondition=((((household_demographics.hd_dep_count = 1) AND ((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College')) AND ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) OR (((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree')) AND ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))))) OR ((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) AND ((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00))) AND (household_demographics.hd_dep_count = 3)))) build RFs:RF3 ss_cdemo_sk->[cd_demo_sk]
-------------------PhysicalProject
---------------------filter(((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree'))))
-----------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
-------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)) otherCondition=((((household_demographics.hd_dep_count = 1) AND ((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College')) AND ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) OR (((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree')) AND ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))))) OR ((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) AND ((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00))) AND (household_demographics.hd_dep_count = 3)))) build RFs:RF3 ss_cdemo_sk->[cd_demo_sk]
+----------------PhysicalProject
+------------------filter(((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree'))))
+--------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=((((ca_state IN ('KS', 'MI', 'SD') AND ((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00))) OR (ca_state IN ('CO', 'MO', 'ND') AND ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00)))) OR (ca_state IN ('NH', 'OH', 'TX') AND ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00))))) build RFs:RF0 ca_address_sk->[ss_addr_sk]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------filter((store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('CO', 'KS', 'MI', 'MO', 'ND', 'NH', 'OH', 'SD', 'TX'))
-----------------------------------PhysicalOlapScan[customer_address]
---------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=((((ca_state IN ('KS', 'MI', 'SD') AND ((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00))) OR (ca_state IN ('CO', 'MO', 'ND') AND ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00)))) OR (ca_state IN ('NH', 'OH', 'TX') AND ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00))))) build RFs:RF0 ca_address_sk->[ss_addr_sk]
 ----------------------------PhysicalProject
-------------------------------filter((date_dim.d_year = 2001))
---------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------PhysicalProject
-----------------------------filter(hd_dep_count IN (1, 3))
-------------------------------PhysicalOlapScan[household_demographics]
+------------------------------filter((store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
+--------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF4
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('CO', 'KS', 'MI', 'MO', 'ND', 'NH', 'OH', 'SD', 'TX'))
+--------------------------------PhysicalOlapScan[customer_address]
+------------------------PhysicalProject
+--------------------------filter((date_dim.d_year = 2001))
+----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalProject
+----------------------filter(hd_dep_count IN (1, 3))
+------------------------PhysicalOlapScan[household_demographics]
+------------PhysicalProject
+--------------PhysicalOlapScan[store]
 

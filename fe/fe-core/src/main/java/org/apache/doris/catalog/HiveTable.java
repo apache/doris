@@ -29,9 +29,10 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
@@ -48,8 +49,11 @@ public class HiveTable extends Table {
     private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s')"
             + " is illegal or not supported. Please check it";
 
+    @SerializedName("hdb")
     private String hiveDb;
+    @SerializedName("ht")
     private String hiveTable;
+    @SerializedName("hp")
     private Map<String, String> hiveProperties = Maps.newHashMap();
 
     public static final String HIVE_DB = "database";
@@ -116,16 +120,16 @@ public class HiveTable extends Table {
         }
 
         // check auth type
-        String authType = copiedProps.get(AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION);
+        String authType = copiedProps.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
         if (Strings.isNullOrEmpty(authType)) {
             authType = AuthType.SIMPLE.getDesc();
         }
         if (!AuthType.isSupportedAuthType(authType)) {
             throw new DdlException(String.format(PROPERTY_ERROR_MSG,
-                    AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, authType));
+                CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType));
         }
-        copiedProps.remove(AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION);
-        hiveProperties.put(AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, authType);
+        copiedProps.remove(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
+        hiveProperties.put(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType);
 
         if (AuthType.KERBEROS.getDesc().equals(authType)) {
             // check principal
@@ -171,19 +175,7 @@ public class HiveTable extends Table {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, hiveDb);
-        Text.writeString(out, hiveTable);
-        out.writeInt(hiveProperties.size());
-        for (Map.Entry<String, String> entry : hiveProperties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

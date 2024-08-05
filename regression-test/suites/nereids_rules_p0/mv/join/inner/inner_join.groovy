@@ -18,11 +18,7 @@
 suite("inner_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders
@@ -355,13 +351,19 @@ suite("inner_join") {
 
 
     // filter outside + left + right
-    def mv4_0 = "select l_linenumber, o_custkey, o_orderkey, o_orderstatus " +
-            "from lineitem " +
-            "inner join orders on lineitem.l_orderkey = orders.o_orderkey "
-    def query4_0 = "select lineitem.l_linenumber " +
-            "from lineitem " +
-            "inner join orders on lineitem.l_orderkey = orders.o_orderkey " +
-            "where o_orderstatus = 'o' AND l_linenumber in (1, 2, 3, 4, 5) "
+    def mv4_0 =
+            """
+            select l_linenumber, o_custkey, o_orderkey, o_orderstatus
+            from lineitem
+            inner join orders on lineitem.l_orderkey = orders.o_orderkey
+            """
+    def query4_0 =
+            """
+            select lineitem.l_linenumber
+            from lineitem
+            inner join orders on lineitem.l_orderkey = orders.o_orderkey
+            where o_orderstatus = 'o' AND l_linenumber in (1, 2, 3, 4, 5)
+            """
     order_qt_query4_0_before "${query4_0}"
     check_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
     order_qt_query4_0_after "${query4_0}"

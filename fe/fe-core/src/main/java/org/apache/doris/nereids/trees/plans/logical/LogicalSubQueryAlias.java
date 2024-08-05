@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -31,7 +30,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
@@ -164,31 +162,47 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> outputs = getOutput();
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replaceUniqueBy(replaceMap);
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> outputs = getOutput();
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replaceUniformBy(replaceMap);
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        // TODO: inherit from child with replaceMap
-        return ImmutableSet.of();
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        builder.replaceEqualSetBy(replaceMap);
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        builder.replaceFuncDepsBy(replaceMap);
     }
 
     public void setRelationId(RelationId relationId) {

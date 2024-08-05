@@ -19,11 +19,14 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -33,11 +36,12 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -65,11 +69,14 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        List<Pair<String, String>> columnList = info.jobColumns;
-        if (StatisticsUtil.isEmptyTable(tbl, info.analysisMethod) || columnList == null || columnList.isEmpty()) {
+        if (killed) {
+            return;
+        }
+        // For empty table, write empty result directly, no need to run SQL to collect stats.
+        if (info.rowCount == 0 && tableSample != null) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
-            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
+            job.appendBuf(this, Collections.singletonList(new ColStatsData(statsId)));
             return;
         }
         if (tableSample != null) {
@@ -84,7 +91,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 2. estimate partition stats
      * 3. insert col stats and partition stats
      */
-    protected void doSample() throws Exception {
+    @Override
+    protected void doSample() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
@@ -97,7 +105,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
-            LOG.warn("Scale factor is infinite or Nan, will set scale factor to 1.");
+            LOG.debug("Scale factor is infinite or Nan, will set scale factor to 1.");
             scaleFactor = 1;
             tabletIds = Collections.emptyList();
             pair.second = totalRowCount;
@@ -116,19 +124,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
-            Map<String, String> params = new HashMap<>();
-            params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-            params.put("catalogId", String.valueOf(catalog.getId()));
-            params.put("catalogName", catalog.getName());
-            params.put("dbId", String.valueOf(db.getId()));
-            params.put("tblId", String.valueOf(tbl.getId()));
-            params.put("idxId", String.valueOf(info.indexId));
-            params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
-            params.put("dataSizeFunction", getDataSizeFunction(col, false));
-            params.put("dbName", db.getFullName());
-            params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-            params.put("tblName", tbl.getName());
+            Map<String, String> params = buildSqlParams();
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
@@ -137,7 +133,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("rowCount", String.valueOf(totalRowCount));
             params.put("type", col.getType().toString());
             params.put("limit", "");
-            params.put("index", getIndex());
             if (needLimit()) {
                 // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
                 // the scaleFactor.
@@ -186,11 +181,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return null;
         }
         long startTime = System.currentTimeMillis();
-        Map<String, String> params = new HashMap<>();
-        params.put("dbName", db.getFullName());
-        params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
-        params.put("tblName", tbl.getName());
-        params.put("index", getIndex());
+        Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
         stmtExecutor = new StmtExecutor(context.connectContext, sql);
@@ -204,18 +195,71 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return resultRow;
     }
 
-    /**
-     * 1. Get stats of each partition
-     * 2. insert partition in batch
-     * 3. calculate column stats based on partition stats
-     */
     protected void doFull() throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
         }
+        if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
+            doPartitionTable();
+        } else {
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(buildSqlParams());
+            runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+        }
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
+        TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
+        if (tableStats == null) {
+            return;
+        }
+        OlapTable table = (OlapTable) tbl;
+        String indexName = info.indexId == -1 ? table.getName() : table.getIndexNameById(info.indexId);
+        ColStatsMeta columnStats = tableStats.findColumnStatsMeta(indexName, info.colName);
+        if (columnStats == null || columnStats.partitionUpdateRows == null
+                || columnStats.partitionUpdateRows.isEmpty()) {
+            return;
+        }
+        // When a partition was dropped, partitionChanged will be set to true.
+        // So we don't need to check dropped partition if partitionChanged is false.
+        if (!tableStats.partitionChanged.get()
+                && columnStats.partitionUpdateRows.size() == table.getPartitions().size()) {
+            return;
+        }
+        Set<Long> expiredPartition = Sets.newHashSet();
+        String columnCondition = "AND col_id = " + StatisticsUtil.quote(col.getName());
+        for (long partId : columnStats.partitionUpdateRows.keySet()) {
+            Partition partition = table.getPartition(partId);
+            if (partition == null) {
+                columnStats.partitionUpdateRows.remove(partId);
+                tableStats.partitionUpdateRows.remove(partId);
+                jobInfo.partitionUpdateRows.remove(partId);
+                expiredPartition.add(partId);
+                if (expiredPartition.size() == Config.max_allowed_in_element_num_of_delete) {
+                    String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";
+                    StatisticsRepository.dropPartitionsColumnStatistics(info.catalogId, info.dbId, info.tblId,
+                            columnCondition, partitionCondition);
+                    expiredPartition.clear();
+                }
+            }
+        }
+        if (expiredPartition.size() > 0) {
+            String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";
+            StatisticsRepository.dropPartitionsColumnStatistics(info.catalogId, info.dbId, info.tblId,
+                    columnCondition, partitionCondition);
+        }
+    }
+
+    @Override
+    protected String getPartitionInfo(String partitionName) {
+        return "partition " + partitionName;
+    }
+
+    @Override
+    protected Map<String, String> buildSqlParams() {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
@@ -227,9 +271,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
-        runQuery(collectColStats);
+        return params;
     }
 
     protected String getIndex() {
@@ -316,10 +358,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return false;
         }
         // Partition column need to scan tablets from all partitions.
-        if (tbl.isPartitionColumn(col.getName())) {
-            return false;
-        }
-        return true;
+        return !tbl.isPartitionColumn(col.getName());
     }
 
     /**
@@ -382,12 +421,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected String concatColumnStatsId() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append(info.tblId);
-        stringBuilder.append("-");
-        stringBuilder.append(info.indexId);
-        stringBuilder.append("-");
-        stringBuilder.append(info.colName);
-        return stringBuilder.toString();
+        return info.tblId + "-" + info.indexId + "-" + info.colName;
     }
 }

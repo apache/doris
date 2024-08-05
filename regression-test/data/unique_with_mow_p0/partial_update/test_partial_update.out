@@ -47,6 +47,9 @@
 -- !select_date2 --
 2
 
+-- !select_update --
+B
+
 -- !select_default --
 1	doris	200	123	1
 2	doris2	400	223	1
@@ -94,4 +97,7 @@
 
 -- !select_date2 --
 2
+
+-- !select_update --
+B
 

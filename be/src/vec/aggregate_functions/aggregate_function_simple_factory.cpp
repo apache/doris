@@ -26,7 +26,6 @@
 
 namespace doris::vectorized {
 
-void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
 
@@ -40,6 +39,7 @@ void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory);
@@ -53,6 +53,7 @@ void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFa
 void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
@@ -80,6 +81,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_count(instance);
         register_aggregate_function_count_by_enum(instance);
         register_aggregate_function_uniq(instance);
+        register_aggregate_function_uniq_distribute_key(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
         register_aggregate_function_group_array_intersect(instance);
@@ -93,6 +95,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_topn(instance);
         register_aggregate_function_approx_count_distinct(instance);
         register_aggregate_function_percentile(instance);
+        register_aggregate_function_percentile_old(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
         register_aggregate_function_retention(instance);

@@ -83,8 +83,7 @@ public class TimestampTest {
 
         DataInputStream in = new DataInputStream(new FileInputStream(testFile));
         Thread.sleep(1000);
-        Timestamp timestamp2 = new Timestamp();
-        timestamp2.readFields(in);
+        Timestamp timestamp2 = Timestamp.read(in);
 
         Assertions.assertEquals(ts, timestamp2.getTimestamp());
         Assertions.assertEquals("" + ts, timestamp2.toString());

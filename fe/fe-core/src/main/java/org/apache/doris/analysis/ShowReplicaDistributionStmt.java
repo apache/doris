@@ -37,6 +37,7 @@ public class ShowReplicaDistributionStmt extends ShowStmt {
             .add("BackendId").add("ReplicaNum").add("ReplicaSize")
             .add("NumGraph").add("NumPercent")
             .add("SizeGraph").add("SizePercent")
+            .add("CloudClusterName").add("CloudClusterId")
             .build();
 
     private TableRef tblRef;
@@ -81,6 +82,10 @@ public class ShowReplicaDistributionStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

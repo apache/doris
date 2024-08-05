@@ -19,9 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
-#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -49,10 +49,10 @@ struct RowsetWriterContext {
     int64_t index_id {0};
     int64_t partition_id {0};
     RowsetTypePB rowset_type {BETA_ROWSET};
-    io::FileSystemSPtr fs;
-    std::string rowset_dir;
+
     TabletSchemaSPtr tablet_schema;
-    TabletSchemaSPtr original_tablet_schema;
+    // for variant schema update
+    TabletSchemaSPtr merged_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -79,6 +79,7 @@ struct RowsetWriterContext {
 
     int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
+    // store column_unique_id to skip write inverted index
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
@@ -86,6 +87,9 @@ struct RowsetWriterContext {
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
+
+    // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
+    bool memtable_on_sink_support_index_v2 = false;
 
     /// begin file cache opts
     bool write_file_cache = false;
@@ -104,6 +108,38 @@ struct RowsetWriterContext {
     std::shared_ptr<std::mutex> schema_lock;
 
     int64_t compaction_level = 0;
+
+    // For local rowset
+    std::string tablet_path;
+
+    // For remote rowset
+    std::optional<StorageResource> storage_resource;
+
+    bool is_local_rowset() const { return !storage_resource; }
+
+    std::string segment_path(int seg_id) const {
+        if (is_local_rowset()) {
+            return local_segment_path(tablet_path, rowset_id.to_string(), seg_id);
+        } else {
+            return storage_resource->remote_segment_path(tablet_id, rowset_id.to_string(), seg_id);
+        }
+    }
+
+    io::FileSystemSPtr fs() const {
+        if (is_local_rowset()) {
+            return io::global_local_filesystem();
+        } else {
+            return storage_resource->fs;
+        }
+    }
+
+    io::FileSystem& fs_ref() const {
+        if (is_local_rowset()) {
+            return *io::global_local_filesystem();
+        } else {
+            return *storage_resource->fs;
+        }
+    }
 };
 
 } // namespace doris

@@ -17,10 +17,15 @@
 
 suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "test_hive_statistics_p0"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_${hivePrefix}_statistics_p0"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -31,6 +36,12 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             sql """use `${catalog_name}`.`stats_test`"""
             sql """analyze database stats_test with sync"""
 
+            // Test hive scan node cardinality.
+            sql """analyze table `${catalog_name}`.`statistics`.`statistics` with sync"""
+            explain {
+                sql "select count(2) from `${catalog_name}`.`statistics`.`statistics`;"
+                contains "cardinality=100"
+            }
 
             def result = sql """show catalog ${catalog_name}"""
             for (int i = 0; i < result.size(); i++) {

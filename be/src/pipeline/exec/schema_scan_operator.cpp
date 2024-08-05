@@ -24,25 +24,12 @@
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/vschema_scan_node.h"
 
 namespace doris {
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(SchemaScanOperator, SourceOperator)
-
-Status SchemaScanOperator::open(RuntimeState* state) {
-    return _node->open(state);
-}
-
-Status SchemaScanOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::close(state));
-    RETURN_IF_ERROR(_node->close(state));
-    return Status::OK();
-}
 
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -52,15 +39,16 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
-    _scanner_param.profile.reset(new RuntimeProfile("SchemaScanner"));
+    _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
     profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
-    const SchemaTableDescriptor* schema_table =
+    const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(p._dest_tuple_desc->table_desc());
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
+    _schema_scanner->set_dependency(_data_dependency, _finish_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
@@ -72,7 +60,7 @@ Status SchemaScanLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
-    return _schema_scanner->start(state);
+    return _schema_scanner->get_next_block_async(state);
 }
 
 SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -81,7 +69,6 @@ SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnod
           _table_name(tnode.schema_scan_node.table_name),
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
-          _dest_tuple_desc(nullptr),
           _tuple_idx(0),
           _slot_num(0) {}
 
@@ -162,7 +149,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
 
     _slot_num = _dest_tuple_desc->slots().size();
     // get src tuple desc
-    const SchemaTableDescriptor* schema_table =
+    const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
 
     if (nullptr == schema_table) {
@@ -179,7 +166,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
-    if (0 == columns_desc.size()) {
+    if (columns_desc.empty()) {
         _slot_num = 0;
     }
 
@@ -193,17 +180,15 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         }
 
         if (j >= columns_desc.size()) {
-            LOG(WARNING) << "no match column for this column("
-                         << _dest_tuple_desc->slots()[i]->col_name() << ")";
-            return Status::InternalError("no match column for this column.");
+            return Status::InternalError("no match column for this column({})",
+                                         _dest_tuple_desc->slots()[i]->col_name());
         }
 
         if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
-            LOG(WARNING) << "schema not match. input is " << columns_desc[j].name << "("
-                         << columns_desc[j].type << ") and output is "
-                         << _dest_tuple_desc->slots()[i]->col_name() << "("
-                         << _dest_tuple_desc->slots()[i]->type() << ")";
-            return Status::InternalError("schema not match.");
+            return Status::InternalError("schema not match. input is {}({}) and output is {}({})",
+                                         columns_desc[j].name, type_to_string(columns_desc[j].type),
+                                         _dest_tuple_desc->slots()[i]->col_name(),
+                                         type_to_string(_dest_tuple_desc->slots()[i]->type().type));
         }
     }
 
@@ -224,7 +209,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     do {
         block->clear();
         for (int i = 0; i < _slot_num; ++i) {
-            auto dest_slot_desc = _dest_tuple_desc->slots()[i];
+            auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
             block->insert(vectorized::ColumnWithTypeAndName(
                     dest_slot_desc->get_empty_mutable_column(), dest_slot_desc->get_data_type_ptr(),
                     dest_slot_desc->col_name()));
@@ -242,8 +227,12 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         while (true) {
             RETURN_IF_CANCELLED(state);
 
+            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+                break;
+            }
             // get all slots from schema table.
-            RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
+            RETURN_IF_ERROR(
+                    local_state._schema_scanner->get_next_block(state, &src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;
@@ -258,7 +247,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                auto dest_slot_desc = _dest_tuple_desc->slots()[i];
+                auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
                 vectorized::MutableColumnPtr column_ptr =
                         std::move(*block->get_by_position(i).column).mutate();
                 column_ptr->insert_range_from(

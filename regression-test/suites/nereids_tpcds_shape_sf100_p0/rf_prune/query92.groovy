@@ -21,6 +21,7 @@ suite("query92") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
@@ -30,6 +31,7 @@ suite("query92") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     def ds = """select  
    sum(ws_ext_discount_amt)  as "Excess Discount Amount" 

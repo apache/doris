@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -33,7 +34,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NoForward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
@@ -52,13 +54,12 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * insert into values with in txn model.
  */
-public class BatchInsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
+public class BatchInsertIntoTableCommand extends Command implements NoForward, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(BatchInsertIntoTableCommand.class);
 
@@ -100,17 +101,17 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         targetTableIf.readLock();
         try {
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.checkBlockRules();
-            if (ctx.getMysqlChannel() != null) {
+            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 
             Optional<TreeNode<?>> plan = planner.getPhysicalPlan()
-                    .<Set<TreeNode<?>>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
+                    .<TreeNode<?>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
@@ -140,14 +141,14 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             }
 
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
-                    .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+                    .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, union.get().getConstantExprsList());
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
-                    .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+                    .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
             if (oneRowRelation.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));
@@ -158,5 +159,10 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
         } finally {
             targetTableIf.readUnlock();
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

@@ -17,13 +17,12 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <stdint.h>
 
 #include <cstdlib>
 #include <sstream>
 #include <string>
-
-#include "common/status.h"
 
 namespace doris {
 // Here are some unified definitions
@@ -100,15 +99,14 @@ static const std::string CLONE_PREFIX = "clone";
 static const std::string SPILL_DIR_PREFIX = "spill";
 static const std::string SPILL_GC_DIR_PREFIX = "spill_gc";
 
-// define paths
-static inline std::string remote_tablet_path(int64_t tablet_id) {
-    // data/{tablet_id}
-    return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+static inline std::string local_segment_path(std::string_view tablet_path,
+                                             std::string_view rowset_id, int64_t seg_id) {
+    return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, seg_id);
 }
-static inline std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
-                                                  int64_t cooldown_term) {
-    // data/{tablet_id}/{replica_id}.{cooldown_term}.meta
-    return fmt::format("{}/{}.{}.meta", remote_tablet_path(tablet_id), replica_id, cooldown_term);
+
+static inline std::string cooldown_tablet_meta_filename(int64_t cooldown_replica_id,
+                                                        int64_t cooldown_term) {
+    return fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
 }
 
 static const std::string TABLET_UID = "tablet_uid";

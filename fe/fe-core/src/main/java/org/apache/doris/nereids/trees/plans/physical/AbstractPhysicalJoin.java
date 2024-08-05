@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -302,5 +303,25 @@ public abstract class AbstractPhysicalJoin<
             }
         }
         return false;
+    }
+
+    protected Join.ShuffleType shuffleType() {
+        if (left() instanceof PhysicalDistribute) {
+            if (right() instanceof PhysicalDistribute) {
+                return ShuffleType.shuffle;
+            } else {
+                return ShuffleType.shuffleBucket;
+            }
+        }
+        if (right() instanceof PhysicalDistribute) {
+            PhysicalDistribute buildDist = (PhysicalDistribute) right();
+            if (buildDist.getDistributionSpec() == DistributionSpecReplicated.INSTANCE) {
+                return ShuffleType.broadcast;
+            } else if (buildDist.getDistributionSpec() instanceof DistributionSpecHash) {
+                return ShuffleType.bucketShuffle;
+            }
+            return ShuffleType.unknown;
+        }
+        return ShuffleType.colocated;
     }
 }

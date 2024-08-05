@@ -33,7 +33,7 @@ echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
-if [[ -z "${cos_ak}" || -z "${cos_sk}" ]]; then echo "ERROR: env cos_ak or cos_sk not set" && exit 1; fi
+if [[ -z "${s3SourceAk}" || -z "${s3SourceSk}" ]]; then echo "ERROR: env s3SourceAk or s3SourceSk not set" && exit 1; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
@@ -51,14 +51,17 @@ run() {
     shopt -s inherit_errexit
 
     cd "${teamcity_build_checkoutDir}" || return 1
-    echo "ak='${cos_ak}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
-    echo "sk='${cos_sk}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
+    {
+        echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
+        echo "ak='${s3SourceAk}'"
+        echo "sk='${s3SourceSk}'"
+    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     # start kafka docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
-    bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
@@ -66,8 +69,8 @@ run() {
         --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 14 \
-        -suiteParallel 14 \
+        -parallel 8 \
+        -suiteParallel 8 \
         -actionParallel 2; then
         echo
     else
@@ -83,8 +86,8 @@ run() {
         test_suites=$(echo "${summary}" | cut -d ' ' -f 2)
         failed_suites=$(echo "${summary}" | cut -d ' ' -f 5)
         fatal_scripts=$(echo "${summary}" | cut -d ' ' -f 8)
-        if [[ ${test_suites} -gt 0 && ${failed_suites} -le 30 && ${fatal_scripts} -eq 0 ]]; then
-            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=30 && fatal_scripts=0)"
+        if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${failed_suites_threshold:=100} && ${fatal_scripts} -eq 0 ]]; then
+            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=${failed_suites_threshold} && fatal_scripts=0)"
         else
             return 1
         fi

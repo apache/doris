@@ -25,6 +25,7 @@ suite("test_javaudf_daydiff") {
     def tableName = "test_javaudf_daydiff"
     File path = new File("${context.file.parent}")
     def jarPath = """${path.getParent()}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

@@ -30,9 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
@@ -110,7 +108,6 @@ public class ColumnStatistic {
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
-        Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
         ColumnStatistic columnStatistic = null;
         try {
             for (ResultRow resultRow : resultRows) {
@@ -118,7 +115,7 @@ public class ColumnStatistic {
                 if (partId == null) {
                     columnStatistic = fromResultRow(resultRow);
                 } else {
-                    partitionIdToColStats.put(partId, fromResultRow(resultRow));
+                    LOG.warn("Column statistics table shouldn't contain partition stats. [{}]", resultRow);
                 }
             }
         } catch (Throwable t) {
@@ -199,7 +196,10 @@ public class ColumnStatistic {
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics. Row [{}]", row, e);
+            LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
             return ColumnStatistic.UNKNOWN;
         }
     }
@@ -291,8 +291,8 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
+                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte);
     }
 
     public JSONObject toJson() {

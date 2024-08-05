@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("default_vault") {
+suite("default_vault", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return
@@ -40,6 +40,36 @@ suite("default_vault") {
     }, "supply")
 
     sql """
+        CREATE STORAGE VAULT IF NOT EXISTS create_s3_vault_for_default
+        PROPERTIES (
+        "type"="S3",
+        "s3.endpoint"="${getS3Endpoint()}",
+        "s3.region" = "${getS3Region()}",
+        "s3.access_key" = "${getS3AK()}",
+        "s3.secret_key" = "${getS3SK()}",
+        "s3.root.path" = "ssb_sf1_p2_s3",
+        "s3.bucket" = "${getS3BucketName()}",
+        "s3.external_endpoint" = "",
+        "provider" = "${getS3Provider()}",
+        "set_as_default" = "true"
+        );
+    """
+
+    def vaults_info = sql """
+        show storage vault
+    """
+
+    // check if create_s3_vault_for_default is set as default
+    for (int i = 0; i < vaults_info.size(); i++) {
+        def name = vaults_info[i][0]
+        if (name.equals("create_s3_vault_for_default")) {
+            // isDefault is true
+            assertEquals(vaults_info[i][3], "true")
+        }
+    }
+
+
+    sql """
         set built_in_storage_vault as default storage vault
     """
 
@@ -62,8 +92,9 @@ suite("default_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS create_default_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "fs.defaultFS"="${getHmsHdfsFs()}",
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 

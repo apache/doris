@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,7 +63,8 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         table.readLock();
         try {
             OlapTable olapTable = (OlapTable) table;
-            tablets = olapTable.getAllTablets();
+            // Get sample tablets for remote desc schema
+            tablets = olapTable.getSampleTablets(ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount);
         } finally {
             table.readUnlock();
         }
@@ -88,7 +89,7 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         List<Partition> partitions = Lists.newArrayList();
         table.readLock();
         try {
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 OlapTable olapTable = (OlapTable) table;
                 for (String partitionName : partitionNameList) {
                     Partition partition = olapTable.getPartition(partitionName);

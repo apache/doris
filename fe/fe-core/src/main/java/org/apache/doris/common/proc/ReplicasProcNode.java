@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -44,7 +45,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
             .add("IsUserDrop")
-            .add("VersionCount").add("PathHash").add("Path")
+            .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
             .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
             .add("CooldownMetaId").add("QueryHits").build();
 
@@ -57,8 +58,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
     }
 
     @Override
-    public ProcResult fetchResult() {
-        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
+    public ProcResult fetchResult() throws AnalysisException {
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
@@ -117,7 +118,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getState()),
                                         String.valueOf(replica.isBad()),
                                         String.valueOf(replica.isUserDrop()),
-                                        String.valueOf(replica.getVersionCount()),
+                                        String.valueOf(replica.getVisibleVersionCount()),
+                                        String.valueOf(replica.getTotalVersionCount()),
                                         String.valueOf(replica.getPathHash()),
                                         path,
                                         metaUrl,

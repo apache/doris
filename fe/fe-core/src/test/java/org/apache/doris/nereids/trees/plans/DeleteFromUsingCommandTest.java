@@ -33,6 +33,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -83,15 +84,17 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
+                                                logicalProject(
+                                                        logicalJoin(
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
+                                                                ),
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
                                                                 )
                                                         )
                                                 ),

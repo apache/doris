@@ -17,8 +17,8 @@
 
 suite("test_bucket_shuffle_join") {
 
-    // this case check explain, so we disable nereids
-    sql """set enable_nereids_planner=false"""
+    sql "set disable_join_reorder=true"
+    sql "set parallel_pipeline_task_num=1"
 
     sql """ DROP TABLE IF EXISTS `test_colo1` """
     sql """ DROP TABLE IF EXISTS `test_colo2` """
@@ -79,8 +79,7 @@ suite("test_bucket_shuffle_join") {
 
     explain {
         sql("select a.id,a.name,b.id,b.name,c.id,c.name from test_colo1 a inner join test_colo2 b on a.id = b.id and a.name = b.name inner join test_colo3 c on a.id=c.id and a.name= c.name")
-        contains "4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
-        contains "2:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
+        contains "join op: INNER JOIN(BUCKET_SHUFFLE)"
     }
 
     explain {
@@ -92,8 +91,7 @@ suite("test_bucket_shuffle_join") {
                 inner join 
                 (select * from test_colo3) c 
                 on a.id = c.id  and a.name = c.name and a.name = c.name""")
-        contains "4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
-        contains "2:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
+        contains "join op: INNER JOIN(BUCKET_SHUFFLE)"
     }
 
     sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
@@ -136,7 +134,7 @@ suite("test_bucket_shuffle_join") {
 
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.c;")
-        notContains "BUCKET_SHUFFLE"
+        contains "BUCKET_SHUFFLE"
     }
 
     sql """ DROP TABLE IF EXISTS shuffle_join_t1 """

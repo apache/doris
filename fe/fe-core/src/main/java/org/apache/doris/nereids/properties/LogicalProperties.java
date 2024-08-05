@@ -41,12 +41,12 @@ public class LogicalProperties {
     protected final Supplier<Set<Slot>> outputSetSupplier;
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
-    protected final Supplier<FunctionalDependencies> fdSupplier;
+    protected final Supplier<DataTrait> dataTraitSupplier;
     private Integer hashCode = null;
 
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier) {
-        this(outputSupplier, fdSupplier, ImmutableList::of);
+            Supplier<DataTrait> dataTraitSupplier) {
+        this(outputSupplier, dataTraitSupplier, ImmutableList::of);
     }
 
     /**
@@ -56,7 +56,7 @@ public class LogicalProperties {
      *                       throw exception for which children have UnboundRelation
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier,
+            Supplier<DataTrait> dataTraitSupplier,
             Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
@@ -95,8 +95,8 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
-        this.fdSupplier = Suppliers.memoize(
-                Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
+        this.dataTraitSupplier = Suppliers.memoize(
+                Objects.requireNonNull(dataTraitSupplier, "Data Trait can not be null")
         );
     }
 
@@ -116,8 +116,8 @@ public class LogicalProperties {
         return outputExprIdSetSupplier.get();
     }
 
-    public FunctionalDependencies getFunctionalDependencies() {
-        return fdSupplier.get();
+    public DataTrait getTrait() {
+        return dataTraitSupplier.get();
     }
 
     public List<Id> getOutputExprIds() {

@@ -94,8 +94,8 @@ public class Alias extends NamedExpression implements UnaryExpression {
                         : null,
                 internalName,
                 slotReference != null
-                        ? slotReference.getSubColPath()
-                        : null
+                        ? slotReference.getSubPath()
+                        : ImmutableList.of(), Optional.empty()
         );
     }
 

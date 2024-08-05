@@ -112,7 +112,7 @@ Status VTabletWriterV2::_incremental_open_streams(
         }
     }
     for (int64_t dst_id : new_backends) {
-        auto streams = _load_stream_map->get_or_create(dst_id);
+        auto streams = _load_stream_map->get_or_create(dst_id, true);
         RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
     }
     return Status::OK();
@@ -214,8 +214,12 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
-                                        _state->batch_size());
+    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // on exchange node rather than on TabletWriter
+    _block_convertor->init_autoinc_info(
+            _schema->db_id(), _schema->table_id(), _state->batch_size(),
+            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -278,15 +282,15 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, Streams& stream
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, tablets_for_schema,
-                                     _total_streams, idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
+                                     idle_timeout_ms, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
-                                     *node_info, _txn_id, *_schema, {}, _total_streams,
-                                     idle_timeout_ms, _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
+                                     _txn_id, *_schema, {}, _total_streams, idle_timeout_ms,
+                                     _state->enable_profile()));
     }
     return Status::OK();
 }
@@ -309,6 +313,11 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
+                    constexpr int64_t DUMMY_TABLET_ID = 0;
+                    if (tablet_id == DUMMY_TABLET_ID) [[unlikely]] {
+                        // ignore fake tablet for auto partition
+                        continue;
+                    }
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
                     }
@@ -366,7 +375,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     return Status::OK();
 }
 
-Status VTabletWriterV2::write(Block& input_block) {
+Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -409,17 +418,21 @@ Status VTabletWriterV2::write(Block& input_block) {
 
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
-        Streams streams;
-        RETURN_IF_ERROR(_select_streams(tablet_id, rows.partition_id, rows.index_id, streams));
-        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows, streams));
+        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
     }
 
     return Status::OK();
 }
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                                        const Rows& rows, const Streams& streams) {
+                                        const Rows& rows) {
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
+        Streams streams;
+        auto st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << st << ", load_id=" << print_id(_load_id);
+            return std::unique_ptr<DeltaWriterV2>(nullptr);
+        }
         WriteRequest req {
                 .tablet_id = tablet_id,
                 .txn_id = _txn_id,
@@ -430,6 +443,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
+                .storage_vault_id {},
         };
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
@@ -457,7 +471,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes, false);
+    auto st = delta_writer->write(block.get(), rows.row_idxes);
     return st;
 }
 
@@ -491,7 +505,7 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->write(tmp_block));
+        RETURN_IF_ERROR(this->write(_state, tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -533,12 +547,17 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         // close DeltaWriters
         {
+            std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(_profile);
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 RETURN_IF_ERROR(_cancel(st));
+            }
+            // only the last sink closing delta writers will have segment num
+            if (!segments_for_tablet.empty()) {
+                _load_stream_map->save_segments_for_tablet(segments_for_tablet);
             }
         }
 
@@ -547,31 +566,25 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        // send CLOSE_LOAD on all streams if this is the last sink
+        // send CLOSE_LOAD on all non-incremental streams if this is the last sink
         if (is_last_sink) {
-            RETURN_IF_ERROR(_load_stream_map->close_load());
+            RETURN_IF_ERROR(_load_stream_map->close_load(false));
         }
 
-        // close_wait on all streams, even if this is not the last sink.
+        // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        {
-            SCOPED_TIMER(_close_load_timer);
-            RETURN_IF_ERROR(_load_stream_map->for_each_st([this](int64_t dst_id,
-                                                                 const Streams& streams) -> Status {
-                for (auto& stream : streams) {
-                    int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
-                                        _timeout_watch.elapsed_time() / 1000 / 1000;
-                    if (remain_ms <= 0) {
-                        LOG(WARNING) << "load timed out before close waiting, load_id="
-                                     << print_id(_load_id);
-                        return Status::TimedOut("load timed out before close waiting");
-                    }
-                    RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
-                }
-                return Status::OK();
-            }));
+        RETURN_IF_ERROR(_close_wait(false));
+
+        // send CLOSE_LOAD on all incremental streams if this is the last sink.
+        // this must happen after all non-incremental streams are closed,
+        // so we can ensure all sinks are in close phase before closing incremental streams.
+        if (is_last_sink) {
+            RETURN_IF_ERROR(_load_stream_map->close_load(true));
         }
+
+        // close_wait on all incremental streams, even if this is not the last sink.
+        RETURN_IF_ERROR(_close_wait(true));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -623,6 +636,27 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
+Status VTabletWriterV2::_close_wait(bool incremental) {
+    SCOPED_TIMER(_close_load_timer);
+    return _load_stream_map->for_each_st(
+            [this, incremental](int64_t dst_id, const Streams& streams) -> Status {
+                for (auto& stream : streams) {
+                    if (stream->is_incremental() != incremental) {
+                        continue;
+                    }
+                    int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                                        _timeout_watch.elapsed_time() / 1000 / 1000;
+                    if (remain_ms <= 0) {
+                        LOG(WARNING) << "load timed out before close waiting, load_id="
+                                     << print_id(_load_id);
+                        return Status::TimedOut("load timed out before close waiting");
+                    }
+                    RETURN_IF_ERROR(stream->close_wait(_state, remain_ms));
+                }
+                return Status::OK();
+            });
+}
+
 void VTabletWriterV2::_calc_tablets_to_commit() {
     LOG(INFO) << "saving close load info, load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
               << ", sink_id=" << _sender_id;
@@ -634,7 +668,8 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
                 if (VLOG_DEBUG_IS_ON) {
                     partition_ids.push_back(tablet.partition_id());
                 }
-                tablets_to_commit.push_back(tablet);
+                PTabletID t(tablet);
+                tablets_to_commit.push_back(t);
             }
         }
         if (VLOG_DEBUG_IS_ON) {

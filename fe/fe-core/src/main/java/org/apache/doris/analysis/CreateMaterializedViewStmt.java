@@ -272,8 +272,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
-            if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
-                    && !(selectListItemExpr instanceof ArithmeticExpr)) {
+            selectListItemExpr.setDisableTableName(true);
+            Expr realItem = selectListItemExpr.unwrapExpr(false);
+            if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
+                    && !(realItem instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
@@ -505,6 +507,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
+        if (!isReplay && !functionCallExpr.getOrderByElements().isEmpty()) {
+            throw new AnalysisException("The materialized-view do not support aggregate with order by elements.");
+        }
         String functionName = functionCallExpr.getFnName().getFunction();
         Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();
@@ -671,7 +676,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBreaker(String name) {
         if (name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
-            // mva_SUM__k2 -> k2
+            // mva_SUM__`k2` -> `k2`;
             return mvColumnBreaker(name.substring(name.indexOf(MATERIALIZED_VIEW_AGGREGATE_NAME_LINK)
                     + MATERIALIZED_VIEW_AGGREGATE_NAME_LINK.length()));
         } else if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
@@ -717,5 +722,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     @Override
     public String toSql() {
         return null;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

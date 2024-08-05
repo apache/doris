@@ -144,6 +144,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_throw_error")
             trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
         }
@@ -187,6 +188,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_status_not_ok")
             trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
         }
@@ -239,6 +241,9 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         // this time, index compaction will be done successfully
         logger.info("trigger_full_compaction_on_tablets normally")
         trigger_full_compaction_on_tablets.call(tablets)
+
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -303,7 +308,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
@@ -333,7 +338,8 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             PROPERTIES ( 
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "inverted_index_storage_format" = "V1"
             );
         """
 

@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -43,6 +44,7 @@ import java.util.Set;
  */
 public class TypeDef implements ParseNode {
     private boolean isAnalyzed;
+    @SerializedName("parsedType")
     private final Type parsedType;
     private boolean isNullable = false;
 

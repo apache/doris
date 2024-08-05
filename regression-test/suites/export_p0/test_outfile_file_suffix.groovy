@@ -60,12 +60,13 @@ suite("test_outfile_file_suffix", "p0") {
     def file_suffix = "txt";
     def file_format = "csv";
     def outfile_url = csv_suffix_result(file_suffix, file_format);
-    print("http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_suffix}")
+    print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_suffix}")
     qt_select """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_suffix}",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_suffix}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${file_format}",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             );
             """

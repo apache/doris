@@ -36,18 +36,15 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class AnalysisInfo implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisInfo.class);
-
-    // TODO: useless, remove it later
-    public enum AnalysisMode {
-        INCREMENTAL,
-        FULL
-    }
 
     public enum AnalysisMethod {
         SAMPLE,
@@ -96,7 +93,7 @@ public class AnalysisInfo implements Writable {
     public final long tblId;
 
     // Pair<IndexName, ColumnName>
-    public final List<Pair<String, String>> jobColumns;
+    public final Set<Pair<String, String>> jobColumns;
 
     public final Set<String> partitionNames;
 
@@ -108,9 +105,6 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("jobType")
     public final JobType jobType;
-
-    @SerializedName("analysisMode")
-    public final AnalysisMode analysisMode;
 
     @SerializedName("analysisMethod")
     public final AnalysisMethod analysisMethod;
@@ -147,11 +141,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("message")
     public String message;
 
-    // True means this task is a table level task for external table.
-    // This kind of task is mainly to collect the number of rows of a table.
-    @SerializedName("externalTableLevelTask")
-    public final boolean externalTableLevelTask;
-
     @SerializedName("partitionOnly")
     public final boolean partitionOnly;
 
@@ -176,8 +165,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("forceFull")
     public final boolean forceFull;
 
-    @SerializedName("usingSqlForPartitionColumn")
-    public final boolean usingSqlForPartitionColumn;
+    @SerializedName("usingSqlForExternalTable")
+    public final boolean usingSqlForExternalTable;
 
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
@@ -188,25 +177,37 @@ public class AnalysisInfo implements Writable {
     @SerializedName("endTime")
     public long endTime;
 
-    @SerializedName("emptyJob")
-    public final boolean emptyJob;
-    /**
-     *
-     * Used to store the newest partition version of tbl when creating this job.
-     * This variables would be saved by table stats meta.
-     */
+    @SerializedName("rowCount")
+    public final long rowCount;
+
+    @SerializedName("updateRows")
+    public final long updateRows;
+
+    public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+
+    @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
 
+    @SerializedName("userInject")
     public final boolean userInject;
 
+    @SerializedName("priority")
+    public final JobPriority priority;
+
+    @SerializedName("ep")
+    public final boolean enablePartition;
+
+    public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
-            List<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
-            JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
+            Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
+            JobType jobType, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
-            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject) {
+            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
+            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -218,7 +219,6 @@ public class AnalysisInfo implements Writable {
         this.colName = colName;
         this.indexId = indexId;
         this.jobType = jobType;
-        this.analysisMode = analysisMode;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.samplePercent = samplePercent;
@@ -230,7 +230,6 @@ public class AnalysisInfo implements Writable {
         this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
-        this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.isAllPartition = isAllPartition;
@@ -240,10 +239,16 @@ public class AnalysisInfo implements Writable {
             this.cronExprStr = cronExpression.getCronExpression();
         }
         this.forceFull = forceFull;
-        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        this.usingSqlForExternalTable = usingSqlForExternalTable;
         this.tblUpdateTime = tblUpdateTime;
-        this.emptyJob = emptyJob;
+        this.rowCount = rowCount;
         this.userInject = userInject;
+        this.updateRows = updateRows;
+        this.priority = priority;
+        if (partitionUpdateRows != null) {
+            this.partitionUpdateRows.putAll(partitionUpdateRows);
+        }
+        this.enablePartition = enablePartition;
     }
 
     @Override
@@ -255,7 +260,6 @@ public class AnalysisInfo implements Writable {
         sj.add("TableName: " + tblId);
         sj.add("ColumnName: " + colName);
         sj.add("TaskType: " + analysisType);
-        sj.add("TaskMode: " + analysisMode);
         sj.add("TaskMethod: " + analysisMethod);
         sj.add("Message: " + message);
         sj.add("CurrentState: " + state);
@@ -284,8 +288,12 @@ public class AnalysisInfo implements Writable {
             sj.add("cronExpr: " + cronExprStr);
         }
         sj.add("forceFull: " + forceFull);
-        sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
-        sj.add("emptyJob: " + emptyJob);
+        sj.add("usingSqlForExternalTable: " + usingSqlForExternalTable);
+        sj.add("rowCount: " + rowCount);
+        sj.add("userInject: " + userInject);
+        sj.add("updateRows: " + updateRows);
+        sj.add("priority: " + priority.name());
+        sj.add("enablePartition: " + enablePartition);
         return sj.toString();
     }
 
@@ -344,5 +352,9 @@ public class AnalysisInfo implements Writable {
 
     public TableIf getTable() {
         return StatisticsUtil.findTable(catalogId, dbId, tblId);
+    }
+
+    public void addIndexRowCount(long indexId, long rowCount) {
+        indexesRowCount.put(indexId, rowCount);
     }
 }

@@ -159,7 +159,8 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
-            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
+            full_path, tablet_id, _tablet->replica_id(), _tablet->table_id(),
+            _tablet->partition_id(), schema_hash));
     return Status::OK();
 }
 
@@ -200,6 +201,13 @@ Status EngineStorageMigrationTask::_migrate() {
     int64_t tablet_id = _tablet->tablet_id();
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
+
+    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),
+                                                                         "disk migrate"));
+    Defer defer {[&]() {
+        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(),
+                                                               "disk migrate");
+    }};
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
     int32_t start_version = 0;
@@ -315,6 +323,7 @@ Status EngineStorageMigrationTask::_migrate() {
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(full_path));
     }
     return res;
 }

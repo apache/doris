@@ -36,13 +36,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
 #include <queue>
-#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -53,25 +51,18 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
-#include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
-#include "runtime/types.h"
-#include "util/countdown_latch.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
-#include "vec/common/allocator.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
@@ -114,6 +105,10 @@ struct AddBatchCounter {
     }
 };
 
+struct WriteBlockCallbackContext {
+    std::atomic<bool> _is_last_rpc {false};
+};
+
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after WriteBlockCallback deleted.
@@ -127,8 +122,13 @@ public:
     WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
     ~WriteBlockCallback() override = default;
 
-    void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
-    void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
+    void addFailedHandler(const std::function<void(const WriteBlockCallbackContext&)>& fn) {
+        failed_handler = fn;
+    }
+    void addSuccessHandler(
+            const std::function<void(const T&, const WriteBlockCallbackContext&)>& fn) {
+        success_handler = fn;
+    }
 
     void join() override {
         // We rely on in_flight to assure one rpc is running,
@@ -165,8 +165,8 @@ public:
     bool is_packet_in_flight() { return _packet_in_flight; }
 
     void end_mark() {
-        DCHECK(_is_last_rpc == false);
-        _is_last_rpc = true;
+        DCHECK(_ctx._is_last_rpc == false);
+        _ctx._is_last_rpc = true;
     }
 
     void call() override {
@@ -175,9 +175,9 @@ public:
             LOG(WARNING) << "failed to send brpc batch, error="
                          << berror(::doris::DummyBrpcCallback<T>::cntl_->ErrorCode())
                          << ", error_text=" << ::doris::DummyBrpcCallback<T>::cntl_->ErrorText();
-            failed_handler(_is_last_rpc);
+            failed_handler(_ctx);
         } else {
-            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _is_last_rpc);
+            success_handler(*(::doris::DummyBrpcCallback<T>::response_), _ctx);
         }
         clear_in_flight();
     }
@@ -185,9 +185,9 @@ public:
 private:
     brpc::CallId cid;
     std::atomic<bool> _packet_in_flight {false};
-    std::atomic<bool> _is_last_rpc {false};
-    std::function<void(bool)> failed_handler;
-    std::function<void(const T&, bool)> success_handler;
+    WriteBlockCallbackContext _ctx;
+    std::function<void(const WriteBlockCallbackContext&)> failed_handler;
+    std::function<void(const T&, const WriteBlockCallbackContext&)> success_handler;
 };
 
 class IndexChannel;
@@ -244,7 +244,7 @@ public:
     // this function will called multi times. NON_REENTRANT
     Status open_wait();
 
-    Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
+    Status add_block(vectorized::Block* block, const Payload* payload);
 
     // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
@@ -258,7 +258,8 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    void mark_close();
+    // hang_wait = true will make reciever hang until all sender mark_closed.
+    void mark_close(bool hang_wait = false);
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -320,8 +321,9 @@ protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
 
-    void _add_block_success_callback(const PTabletWriterAddBlockResult& result, bool is_last_rpc);
-    void _add_block_failed_callback(bool is_last_rpc);
+    void _add_block_success_callback(const PTabletWriterAddBlockResult& result,
+                                     const WriteBlockCallbackContext& ctx);
+    void _add_block_failed_callback(const WriteBlockCallbackContext& ctx);
 
     VTabletWriter* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
@@ -425,7 +427,8 @@ public:
     ~IndexChannel() = default;
 
     // allow to init multi times, for incremental open more tablets for one index(table)
-    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
+    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
+                bool incremental = false);
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
@@ -433,6 +436,26 @@ public:
             func(it.second);
         }
     }
+
+    void for_init_node_channel(
+            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
+        for (auto& it : _node_channels) {
+            if (!it.second->is_incremental()) {
+                func(it.second);
+            }
+        }
+    }
+
+    void for_inc_node_channel(
+            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
+        for (auto& it : _node_channels) {
+            if (it.second->is_incremental()) {
+                func(it.second);
+            }
+        }
+    }
+
+    bool has_incremental_node_channel() const { return _has_inc_node; }
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
@@ -492,6 +515,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
+    bool _has_inc_node = false;
 
     // lock to protect _failed_channels and _failed_channels_msgs
     mutable doris::SpinLock _fail_lock;
@@ -520,7 +544,7 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 

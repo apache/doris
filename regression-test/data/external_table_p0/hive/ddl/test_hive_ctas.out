@@ -3,17 +3,35 @@
 2
 3
 
+-- !hive_docker_ctas_01 --
+2
+3
+
 -- !ctas_02 --
+2
+3
+
+-- !hive_docker_ctas_02 --
 2
 3
 
 -- !ctas_03 --
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_03 --
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_04 --
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_04 --
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_05 --
 11	value_for_pt1	value_for_pt2
 22	value_for_pt11	value_for_pt22
 
@@ -21,7 +39,15 @@
 11	value_for_pt1	value_for_pt2
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_ex01 --
+2
+3
+
+-- !hive_docker_ctas_ex01 --
 2
 3
 
@@ -30,7 +56,17 @@
 22	value_for_pt11	\N
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	__HIVE_DEFAULT_PARTITION__
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !hive_docker_ctas_ex03 --
 \N	another string value for col2
 \N	string value for col2
 \N	yet another string value for col2
@@ -39,27 +75,63 @@
 \N	11	value_for_pt1
 \N	22	value_for_pt11
 
+-- !hive_docker_ctas_ex04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !qualified_table1 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !qualified_table2 --
+11	value_for_pt1
+22	value_for_pt11
+
 -- !ctas_types_01 --
 true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29T23:19:34
 
+-- !hive_docker_ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29 23:19:34.0
+
 -- !ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !hive_docker_ctas_types_02 --
 true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
 
 -- !ctas_01 --
 2
 3
 
+-- !hive_docker_ctas_01 --
+2
+3
+
 -- !ctas_02 --
+2
+3
+
+-- !hive_docker_ctas_02 --
 2
 3
 
 -- !ctas_03 --
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_03 --
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_04 --
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_04 --
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_05 --
 11	value_for_pt1	value_for_pt2
 22	value_for_pt11	value_for_pt22
 
@@ -67,7 +139,15 @@ true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
 11	value_for_pt1	value_for_pt2
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_ex01 --
+2
+3
+
+-- !hive_docker_ctas_ex01 --
 2
 3
 
@@ -76,7 +156,17 @@ true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
 22	value_for_pt11	\N
 22	value_for_pt11	value_for_pt22
 
+-- !hive_docker_ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	__HIVE_DEFAULT_PARTITION__
+22	value_for_pt11	value_for_pt22
+
 -- !ctas_03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !hive_docker_ctas_ex03 --
 \N	another string value for col2
 \N	string value for col2
 \N	yet another string value for col2
@@ -85,8 +175,227 @@ true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
 \N	11	value_for_pt1
 \N	22	value_for_pt11
 
+-- !hive_docker_ctas_ex04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !qualified_table1 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !qualified_table2 --
+11	value_for_pt1
+22	value_for_pt11
+
 -- !ctas_types_01 --
 true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29T23:19:34
 
+-- !hive_docker_ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29 23:19:34.0
+
 -- !ctas_types_02 --
 true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !hive_docker_ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !ctas_01 --
+2
+3
+
+-- !hive_docker_ctas_01 --
+2
+3
+
+-- !ctas_02 --
+2
+3
+
+-- !hive_docker_ctas_02 --
+2
+3
+
+-- !ctas_03 --
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_03 --
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_04 --
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_04 --
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_ex01 --
+2
+3
+
+-- !hive_docker_ctas_ex01 --
+2
+3
+
+-- !ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	\N
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	__HIVE_DEFAULT_PARTITION__
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !hive_docker_ctas_ex03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !ctas_04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !hive_docker_ctas_ex04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !qualified_table1 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !qualified_table2 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29T23:19:34
+
+-- !hive_docker_ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29 23:19:34.0
+
+-- !ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !hive_docker_ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !ctas_01 --
+2
+3
+
+-- !hive_docker_ctas_01 --
+2
+3
+
+-- !ctas_02 --
+2
+3
+
+-- !hive_docker_ctas_02 --
+2
+3
+
+-- !ctas_03 --
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_03 --
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_04 --
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_04 --
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_05 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_06 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_ex01 --
+2
+3
+
+-- !hive_docker_ctas_ex01 --
+2
+3
+
+-- !ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	\N
+22	value_for_pt11	value_for_pt22
+
+-- !hive_docker_ctas_ex02 --
+11	value_for_pt1	value_for_pt2
+22	value_for_pt11	__HIVE_DEFAULT_PARTITION__
+22	value_for_pt11	value_for_pt22
+
+-- !ctas_03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !hive_docker_ctas_ex03 --
+\N	another string value for col2
+\N	string value for col2
+\N	yet another string value for col2
+
+-- !ctas_04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !hive_docker_ctas_ex04 --
+\N	11	value_for_pt1
+\N	22	value_for_pt11
+
+-- !qualified_table1 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !qualified_table2 --
+11	value_for_pt1
+22	value_for_pt11
+
+-- !ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29T23:19:34
+
+-- !hive_docker_ctas_types_01 --
+true	127	32767	2147483647	9223372036854775807	default	22.12345	3.141592653	99999.9999	default	default	2023-05-29	2023-05-29 23:19:34.0
+
+-- !ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+
+-- !hive_docker_ctas_types_02 --
+true	127	32767	2147483647	default	22.12345	3.141592653	99999.9999	default
+

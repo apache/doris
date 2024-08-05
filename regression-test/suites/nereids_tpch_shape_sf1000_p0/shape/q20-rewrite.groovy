@@ -22,6 +22,7 @@ suite("q20-rewrite") {
     
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
     sql 'set parallel_pipeline_task_num=8'
@@ -34,7 +35,9 @@ suite("q20-rewrite") {
     sql 'set be_number_for_test=3'
     sql "set runtime_filter_type=8"
 sql 'set enable_runtime_filter_prune=false'
-    
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+
     qt_select """
     explain shape plan
 select

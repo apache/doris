@@ -55,12 +55,15 @@ add_thirdparty(glog)
 add_thirdparty(gflags)
 add_thirdparty(backtrace)
 add_thirdparty(pprof WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libprofiler.a)
-add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 add_thirdparty(protobuf)
 add_thirdparty(thrift)
 add_thirdparty(crypto)
 add_thirdparty(openssl LIBNAME "lib/libssl.a")
-add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
+if (USE_JEMALLOC)
+    add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
+else()
+    add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
+endif()
 add_thirdparty(leveldb) # Required by brpc
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb) # For local storage mocking
@@ -101,6 +104,12 @@ add_thirdparty(lzma LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
+# begin azure libs
+add_thirdparty(azure-core)
+add_thirdparty(azure-identity)
+add_thirdparty(azure-storage-blobs)
+add_thirdparty(azure-storage-common)
+# end azure libs
 
 add_thirdparty(gtest NOTADD)
 add_thirdparty(gtest_main NOTADD)

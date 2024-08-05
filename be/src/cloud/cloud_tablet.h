@@ -89,9 +89,7 @@ public:
     // When the tablet is dropped, we need to recycle cached data:
     // 1. The data in file cache
     // 2. The memory in tablet cache
-    void recycle_cached_data();
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+    void clear_cache() override;
 
     // Return number of deleted stale rowsets
     int delete_expired_stale_rowsets();
@@ -149,26 +147,12 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
-                          bool include_stale = false) {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
-            visitor(rs);
-        }
-    }
-
     inline Version max_version() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->max_version();
     }
 
     int64_t base_size() const { return _base_size; }
-
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
 
@@ -185,12 +169,20 @@ public:
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                               const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
-    Status calc_delete_bitmap_for_compaciton(const std::vector<RowsetSharedPtr>& input_rowsets,
+    Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
                                              const RowIdConversion& rowid_conversion,
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t initiator,
-                                             DeleteBitmapPtr& output_rowset_delete_bitmap);
+                                             DeleteBitmapPtr& output_rowset_delete_bitmap,
+                                             bool allow_delete_in_cumu_compaction);
+
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6-7],[10-12]
+    Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
@@ -202,9 +194,14 @@ public:
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
 
+    // Return merged extended schema
+    TabletSchemaSPtr merged_tablet_schema() const override;
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
+
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

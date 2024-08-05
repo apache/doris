@@ -44,6 +44,7 @@ public class TokenManager {
 
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
+    private  String latestToken;
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
@@ -52,11 +53,16 @@ public class TokenManager {
     public void start() {
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
         // init one token to avoid async issue.
-        this.tokenQueue.offer(generateNewToken());
+        this.addNewToken(generateNewToken());
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
-        this.tokenGenerator.scheduleAtFixedRate(() -> tokenQueue.offer(generateNewToken()), 0,
+        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()), 0,
                 Config.token_generate_period_hour, TimeUnit.HOURS);
+    }
+
+    private void addNewToken(String token) {
+        tokenQueue.offer(token);
+        latestToken = token;
     }
 
     private String generateNewToken() {
@@ -65,7 +71,7 @@ public class TokenManager {
 
     public String acquireToken() throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
-            return tokenQueue.peek();
+            return latestToken;
         } else {
             try {
                 return acquireTokenFromMaster();

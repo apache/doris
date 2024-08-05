@@ -40,8 +40,8 @@ std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std:
         pb.ParseFromString(key);
         tablet_schema_ptr->init_from_pb(pb);
         value->tablet_schema = tablet_schema_ptr;
-        lru_handle = LRUCachePolicy::insert(key, value, tablet_schema_ptr->num_columns(), 0,
-                                            CachePriority::NORMAL);
+        lru_handle = LRUCachePolicyTrackingManual::insert(
+                key, value, tablet_schema_ptr->num_columns(), 0, CachePriority::NORMAL);
         g_tablet_schema_cache_count << 1;
         g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
     }

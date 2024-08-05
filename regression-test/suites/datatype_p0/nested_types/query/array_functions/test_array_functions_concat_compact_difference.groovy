@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_array_functions_concat_compact_difference", "p0") {
-    sql "set enable_nereids_planner=false;"
-
     qt_old_sql "SELECT 'array_concat'"
 
     order_qt_old_sql "SELECT array_concat([]);"

@@ -20,14 +20,33 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
-        : _rowset_meta(rowset_meta), _refs_by_reader(0) {
-    _is_pending = !_rowset_meta->has_version();
+static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
+
+Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
+               std::string tablet_path)
+        : _rowset_meta(std::move(rowset_meta)),
+          _tablet_path(std::move(tablet_path)),
+          _refs_by_reader(0) {
+#ifndef BE_TEST
+    DCHECK(!is_local() || !_tablet_path.empty()); // local rowset MUST has tablet path
+#endif
+
+    _is_pending = true;
+
+    // Generally speaking, as long as a rowset has a version, it can be considered not to be in a pending state.
+    // However, if the rowset was created through ingesting binlogs, it will have a version but should still be
+    // considered in a pending state because the ingesting txn has not yet been committed.
+    if (_rowset_meta->has_version() && _rowset_meta->start_version() > 0 &&
+        _rowset_meta->rowset_state() != COMMITTED) {
+        _is_pending = false;
+    }
+
     if (_is_pending) {
         _is_cumulative = false;
     } else {
@@ -36,6 +55,11 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset
     }
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
     _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
+    g_total_rowset_num << 1;
+}
+
+Rowset::~Rowset() {
+    g_total_rowset_num << -1;
 }
 
 Status Rowset::load(bool use_cache) {
@@ -93,6 +117,22 @@ std::string Rowset::get_rowset_info_str() {
                        rowset_id().to_string(), disk_size);
 }
 
+void Rowset::clear_cache() {
+    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    clear_inverted_index_cache();
+}
+
+Result<std::string> Rowset::segment_path(int64_t seg_id) {
+    if (is_local()) {
+        return local_segment_path(_tablet_path, _rowset_meta->rowset_id().to_string(), seg_id);
+    }
+
+    return _rowset_meta->remote_storage_resource().transform([=, this](auto&& storage_resource) {
+        return storage_resource->remote_segment_path(_rowset_meta->tablet_id(),
+                                                     _rowset_meta->rowset_id().to_string(), seg_id);
+    });
+}
+
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     if (rowsets.size() < 2) {
         return Status::OK();
@@ -107,6 +147,13 @@ Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
         prev = it;
     }
     return Status::OK();
+}
+
+void Rowset::merge_rowset_meta(const RowsetMeta& other) {
+    _rowset_meta->merge_rowset_meta(other);
+    // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+    // consistent with rowset meta
+    _schema = _rowset_meta->tablet_schema();
 }
 
 } // namespace doris

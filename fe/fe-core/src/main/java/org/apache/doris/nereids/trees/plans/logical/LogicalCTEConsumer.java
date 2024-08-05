@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -43,7 +45,7 @@ import java.util.Optional;
  * LogicalCTEConsumer
  */
 //TODO: find cte producer and propagate its functional dependencies
-public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDepsPropagation {
+public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDepsPropagation, OutputPrunable {
 
     private final String name;
     private final CTEId cteId;
@@ -91,17 +93,24 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                 "producerToConsumerOutputMap should not null");
     }
 
+    /**
+     * generate a consumer slot mapping from producer slot.
+     */
+    public static SlotReference generateConsumerSlot(String cteName, Slot producerOutputSlot) {
+        SlotReference slotRef =
+                producerOutputSlot instanceof SlotReference ? (SlotReference) producerOutputSlot : null;
+        return new SlotReference(StatementScopeIdGenerator.newExprId(),
+                producerOutputSlot.getName(), producerOutputSlot.getDataType(),
+                producerOutputSlot.nullable(), ImmutableList.of(cteName),
+                slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
+                slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
+                slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+    }
+
     private void initOutputMaps(LogicalPlan childPlan) {
         List<Slot> producerOutput = childPlan.getOutput();
         for (Slot producerOutputSlot : producerOutput) {
-            SlotReference slotRef =
-                    producerOutputSlot instanceof SlotReference ? (SlotReference) producerOutputSlot : null;
-            Slot consumerSlot = new SlotReference(StatementScopeIdGenerator.newExprId(),
-                    producerOutputSlot.getName(), producerOutputSlot.getDataType(),
-                    producerOutputSlot.nullable(), ImmutableList.of(name),
-                    slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
-                    slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
-                    slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+            Slot consumerSlot = generateConsumerSlot(this.name, producerOutputSlot);
             producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
             consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
         }
@@ -141,8 +150,31 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
     }
 
     @Override
+    public LogicalCTEConsumer withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalCTEConsumer's withRelationId method");
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return ImmutableList.copyOf(producerToConsumerOutputMap.values());
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        Map<Slot, Slot> consumerToProducerOutputMap = new LinkedHashMap<>(this.consumerToProducerOutputMap.size());
+        Map<Slot, Slot> producerToConsumerOutputMap = new LinkedHashMap<>(this.consumerToProducerOutputMap.size());
+        for (Entry<Slot, Slot> consumerToProducerSlot : this.consumerToProducerOutputMap.entrySet()) {
+            if (prunedOutputs.contains(consumerToProducerSlot.getKey())) {
+                consumerToProducerOutputMap.put(consumerToProducerSlot.getKey(), consumerToProducerSlot.getValue());
+                producerToConsumerOutputMap.put(consumerToProducerSlot.getValue(), consumerToProducerSlot.getKey());
+            }
+        }
+        return withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return (List) this.getOutput();
     }
 
     public CTEId getCteId() {

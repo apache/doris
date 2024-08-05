@@ -84,19 +84,19 @@ public class TabletSchedCtxTest {
         TabletSchedCtx.VersionCountComparator countComparator = new TabletSchedCtx.VersionCountComparator();
         List<Replica> replicaList = Lists.newArrayList();
         Replica replica1 = new Replica();
-        replica1.setVersionCount(100);
+        replica1.setVisibleVersionCount(100);
         replica1.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica2 = new Replica();
-        replica2.setVersionCount(50);
+        replica2.setVisibleVersionCount(50);
         replica2.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica3 = new Replica();
-        replica3.setVersionCount(-1);
+        replica3.setVisibleVersionCount(-1);
         replica3.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica4 = new Replica();
-        replica4.setVersionCount(200);
+        replica4.setVisibleVersionCount(200);
         replica4.setState(Replica.ReplicaState.NORMAL);
 
         replicaList.add(replica1);
@@ -105,10 +105,10 @@ public class TabletSchedCtxTest {
         replicaList.add(replica4);
 
         Collections.sort(replicaList, countComparator);
-        Assert.assertEquals(50, replicaList.get(0).getVersionCount());
-        Assert.assertEquals(100, replicaList.get(1).getVersionCount());
-        Assert.assertEquals(200, replicaList.get(2).getVersionCount());
-        Assert.assertEquals(-1, replicaList.get(3).getVersionCount());
+        Assert.assertEquals(50, replicaList.get(0).getVisibleVersionCount());
+        Assert.assertEquals(100, replicaList.get(1).getVisibleVersionCount());
+        Assert.assertEquals(200, replicaList.get(2).getVisibleVersionCount());
+        Assert.assertEquals(-1, replicaList.get(3).getVisibleVersionCount());
     }
 
 }

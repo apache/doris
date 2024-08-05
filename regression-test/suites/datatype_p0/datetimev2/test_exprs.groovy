@@ -63,8 +63,7 @@ suite("test_exprs") {
     // 2.2 Negative microseconds delta affects second change
     qt_sql_microseconds_sub_datetimev2_4 " select microseconds_sub(col, -800000) col1 from ${table1} order by col1; "
 
-    qt_compare_dt1 "select /*SET_VAR(experimental_enable_nereids_planner=true)*/ cast('2020-12-12 12:12:12.123456' as datetime(6)) = cast('2020-12-12 12:12:12.123455' as datetime(6));"
-    qt_compare_dt2 "select /*SET_VAR(experimental_enable_nereids_planner=false)*/ cast('2020-12-12 12:12:12.123456' as datetime(6)) = cast('2020-12-12 12:12:12.123455' as datetime(6));"
+    qt_compare_dt1 "select cast('2020-12-12 12:12:12.123456' as datetime(6)) = cast('2020-12-12 12:12:12.123455' as datetime(6));"
 
     // `milliseconds_add` suites
     // 1. Positive milliseconds delta

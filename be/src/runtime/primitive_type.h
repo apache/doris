@@ -20,15 +20,13 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
@@ -36,6 +34,12 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
+
+namespace vectorized {
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
+} // namespace vectorized
 
 class DecimalV2Value;
 struct StringRef;

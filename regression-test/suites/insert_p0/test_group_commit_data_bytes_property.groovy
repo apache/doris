@@ -18,6 +18,9 @@
 import com.mysql.cj.jdbc.StatementImpl
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_group_commit_data_bytes_property") {
 
     def dbName = "regression_test_insert_p0"
@@ -65,7 +68,7 @@ suite("test_group_commit_data_bytes_property") {
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
-                //sql """ set enable_fallback_to_original_planner=false; """
+                sql """ set enable_fallback_to_original_planner=false; """
             } else {
                 sql """ set enable_nereids_dml = false; """
             }
@@ -88,7 +91,24 @@ suite("test_group_commit_data_bytes_property") {
 
             def msg3 = group_commit_insert """insert into ${test_table} values(3,3); """, 1
 
-            def msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
+            // add a retry for can not get a block queue because the data bytes is too small
+            def msg4 = ""
+            Awaitility.await().atMost(10, SECONDS).until(
+                {
+                    try {
+                        sql """ set group_commit = async_mode; """
+                        msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
+                        return true
+                    } catch (Exception e) {
+                        logger.info("get exception: ${e.getMessage()}")
+                        if (e.getMessage().contains("can not get a block queue")) {
+                            return false
+                        } else {
+                            throw e
+                        }
+                    }
+                }
+            )
 
             assertNotEquals(msg3.substring(msg3.indexOf("group_commit")+11, msg3.indexOf("group_commit")+43), msg4.substring(msg4.indexOf("group_commit")+11, msg4.indexOf("group_commit")+43));
 

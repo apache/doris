@@ -314,6 +314,7 @@ message ColumnPB {
     optional bool is_auto_increment = 22;
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
+    optional int32 be_exec_version = 24;
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size
@@ -380,6 +381,9 @@ message TabletSchemaPB {
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+    // column unique ids for row store columns
+    repeated int32 row_store_column_unique_ids = 26;
+    optional int64 row_store_page_size = 27 [default=16384];
 }
 
 message TabletSchemaCloudPB {
@@ -406,6 +410,10 @@ message TabletSchemaCloudPB {
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+    // column unique ids for row store columns
+    repeated int32 row_store_column_unique_ids = 26;
+    optional int64 row_store_page_size = 27 [default=16384];
+    optional bool enable_mow_light_delete = 28 [default=false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }

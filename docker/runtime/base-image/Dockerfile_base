@@ -1,0 +1,46 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# how to use Dockerfile_base.
+# this is dockerfile for build doris base image (linux base image:jdk, operator_debug ...)
+# run commad: docker build -t xxx/base:xx -f Dockerfile_base --build-arg TARGETARCH=amd64
+
+# we have support buildx for amd64 and arm64 architecture image build.
+# get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
+
+FROM ubuntu:22.04
+
+ARG TARGETARCH
+
+RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    patchelf gdb binutils binutils-common mysql-client \
+    curl wget less vim htop iproute2 numactl jq iotop sysstat \
+    tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
+    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
+    net-tools ca-certificates openssl && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
+    if echo $TARGETARCH | grep 'arm64' >>/dev/null ; then \
+        wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-17.0.10-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk-17.0.10/ /usr/lib/jvm/jdk-17 && \
+        wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-8u352-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk1.8.0_352/ /usr/lib/jvm/jdk-8; \
+    else \
+        wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/openjdk-17.0.2_linux-x64_bin.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/jdk-17.0.2/ /usr/lib/jvm/jdk-17 && \
+        wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/openjdk-8u352-b08-linux-x64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/openjdk-8u352-b08-linux-x64/ /usr/lib/jvm/jdk-8; \
+    fi;
+
+COPY --from=selectdb/doris-debug-ubuntu:latest /doris-debug /opt/apache-doris/
+
+WORKDIR /opt/apache-doris

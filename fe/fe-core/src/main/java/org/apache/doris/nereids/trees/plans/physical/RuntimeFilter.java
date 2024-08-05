@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -58,11 +59,11 @@ public class RuntimeFilter {
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
-                         boolean bloomFilterSizeCalculatedByNdv,
+                         boolean bloomFilterSizeCalculatedByNdv, TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
                 builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
-                TMinMaxRuntimeFilterType.MIN_MAX, scan);
+                tMinMaxType, scan);
     }
 
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
@@ -153,8 +154,14 @@ public class RuntimeFilter {
 
     @Override
     public String toString() {
+        String ignore = "";
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(id.asInt())) {
+            ignore = "(ignored)";
+        }
         StringBuilder sb = new StringBuilder();
-        sb.append("RF").append(id.asInt())
+        sb.append(ignore).append("RF").append(id.asInt())
                 .append("[").append(getSrcExpr()).append("->").append(targetExpressions)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
@@ -167,8 +174,14 @@ public class RuntimeFilter {
      * @return brief version of toString()
      */
     public String shapeInfo() {
+        String ignore = "";
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(id.asInt())) {
+            ignore = "(ignored)";
+        }
         StringBuilder sb = new StringBuilder();
-        sb.append("RF").append(id.asInt())
+        sb.append(ignore).append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
                         targetExpressions.stream().map(expr -> expr.toSql())
                                 .sorted().collect(Collectors.joining(",")))

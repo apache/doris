@@ -104,7 +104,7 @@ public class DistributeHintTest extends TPCHTestBase {
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         if (!withLeading) {
             CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-            hyperGraphBuilder.initStats(cascadesContext);
+            hyperGraphBuilder.initStats("tpch", cascadesContext);
             Plan optimizedPlan = PlanChecker.from(cascadesContext)
                     .analyze()
                     .optimize()
@@ -128,7 +128,7 @@ public class DistributeHintTest extends TPCHTestBase {
             for (int i = 0; i < (tableNum * tableNum - 1); i++) {
                 Plan leadingPlan = generateLeadingHintPlan(tableNum, plan);
                 CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, leadingPlan);
-                hyperGraphBuilder.initStats(cascadesContext);
+                hyperGraphBuilder.initStats("tpch", cascadesContext);
                 Plan optimizedPlan = PlanChecker.from(cascadesContext)
                         .analyze()
                         .optimize()

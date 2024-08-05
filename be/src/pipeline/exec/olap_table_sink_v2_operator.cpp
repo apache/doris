@@ -21,10 +21,6 @@
 
 namespace doris::pipeline {
 
-OperatorPtr OlapTableSinkV2OperatorBuilder::build_operator() {
-    return std::make_shared<OlapTableSinkV2Operator>(this, _sink);
-}
-
 Status OlapTableSinkV2LocalState::close(RuntimeState* state, Status exec_status) {
     if (Base::_closed) {
         return Status::OK();

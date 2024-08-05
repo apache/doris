@@ -21,10 +21,10 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <typeinfo>
 #include <vector>
@@ -36,7 +36,6 @@
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/memcmp_small.h"
@@ -47,14 +46,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 /** Column for String values.
   */
@@ -99,15 +93,16 @@ private:
     template <bool positive>
     struct lessWithCollation;
 
-    ColumnStr<T>() = default;
+    ColumnStr() = default;
 
-    ColumnStr<T>(const ColumnStr<T>& src)
+    ColumnStr(const ColumnStr<T>& src)
             : offsets(src.offsets.begin(), src.offsets.end()),
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
-    void sanity_check() const;
     bool is_variable_length() const override { return true; }
+    // used in string ut testd
+    void sanity_check() const;
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -139,7 +134,7 @@ public:
     }
 
     StringRef get_data_at(size_t n) const override {
-        assert(n < size());
+        DCHECK_LT(n, size());
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
@@ -314,10 +309,6 @@ public:
             offsets.push_back(offset);
         }
     }
-
-    //    template <typename T, size_t copy_length>
-    //    void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
-    //            __attribute__((noinline));
 
     template <size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
@@ -498,11 +489,6 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
     void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
@@ -553,38 +539,14 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
-    }
-
-    // should replace according to 0,1,2... ,size,0,1,2...
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for ColumnString";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for ColumnString");
+        __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnStr<T>::create();
-        for (int i = 0; i < size(); i++) {
-            StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
-        }
-        return shrinked_column;
-    }
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<ColumnStr<T>>(indices, from,
-                                                                                 limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<ColumnStr<T>>(sample_ratio);
-    }
 
     ColumnPtr convert_column_if_overflow() override;
 };

@@ -40,7 +40,7 @@ public:
     ~SchemaRowsetsScanner() override = default;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
     Status _get_all_rowsets();

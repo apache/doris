@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_create_view") {
-    sql "SET enable_nereids_planner=false;"
+    sql "SET enable_nereids_planner=false"
     sql """DROP TABLE IF EXISTS count_distinct"""
     sql """
         CREATE TABLE IF NOT EXISTS count_distinct

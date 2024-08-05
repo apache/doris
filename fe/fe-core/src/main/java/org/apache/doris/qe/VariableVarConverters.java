@@ -48,6 +48,8 @@ public class VariableVarConverters {
         converters.put(SessionVariable.RUNTIME_FILTER_TYPE, runtimeFilterTypeConverter);
         ValidatePasswordPolicyConverter validatePasswordPolicyConverter = new ValidatePasswordPolicyConverter();
         converters.put(GlobalVariable.VALIDATE_PASSWORD_POLICY, validatePasswordPolicyConverter);
+        SqlSelectLimitConverter sqlSelectLimitConverter = new SqlSelectLimitConverter();
+        converters.put(SessionVariable.SQL_SELECT_LIMIT, sqlSelectLimitConverter);
     }
 
     public static Boolean hasConverter(String varName) {
@@ -93,6 +95,27 @@ public class VariableVarConverters {
         @Override
         public String decode(Long value) throws DdlException {
             return RuntimeFilterTypeHelper.decode(value);
+        }
+    }
+
+    // Converter to convert sql select limit variable
+    public static class SqlSelectLimitConverter implements VariableVarConverterI {
+        @Override
+        public Long encode(String value) throws DdlException {
+            if (value.equalsIgnoreCase("DEFAULT")) {
+                return Long.MAX_VALUE;
+            } else {
+                try {
+                    return Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Invalid sql_select_limit value: " + value);
+                }
+            }
+        }
+
+        @Override
+        public String decode(Long value) throws DdlException {
+            return String.valueOf(value);
         }
     }
 

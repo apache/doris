@@ -35,6 +35,8 @@ message PQueryStatistics {
     optional int64 cpu_ms = 4;
     optional int64 max_peak_memory_bytes = 5;
     repeated PNodeStatistics nodes_statistics = 6;
+    optional int64 scan_bytes_from_local_storage = 7;
+    optional int64 scan_bytes_from_remote_storage = 8;
 }
 
 message PRowBatch {
@@ -60,6 +62,7 @@ message PColumnMeta {
     repeated PColumnMeta children = 5;
     optional bool result_is_nullable = 6;
     optional string function_name = 7;
+    optional int32 be_exec_version = 8;
 }
 
 message PBlock {

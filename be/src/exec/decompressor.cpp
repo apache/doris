@@ -557,6 +557,10 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
     // See:
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
     while (remaining_input_size > 0) {
+        if (remaining_input_size < 4) {
+            *more_input_bytes = 4 - remaining_input_size;
+            break;
+        }
         // Read uncompressed size
         uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
         int64_t remaining_output_len = output_max_len - uncompressed_total_len;
@@ -566,12 +570,24 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
             break;
         }
 
+        if (uncompressed_block_len == 0) {
+            remaining_input_size -= sizeof(uint32_t);
+            break;
+        }
+
+        if (remaining_input_size <= 2 * sizeof(uint32_t)) {
+            // The remaining input size should be larger then <uncompressed size><compressed size><compressed data>
+            // +1 means we need at least 1 bytes of compressed data.
+            *more_input_bytes = 2 * sizeof(uint32_t) + 1 - remaining_input_size;
+            break;
+        }
+
         // Read compressed size
-        size_t tmp_src_size = remaining_input_size - sizeof(uint32_t);
+        size_t tmp_remaining_size = remaining_input_size - 2 * sizeof(uint32_t);
         size_t compressed_len = _read_int32(src + sizeof(uint32_t));
-        if (compressed_len == 0 || compressed_len > tmp_src_size) {
+        if (compressed_len > tmp_remaining_size) {
             // Need more input data
-            *more_input_bytes = compressed_len - tmp_src_size;
+            *more_input_bytes = compressed_len - tmp_remaining_size;
             break;
         }
 
@@ -590,8 +606,9 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
         // Decompress
         if (!snappy::RawUncompress(reinterpret_cast<const char*>(src), compressed_len,
                                    reinterpret_cast<char*>(output))) {
-            return Status::InternalError("snappy block decompress failed. uncompressed_len: {}",
-                                         uncompressed_block_len);
+            return Status::InternalError(
+                    "snappy block decompress failed. uncompressed_len: {}, compressed_len: {}",
+                    uncompressed_block_len, compressed_len);
         }
 
         output += uncompressed_block_len;

@@ -81,7 +81,7 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaSchemataScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before Initialized.");
     }
@@ -107,22 +107,22 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         if (!_db_result.__isset.catalogs) {
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         } else {
-            StringRef strs[dbs_num];
+            std::vector<StringRef> strs(dbs_num);
             for (int i = 0; i < dbs_num; ++i) {
                 strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
-                datas[i] = strs + i;
+                datas[i] = strs.data() + i;
             }
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         }
     }
     // schema
     {
-        std::string db_names[dbs_num];
-        StringRef strs[dbs_num];
+        std::vector<std::string> db_names(dbs_num);
+        std::vector<StringRef> strs(dbs_num);
         for (int i = 0; i < dbs_num; ++i) {
             db_names[i] = SchemaHelper::extract_db_name(_db_result.dbs[i]);
             strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
-            datas[i] = strs + i;
+            datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }

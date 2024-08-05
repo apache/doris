@@ -18,17 +18,17 @@
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
-    echo "$0 must be invoked at the directory which contains bin, conf and lib"
-    exit 1
-fi
-
 DORIS_HOME="$(
     cd "${curdir}/.." || exit 1
     pwd
 )"
 
 cd "${DORIS_HOME}" || exit 1
+
+if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
+    echo "$0 must be invoked at the directory which contains bin, conf and lib"
+    exit 1
+fi
 
 daemonized=0
 for arg; do
@@ -39,6 +39,20 @@ for arg; do
     set -- "$@" "${arg}"
 done
 # echo "$@" "daemonized=${daemonized}"}
+
+# export env variables from doris_cloud.conf
+# read from doris_cloud.conf
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
+    fi
+done <"${DORIS_HOME}/conf/doris_cloud.conf"
 
 process=doris_cloud
 

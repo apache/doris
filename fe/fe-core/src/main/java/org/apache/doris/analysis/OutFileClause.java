@@ -37,6 +37,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetDataType;
@@ -54,6 +55,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -70,6 +73,7 @@ public class OutFileClause {
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
+    public static final Map<String, TFileCompressType> ORC_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
     public static final String FILE_NUMBER = "FileNumber";
@@ -106,9 +110,15 @@ public class OutFileClause {
         PARQUET_COMPRESSION_TYPE_MAP.put("brotli", TParquetCompressionType.BROTLI);
         PARQUET_COMPRESSION_TYPE_MAP.put("zstd", TParquetCompressionType.ZSTD);
         PARQUET_COMPRESSION_TYPE_MAP.put("lz4", TParquetCompressionType.LZ4);
-        PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
-        PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
-        PARQUET_COMPRESSION_TYPE_MAP.put("default", TParquetCompressionType.UNCOMPRESSED);
+        // arrow do not support lzo and bz2 compression type.
+        // PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
+        // PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
+        PARQUET_COMPRESSION_TYPE_MAP.put("plain", TParquetCompressionType.UNCOMPRESSED);
+
+        ORC_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
+        ORC_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
+        ORC_COMPRESSION_TYPE_MAP.put("zlib", TFileCompressType.ZLIB);
+        ORC_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
 
         PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
         PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
@@ -137,6 +147,7 @@ public class OutFileClause {
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
     public static final String PROP_WITH_BOM = "with_bom";
+    public static final String COMPRESS_TYPE = "compress_type";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -170,8 +181,8 @@ public class OutFileClause {
     private boolean isAnalyzed = false;
     private String headerType = "";
 
-    private static final String PARQUET_COMPRESSION = "compression";
-    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.UNCOMPRESSED;
+    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
+    private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
     private boolean parquetDisableDictionary = false;
     private static final String PARQUET_VERSION = "version";
@@ -309,9 +320,13 @@ public class OutFileClause {
             case VARCHAR:
                 orcType = "varchar(" + dorisType.getLength() + ")";
                 break;
+            case IPV4:
+                orcType = "int";
+                break;
             case LARGEINT:
             case DATE:
             case DATETIME:
+            case IPV6:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -423,9 +438,13 @@ public class OutFileClause {
                 case VARCHAR:
                     checkOrcType(schema.second, "varchar", false, resultType.getPrimitiveType().toString());
                     break;
+                case IPV4:
+                    checkOrcType(schema.second, "int", false, resultType.getPrimitiveType().toString());
+                    break;
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
+                case IPV6:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:
@@ -518,6 +537,12 @@ public class OutFileClause {
                 filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
             }
         }
+        // delete repeated '/'
+        try {
+            filePath = new URI(filePath).normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new AnalysisException("Can not normalize the URI, error: " + e.getMessage());
+        }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }
@@ -575,6 +600,12 @@ public class OutFileClause {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
+        }
+
+        // For Azure compatibility, this is temporarily added to the map without further processing.
+        // The validity of each provider's value will be checked later in S3Properties' check.
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            processedPropKeys.add(S3Properties.PROVIDER);
         }
 
         if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
@@ -656,19 +687,11 @@ public class OutFileClause {
         return fullPath.replace(filePath, "");
     }
 
-    void setParquetCompressionType(String propertyValue) {
-        if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(propertyValue)) {
-            this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(propertyValue);
-        } else {
-            LOG.warn("not set parquet compression type or is invalid, set default to UNCOMPRESSED type.");
-        }
-    }
-
     void setParquetVersion(String propertyValue) {
         if (PARQUET_VERSION_MAP.containsKey(propertyValue)) {
             this.parquetVersion = PARQUET_VERSION_MAP.get(propertyValue);
         } else {
-            LOG.warn("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
+            LOG.debug("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
         }
     }
 
@@ -684,15 +707,25 @@ public class OutFileClause {
      * currently only supports: compression, disable_dictionary, version
      */
     private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // save compress type
+        if (properties.containsKey(COMPRESS_TYPE)) {
+            if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
+                this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(
+                        properties.get(COMPRESS_TYPE).toLowerCase());
+                processedPropKeys.add(COMPRESS_TYPE);
+            } else {
+                throw new AnalysisException("parquet compression type [" + properties.get(COMPRESS_TYPE)
+                        + "] is invalid, please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
+            }
+        }
+
         // save all parquet prefix property
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<String, String> entry = iter.next();
             if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
                 processedPropKeys.add(entry.getKey());
-                if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_COMPRESSION)) {
-                    setParquetCompressionType(entry.getValue());
-                } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_DISABLE_DICTIONARY)) {
+                if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_DISABLE_DICTIONARY)) {
                     this.parquetDisableDictionary = Boolean.valueOf(entry.getValue());
                 } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_VERSION)) {
                     setParquetVersion(entry.getValue());
@@ -736,6 +769,18 @@ public class OutFileClause {
     }
 
     private void getOrcProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // get compression type
+        // save compress type
+        if (properties.containsKey(COMPRESS_TYPE)) {
+            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
+                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE).toLowerCase());
+                processedPropKeys.add(COMPRESS_TYPE);
+            } else {
+                throw new AnalysisException("orc compression type [" + properties.get(COMPRESS_TYPE) + "] is invalid,"
+                        + " please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
+            }
+        }
+
         // check schema. if schema is not set, Doris will gen schema by select items
         String schema = properties.get(SCHEMA);
         if (schema == null) {
@@ -838,6 +883,7 @@ public class OutFileClause {
         }
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
+            sinkOptions.setOrcCompressionType(orcCompressionType);
         }
         return sinkOptions;
     }

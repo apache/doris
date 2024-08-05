@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_base_compaction_no_value") {
+suite("test_base_compaction_no_value", "p2") {
     def tableName = "base_compaction_uniq_keys_no_value"
 
     String backend_id;
@@ -27,19 +27,11 @@ suite("test_base_compaction_no_value") {
 
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
+
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())
     assert configList instanceof List
-
-    boolean disableAutoCompaction = true
-    for (Object ele in (List) configList) {
-        assert ele instanceof List<String>
-        if (((List<String>) ele)[0] == "disable_auto_compaction") {
-            disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-        }
-    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -64,7 +56,8 @@ suite("test_base_compaction_no_value") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY, L_EXTENDEDPRICE, L_DISCOUNT, L_TAX, L_RETURNFLAG, L_LINESTATUS, L_SHIPDATE, L_COMMITDATE, L_RECEIPTDATE, L_SHIPINSTRUCT, L_SHIPMODE, L_COMMENT)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-          "replication_num" = "1"
+          "replication_num" = "1",
+          "disable_auto_compaction" = "true"
         )
 
     """
@@ -84,7 +77,7 @@ suite("test_base_compaction_no_value") {
 
         // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
         // also, you can stream load a http stream, e.g. http://xxx/some.csv
-        file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split00.gz"""
+        file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split01.gz"""
 
         time 10000 // limit inflight 10s
 
@@ -102,41 +95,6 @@ suite("test_base_compaction_no_value") {
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
-    }
-
-    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-
-    // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        if (compactJson.status.toLowerCase() == "fail") {
-            assertEquals(disableAutoCompaction, false)
-            logger.info("Compaction was done automatically!")
-        }
-        if (disableAutoCompaction) {
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        boolean running = true
-        do {
-            Thread.sleep(1000)
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            running = compactionStatus.run_status
-        } while (running)
     }
 
     streamLoad {
@@ -174,6 +132,8 @@ suite("test_base_compaction_no_value") {
         }
     }
 
+    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+
     // trigger compactions for all tablets in ${tableName}
     for (def tablet in tablets) {
         String tablet_id = tablet.TabletId
@@ -182,13 +142,69 @@ suite("test_base_compaction_no_value") {
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
-        if (compactJson.status.toLowerCase() == "fail") {
-            assertEquals(disableAutoCompaction, false)
-            logger.info("Compaction was done automatically!")
+        assertEquals("success", compactJson.status.toLowerCase())
+    }
+
+    // wait for all compactions done
+    for (def tablet in tablets) {
+        boolean running = true
+        do {
+            Thread.sleep(1000)
+            String tablet_id = tablet.TabletId
+            backend_id = tablet.BackendId
+            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def compactionStatus = parseJson(out.trim())
+            assertEquals("success", compactionStatus.status.toLowerCase())
+            running = compactionStatus.run_status
+        } while (running)
+    }
+
+    streamLoad {
+        // a default db 'regression_test' is specified in
+        // ${DORIS_HOME}/conf/regression-conf.groovy
+        table tableName
+
+        // default label is UUID:
+        // set 'label' UUID.randomUUID().toString()
+
+        // default column_separator is specify in doris fe config, usually is '\t'.
+        // this line change to ','
+        set 'column_separator', '|'
+        set 'compress_type', 'GZ'
+
+        // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+        // also, you can stream load a http stream, e.g. http://xxx/some.csv
+        file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split00.gz"""
+
+        time 10000 // limit inflight 10s
+
+        // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
-        if (disableAutoCompaction) {
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
+    }
+
+    // trigger compactions for all tablets in ${tableName}
+    for (def tablet in tablets) {
+        String tablet_id = tablet.TabletId
+        backend_id = tablet.BackendId
+        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def compactJson = parseJson(out.trim())
+        assertEquals("success", compactJson.status.toLowerCase())
     }
 
     // wait for all compactions done
@@ -219,13 +235,7 @@ suite("test_base_compaction_no_value") {
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
-        if (compactJson.status.toLowerCase() == "fail") {
-            assertEquals(disableAutoCompaction, false)
-            logger.info("Compaction was done automatically!")
-        }
-        if (disableAutoCompaction) {
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
+        assertEquals("success", compactJson.status.toLowerCase())
     }
 
     // wait for all compactions done

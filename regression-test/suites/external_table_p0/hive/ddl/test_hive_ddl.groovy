@@ -109,7 +109,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                           'file_format'='${file_format}'
                         )
                     """
-                exception "java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create database from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
+                exception "java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
             }
             sql """DROP DATABASE `test_hive_default_val`"""
 
@@ -648,7 +648,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                       'file_format'='${file_format}'
                     )
                     """
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create database from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of LARGEINT"
+                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = failed to create table from hms client. reason: org.apache.doris.datasource.hive.HMSClientException: Unsupported primitive type conversion of largeint"
             }
 
             test {
@@ -684,8 +684,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
 
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String hms_port = context.config.otherConfigs.get("hive2HmsPort")
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "test_hive_ddl"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -693,7 +693,8 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );"""
             sql """switch ${catalog_name}"""
 

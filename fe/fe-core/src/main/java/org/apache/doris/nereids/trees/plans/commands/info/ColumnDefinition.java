@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -64,6 +66,8 @@ public class ColumnDefinition {
     private boolean aggTypeImplicit = false;
     private long autoIncInitValue = -1;
     private int clusterKeyId = -1;
+    private Optional<GeneratedColumnDesc> generatedColumnDesc = Optional.empty();
+    private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -71,10 +75,11 @@ public class ColumnDefinition {
     }
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
-            boolean isNullable, long autoIncInitValue, Optional<DefaultValue> defaultValue,
-            Optional<DefaultValue> onUpdateDefaultValue, String comment) {
-        this(name, type, isKey, aggType, isNullable, autoIncInitValue, defaultValue, onUpdateDefaultValue,
-                comment, true);
+            ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment,
+            Optional<GeneratedColumnDesc> generatedColumnDesc) {
+        this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
+                comment, true, generatedColumnDesc);
     }
 
     /**
@@ -108,6 +113,26 @@ public class ColumnDefinition {
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
         this.isVisible = isVisible;
+    }
+
+    /**
+     * constructor
+     */
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible,
+            Optional<GeneratedColumnDesc> generatedColumnDesc) {
+        this.name = name;
+        this.type = type;
+        this.isKey = isKey;
+        this.aggType = aggType;
+        this.isNullable = nullableType.getNullable(type.toCatalogDataType().getPrimitiveType());
+        this.autoIncInitValue = autoIncInitValue;
+        this.defaultValue = defaultValue;
+        this.onUpdateDefaultValue = onUpdateDefaultValue;
+        this.comment = comment;
+        this.isVisible = isVisible;
+        this.generatedColumnDesc = generatedColumnDesc;
     }
 
     public ColumnDefinition(String name, DataType type, boolean isNullable) {
@@ -163,10 +188,10 @@ public class ColumnDefinition {
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else {
-            if (dataType.isStringLikeType()) {
-                if (dataType instanceof CharType && ((CharType) dataType).getLen() == -1) {
+            if (dataType.isStringLikeType() && !((CharacterType) dataType).isLengthSet()) {
+                if (dataType instanceof CharType) {
                     return new CharType(1);
-                } else if (dataType instanceof VarcharType && ((VarcharType) dataType).getLen() == -1) {
+                } else if (dataType instanceof VarcharType) {
                     return new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
                 }
             }
@@ -197,8 +222,8 @@ public class ColumnDefinition {
             }
         }
         if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
-            if (aggType != null) {
-                isNullable = false;
+            if (isNullable) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
             }
         }
 
@@ -226,6 +251,9 @@ public class ColumnDefinition {
             } else if (type.isJsonType()) {
                 throw new AnalysisException(
                         "JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isVariantType()) {
+                throw new AnalysisException(
+                        "Variant type should not be used in key column[" + getName() + "].");
             } else if (type.isMapType()) {
                 throw new AnalysisException("Map can only be used in the non-key column of"
                         + " the duplicate table at present.");
@@ -261,14 +289,17 @@ public class ColumnDefinition {
         }
 
         if (isOlap) {
-            if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
                 aggTypeImplicit = true;
             }
 
             // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
             // If default value is not set, we set it NULL
             if (aggType == AggregateType.REPLACE_IF_NOT_NULL) {
-                isNullable = true;
+                if (!isNullable) {
+                    throw new AnalysisException(
+                            "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
+                }
                 if (!defaultValue.isPresent()) {
                     defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
                 }
@@ -363,14 +394,15 @@ public class ColumnDefinition {
                 } else {
                     if (aggType != AggregateType.GENERIC
                             && aggType != AggregateType.NONE
-                            && aggType != AggregateType.REPLACE) {
+                            && aggType != AggregateType.REPLACE
+                            && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
                         throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
                                 + " column can't support aggregation " + aggType);
                     }
                 }
-                isNullable = false;
             } else {
-                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE) {
+                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE
+                        && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
                             + " column can't support aggregation " + aggType);
                 }
@@ -380,6 +412,7 @@ public class ColumnDefinition {
         if (type.isTimeLikeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
+        validateGeneratedColumnInfo();
     }
 
     // from TypeDef.java analyze()
@@ -626,7 +659,9 @@ public class ColumnDefinition {
                 autoIncInitValue, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
-                onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId);
+                onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
+                generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
+                generatedColumnsThatReferToThis);
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -662,4 +697,30 @@ public class ColumnDefinition {
                 Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
     }
 
+    public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {
+        return generatedColumnDesc;
+    }
+
+    public long getAutoIncInitValue() {
+        return autoIncInitValue;
+    }
+
+    public void addGeneratedColumnsThatReferToThis(List<String> list) {
+        generatedColumnsThatReferToThis.addAll(list);
+    }
+
+    private void validateGeneratedColumnInfo() {
+        // for generated column
+        if (generatedColumnDesc.isPresent()) {
+            if (autoIncInitValue != -1) {
+                throw new AnalysisException("Generated columns cannot be auto_increment.");
+            }
+            if (defaultValue.isPresent() && !defaultValue.get().equals(DefaultValue.NULL_DEFAULT_VALUE)) {
+                throw new AnalysisException("Generated columns cannot have default value.");
+            }
+            if (onUpdateDefaultValue.isPresent()) {
+                throw new AnalysisException("Generated columns cannot have on update default value.");
+            }
+        }
+    }
 }

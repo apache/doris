@@ -24,9 +24,16 @@ suite("fix_leading") {
     sql 'use fix_leading'
 
     // setting planner to nereids
+    sql 'set exec_mem_limit=21G'
+    sql 'set be_number_for_test=1'
+    sql "set parallel_pipeline_task_num=1"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
+    sql "set ignore_shape_nodes='PhysicalProject, PhysicalDistribute'"
+
 
     // create tables
     sql """drop table if exists t1;"""
@@ -38,6 +45,8 @@ suite("fix_leading") {
     sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
     sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t5 (c5 int, c55 int) distributed by hash(c5) buckets 3 properties('replication_num' = '1');"""
+    sql """create table t6 (c6 int, c66 int) distributed by hash(c6) buckets 3 properties('replication_num' = '1');"""
 
     streamLoad {
         table "t1"
@@ -72,6 +81,24 @@ suite("fix_leading") {
         set 'column_separator', '|'
         set 'format', 'csv'
         file 't4.csv'
+        time 10000
+    }
+
+    streamLoad {
+        table "t5"
+        db "fix_leading"
+        set 'column_separator', '|'
+        set 'format', 'csv'
+        file 't5.csv'
+        time 10000
+    }
+
+    streamLoad {
+        table "t6"
+        db "fix_leading"
+        set 'column_separator', '|'
+        set 'format', 'csv'
+        file 't6.csv'
         time 10000
     }
 
@@ -172,6 +199,77 @@ suite("fix_leading") {
     qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
 
     // check whether we have all tables
-    qt_select5_1 """explain shape plan select /*+ leading(t1 t2)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+    explain {
+        sql """shape plan select /*+ leading(t1 t2)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+        contains("SyntaxError: leading(t1 t2) Msg:leading should have all tables in query block, missing tables: t3")
+    }
 
+    // check brace problem
+    qt_select6_1 """explain shape plan select /*+ leading(t1 {{t2 t3}{t4 t5}} t6) */ count(*) from t1 join t2 on c1 = c2 join t3 on c1 = c3 join t4 on c1 = c4 join t5 on c1 = c5 join t6 on c1 = c6;"""
+
+    // check filter in duplicated aliasName
+    explain {
+        sql """shape plan SELECT
+                t1.c2 AS c4
+            FROM
+                (
+                    SELECT
+                        /*+   leading( { tbl2 tbl3 }  tbl1      ) */
+                        tbl3.c3 AS c4,
+                        4 AS c2
+                    FROM
+                        t1 AS tbl1
+                        INNER JOIN t2 AS tbl2 ON tbl2.c2 >= tbl1.c1
+                        OR tbl2.c2 < (5 * 1)
+                        INNER JOIN t3 AS tbl3 ON tbl2.c2 >= tbl2.c2
+                    WHERE
+                        (
+                            tbl1.c1 <> tbl3.c3
+                        )
+                    ORDER BY
+                        2,
+                        4,
+                        1,
+                        3 ASC
+                    LIMIT
+                        5 OFFSET 10
+                ) AS t1
+                INNER JOIN t4 AS tbl2 ON tbl2.c4 != (7 * 1)
+            WHERE
+                NOT (
+                    t1.c2 > tbl2.c4
+                )
+            ORDER BY
+                1 DESC
+            LIMIT
+                5;"""
+        contains("Used: leading({ tbl2 tbl3 } tbl1 )")
+    }
+
+    // check cte as input in alias leading query
+    explain {
+        sql """shape plan WITH tbl1 AS (
+            SELECT
+                tbl1.c1 AS c111,
+                tbl2.c2 as c222
+            FROM
+                t1 AS tbl1
+                RIGHT JOIN t2 AS tbl2 ON tbl1.c1 = tbl2.c2
+            )
+            SELECT
+                tbl3.c3,
+                tbl2.c2
+            FROM
+            (
+                SELECT
+                    /*+   leading( tbl2 tbl1 ) */
+                    tbl1.c111 AS c1,
+                    tbl2.c2 AS c2
+                FROM
+                    t2 AS tbl2
+                    JOIN tbl1 ON tbl2.c2 = tbl1.c111
+            ) AS tbl2
+            RIGHT JOIN t3 AS tbl3 ON tbl2.c2 = tbl3.c3;"""
+        contains("Used: leading(tbl2 tbl1 )")
+    }
 }

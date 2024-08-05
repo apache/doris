@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("create_vault") {
+suite("create_vault", "nonConcurrent") {
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return
@@ -26,8 +26,9 @@ suite("create_vault") {
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
             "type"="S3",
-            "fs.defaultFS"="${getHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "Missing")
@@ -37,8 +38,9 @@ suite("create_vault") {
             CREATE STORAGE VAULT IF NOT EXISTS failed_vault
             PROPERTIES (
             "type"="hdfs",
-            "s3.bucket"="${getHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "s3.bucket"="${getHmsHdfsFs()}",
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "invalid fs_name")
@@ -56,17 +58,42 @@ suite("create_vault") {
         CREATE STORAGE VAULT IF NOT EXISTS create_hdfs_vault
         PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="${getHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "fs.defaultFS"="${getHmsHdfsFs()}",
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
+
+    try_sql """
+        drop table create_table_use_vault
+    """
+    
+    sql """
+        CREATE TABLE IF NOT EXISTS create_table_use_vault (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "create_hdfs_vault"
+                )
+    """
+
+    String create_stmt = sql """
+        show create table create_table_use_vault
+    """
+
+    logger.info("the create table stmt is ${create_stmt}")
+    assertTrue(create_stmt.contains("create_hdfs_vault"))
 
     expectExceptionLike({
         sql """
             CREATE STORAGE VAULT create_hdfs_vault
             PROPERTIES (
             "type"="hdfs",
-            "fs.defaultFS"="${getHdfsFs()}",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
             "path_prefix" = "default_vault_ssb_hdfs_vault"
             );
         """
@@ -104,6 +131,28 @@ suite("create_vault") {
             );
         """
     }, "already created")
+
+    sql """
+        CREATE TABLE IF NOT EXISTS create_table_use_s3_vault (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = "create_s3_vault"
+                )
+    """
+
+    sql """
+        insert into create_table_use_s3_vault values(1,1);
+    """
+
+    sql """
+        select * from create_table_use_s3_vault;
+    """
+
 
     def vaults_info = try_sql """
         show storage vault

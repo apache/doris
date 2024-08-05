@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris {
 class ExecNode;
@@ -61,7 +62,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
           dummy_mapped_data(std::make_shared<char>('A')),
           batch_size(state->batch_size()),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
-          _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
+          _agg_data(std::make_unique<AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
@@ -98,7 +99,7 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
                 _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
     } else {
-        _init_hash_method(_probe_expr_ctxs);
+        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     }
     return Status::OK();
 }
@@ -109,125 +110,71 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
     }
 
     return std::visit(
-            [&](auto&& agg_method) -> bool {
-                auto& hash_tbl = *agg_method.hash_table;
-                auto [ht_mem, ht_rows] =
-                        std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> bool {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                        return false;
+                    },
+                    [&](auto& agg_method) -> bool {
+                        auto& hash_tbl = *agg_method.hash_table;
+                        auto [ht_mem, ht_rows] =
+                                std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
-                // Need some rows in tables to have valid statistics.
-                if (ht_rows == 0) {
-                    return true;
-                }
+                        // Need some rows in tables to have valid statistics.
+                        if (ht_rows == 0) {
+                            return true;
+                        }
 
-                // Find the appropriate reduction factor in our table for the current hash table sizes.
-                int cache_level = 0;
-                while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                       ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
-                    ++cache_level;
-                }
+                        // Find the appropriate reduction factor in our table for the current hash table sizes.
+                        int cache_level = 0;
+                        while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
+                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                            ++cache_level;
+                        }
 
-                // Compare the number of rows in the hash table with the number of input rows that
-                // were aggregated into it. Exclude passed through rows from this calculation since
-                // they were not in hash tables.
-                const int64_t input_rows = _input_num_rows;
-                const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
-                // TODO chenhao
-                //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                double current_reduction = static_cast<double>(aggregated_input_rows) / ht_rows;
+                        // Compare the number of rows in the hash table with the number of input rows that
+                        // were aggregated into it. Exclude passed through rows from this calculation since
+                        // they were not in hash tables.
+                        const int64_t input_rows = _input_num_rows;
+                        const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
+                        // TODO chenhao
+                        //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
+                        double current_reduction =
+                                static_cast<double>(aggregated_input_rows) / ht_rows;
 
-                // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
-                // inaccurate, which could lead to a divide by zero below.
-                if (aggregated_input_rows <= 0) {
-                    return true;
-                }
+                        // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
+                        // inaccurate, which could lead to a divide by zero below.
+                        if (aggregated_input_rows <= 0) {
+                            return true;
+                        }
 
-                // Extrapolate the current reduction factor (r) using the formula
-                // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
-                // set, N is the number of input rows, excluding passed-through rows, and n is the
-                // number of rows inserted or merged into the hash tables. This is a very rough
-                // approximation but is good enough to be useful.
-                // TODO: consider collecting more statistics to better estimate reduction.
-                //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
-                //      ? current_reduction
-                //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                double min_reduction =
-                        STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                        // Extrapolate the current reduction factor (r) using the formula
+                        // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
+                        // set, N is the number of input rows, excluding passed-through rows, and n is the
+                        // number of rows inserted or merged into the hash tables. This is a very rough
+                        // approximation but is good enough to be useful.
+                        // TODO: consider collecting more statistics to better estimate reduction.
+                        //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
+                        //      ? current_reduction
+                        //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
+                        double min_reduction =
+                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
 
-                //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
-                //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
-                //  return estimated_reduction > min_reduction;
-                _should_expand_hash_table = current_reduction > min_reduction;
-                return _should_expand_hash_table;
-            },
+                        //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
+                        //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
+                        //  return estimated_reduction > min_reduction;
+                        _should_expand_hash_table = current_reduction > min_reduction;
+                        return _should_expand_hash_table;
+                    }},
             _agg_data->method_variant);
 }
 
-void DistinctStreamingAggLocalState::_init_hash_method(
+Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    DCHECK(probe_exprs.size() >= 1);
-
-    using Type = vectorized::AggregatedDataVariants::Type;
-    Type t(Type::serialized);
-
-    if (probe_exprs.size() == 1) {
-        auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        PrimitiveType type = probe_exprs[0]->root()->result_type();
-        switch (type) {
-        case TYPE_TINYINT:
-        case TYPE_BOOLEAN:
-        case TYPE_SMALLINT:
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATETIMEV2:
-        case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
-            size_t size = get_primitive_type_size(type);
-            if (size == 1) {
-                t = Type::int8_key;
-            } else if (size == 2) {
-                t = Type::int16_key;
-            } else if (size == 4) {
-                t = Type::int32_key;
-            } else if (size == 8) {
-                t = Type::int64_key;
-            } else if (size == 16) {
-                t = Type::int128_key;
-            } else {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "meet invalid type size, size={}, type={}", size,
-                                type_to_string(type));
-            }
-            break;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            t = Type::string_key;
-            break;
-        }
-        default:
-            t = Type::serialized;
-        }
-
-        _agg_data->init(get_hash_key_type_with_phase(
-                                t, !Base::_parent->template cast<DistinctStreamingAggOperatorX>()
-                                            ._is_first_phase),
-                        is_nullable);
-    } else {
-        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
-                                                                          probe_exprs)) {
-            _agg_data->init(Type::serialized);
-        }
-    }
+    RETURN_IF_ERROR(init_agg_hash_method(
+            _agg_data.get(), probe_exprs,
+            Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
+    return Status::OK();
 }
 
 Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
@@ -256,8 +203,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     _distinct_row.reserve(rows);
 
     if (!_stop_emplace_flag) {
-        RETURN_IF_CATCH_EXCEPTION(
-                _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
+        _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
     }
 
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&
@@ -336,54 +282,59 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
         vectorized::IColumn::Selector& distinct_row, vectorized::ColumnRawPtrs& key_columns,
         const size_t num_rows) {
     std::visit(
-            [&](auto&& agg_method) -> void {
-                SCOPED_TIMER(_hash_table_compute_timer);
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using AggState = typename HashMethodType::State;
-                auto& hash_tbl = *agg_method.hash_table;
-                if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
-                    hash_tbl.add_elem_size_overflow(num_rows)) {
-                    if (!_should_expand_preagg_hash_tables()) {
-                        _stop_emplace_flag = true;
-                        return;
-                    }
-                }
-                AggState state(key_columns);
-                agg_method.init_serialized_keys(key_columns, num_rows);
-                size_t row = 0;
-                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, _arena);
-                    ctor(key, dummy_mapped_data.get());
-                    distinct_row.push_back(row);
-                };
-                auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = dummy_mapped_data.get();
-                    distinct_row.push_back(row);
-                };
+            vectorized::Overload {
+                    [&](std::monostate& arg) -> void {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                    },
+                    [&](auto& agg_method) -> void {
+                        SCOPED_TIMER(_hash_table_compute_timer);
+                        using HashMethodType = std::decay_t<decltype(agg_method)>;
+                        using AggState = typename HashMethodType::State;
+                        auto& hash_tbl = *agg_method.hash_table;
+                        if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
+                            hash_tbl.add_elem_size_overflow(num_rows)) {
+                            if (!_should_expand_preagg_hash_tables()) {
+                                _stop_emplace_flag = true;
+                                return;
+                            }
+                        }
+                        AggState state(key_columns);
+                        agg_method.init_serialized_keys(key_columns, num_rows);
+                        size_t row = 0;
+                        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                            HashMethodType::try_presis_key(key, origin, _arena);
+                            ctor(key, dummy_mapped_data.get());
+                            distinct_row.push_back(row);
+                        };
+                        auto creator_for_null_key = [&](auto& mapped) {
+                            mapped = dummy_mapped_data.get();
+                            distinct_row.push_back(row);
+                        };
 
-                SCOPED_TIMER(_hash_table_emplace_timer);
-                for (; row < num_rows; ++row) {
-                    agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                }
+                        SCOPED_TIMER(_hash_table_emplace_timer);
+                        for (; row < num_rows; ++row) {
+                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                        }
 
-                COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-            },
+                        COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                    }},
             _agg_data->method_variant);
 }
 
 DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id,
                                                              const TPlanNode& tnode,
-                                                             const DescriptorTbl& descs)
+                                                             const DescriptorTbl& descs,
+                                                             bool require_bucket_distribution)
         : StatefulOperatorX<DistinctStreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}),
-          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {
+          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.agg_node.grouping_exprs),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
+          _require_bucket_distribution(require_bucket_distribution) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -439,6 +390,7 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
                 state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -470,7 +422,6 @@ Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
-        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     return Status::OK();
@@ -539,12 +490,15 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     /// _hash_table_size_counter may be null if prepare failed.
-    if (_hash_table_size_counter) {
-        std::visit(
-                [&](auto&& agg_method) {
-                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.hash_table->size()));
-                },
-                _agg_data->method_variant);
+    if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {
+        std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                             // Do nothing
+                                         },
+                                         [&](auto& agg_method) {
+                                             COUNTER_SET(_hash_table_size_counter,
+                                                         int64_t(agg_method.hash_table->size()));
+                                         }},
+                   _agg_data->method_variant);
     }
     if (Base::_closed) {
         return Status::OK();

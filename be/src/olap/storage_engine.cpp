@@ -18,29 +18,27 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <assert.h>
-#include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/resource.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <cassert>
+#include <cerrno> // IWYU pragma: keep
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iterator>
 #include <mutex>
-#include <new>
 #include <ostream>
-#include <random>
 #include <set>
 #include <thread>
 #include <unordered_set>
@@ -52,37 +50,30 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "olap/base_compaction.h"
 #include "olap/binlog.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_cache.h"
-#include "olap/segment_loader.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/snapshot_manager.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
-#include "util/trace.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 
@@ -107,7 +98,10 @@ bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
-          _stop_background_threads_latch(1) {}
+          _stop_background_threads_latch(1) {
+    _memory_limitation_bytes_for_schema_change =
+            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
+}
 
 BaseStorageEngine::~BaseStorageEngine() = default;
 
@@ -123,6 +117,69 @@ StorageEngine& BaseStorageEngine::to_local() {
 CloudStorageEngine& BaseStorageEngine::to_cloud() {
     CHECK_EQ(_type, Type::CLOUD);
     return *static_cast<CloudStorageEngine*>(this);
+}
+
+int64_t BaseStorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
+    return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
+                    config::memory_limitation_per_thread_for_schema_change_bytes);
+}
+
+Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_load_record_path) {
+    LOG(INFO) << "stream load record path: " << stream_load_record_path;
+    // init stream load record rocksdb
+    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
+    if (_stream_load_recorder == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
+                "new StreamLoadRecorder failed");
+    }
+    auto st = _stream_load_recorder->init();
+    if (!st.ok()) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
+                                stream_load_record_path),
+                "init StreamLoadRecorder failed");
+    }
+    return Status::OK();
+}
+
+void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    auto add_node = [&root](const std::string& name, const Registry& registry) {
+        rapidjson::Value key;
+        key.SetString(name.c_str(), name.length(), root.GetAllocator());
+        rapidjson::Document path_obj;
+        path_obj.SetObject();
+        for (const auto& it : registry) {
+            const auto& dir = it.first->path();
+            rapidjson::Value path_key;
+            path_key.SetString(dir.c_str(), dir.length(), root.GetAllocator());
+
+            rapidjson::Document arr;
+            arr.SetArray();
+
+            for (const auto& tablet : it.second) {
+                rapidjson::Value key;
+                auto key_str = std::to_string(tablet->tablet_id());
+                key.SetString(key_str.c_str(), key_str.length(), root.GetAllocator());
+                arr.PushBack(key, root.GetAllocator());
+            }
+            path_obj.AddMember(path_key, arr, root.GetAllocator());
+        }
+        root.AddMember(key, path_obj, root.GetAllocator());
+    };
+
+    std::unique_lock<std::mutex> l(_tablet_submitted_compaction_mutex);
+    add_node("BaseCompaction", _tablet_submitted_base_compaction);
+    add_node("CumulativeCompaction", _tablet_submitted_cumu_compaction);
+    add_node("FullCompaction", _tablet_submitted_full_compaction);
+
+    rapidjson::StringBuffer str_buf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(str_buf);
+    root.Accept(writer);
+    *result = std::string(str_buf.GetString());
 }
 
 static Status _validate_options(const EngineOptions& options) {
@@ -149,7 +206,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
-          _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
                   new CreateTabletIdxCache(config::partition_disk_index_lru_size)),
           _snapshot_mgr(std::make_unique<SnapshotManager>(*this)) {
@@ -165,31 +221,49 @@ StorageEngine::~StorageEngine() {
     stop();
 }
 
-// Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
-// but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
 static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
-    std::vector<std::thread> threads;
-    std::vector<Status> results(data_dirs.size());
-    for (size_t i = 0; i < data_dirs.size(); ++i) {
-        threads.emplace_back(
-                [&results, data_dir = data_dirs[i]](size_t index) {
-                    results[index] = data_dir->load();
-                    if (!results[index].ok()) {
-                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
-                                     << ", data dir=" << data_dir->path();
-                    }
-                },
-                i);
+    std::unique_ptr<ThreadPool> pool;
+
+    int num_threads = config::load_data_dirs_threads;
+    if (num_threads <= 0) {
+        num_threads = data_dirs.size();
     }
-    for (auto& thread : threads) {
-        thread.join();
-    }
-    for (const auto& result : results) {
-        if (!result.ok()) {
-            return result;
+
+    auto st = ThreadPoolBuilder("load_data_dir")
+                      .set_min_threads(num_threads)
+                      .set_max_threads(num_threads)
+                      .build(&pool);
+    CHECK(st.ok()) << st;
+
+    std::mutex result_mtx;
+    Status result;
+
+    for (auto* data_dir : data_dirs) {
+        st = pool->submit_func([&, data_dir] {
+            {
+                std::lock_guard lock(result_mtx);
+                if (!result.ok()) { // Some data dir has failed
+                    return;
+                }
+            }
+
+            auto st = data_dir->load();
+            if (!st.ok()) {
+                LOG(WARNING) << "error occured when init load tables. res=" << st
+                             << ", data dir=" << data_dir->path();
+                std::lock_guard lock(result_mtx);
+                result = std::move(st);
+            }
+        });
+
+        if (!st.ok()) {
+            return st;
         }
     }
-    return Status::OK();
+
+    pool->wait();
+
+    return result;
 }
 
 Status StorageEngine::_open() {
@@ -206,8 +280,9 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
+    _disk_num = dirs.size();
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    _memtable_flush_executor->init(dirs.size());
+    _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -246,28 +321,9 @@ Status StorageEngine::_init_store_map() {
         return Status::InternalError("init path failed, error={}", error_msg);
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(_options.store_paths[0].path),
+    RETURN_NOT_OK_STATUS_WITH_WARN(init_stream_load_recorder(_options.store_paths[0].path),
                                    "init StreamLoadRecorder failed");
 
-    return Status::OK();
-}
-
-Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
-    LOG(INFO) << "stream load record path: " << stream_load_record_path;
-    // init stream load record rocksdb
-    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
-    if (_stream_load_recorder == nullptr) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
-                "new StreamLoadRecorder failed");
-    }
-    auto st = _stream_load_recorder->init();
-    if (!st.ok()) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
-                                stream_load_record_path),
-                "init StreamLoadRecorder failed");
-    }
     return Status::OK();
 }
 
@@ -648,7 +704,6 @@ void StorageEngine::stop() {
     }
 
     THREADS_JOIN(_path_gc_threads);
-    THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
 
     if (_base_compaction_thread_pool) {
@@ -708,7 +763,13 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            static_cast<void>(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
+            Status s = _txn_manager->delete_txn(partition_id, tablet, transaction_id);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to clear transaction. txn_id=" << transaction_id
+                             << ", partition_id=" << partition_id
+                             << ", tablet_id=" << tablet_info.first.tablet_id
+                             << ", status=" << s.to_string();
+            }
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -811,7 +872,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
-                                                           const std::string& meta_str) -> bool {
+                                                           std::string_view meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
@@ -877,12 +938,12 @@ void StorageEngine::_clean_unused_rowset_metas() {
 
 void StorageEngine::_clean_unused_binlog_metas() {
     std::vector<std::string> unused_binlog_key_suffixes;
-    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](const std::string& key,
-                                                                       const std::string& value,
+    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](std::string_view key,
+                                                                       std::string_view value,
                                                                        bool need_check) -> bool {
         if (need_check) {
             BinlogMetaEntryPB binlog_meta_pb;
-            if (UNLIKELY(!binlog_meta_pb.ParseFromString(value))) {
+            if (UNLIKELY(!binlog_meta_pb.ParseFromArray(value.data(), value.size()))) {
                 LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
             } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
                 LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
@@ -912,7 +973,7 @@ void StorageEngine::_clean_unused_binlog_metas() {
 void StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
     auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
-                                                             const std::string& val) -> bool {
+                                                             std::string_view val) -> bool {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {
             if (removed_tablets.insert(tablet_id).second) {
@@ -940,7 +1001,7 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     std::vector<std::pair<int64_t, int64_t>> removed_infos;
     auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
                                                                   int64_t publish_version,
-                                                                  const string& info) -> bool {
+                                                                  std::string_view info) -> bool {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {
             removed_infos.emplace_back(tablet_id, publish_version);
@@ -1032,6 +1093,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 res = io::global_local_filesystem()->delete_directory(path_name);
+                LOG(INFO) << "do sweep delete directory " << path_name << " local_now " << local_now
+                          << "actual_expire " << actual_expire << " res " << res;
                 if (!res.ok()) {
                     continue;
                 }
@@ -1197,7 +1260,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
-    LOG(INFO) << "success to process obtain root path. path=" << shard_path;
+    LOG(INFO) << "success to process obtain root path. path=" << *shard_path;
     return Status::OK();
 }
 
@@ -1296,7 +1359,7 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 }
 
 PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& ctx) {
-    if (!ctx.fs || ctx.fs->type() == io::FileSystemType::LOCAL) {
+    if (ctx.is_local_rowset()) {
         return _pending_local_rowsets.add(ctx.rowset_id);
     }
     return _pending_remote_rowsets.add(ctx.rowset_id);
@@ -1320,6 +1383,12 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+#ifdef BE_TEST
+    if (tablet_id % 2 == 0) {
+        return true;
+    }
+    return false;
+#endif
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
@@ -1343,65 +1412,8 @@ bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
 //          "/home/disk2" : [10003]
 //   }
 // }
-Status StorageEngine::get_compaction_status_json(std::string* result) {
-    rapidjson::Document root;
-    root.SetObject();
-
-    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    const std::string& cumu = "CumulativeCompaction";
-    rapidjson::Value cumu_key;
-    cumu_key.SetString(cumu.c_str(), cumu.length(), root.GetAllocator());
-
-    // cumu
-    rapidjson::Document path_obj;
-    path_obj.SetObject();
-    for (auto& it : _tablet_submitted_cumu_compaction) {
-        const std::string& dir = it.first->path();
-        rapidjson::Value path_key;
-        path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
-
-        rapidjson::Document arr;
-        arr.SetArray();
-
-        for (auto& tablet_id : it.second) {
-            rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
-            key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
-            arr.PushBack(key, root.GetAllocator());
-        }
-        path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
-    }
-    root.AddMember(cumu_key, path_obj, root.GetAllocator());
-
-    // base
-    const std::string& base = "BaseCompaction";
-    rapidjson::Value base_key;
-    base_key.SetString(base.c_str(), base.length(), root.GetAllocator());
-    rapidjson::Document path_obj2;
-    path_obj2.SetObject();
-    for (auto& it : _tablet_submitted_base_compaction) {
-        const std::string& dir = it.first->path();
-        rapidjson::Value path_key;
-        path_key.SetString(dir.c_str(), dir.length(), path_obj2.GetAllocator());
-
-        rapidjson::Document arr;
-        arr.SetArray();
-
-        for (auto& tablet_id : it.second) {
-            rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
-            key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
-            arr.PushBack(key, root.GetAllocator());
-        }
-        path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
-    }
-    root.AddMember(base_key, path_obj2, root.GetAllocator());
-
-    rapidjson::StringBuffer strbuf;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
-    root.Accept(writer);
-    *result = std::string(strbuf.GetString());
-    return Status::OK();
+void StorageEngine::get_compaction_status_json(std::string* result) {
+    _compaction_submit_registry.jsonfy_compaction_status(result);
 }
 
 void BaseStorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
@@ -1464,26 +1476,6 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
-}
-
-bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
-    if (!config::enable_compaction_priority_scheduling) {
-        return true;
-    }
-    std::lock_guard l(_low_priority_task_nums_mutex);
-    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
-        _low_priority_task_nums[dir]++;
-        return true;
-    }
-    return false;
-}
-
-void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
-    if (config::enable_compaction_priority_scheduling) {
-        std::lock_guard l(_low_priority_task_nums_mutex);
-        _low_priority_task_nums[dir]--;
-        DCHECK(_low_priority_task_nums[dir] >= 0);
-    }
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {

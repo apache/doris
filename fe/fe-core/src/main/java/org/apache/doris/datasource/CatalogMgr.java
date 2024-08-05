@@ -43,6 +43,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -66,6 +67,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -94,8 +96,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
-    // record last used database of every catalog
-    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToCatalog and nameToCatalog
@@ -138,7 +138,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
-            lastDBOfCatalog.remove(catalog.getName());
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
+            }
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
                 Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
@@ -190,14 +192,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
                         ErrorCode.ERR_UNKNOWN_CATALOG));
-    }
-
-    public void addLastDBOfCatalog(String catalog, String db) {
-        lastDBOfCatalog.put(catalog, db);
-    }
-
-    public String getLastDB(String catalog) {
-        return lastDBOfCatalog.get(catalog);
     }
 
     public List<Long> getCatalogIds() {
@@ -280,7 +274,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
 
-            lastDBOfCatalog.remove(stmt.getCatalogName());
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().removeLastDBOfCatalog(stmt.getCatalogName());
+            }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
         } finally {
             writeUnlock();
@@ -304,10 +300,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             replayAlterCatalogName(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
 
-            String db = lastDBOfCatalog.get(stmt.getCatalogName());
-            if (db != null) {
-                lastDBOfCatalog.remove(stmt.getCatalogName());
-                lastDBOfCatalog.put(log.getNewCatalogName(), db);
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                String db = ctx.getLastDBOfCatalog(stmt.getCatalogName());
+                if (db != null) {
+                    ctx.removeLastDBOfCatalog(stmt.getCatalogName());
+                    ctx.addLastDBOfCatalog(log.getNewCatalogName(), db);
+                }
             }
         } finally {
             writeUnlock();
@@ -587,11 +586,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog == null) {
             return;
         }
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        if (db == null) {
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(log.getDbId());
+        if (!db.isPresent()) {
             return;
         }
-        db.replayInitDb(log, catalog);
+        db.get().replayInitDb(log, catalog);
     }
 
     public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
@@ -663,7 +662,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
+        long tblId;
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        if (hmsCatalog.getUseMetaCache().get()) {
+            tblId = Util.genIdByName(catalogName, dbName, tableName);
+        } else {
+            tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
+        }
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -698,7 +703,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -715,13 +720,19 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        long dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        long dbId;
+        if (hmsCatalog.getUseMetaCache().get()) {
+            dbId = Util.genIdByName(catalogName, dbName);
+        } else {
+            dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
+        }
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
-        ((HMSExternalCatalog) catalog).registerDatabase(dbId, dbName);
+        hmsCatalog.registerDatabase(dbId, dbName);
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,

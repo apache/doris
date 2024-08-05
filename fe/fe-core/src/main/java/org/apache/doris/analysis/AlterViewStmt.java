@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -32,7 +33,8 @@ import org.apache.doris.qe.ConnectContext;
 import java.util.List;
 
 // Alter view statement
-public class AlterViewStmt extends BaseViewStmt {
+@Deprecated
+public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
         super(tbl, cols, queryStmt);
@@ -77,6 +79,14 @@ public class AlterViewStmt extends BaseViewStmt {
         createColumnAndViewDefs(analyzer);
     }
 
+    public void setInlineViewDef(String querySql) {
+        inlineViewDef = querySql;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -100,5 +110,10 @@ public class AlterViewStmt extends BaseViewStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

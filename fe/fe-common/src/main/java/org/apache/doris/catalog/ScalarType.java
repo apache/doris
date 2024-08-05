@@ -579,36 +579,34 @@ public class ScalarType extends Type {
     public String toString() {
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
-                return "CHARACTER";
+                return "character(" + MAX_CHAR_LENGTH + ")";
             }
-            return "CHAR(" + len + ")";
+            return "char(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*, *)";
+                return "decimal(*,*)";
             }
-            return "DECIMAL(" + precision + ", " + scale + ")";
+            return "decimal(" + precision + "," + scale + ")";
         } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
-                return "DECIMALV3(*, *)";
+                return "decimalv3(*,*)";
             }
-            return "DECIMALV3(" + precision + ", " + scale + ")";
+            return "decimalv3(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
-            return "DATETIMEV2(" + scale + ")";
+            return "datetimev2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
-            return "TIMEV2(" + scale + ")";
+            return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
+                return "varchar(" + MAX_VARCHAR_LENGTH + ")";
             }
-            return "VARCHAR(" + len + ")";
+            return "varchar(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
-            return "TEXT";
+            return "text";
         } else if (type == PrimitiveType.JSONB) {
-            return "JSON";
-        } else if (type == PrimitiveType.VARIANT) {
-            return "VARIANT";
+            return "json";
         }
-        return type.toString();
+        return type.toString().toLowerCase();
     }
 
     @Override
@@ -617,73 +615,73 @@ public class ScalarType extends Type {
         switch (type) {
             case CHAR:
                 if (isWildcardChar()) {
-                    stringBuilder.append("CHARACTER");
+                    stringBuilder.append("character").append("(").append(MAX_CHAR_LENGTH).append(")");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
-                    stringBuilder.append("CHAR").append("(").append(len).append(")");
+                    stringBuilder.append("char").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("CHAR").append("(`").append(lenStr).append("`)");
+                    stringBuilder.append("char").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
+                    return "varchar(" + MAX_VARCHAR_LENGTH + ")";
                 } else if (Strings.isNullOrEmpty(lenStr)) {
-                    stringBuilder.append("VARCHAR").append("(").append(len).append(")");
+                    stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("VARCHAR").append("(`").append(lenStr).append("`)");
+                    stringBuilder.append("varchar").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
-                    stringBuilder.append("DECIMAL").append("(").append(precision)
-                            .append(", ").append(scale).append(")");
+                    stringBuilder.append("decimalv2").append("(").append(precision)
+                            .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
-                    stringBuilder.append("DECIMAL").append("(`").append(precisionStr)
-                            .append("`, `").append(scaleStr).append("`)");
+                    stringBuilder.append("decimalv2").append("(`").append(precisionStr)
+                            .append("`,`").append(scaleStr).append("`)");
                 } else {
-                    stringBuilder.append("DECIMAL").append("(`").append(precisionStr).append("`)");
+                    stringBuilder.append("decimalv2").append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                String typeName = "DECIMALV3";
+                String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
-                        .append(", ").append(scale).append(")");
+                        .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
                     stringBuilder.append(typeName).append("(`").append(precisionStr)
-                        .append("`, `").append(scaleStr).append("`)");
+                        .append("`,`").append(scaleStr).append("`)");
                 } else {
                     stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case DATETIMEV2:
-                stringBuilder.append("DATETIMEV2").append("(").append(scale).append(")");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIME:
-                stringBuilder.append("TIME");
+                stringBuilder.append("time");
                 break;
             case TIMEV2:
-                stringBuilder.append("TIME").append("(").append(scale).append(")");
+                stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
             case BOOLEAN:
-                return "BOOLEAN";
+                return "boolean";
             case TINYINT:
-                return "TINYINT";
+                return "tinyint";
             case SMALLINT:
-                return "SMALLINT";
+                return "smallint";
             case INT:
-                return "INT";
+                return "int";
             case BIGINT:
-                return "BIGINT";
+                return "bigint";
             case LARGEINT:
-                return "LARGEINT";
+                return "largeint";
             case IPV4:
-                return "IPV4";
+                return "ipv4";
             case IPV6:
-                return "IPV6";
+                return "ipv6";
             case FLOAT:
             case DOUBLE:
             case DATE:
@@ -694,18 +692,14 @@ public class ScalarType extends Type {
             case VARIANT:
             case QUANTILE_STATE:
             case LAMBDA_FUNCTION:
-            case ARRAY:
             case NULL_TYPE:
-                stringBuilder.append(type);
+                stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
-                stringBuilder.append("TEXT");
+                stringBuilder.append("text");
                 break;
             case JSONB:
-                stringBuilder.append("JSON");
-                break;
-            case AGG_STATE:
-                stringBuilder.append("AGG_STATE(UNKNOWN)");
+                stringBuilder.append("json");
                 break;
             default:
                 stringBuilder.append("unknown type: ").append(type);
@@ -861,17 +855,6 @@ public class ScalarType extends Type {
     }
 
     @Override
-    public boolean isFixedLengthType() {
-        return type == PrimitiveType.BOOLEAN || type == PrimitiveType.TINYINT
-                || type == PrimitiveType.SMALLINT || type == PrimitiveType.INT
-                || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
-                || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
-                || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()
-                || type == PrimitiveType.CHAR || type == PrimitiveType.DATEV2 || type == PrimitiveType.DATETIMEV2
-                || type == PrimitiveType.TIMEV2;
-    }
-
-    @Override
     public boolean isSupported() {
         switch (type) {
             case BINARY:
@@ -880,14 +863,6 @@ public class ScalarType extends Type {
             default:
                 return true;
         }
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        if (!isSupported() || isComplexType()) {
-            return false;
-        }
-        return true;
     }
 
     @Override
@@ -1099,7 +1074,13 @@ public class ScalarType extends Type {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
                 return t1.isFloatingPointType() ? t1 : t2;
             } else if (t1.isBoolean() || t2.isBoolean()) {
-                return t1.isDecimalV3() ? t1 : t2;
+                return t1.isDecimalV3()
+                        ? ScalarType.createDecimalV3Type(
+                        Math.max(t1.precision - t1.scale, 1) + Math.max(t1.scale, 0),
+                        Math.max(t1.scale, 0)) :
+                        ScalarType.createDecimalV3Type(
+                        Math.max(t2.precision - t2.scale, 1) + Math.max(t2.scale, 0),
+                        Math.max(t2.scale, 0));
             }
         }
 

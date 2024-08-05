@@ -88,17 +88,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             case AGG_KEYS:
             case UNIQUE_KEYS:
             case DUP_KEYS:
-                // SelectMaterializedIndexWithAggregate(R1) run before SelectMaterializedIndexWithoutAggregate(R2)
-                // if R1 selects baseIndex and preAggStatus is off
-                // we should give a chance to R2 to check if some prefix-index can be selected
-                // so if R1 selects baseIndex and preAggStatus is off, we keep scan's index unselected in order to
-                // let R2 to get a chance to do its work
-                // at last, after R1, the scan may be the 4 status
-                // 1. preAggStatus is ON and baseIndex is selected, it means select baseIndex is correct.
-                // 2. preAggStatus is ON and some other Index is selected, this is correct, too.
-                // 3. preAggStatus is OFF, no index is selected, it means R2 could get a chance to run
-                // so we check the preAggStatus and if some index is selected to make sure R1 can be run only once
-                return scan.getPreAggStatus().isOn() && !scan.isIndexSelected();
+                return !scan.isIndexSelected();
             default:
                 return false;
         }
@@ -242,7 +232,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected static long selectBestIndex(
             List<MaterializedIndex> candidates,
             LogicalOlapScan scan,
-            Set<Expression> predicates) {
+            Set<Expression> predicates,
+            Set<? extends Expression> requiredExprs) {
         if (candidates.isEmpty()) {
             return scan.getTable().getBaseIndexId();
         }
@@ -257,11 +248,20 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
 
         // find matching key prefix most.
-        List<MaterializedIndex> matchingKeyPrefixMost = matchPrefixMost(scan, candidates, predicates, exprIdToName);
+        candidates = matchPrefixMost(scan, candidates, predicates, exprIdToName);
+        if (candidates.size() > 1) {
+            Set<String> requiredExprNames = requiredExprs.stream().map(e -> {
+                if (e instanceof Alias) {
+                    return ((Alias) e).child().toSql().toLowerCase();
+                }
+                return e.toSql().toLowerCase();
+            }).collect(Collectors.toSet());
+            candidates = matchColumnMost(scan.getTable(), candidates, requiredExprNames);
+        }
 
         List<Long> partitionIds = scan.getSelectedPartitionIds();
         // sort by row count, column count and index id.
-        List<Long> sortedIndexIds = matchingKeyPrefixMost.stream()
+        List<Long> sortedIndexIds = candidates.stream()
                 .map(MaterializedIndex::getId)
                 .sorted(Comparator
                         // compare by row count
@@ -450,6 +450,33 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 break;
             } else {
                 break;
+            }
+        }
+        return matchCount;
+    }
+
+    private static List<MaterializedIndex> matchColumnMost(
+            OlapTable table,
+            List<MaterializedIndex> indexes,
+            Set<String> requiredExprs) {
+        TreeMap<Integer, List<MaterializedIndex>> collect = indexes.stream()
+                .collect(Collectors.toMap(
+                        index -> columnMatchCount(table, index, requiredExprs),
+                        Lists::newArrayList,
+                        (l1, l2) -> {
+                            l1.addAll(l2);
+                            return l1;
+                        },
+                        TreeMap::new)
+                );
+        return collect.descendingMap().firstEntry().getValue();
+    }
+
+    private static int columnMatchCount(OlapTable table, MaterializedIndex index, Set<String> requiredColNames) {
+        int matchCount = 0;
+        for (Column column : table.getSchemaByIndexId(index.getId())) {
+            if (requiredColNames.contains(normalizeName(column.getNameWithoutMvPrefix().toLowerCase()))) {
+                matchCount++;
             }
         }
         return matchCount;
