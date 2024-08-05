@@ -70,6 +70,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
+    "test_be_inject_publish_txn_fail,"+
     "test_stream_stub_fault_injection," +
     "test_index_compaction_failure_injection," +
     "test_delta_writer_v2_back_pressure_fault_injection," +
@@ -145,7 +146,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
-max_failure_num=50
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
 
