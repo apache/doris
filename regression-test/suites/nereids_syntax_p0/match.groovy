@@ -181,6 +181,8 @@ suite("match") {
             .collect(Collectors.joining("\n"))
     logger.info("Variables:\n${variableString}")
 
+    sql "set enable_fold_constant_by_be=false"
+
     explain {
         sql """
         select *
