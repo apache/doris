@@ -52,7 +52,6 @@ void SharedHashTableController::signal(int my_node_id) {
     for (auto& dep : _dependencies[my_node_id]) {
         dep->set_ready();
     }
-    _cv.notify_all();
 }
 
 void SharedHashTableController::signal_finish(int my_node_id) {
@@ -60,7 +59,6 @@ void SharedHashTableController::signal_finish(int my_node_id) {
     for (auto& dep : _finish_dependencies[my_node_id]) {
         dep->set_ready();
     }
-    _cv.notify_all();
 }
 
 TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_node_id) {
