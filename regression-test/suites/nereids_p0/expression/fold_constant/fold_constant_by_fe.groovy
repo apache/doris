@@ -163,4 +163,7 @@ suite("test_fold_constant_by_fe") {
     res = sql """explain select "12" like '%123%'"""
     assertTrue(res.contains("like"))
 
+    res = sql """explain select split_part('2024-04-17,2024-04-17', ',', 1) ;"""
+    assertFalse(res.contains"split_part")
+
 }

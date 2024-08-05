@@ -114,6 +114,11 @@ public class ExecutableFunctions {
                 : new VarcharLiteral(literal.getValue() + chr.getValue());
     }
 
+    @ExecFunction(name = "split_part", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
+    public static Expression splitPart(StringLikeLiteral literal, StringLikeLiteral chr, IntegerLiteral number) {
+        return new VarcharLiteral(literal.getValue().split(chr.getValue())[number.getValue() - 1]);
+    }
+
     @ExecFunction(name = "e", argTypes = {}, returnType = "DOUBLE")
     public static Expression e() { // CHECKSTYLE IGNORE THIS LINE
         return new DoubleLiteral(Math.E);
