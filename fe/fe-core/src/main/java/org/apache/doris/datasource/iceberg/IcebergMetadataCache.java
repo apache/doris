@@ -23,7 +23,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TIcebergMetadataParams;
@@ -41,6 +40,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,21 +111,30 @@ public class IcebergMetadataCache {
     @NotNull
     private Table loadTable(IcebergMetadataCacheKey key) {
         Catalog icebergCatalog;
+        Table icebergTable;
         if (key.catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog ctg = (HMSExternalCatalog) key.catalog;
             icebergCatalog = createIcebergHiveCatalog(
-                    ctg.getHiveMetastoreUris(),
-                    ctg.getCatalogProperty().getHadoopProperties(),
-                    ctg.getProperties());
+                ctg.getHiveMetastoreUris(),
+                ctg.getCatalogProperty().getHadoopProperties(),
+                ctg.getProperties());
+            try {
+                icebergTable = ctg.getAuthenticator().doAs(() -> {
+                    Table tbl = icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName));
+                    IcebergExternalCatalog.initIcebergTableFileIO(tbl, key.catalog.getProperties());
+                    return tbl;
+                });
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            return icebergTable;
         } else if (key.catalog instanceof IcebergExternalCatalog) {
-            icebergCatalog = ((IcebergExternalCatalog) key.catalog).getCatalog();
+            IcebergExternalCatalog ctg = ((IcebergExternalCatalog) key.catalog);
+            icebergTable = ctg.loadTable(TableIdentifier.of(key.dbName, key.tableName));
+            return icebergTable;
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(key.catalog.getId(),
-                () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
-        initIcebergTableFileIO(icebergTable, key.catalog.getProperties());
-        return icebergTable;
     }
 
     public void invalidateCatalogCache(long catalogId) {
