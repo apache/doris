@@ -201,7 +201,7 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
         break;
     }
     case TFileCompressType::ZSTD: {
-        compress_name = ".zstd";
+        compress_name = ".zst";
         break;
     }
     case TFileCompressType::GZ: {
