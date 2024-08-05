@@ -411,15 +411,7 @@ public class OneRangePartitionEvaluator
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
 
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> {
-                if (leftRange == null) {
-                    return rightRange;
-                }
-                if (rightRange == null) {
-                    return leftRange;
-                }
-                return leftRange.intersect(rightRange);
-            });
+                (leftRange, rightRange) -> leftRange.intersect(rightRange));
 
         result = returnFalseIfExistEmptyRange(result);
         if (result.result.equals(BooleanLiteral.FALSE)) {
@@ -435,18 +427,9 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitOr(Or or, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
-
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> {
-                    if (leftRange == null) {
-                        return rightRange;
-                    }
-                    if (rightRange == null) {
-                        return leftRange;
-                    }
-                    return leftRange.union(rightRange);
-                });
-        return removeEmptyRange(result);
+                (leftRange, rightRange) -> leftRange.union(rightRange));
+        return returnFalseIfExistEmptyRange(result);
     }
 
     @Override
@@ -596,7 +579,9 @@ public class OneRangePartitionEvaluator
                 .build();
 
         Map<Expression, ColumnRange> mergedRange = exprs.stream()
-                .map(expr -> Pair.of(expr, mergeFunction.apply(leftRanges.get(expr), rightRanges.get(expr))))
+                .map(expr -> Pair.of(expr, mergeFunction.apply(
+                        leftRanges.containsKey(expr) ? leftRanges.get(expr) : rangeMap.get(expr),
+                        rightRanges.containsKey(expr) ? rightRanges.get(expr) : rangeMap.get(expr))))
                 .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
         return new EvaluateRangeResult(originResult, mergedRange, ImmutableList.of(left, right));
     }
@@ -819,17 +804,6 @@ public class OneRangePartitionEvaluator
             onePartitionInputs.add(slotPartitionSlotInputMap);
         }
         return onePartitionInputs;
-    }
-
-    private EvaluateRangeResult removeEmptyRange(EvaluateRangeResult result) {
-        ImmutableMap.Builder<Expression, ColumnRange> builder = ImmutableMap.builder();
-        for (Map.Entry<Expression, ColumnRange> entry : result.columnRanges.entrySet()) {
-            if (entry.getValue().isEmptyRange()) {
-                continue;
-            }
-            builder.put(entry);
-        }
-        return new EvaluateRangeResult(result.result, builder.build(), result.childrenResult);
     }
 
     private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
