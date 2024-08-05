@@ -220,7 +220,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
-    for (const auto& projections : _intermediate_projections) {
+    for (const auto& projections : local_state->_intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
