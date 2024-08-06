@@ -423,8 +423,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             return false;
         }
         Expression that = (Expression) o;
-        if ((compareWidthAndDepth && (this.width != that.width || this.depth != that.depth
-                || this.fastChildrenHashCode != that.fastChildrenHashCode)) || arity() != that.arity() || !extraEquals(that)) {
+        if ((compareWidthAndDepth &&
+                (this.width != that.width || this.depth != that.depth
+                    || this.fastChildrenHashCode != that.fastChildrenHashCode))
+                || arity() != that.arity() || !extraEquals(that)) {
             return false;
         }
         return equalsChildren(that);
