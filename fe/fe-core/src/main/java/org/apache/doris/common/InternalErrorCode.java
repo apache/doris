@@ -38,6 +38,11 @@ public enum InternalErrorCode {
     CANNOT_RESUME_ERR(105),
     TIMEOUT_TOO_MUCH(106),
 
+    TXN_NOT_EXIST(151),
+    TXN_ALREADY_ABORT(152),
+    TXN_ALREADY_COMMITTED(153),
+    TXN_ALREADY_VISIBLE(154),
+
     // for external catalog
     GET_REMOTE_DATA_ERROR(202),
 

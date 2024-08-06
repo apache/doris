@@ -18,12 +18,18 @@
 package org.apache.doris.transaction;
 
 
+import org.apache.doris.common.InternalErrorCode;
+
 public class TransactionCommitFailedException extends TransactionException {
 
     private static final long serialVersionUID = -2528170792631761535L;
 
     public TransactionCommitFailedException(String msg) {
         super(msg);
+    }
+
+    public TransactionCommitFailedException(InternalErrorCode errCode, String msg) {
+        super(errCode, msg);
     }
 
     public TransactionCommitFailedException(String msg, Throwable e) {
