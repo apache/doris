@@ -658,7 +658,6 @@ public class BindExpression implements AnalysisRuleFactory {
                 filter, cascadesContext, filter.children(), true, true);
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 filter.getConjuncts().size());
-
         for (Expression conjunct : filter.getConjuncts()) {
             Expression boundConjunct = analyzer.analyze(conjunct);
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);

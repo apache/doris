@@ -106,7 +106,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
@@ -275,8 +274,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
-        Optional<List<? extends Expression>> boundedOpt;
-        boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
+        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
 
         // Currently only looking for symbols on the previous level.
