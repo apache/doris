@@ -26,6 +26,8 @@
 #include <limits>
 
 #include "common/status.h"
+#include "util/jsonb_parser.h"
+#include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -59,10 +61,10 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        rapidjson::Document document;
-        document.Parse(text.data, text.size);
-        if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
-            _cur_size = _parsed_data.set_output(document, document.GetArray().Size());
+        JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
+        if (doc->getValue()->isArray() && doc->getValue()->size() > 0) {
+            auto* a = (ArrayVal*)doc->getValue();
+            _cur_size = _parsed_data.set_output(*a, a->numElem());
         }
     }
 }
