@@ -325,6 +325,8 @@ public:
             M(PrimitiveType::TYPE_CHAR)
             M(PrimitiveType::TYPE_VARCHAR)
             M(PrimitiveType::TYPE_STRING)
+            M(PrimitiveType::TYPE_IPV4)
+            M(PrimitiveType::TYPE_IPV6)
 #undef M
         default:
             return Status::NotSupported("Unsupported primitive type {} for inverted index reader",
