@@ -1330,7 +1330,7 @@ suite("aggregate_with_roll_up") {
     order_qt_query31_0_after "${query31_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
 
-    // should rewrite fail, because the part of query is join but mv is aggregate
+    // should rewrite fail, because the group by dimension query used is not in mv group by dimension
     def mv32_0 = """
             select
               o_orderdate,
@@ -1354,6 +1354,41 @@ suite("aggregate_with_roll_up") {
     async_mv_rewrite_fail(db, mv32_0, query32_0, "mv32_0")
     order_qt_query32_0_after "${query32_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_0"""
+
+    // should rewrite fail, because the group by dimension query used is not in mv group by dimension
+    def mv32_1 = """
+            select o_orderdate
+            from orders
+            group by o_orderdate;
+    """
+    def query32_1 = """
+            select
+            1
+            from  orders 
+            group by
+            o_orderdate;
+    """
+    order_qt_query32_1_before "${query32_1}"
+    check_mv_rewrite_success(db, mv32_1, query32_1, "mv32_1")
+    order_qt_query32_1_after "${query32_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_1"""
+
+    def mv32_2 = """
+            select o_orderdate, o_orderkey
+            from orders
+            group by o_orderdate, o_orderkey;
+    """
+    def query32_2 = """
+            select
+            1
+            from orders 
+            group by
+            o_orderdate;
+    """
+    order_qt_query32_2_before "${query32_2}"
+    check_mv_rewrite_success(db, mv32_2, query32_2, "mv32_2")
+    order_qt_query32_2_after "${query32_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_2"""
 
     // test combinator aggregate function rewrite
     sql """set enable_agg_state=true"""
