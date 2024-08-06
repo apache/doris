@@ -863,12 +863,12 @@ struct ConvertImplFromJsonb {
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val() > 0 ? 1 : 0;
+                        res[i] = ((const JsonbIntVal*)value)->val() == 0 ? 0 : 1;
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
-                                         ((const JsonbDoubleVal*)value)->val()) > 0
-                                         ? 1
-                                         : 0;
+                                         ((const JsonbDoubleVal*)value)->val()) == 0
+                                         ? 0
+                                         : 1;
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
