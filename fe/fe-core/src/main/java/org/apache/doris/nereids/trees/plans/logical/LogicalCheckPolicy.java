@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -123,16 +124,15 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     /**
-     * find related policy for logicalRelation.
+     * find related policy for logicalPlan.
      *
-     * @param logicalRelation include tableName and dbName
+     * @param logicalPlan include tableName and dbName
      * @param cascadesContext include information about user and policy
      */
-    public RelatedPolicy findPolicy(LogicalRelation logicalRelation, CascadesContext cascadesContext) {
-        if (!(logicalRelation instanceof CatalogRelation)) {
+    public RelatedPolicy findPolicy(LogicalPlan logicalPlan, CascadesContext cascadesContext) {
+        if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
-
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
@@ -140,19 +140,20 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return RelatedPolicy.NO_POLICY;
         }
 
-        CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
-        String ctlName = catalogRelation.getDatabase().getCatalog().getName();
-        String dbName = catalogRelation.getDatabase().getFullName();
-        String tableName = catalogRelation.getTable().getName();
+        TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
+                : ((LogicalView<?>) logicalPlan).getView();
+        String ctlName = table.getDatabase().getCatalog().getName();
+        String dbName = table.getDatabase().getFullName();
+        String tableName = table.getName();
 
         NereidsParser nereidsParser = new NereidsParser();
         ImmutableList.Builder<NamedExpression> dataMasks
-                = ImmutableList.builderWithExpectedSize(logicalRelation.getOutput().size());
+                = ImmutableList.builderWithExpectedSize(logicalPlan.getOutput().size());
 
         StatementContext statementContext = cascadesContext.getStatementContext();
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
-        for (Slot slot : logicalRelation.getOutput()) {
+        for (Slot slot : logicalPlan.getOutput()) {
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
                     currentUserIdentity, ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
@@ -218,7 +219,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
     }
 
-    /** RelatedPolicy */
+    /**
+     * RelatedPolicy
+     */
     public static class RelatedPolicy {
         public static final RelatedPolicy NO_POLICY = new RelatedPolicy(Optional.empty(), Optional.empty());
 
