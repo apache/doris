@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -79,10 +80,13 @@ public class HashDistributionPruner implements DistributionPruner {
             return Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
         }
         Column keyColumn = distributionColumns.get(columnId);
-        String columnName = isBaseIndexSelected ? keyColumn.getName()
-                : org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule
+        String columnName = keyColumn.getName();
+        if (!isBaseIndexSelected && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            columnName = org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule
                         .normalizeName(
                                 CreateMaterializedViewStmt.mvColumnBuilder(keyColumn.getName()));
+        }
+
         PartitionColumnFilter filter = distributionColumnFilters.get(columnName);
         if (null == filter) {
             // no filter in this column, no partition Key
