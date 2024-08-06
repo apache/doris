@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import java.util.ArrayList;
@@ -58,8 +58,8 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
     @Override
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
                                           StatementContext context) {
-        if (alias.child() instanceof LogicalSelectHint
-                && ((LogicalSelectHint) alias.child()).isIncludeLeading()) {
+        if (alias.child() instanceof LogicalStatementHint
+                && ((LogicalStatementHint) alias.child()).isIncludeLeading()) {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
             tableName.add(alias.getAlias());
