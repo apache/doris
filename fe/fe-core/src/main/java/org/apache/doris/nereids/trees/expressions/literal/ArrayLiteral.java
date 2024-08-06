@@ -86,6 +86,11 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
+    public int hashCode() {
+        return items.hashCode();
+    }
+
+    @Override
     public String toString() {
         String items = this.items.stream()
                 .map(Literal::toString)
