@@ -283,10 +283,10 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
     }
     VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
                << inverted_index_parser_type_to_string(parser_type);
+               std::vector<std::string> query_tokens;
+    auto analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(inverted_index_ctx);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
-    std::vector<std::string> query_tokens;
-    auto analyzer = create_analyzer(inverted_index_ctx);
     inverted_index_ctx->analyzer = analyzer.get();
     doris::segment_v2::InvertedIndexReader::get_analyse_result(
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,

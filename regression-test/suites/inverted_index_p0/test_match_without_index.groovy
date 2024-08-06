@@ -43,11 +43,11 @@ suite("test_match_without_index", "p0") {
     sql """ INSERT INTO ${testTable} VALUES (123, '17.0.0.0', 'HTTP GET', '200', 20); """
     // sql """ """
 
-    List<Object> match_res_without_index;
-    List<Object> match_res_with_index;
+    List<Object> match_res_without_index = new ArrayList<>();
+    List<Object> match_res_with_index =new ArrayList<>();
     def create_sql = {
         List<String> list = new ArrayList<>()
-        list.add(" select count() from ${testTable} where clientip match '17' ");
+        list.add(" select count() from ${testTable} where clientip match_phrase '17' ");
         return list;
     }
 
