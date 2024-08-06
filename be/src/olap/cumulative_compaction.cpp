@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
@@ -108,7 +109,7 @@ Status CumulativeCompaction::execute_compact() {
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
-    // The TIME_SERIES_POLICY generates an empty rowset and doesn't update the timestamp
+    // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
     if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
           _output_rowset->num_segments() == 0)) {
         tablet()->set_last_cumu_compaction_success_time(UnixMillis());
