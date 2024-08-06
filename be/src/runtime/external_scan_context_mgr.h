@@ -44,7 +44,7 @@ public:
     time_t last_access_time;
     std::mutex _local_lock;
     std::string context_id;
-    short keep_alive_min;
+    short keep_alive_sec;
     ScanContext(std::string id) : context_id(std::move(id)) {}
 };
 
