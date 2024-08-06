@@ -68,6 +68,14 @@ suite("filter_with_alias") {
          select * from internal.filter_alias_test.test b where internal.filter_alias_test.b.id = 1;
     """
 
+    qt_filter_select6 """
+         select * from (select id from filter_alias_test.test as b ) as toms;
+    """
+
+    qt_filter_select7 """
+         select 222 from (select current_date() as toms) as toms2;
+    """
+
     sql "drop database if exists filter_alias_test;"
 
 }

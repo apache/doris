@@ -14,3 +14,11 @@
 -- !filter_select5 --
 1	Alice
 
+-- !filter_select6 --
+1
+2
+3
+
+-- !filter_select7 --
+222
+
