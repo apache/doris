@@ -1426,13 +1426,12 @@ Status SegmentIterator::_init_inverted_index_iterators() {
 }
 
 Status SegmentIterator::_init_inverted_index_iterators(ColumnId cid) {
+    std::lock_guard lock(_idx_init_lock);
     if (_inverted_index_iterators[cid] == nullptr) {
-        return _init_single_inverted_index_iterator.call([&] {
-            return _segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid),
-                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
-                    _opts, &_inverted_index_iterators[cid]);
-        });
+        return _segment->new_inverted_index_iterator(
+                _opts.tablet_schema->column(cid),
+                _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                _opts, &_inverted_index_iterators[cid]);
     }
     return Status::OK();
 }
@@ -3017,9 +3016,8 @@ Status SegmentIterator::execute_func_expr(const vectorized::VExprSPtr& expr,
     params._unique_id = _schema->unique_id(slot_expr->column_id());
     params._column_name = _opts.tablet_schema->column(params._column_id).name();
     params._segment_iterator = this;
-    params.result = result;
 
-    return expr->eval_inverted_index(expr_ctx.get(), params);
+    return expr->eval_inverted_index(expr_ctx.get(), params, result);
 }
 
 } // namespace segment_v2

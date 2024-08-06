@@ -220,8 +220,8 @@ public:
     }
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual Status eval_inverted_index(FunctionContext* context,
-                                       segment_v2::FuncExprParams& params) {
+    virtual Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
+                                       std::shared_ptr<roaring::Roaring>& result) {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
     }
@@ -506,9 +506,9 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
-    Status eval_inverted_index(FunctionContext* context,
-                               segment_v2::FuncExprParams& params) override {
-        return function->eval_inverted_index(context, params);
+    Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
+                               std::shared_ptr<roaring::Roaring>& result) override {
+        return function->eval_inverted_index(context, params, result);
     }
 
 private:
