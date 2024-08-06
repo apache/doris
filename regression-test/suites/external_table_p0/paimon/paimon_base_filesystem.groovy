@@ -37,7 +37,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         sql """
             create catalog if not exists ${catalog_cos} properties (
                 "type" = "paimon",
-                "warehouse" = "cos://doris-build-1308700295/regression/paimoncos",
+                "warehouse" = "cosn://doris-build-1308700295/regression/paimoncos",
                 "cos.access_key" = "${txYunAk}",
                 "cos.secret_key" = "${txYunSk}",
                 "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
