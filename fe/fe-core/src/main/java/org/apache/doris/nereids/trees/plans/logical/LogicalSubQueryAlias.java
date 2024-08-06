@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,10 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         List<Slot> childOutput = child().getOutput();
         List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
+        ArrayList<String> dbQualifier = new ArrayList<>();
+        dbQualifier.add(childOutput.get(0).getQualifier().get(0));
+        dbQualifier.add(childOutput.get(0).getQualifier().get(1));
+        dbQualifier.add(qualifier.get(0));
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
             String columnAlias;
@@ -89,7 +94,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 columnAlias = originSlot.getName();
             }
             Slot qualified = originSlot
-                    .withQualifier(qualifier)
+                    .withQualifier(dbQualifier)
                     .withName(columnAlias);
             currentOutput.add(qualified);
         }

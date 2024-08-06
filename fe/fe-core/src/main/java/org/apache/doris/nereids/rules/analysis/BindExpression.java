@@ -233,11 +233,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
         LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
         checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
-        ArrayList<String> alias = new ArrayList<>();
-        alias.add(subQueryAlias.child(0).getOutput().get(0).getQualifier().get(0));
-        alias.add(subQueryAlias.child(0).getOutput().get(0).getQualifier().get(1));
-        alias.add(subQueryAlias.getAlias());
-        return new LogicalSubQueryAlias<>(alias, subQueryAlias.child());
+        return subQueryAlias;
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
