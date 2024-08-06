@@ -26,7 +26,6 @@
 
 namespace doris::vectorized {
 
-void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
 

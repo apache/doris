@@ -116,7 +116,7 @@ public:
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            bool filter_groups = true);
+            bool filter_groups = true, const bool hive_use_column_names = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -282,5 +282,6 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
+    bool _hive_use_column_names = false;
 };
 } // namespace doris::vectorized

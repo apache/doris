@@ -291,6 +291,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     // swap ref_block[key] and new_block[value]
     std::list<std::pair<int, int>> swap_idx_list;
     for (int idx = 0; idx < column_size; idx++) {
+        // just for MV, schema change should not run into this branch
         if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
@@ -367,7 +368,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     return Status::OK();
 }
 
-// This check is to prevent schema-change from causing data loss
+// This check is for MV to prevent schema-change from causing data loss
 Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                        vectorized::ColumnPtr new_column, AlterTabletType type) {
     if (ref_column->size() != new_column->size()) {
@@ -1317,8 +1318,8 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     }
 
     // if new tablet enable row store, or new tablet has different row store columns
-    if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
-         new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
+    if ((!base_tablet_schema->exist_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->exist_column(BeConsts::ROW_STORE_COL)) ||
         !std::equal(new_tablet_schema->row_columns_uids().begin(),
                     new_tablet_schema->row_columns_uids().end(),
                     base_tablet_schema->row_columns_uids().begin(),

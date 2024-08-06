@@ -48,19 +48,49 @@
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
 
+namespace {
+auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
+    return [&](int64_t ns) {
+        if (ns > 0) {
+            ns_bvar << ns;
+        } else {
+            req_num_bvar << 1;
+        }
+    };
+}
+} // namespace
+
 namespace doris::cloud {
-bvar::Adder<int64_t> get_rate_limit_ms("get_rate_limit_ms");
-bvar::Adder<int64_t> put_rate_limit_ms("put_rate_limit_ms");
+
+namespace s3_bvar {
+bvar::LatencyRecorder s3_get_latency("s3_get");
+bvar::LatencyRecorder s3_put_latency("s3_put");
+bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
+bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
+bvar::LatencyRecorder s3_head_latency("s3_head");
+bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
+bvar::LatencyRecorder s3_list_latency("s3_list");
+bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
+bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
+bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
+}; // namespace s3_bvar
+
+bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
+bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
+bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
+bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
 
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
-                                  S3RateLimitType::GET, config::s3_get_token_per_second,
-                                  config::s3_get_bucket_tokens, config::s3_get_token_limit,
-                                  [&](int64_t ms) { get_rate_limit_ms << ms; }),
-                          std::make_unique<S3RateLimiterHolder>(
-                                  S3RateLimitType::PUT, config::s3_put_token_per_second,
-                                  config::s3_put_bucket_tokens, config::s3_put_token_limit,
-                                  [&](int64_t ms) { put_rate_limit_ms << ms; })}) {}
+        : _rate_limiters(
+                  {std::make_unique<S3RateLimiterHolder>(
+                           S3RateLimitType::GET, config::s3_get_token_per_second,
+                           config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                           metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
+                   std::make_unique<S3RateLimiterHolder>(
+                           S3RateLimitType::PUT, config::s3_put_token_per_second,
+                           config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                           metric_func_factory(put_rate_limit_ns,
+                                               put_rate_limit_exceed_req_num))}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
@@ -385,7 +415,11 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
 
 int GcsAccessor::delete_files(const std::vector<std::string>& paths) {
     std::vector<int> delete_rets(paths.size());
+#ifdef USE_LIBCPP
+    std::transform(paths.begin(), paths.end(), delete_rets.begin(),
+#else
     std::transform(std::execution::par, paths.begin(), paths.end(), delete_rets.begin(),
+#endif
                    [this](const std::string& path) {
                        LOG_INFO("delete file").tag("uri", to_uri(path));
                        return delete_file(path);

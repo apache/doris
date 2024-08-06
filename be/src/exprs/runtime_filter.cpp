@@ -1005,7 +1005,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    RuntimeFilterContextSPtr _rf_context;
+    // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
+    // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
+    // after query context because the rpc is not returned.
+    std::weak_ptr<RuntimeFilterContext> _rf_context;
     std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
@@ -1021,7 +1024,13 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _rf_context->ignored = true;
+            auto ctx = _rf_context.lock();
+            if (ctx) {
+                ctx->ignored = true;
+            } else {
+                LOG(WARNING) << "sync filter size returned but context is released, filter="
+                             << _rf_debug_info;
+            }
         } else {
             LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
             Base::_process_if_meet_error_status(status);
@@ -1170,33 +1179,6 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                               always_true_counter);
     }
     return Status::OK();
-}
-
-bool IRuntimeFilter::await() {
-    DCHECK(is_consumer());
-    auto execution_timeout = _state->execution_timeout * 1000;
-    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
-    // bitmap filter is precise filter and only filter once, so it must be applied.
-    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? execution_timeout
-                                    : runtime_filter_wait_time_ms;
-    auto expected = _rf_state_atomic.load(std::memory_order_acquire);
-    if (expected == RuntimeFilterState::NOT_READY) {
-        if (!_rf_state_atomic.compare_exchange_strong(
-                    expected,
-                    MonotonicMillis() - registration_time_ >= wait_times_ms
-                            ? RuntimeFilterState::TIME_OUT
-                            : RuntimeFilterState::NOT_READY,
-                    std::memory_order_acq_rel)) {
-            DCHECK(expected == RuntimeFilterState::READY ||
-                   expected == RuntimeFilterState::TIME_OUT);
-            return (expected == RuntimeFilterState::READY);
-        }
-        return false;
-    } else if (expected == RuntimeFilterState::TIME_OUT) {
-        return false;
-    }
-    return true;
 }
 
 void IRuntimeFilter::update_state() {
@@ -1666,8 +1648,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
 
     switch (_wrapper->column_type()) {
     case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const int32_t*>(max_data));
+        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
+        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
         return;
     }
     case TYPE_TINYINT: {

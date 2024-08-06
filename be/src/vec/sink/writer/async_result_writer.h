@@ -33,7 +33,6 @@ class TDataSink;
 class TExpr;
 
 namespace pipeline {
-class AsyncWriterDependency;
 class Dependency;
 class PipelineTask;
 
@@ -55,9 +54,9 @@ class Block;
  */
 class AsyncResultWriter : public ResultWriter {
 public:
-    AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
-
-    void set_dependency(pipeline::AsyncWriterDependency* dep, pipeline::Dependency* finish_dep);
+    AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs,
+                      std::shared_ptr<pipeline::Dependency> dep,
+                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
     void force_close(Status s);
 
@@ -96,13 +95,9 @@ private:
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
-    // The writer is not started at the beginning. If prepare failed but not open, the the writer
-    // is not started, so should not pending finish on it.
-    bool _writer_thread_closed = true;
 
-    // Used by pipelineX
-    pipeline::AsyncWriterDependency* _dependency;
-    pipeline::Dependency* _finish_dependency;
+    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
 };

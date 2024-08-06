@@ -21,6 +21,7 @@ import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,7 +80,9 @@ public abstract class MetastoreEvent {
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
-        this.dbName = event.getDbName().toLowerCase(Locale.ROOT);
+        // Some events that we don't care about, dbName may be empty
+        String eventDbName = event.getDbName();
+        this.dbName = StringUtils.isEmpty(eventDbName) ? eventDbName : eventDbName.toLowerCase(Locale.ROOT);
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
         this.eventTime = event.getEventTime() * 1000L;

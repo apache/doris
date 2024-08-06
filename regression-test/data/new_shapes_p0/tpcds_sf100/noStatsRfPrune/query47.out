@@ -33,13 +33,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1)) and (v1.s_company_name = v1_lead.s_company_name) and (v1.s_store_name = v1_lead.s_store_name)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1)) and (v1.s_company_name = v1_lead.s_company_name) and (v1.s_store_name = v1_lead.s_store_name)) otherCondition=()
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1)) and (v1.s_company_name = v1_lag.s_company_name) and (v1.s_store_name = v1_lag.s_store_name)) otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalProject
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

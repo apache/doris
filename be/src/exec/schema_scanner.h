@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <condition_variable>
 #include <memory>
 #include <string>
 #include <vector>
@@ -41,6 +42,10 @@ class TUserIdentity;
 
 namespace vectorized {
 class Block;
+}
+
+namespace pipeline {
+class Dependency;
 }
 
 struct SchemaScannerCommonParam {
@@ -64,6 +69,7 @@ struct SchemaScannerCommonParam {
     int32_t port;                                      // frontend thrift port
     int64_t thread_id;
     const std::string* catalog = nullptr;
+    std::set<TNetworkAddress> fe_addr_list;
 };
 
 // scanner parameter from frontend
@@ -94,15 +100,23 @@ public:
 
     // init object need information, schema etc.
     virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
+    Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_block(vectorized::Block* block, bool* eos);
+    virtual Status get_next_block_internal(vectorized::Block* block, bool* eos);
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dep,
+                        std::shared_ptr<pipeline::Dependency> fin_dep) {
+        _dependency = dep;
+        _finish_dependency = fin_dep;
+    }
+    Status get_next_block_async(RuntimeState* state);
 
 protected:
+    void _init_block(vectorized::Block* src_block);
     Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
                                       const std::vector<void*>& datas);
 
@@ -125,6 +139,15 @@ protected:
     RuntimeProfile::Counter* _get_table_timer = nullptr;
     RuntimeProfile::Counter* _get_describe_timer = nullptr;
     RuntimeProfile::Counter* _fill_block_timer = nullptr;
+
+    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
+
+    std::unique_ptr<vectorized::Block> _data_block;
+    AtomicStatus _scanner_status;
+    std::atomic<bool> _eos = false;
+    std::atomic<bool> _opened = false;
+    std::atomic<bool> _async_thread_running = false;
 };
 
 } // namespace doris

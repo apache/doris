@@ -383,8 +383,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     // for http cancel stream load api
     @Override
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction(label, reason);
+        Long txnId = getTransactionId(dbId, label);
+        if (txnId == null) {
+            throw new AnalysisException("txn with label " + label + " does not exist");
+        }
+        abortTransaction(dbId, txnId, reason);
     }
 
     @Override

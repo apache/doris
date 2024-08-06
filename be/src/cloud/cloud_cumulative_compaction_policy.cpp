@@ -268,6 +268,10 @@ int32_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 continue;
             }
             return transient_size;
+        } else if (
+                *compaction_score >=
+                config::compaction_max_rowset_count) { // If the number of rowsets is too large: FDB_ERROR_CODE_TXN_TOO_LARGE
+            return transient_size;
         }
     }
 

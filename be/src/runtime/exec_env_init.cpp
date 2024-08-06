@@ -265,6 +265,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_nonblock_close_thread_num)
                               .set_max_threads(config::max_nonblock_close_thread_num)
                               .build(&_non_block_close_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
+                              .set_min_threads(config::min_s3_file_system_thread_num)
+                              .set_max_threads(config::max_s3_file_system_thread_num)
+                              .build(&_s3_file_system_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -341,7 +345,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     if (config::is_cloud_mode()) {
-        std::cout << "start BE in cloud mode" << std::endl;
+        std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
+                  << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
         _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
     } else {
         std::cout << "start BE in local mode" << std::endl;
@@ -675,6 +680,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
+    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
@@ -720,6 +726,7 @@ void ExecEnv::destroy() {
     _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
+    _s3_file_system_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);

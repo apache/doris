@@ -47,7 +47,6 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
     if (freed_mem > MemInfo::process_minor_gc_size()) {
         return true;
     }
@@ -98,7 +97,6 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
     if (freed_mem > MemInfo::process_full_gc_size()) {
         return true;
     }

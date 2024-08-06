@@ -64,10 +64,9 @@ public:
 
     int64_t for_each_cache_prune_stale(RuntimeProfile* profile = nullptr);
 
-    int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
-
-    void clear_once();
-    void clear_once(CachePolicy::CacheType type);
+    // if force is true, regardless of the two prune interval and cache size, cache will be pruned this time.
+    int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr, bool force = false);
+    int64_t cache_prune_all(CachePolicy::CacheType type, bool force = false);
 
     bool need_prune(int64_t* last_timestamp, const std::string& type) {
         int64_t now = UnixSeconds();

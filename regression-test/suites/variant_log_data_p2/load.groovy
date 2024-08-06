@@ -73,21 +73,21 @@ suite("regression_test_variant_logdata", "nonConcurrent,p2"){
     // sql "set enable_two_phase_read_opt = false;"
     // no sparse columns
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
-    load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
+    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
     qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
     qt_sql_32_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
     sql "truncate table ${table_name}"
 
     // 0.95 default ratio    
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-    load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
+    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
     qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
     qt_sql_33_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
     sql "truncate table ${table_name}"
 
     // always sparse column
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-    load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
+    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
     qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
     sql "truncate table ${table_name}"
     qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""

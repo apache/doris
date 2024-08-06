@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
@@ -134,8 +135,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private Type type;
     private BalanceType balanceType;
 
-    private Priority priority;
-
     // we change the dynamic priority based on how many times it fails to be scheduled
     private int failedSchedCounter = 0;
     // clone task failed counter
@@ -161,7 +160,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private long taskTimeoutMs = 0;
 
     private State state;
-    private TabletStatus tabletStatus;
+    private TabletHealth tabletHealth;
 
     private long decommissionTime = -1;
 
@@ -213,6 +212,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private SubCode schedFailedCode;
 
+    private boolean isUniqKeyMergeOnWrite = false;
+
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -227,6 +228,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.replicaAlloc = replicaAlloc;
         this.balanceType = BalanceType.BE_BALANCE;
         this.schedFailedCode = SubCode.NONE;
+        this.tabletHealth = new TabletHealth();
     }
 
     public ReplicaAllocation getReplicaAlloc() {
@@ -262,11 +264,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public Priority getPriority() {
-        return priority;
+        return tabletHealth.priority;
     }
 
     public void setPriority(Priority priority) {
-        this.priority = priority;
+        this.tabletHealth.priority = priority;
+    }
+
+    public void setTabletHealth(TabletHealth tabletHealth) {
+        this.tabletHealth = tabletHealth;
+    }
+
+    public void setIsUniqKeyMergeOnWrite(boolean isUniqKeyMergeOnWrite) {
+        this.isUniqKeyMergeOnWrite = isUniqKeyMergeOnWrite;
     }
 
     public int getFinishedCounter() {
@@ -345,11 +355,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public void setTabletStatus(TabletStatus tabletStatus) {
-        this.tabletStatus = tabletStatus;
+        this.tabletHealth.status = tabletStatus;
     }
 
     public TabletStatus getTabletStatus() {
-        return tabletStatus;
+        return tabletHealth.status;
     }
 
     public long getDbId() {
@@ -739,7 +749,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (replica.getLastFailedVersion() <= 0
                     && replica.getVersion() >= visibleVersion) {
 
-                if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR && replica.needFurtherRepair()) {
+                if (tabletHealth.status == TabletStatus.NEED_FURTHER_REPAIR && replica.needFurtherRepair()) {
                     furtherRepairs.add(replica);
                 }
 
@@ -1016,10 +1026,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // REPLICA_MISSING/REPLICA_RELOCATING,
         // we create a new replica with state CLONE
         Replica replica = null;
-        if (tabletStatus == TabletStatus.REPLICA_MISSING
-                || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
-                || tabletStatus == TabletStatus.COLOCATE_MISMATCH
-                || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
+        if (tabletHealth.status == TabletStatus.REPLICA_MISSING
+                || tabletHealth.status == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
+                || tabletHealth.status == TabletStatus.COLOCATE_MISMATCH
+                || tabletHealth.status == TabletStatus.REPLICA_MISSING_FOR_TAG) {
             replica = new Replica(
                     Env.getCurrentEnv().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
@@ -1054,7 +1064,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         destOldVersion = replica.getVersion();
         cloneTask.setPathHash(srcPathHash, destPathHash);
         LOG.info("create clone task to repair replica, tabletId={}, replica={}, visible version {}, tablet status {}",
-                tabletId, replica, visibleVersion, tabletStatus);
+                tabletId, replica, visibleVersion, tabletHealth.status);
 
         this.state = State.RUNNING;
         return cloneTask;
@@ -1062,7 +1072,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // for storage migration or cloning a new replica
     public long getDestEstimatedCopingSize() {
-        if ((cloneTask != null && tabletStatus != TabletStatus.VERSION_INCOMPLETE)
+        if ((cloneTask != null && tabletHealth.status != TabletStatus.VERSION_INCOMPLETE)
                 || storageMediaMigrationTask != null) {
             return Math.max(getTabletSize(), 10L);
         } else {
@@ -1149,10 +1159,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
-            Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                    infoService, visibleVersion, replicaAlloc,
-                    aliveBeIds);
-            if (pair.first == TabletStatus.HEALTHY) {
+            TabletStatus status = tablet.getHealth(infoService, visibleVersion, replicaAlloc, aliveBeIds).status;
+            if (status == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
             }
 
@@ -1266,10 +1274,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(tabletId));
         result.add(type.name());
         result.add(storageMedium == null ? FeConstants.null_string : storageMedium.name());
-        result.add(tabletStatus == null ? FeConstants.null_string : tabletStatus.name());
+        result.add(tabletHealth.status == null ? FeConstants.null_string : tabletHealth.status.name());
         result.add(state.name());
         result.add(schedFailedCode.name());
-        result.add(priority.name());
+        result.add(tabletHealth.priority == null ? FeConstants.null_string : tabletHealth.priority.name());
+        // show the real priority value, higher this value, higher sched priority. Add 10 hour to make it
+        // to be a positive value.
+        result.add(String.valueOf((System.currentTimeMillis() - getCompareValue()) / 1000 + 10 * 3600L));
         result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendId()));
         result.add(String.valueOf(srcPathHash));
         result.add(String.valueOf(destBackendId));
@@ -1299,26 +1310,44 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return Long.compare(getCompareValue(), o.getCompareValue());
     }
 
+    // smaller compare value, higher priority
     private long getCompareValue() {
         long value = createTime;
         if (lastVisitedTime > 0) {
             value = lastVisitedTime;
         }
 
-        value += (Priority.VERY_HIGH.ordinal() - priority.ordinal() + 1) * 60  * 1000L;
+        value += (Priority.VERY_HIGH.ordinal() - tabletHealth.priority.ordinal() + 1) * 60  * 1000L;
         value += 5000L * (failedSchedCounter / 10);
 
         if (schedFailedCode == SubCode.WAITING_DECOMMISSION) {
             value += 5 * 1000L;
         }
 
+        long baseTime = Config.tablet_schedule_high_priority_second * 1000L;
         // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 5 * 3600 * 1000L;  // 5 hour
+            value += 10 * baseTime;
+        } else {
+            int replicaNum = replicaAlloc.getTotalReplicaNum();
+            if (tabletHealth.aliveAndVersionCompleteNum < replicaNum && !tabletHealth.noPathForNewReplica) {
+                if (tabletHealth.aliveAndVersionCompleteNum < (replicaNum / 2 + 1)) {
+                    value -= 3 * baseTime;
+                    if (tabletHealth.hasRecentLoadFailed) {
+                        value -= 3 * baseTime;
+                    }
+                }
+                if (tabletHealth.hasAliveAndVersionIncomplete) {
+                    value -= 1 * baseTime;
+                    if (isUniqKeyMergeOnWrite) {
+                        value -= 1 * baseTime;
+                    }
+                }
+            }
         }
 
-        if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR) {
-            value -= 3600 * 1000L;  // 1 hour
+        if (tabletHealth.status == TabletStatus.NEED_FURTHER_REPAIR) {
+            value -= 1 * baseTime;
         }
 
         return value;
@@ -1328,8 +1357,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("tablet id: ").append(tabletId);
-        if (tabletStatus != null) {
-            sb.append(", status: ").append(tabletStatus.name());
+        if (tabletHealth.status != null) {
+            sb.append(", status: ").append(tabletHealth.status.name());
         }
         if (state != null) {
             sb.append(", state: ").append(state.name());
@@ -1340,9 +1369,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (type == Type.BALANCE && balanceType != null) {
             sb.append(", balance: ").append(balanceType.name());
         }
-        if (priority != null) {
-            sb.append(", priority: ").append(priority.name());
-        }
+        sb.append(", priority: ").append(tabletHealth.priority.name());
         sb.append(", tablet size: ").append(tabletSize);
         if (srcReplica != null) {
             sb.append(", from backend: ").append(srcReplica.getBackendId());

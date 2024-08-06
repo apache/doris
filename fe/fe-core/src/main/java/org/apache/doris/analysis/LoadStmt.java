@@ -578,7 +578,7 @@ public class LoadStmt extends DdlStmt {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+            sb.append(new PrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();
@@ -607,14 +607,14 @@ public class LoadStmt extends DdlStmt {
             connection.setConnectTimeout(10000);
             connection.connect();
         } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException("Incorrect object storage info: " + e.getMessage());
+            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
+            throw new UserException("Failed to access object storage", e);
         } finally {
             if (connection != null) {
                 try {
                     connection.disconnect();
                 } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
+                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
                 }
             }
             SecurityChecker.getInstance().stopSSRFChecking();
@@ -671,16 +671,9 @@ public class LoadStmt extends DdlStmt {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed check object info={}", objectInfo, e);
-            String message = e.getMessage();
-            if (message != null) {
-                int index = message.indexOf("Error message=");
-                if (index != -1) {
-                    message = message.substring(index);
-                }
-            }
+            LOG.warn("Failed to access object storage, proto={}, err={}", objectInfo, e.toString());
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Incorrect object storage info, " + message);
+                    "Failed to access object storage", e);
         } finally {
             if (remote != null) {
                 remote.close();

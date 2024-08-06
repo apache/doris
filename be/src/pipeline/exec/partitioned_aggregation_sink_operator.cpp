@@ -210,7 +210,7 @@ Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state)
     _runtime_state->set_be_number(state->be_number());
 
     _runtime_state->set_desc_tbl(&state->desc_tbl());
-    _runtime_state->set_pipeline_x_runtime_filter_mgr(state->local_runtime_filter_mgr());
+    _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
     _runtime_state->set_task_id(state->task_id());
 
     auto& parent = Base::_parent->template cast<Parent>();

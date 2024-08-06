@@ -543,8 +543,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public boolean hasColumnStatistics(String colName) {
         Map<String, String> parameters = remoteTable.getParameters();
-        return parameters.keySet().stream()
-                .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+        return parameters.keySet().stream().anyMatch(k -> k.startsWith(SPARK_COL_STATS + colName + "."));
     }
 
     public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
@@ -556,12 +555,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         Map<String, String> parameters = remoteTable.getParameters();
         for (StatsType type : statsTypes.keySet()) {
             String key = SPARK_COL_STATS + colName + MAP_SPARK_STATS_TO_DORIS.getOrDefault(type, "-");
-            if (parameters.containsKey(key)) {
-                stats.put(statsTypes.get(type), parameters.get(key));
-            } else {
-                // should not happen, spark would have all type (except histogram)
-                stats.put(statsTypes.get(type), "NULL");
-            }
+            // 'NULL' should not happen, spark would have all type (except histogram)
+            stats.put(statsTypes.get(type), parameters.getOrDefault(key, "NULL"));
         }
         return true;
     }
@@ -615,21 +610,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            try {
-                setStatData(column, data, columnStatisticBuilder, count);
-            } catch (AnalysisException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-                return Optional.empty();
-            }
+            setStatData(column, data, columnStatisticBuilder, count);
         }
 
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
-            throws AnalysisException {
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count) {
         long ndv = 0;
         long nulls = 0;
         double colSize = 0;

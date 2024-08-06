@@ -23,11 +23,11 @@ namespace doris {
 
 class HttpRequest;
 
-class ClearDataCacheAction : public HttpHandler {
+class ClearCacheAction : public HttpHandler {
 public:
-    ClearDataCacheAction() = default;
+    ClearCacheAction() = default;
 
-    ~ClearDataCacheAction() override = default;
+    ~ClearCacheAction() override = default;
 
     void handle(HttpRequest* req) override;
 };

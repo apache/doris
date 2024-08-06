@@ -624,7 +624,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitStateCombinator(StateCombinator combinator, PlanTranslatorContext context) {
-        List<Expr> arguments = combinator.getArguments().stream().map(arg -> arg.accept(this, context))
+        List<Expr> arguments = combinator.getArguments().stream().map(arg -> arg instanceof OrderExpression
+                        ? translateOrderExpression((OrderExpression) arg, context).getExpr()
+                        : arg.accept(this, context))
                 .collect(Collectors.toList());
         return Function.convertToStateCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),

@@ -40,7 +40,7 @@ using InvertedIndexDirectoryMap =
 class FileInfo {
 public:
     std::string filename;
-    int32_t filesize;
+    int64_t filesize;
 };
 
 class InvertedIndexFileWriter {

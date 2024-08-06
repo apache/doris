@@ -97,7 +97,7 @@ Status SchemaRowsetsScanner::_get_all_rowsets() {
     return Status::OK();
 }
 
-Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaRowsetsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

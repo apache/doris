@@ -22,16 +22,15 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+
 #if defined(__APPLE__)
 #include <ctime>
-#define CURRENT_TIME std::chrono::system_clock::now()
-#else
-#define CURRENT_TIME std::chrono::high_resolution_clock::now()
 #endif
+#define CURRENT_TIME std::chrono::system_clock::now()
 
 namespace doris {
 // Just 10^6.
-static constexpr auto MS = 1000000UL;
+static constexpr auto NS = 1000000000UL;
 
 class S3RateLimiter::SimpleSpinLock {
 public:
@@ -69,29 +68,32 @@ S3RateLimiter::~S3RateLimiter() = default;
 
 S3RateLimiterHolder::~S3RateLimiterHolder() = default;
 
-std::pair<size_t, double> S3RateLimiter::_update_remain_token(
-        std::chrono::system_clock::time_point now, size_t amount) {
+std::pair<size_t, double> S3RateLimiter::_update_remain_token(long now, size_t amount) {
     // Values obtained under lock to be checked after release
     size_t count_value;
     double tokens_value;
     {
         std::lock_guard<SimpleSpinLock> lock(*_mutex);
+        now = (now < _prev_ns_count) ? _prev_ns_count : now;
         if (_max_speed) {
-            double delta_seconds = static_cast<double>((now - _prev_ms).count()) / MS;
+            double delta_seconds =
+                    _prev_ns_count ? static_cast<double>(now - _prev_ns_count) / NS : 0;
             _remain_tokens = std::min<double>(_remain_tokens + _max_speed * delta_seconds - amount,
                                               _max_burst);
         }
         _count += amount;
         count_value = _count;
         tokens_value = _remain_tokens;
-        _prev_ms = now;
+        _prev_ns_count = now;
     }
     return {count_value, tokens_value};
 }
 
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
-    auto [count_value, tokens_value] = _update_remain_token(CURRENT_TIME, amount);
+    auto time = CURRENT_TIME;
+    auto time_nano_count = time.time_since_epoch().count();
+    auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
 
     if (_limit && count_value > _limit) {
         // CK would throw exception
@@ -99,13 +101,13 @@ int64_t S3RateLimiter::add(size_t amount) {
     }
 
     // Wait unless there is positive amount of remain_tokens - throttling
-    int64_t sleep_time_ms = 0;
+    int64_t sleep_time_ns = 0;
     if (_max_speed && tokens_value < 0) {
-        sleep_time_ms = static_cast<int64_t>(-tokens_value / _max_speed * MS);
-        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_ms));
+        sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
+        std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_time_ns));
     }
 
-    return sleep_time_ms;
+    return sleep_time_ns;
 }
 
 S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst,
@@ -119,9 +121,7 @@ int64_t S3RateLimiterHolder::add(size_t amount) {
         std::shared_lock read {rate_limiter_rw_lock};
         sleep = rate_limiter->add(amount);
     }
-    if (sleep > 0) {
-        metric_func(sleep);
-    }
+    metric_func(sleep);
     return sleep;
 }
 

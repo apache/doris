@@ -134,4 +134,8 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     public List<Expression> getDistinctArguments() {
         return distinct ? getArguments() : ImmutableList.of();
     }
+
+    public boolean mustUseMultiDistinctAgg() {
+        return false;
+    }
 }

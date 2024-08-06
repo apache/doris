@@ -18,7 +18,11 @@
 #include "recycler/hdfs_accessor.h"
 
 #include <gen_cpp/cloud.pb.h>
-#include <hadoop_hdfs/hdfs.h>
+#ifdef USE_HADOOP_HDFS
+#include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
+#else
+#include <hdfs/hdfs.h> // IWYU pragma: export
+#endif
 
 #include <string_view>
 
@@ -285,8 +289,9 @@ public:
     }
 
 private:
+    // Return null if error occured, return emtpy DirEntries if dir is empty or doesn't exist.
     std::optional<DirEntries> list_directory(const char* dir_path) {
-        int num_entries;
+        int num_entries = 0;
         auto* file_infos = hdfsListDirectory(hdfs_.get(), dir_path, &num_entries);
         if (errno != 0 && errno != ENOENT) {
             LOG_WARNING("failed to list hdfs directory")

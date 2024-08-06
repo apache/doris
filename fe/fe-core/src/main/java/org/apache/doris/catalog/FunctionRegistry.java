@@ -90,9 +90,11 @@ public class FunctionRegistry {
         Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
         if (StringUtils.isEmpty(dbName)) {
             List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            for (FunctionBuilder functionBuilder : functionBuilders) {
-                if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
-                    return true;
+            if (functionBuilders != null) {
+                for (FunctionBuilder functionBuilder : functionBuilders) {
+                    if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
+                        return true;
+                    }
                 }
             }
         }

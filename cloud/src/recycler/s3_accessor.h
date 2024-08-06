@@ -17,10 +17,13 @@
 
 #pragma once
 
+#include <bvar/latency_recorder.h>
+
 #include <array>
 #include <cstdint>
 #include <memory>
 
+#include "common/stopwatch.h"
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
 
@@ -35,6 +38,25 @@ enum class S3RateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
 class SimpleThreadPool;
+
+namespace s3_bvar {
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
+}; // namespace s3_bvar
+
+// The time unit is the same with BE: us
+#define SCOPED_BVAR_LATENCY(bvar_item)                     \
+    StopWatch sw;                                          \
+    std::unique_ptr<int, std::function<void(int*)>> defer( \
+            (int*)0x01, [&](int*) { bvar_item << sw.elapsed_us(); });
 
 struct AccessorRateLimiter {
 public:

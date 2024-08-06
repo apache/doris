@@ -148,28 +148,6 @@ suite("aggregate_with_roll_up") {
         }
     }
 
-    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
     // multi table
     // filter inside + left + use roll up dimension
     def mv13_0 =
@@ -1036,9 +1014,7 @@ suite("aggregate_with_roll_up") {
             o_comment;
             """
     order_qt_query1_1_before "${query1_1}"
-    // rewrite success, but not chose
-    // because data volume is small and mv plan is almost same to query plan
-    check_rewrite_but_not_chose(mv1_1, query1_1, "mv1_1")
+    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -1070,9 +1046,7 @@ suite("aggregate_with_roll_up") {
             "o_comment "
 
     order_qt_query2_0_before "${query2_0}"
-    // rewrite success, but not chose
-    // because data volume is small and mv plan is almost same to query plan
-    check_rewrite_but_not_chose(mv2_0, query2_0, "mv2_0")
+    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 

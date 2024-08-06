@@ -71,7 +71,7 @@ public class MTMVRewriteUtil {
                     partitionMappings = mtmv.calculatePartitionMappings();
                 }
                 if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getName(),
-                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTables(),
+                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTablesOneLevel(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

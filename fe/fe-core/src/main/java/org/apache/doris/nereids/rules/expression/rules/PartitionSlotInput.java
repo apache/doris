@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -116,9 +115,9 @@ public class PartitionSlotInput {
     //                          part_column1                    IntegerLiteral(100)
     //
     // because we can't fold this predicate to BooleanLiteral.FALSE, so we should scan the partition.
-    public final Map<Slot, ColumnRange> columnRanges;
+    public final Map<Expression, ColumnRange> columnRanges;
 
-    public PartitionSlotInput(Expression result, Map<Slot, ColumnRange> columnRanges) {
+    public PartitionSlotInput(Expression result, Map<Expression, ColumnRange> columnRanges) {
         this.result = result;
         this.columnRanges = ImmutableMap.copyOf(columnRanges);
     }

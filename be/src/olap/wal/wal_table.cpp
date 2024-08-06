@@ -85,7 +85,6 @@ void WalTable::_pick_relay_wals() {
 
 Status WalTable::_relay_wal_one_by_one() {
     std::vector<std::shared_ptr<WalInfo>> need_retry_wals;
-    std::vector<std::shared_ptr<WalInfo>> need_delete_wals;
     for (auto wal_info : _replaying_queue) {
         wal_info->add_retry_num();
         auto st = _replay_wal_internal(wal_info->get_wal_path());
@@ -95,7 +94,12 @@ Status WalTable::_relay_wal_one_by_one() {
             msg.find("LabelAlreadyUsedException") != msg.npos) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
                       << ", st=" << st.to_string();
-            need_delete_wals.push_back(wal_info);
+            // delete wal
+            WARN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(_table_id, wal_info->get_wal_id()),
+                          "failed to delete wal=" + wal_info->get_wal_path());
+            if (config::group_commit_wait_replay_wal_finish) {
+                RETURN_IF_ERROR(_exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id()));
+            }
         } else {
             doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
@@ -108,13 +112,6 @@ Status WalTable::_relay_wal_one_by_one() {
         _replaying_queue.clear();
         for (auto retry_wal_info : need_retry_wals) {
             _replay_wal_map.emplace(retry_wal_info->get_wal_path(), retry_wal_info);
-        }
-    }
-    for (auto delete_wal_info : need_delete_wals) {
-        [[maybe_unused]] auto st =
-                _exec_env->wal_mgr()->delete_wal(_table_id, delete_wal_info->get_wal_id());
-        if (config::group_commit_wait_replay_wal_finish) {
-            RETURN_IF_ERROR(_exec_env->wal_mgr()->notify_relay_wal(delete_wal_info->get_wal_id()));
         }
     }
     return Status::OK();

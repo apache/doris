@@ -207,7 +207,7 @@ protected:
         RETURN_IF_ERROR(_normalize_conjuncts(state));
         return Status::OK();
     }
-    virtual bool _should_push_down_common_expr() { return false; }
+    virtual bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) { return false; }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }

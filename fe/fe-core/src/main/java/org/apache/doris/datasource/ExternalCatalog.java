@@ -294,6 +294,7 @@ public abstract class ExternalCatalog
         if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
             LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
             getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+            useMetaCache = Optional.of(true);
         }
     }
 
@@ -835,8 +836,8 @@ public abstract class ExternalCatalog
 
     @Override
     public boolean enableAutoAnalyze() {
-        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
-        // "enable.auto.analyze" = true
+        // By default, external catalog disables auto analyze, users could set catalog property to enable it:
+        // "enable.auto.analyze" = "true"
         Map<String, String> properties = catalogProperty.getProperties();
         boolean ret = false;
         if (properties.containsKey(ENABLE_AUTO_ANALYZE)

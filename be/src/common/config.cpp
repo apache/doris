@@ -137,9 +137,7 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mBool(enable_stacktrace, "true");
 
-DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
-
-DEFINE_mInt64(large_memory_check_bytes, "2147483648");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mBool(enable_memory_orphan_check, "false");
 
@@ -938,7 +936,8 @@ DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
-DEFINE_Int32(s3_transfer_executor_pool_size, "2");
+DEFINE_Int32(min_s3_file_system_thread_num, "16");
+DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");

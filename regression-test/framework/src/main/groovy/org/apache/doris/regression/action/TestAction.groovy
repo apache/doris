@@ -256,7 +256,7 @@ class TestAction implements SuiteAction {
         this.exception = exceptionMsgSupplier.call()
     }
 
-    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["List<List<Object>>,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 

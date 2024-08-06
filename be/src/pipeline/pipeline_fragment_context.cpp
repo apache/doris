@@ -392,7 +392,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
             runtime_state->set_total_load_streams(request.total_load_streams);
             runtime_state->set_num_local_sink(request.num_local_sink);
             DCHECK(runtime_filter_mgr);
-            runtime_state->set_pipeline_x_runtime_filter_mgr(runtime_filter_mgr.get());
+            runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
         };
 
         auto filterparams = std::make_unique<RuntimeFilterParamsContext>();
@@ -1470,7 +1470,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     default:
-        return Status::InternalError("Unsupported exec type in pipelineX: {}",
+        return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(tnode.node_type));
     }
 

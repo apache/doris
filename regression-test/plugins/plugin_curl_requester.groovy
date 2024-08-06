@@ -69,16 +69,17 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
             try {
                 CloseableHttpResponse response = httpClient.execute(request)
                 try {
-                    int statusCode = response.getStatusLine().getStatusCode()
-                    String responseBody = EntityUtils.toString(response.getEntity())
+                    code = response.getStatusLine().getStatusCode()
+                    out = EntityUtils.toString(response.getEntity())
                     
-                    if (statusCode >= 200 && statusCode < 300) {
+                    if (code >= 200 && code < 300) {
                         code = 0 // to be compatible with the old curl function
-                        out = responseBody
                         err = ""
                         return [code, out, err]
+                    } else if (code == 500) {
+                        return [code, out, "Internal Server Error"]
                     } else {
-                        logger.warn("HTTP request failed with status code ${statusCode}, retrying (${++retryCount}/${maxRetries})")
+                        logger.warn("HTTP request failed with status code ${code}, response ${out}, retrying (${++retryCount}/${maxRetries})")
                     }
                 } finally {
                     response.close()
@@ -90,8 +91,6 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
                 logger.error("Error executing HTTP request: ${e.message}")
-                code = -1
-                out = ""
                 err = e.message
                 return [code, out, err]
             }
@@ -101,8 +100,6 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
         }
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
-        code = -1
-        out = ""
         err = "Failed after ${maxRetries} attempts"
         return [code, out, err]
     } finally {
@@ -253,3 +250,42 @@ Suite.metaClass.be_report_task = { String ip, int port ->
 }
 
 logger.info("Added 'be_report_task' function to Suite")
+
+// check nested index file api
+Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format -> 
+    def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
+    logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
+    if (code == 500) {
+        assertEquals("E-6003", parseJson(out.trim()).status)
+        assertTrue(parseJson(out.trim()).msg.contains("not found"))
+        return
+    }
+    assertTrue(code == 0)
+    assertEquals(tablet_id, parseJson(out.trim()).tablet_id.toString())
+    def rowsets_count = parseJson(out.trim()).rowsets.size();
+    assertEquals(expected_rowsets_count, rowsets_count)
+    def index_files_count = 0
+    def segment_files_count = 0
+    for (def rowset in parseJson(out.trim()).rowsets) {
+        assertEquals(format, rowset.index_storage_format)
+        for (int i = 0; i < rowset.segments.size(); i++) {
+            def segment = rowset.segments[i]
+            assertEquals(i, segment.segment_id)
+            def indices_count = segment.indices.size()
+            assertEquals(expected_indices_count, indices_count)
+            if (format == "V1") {
+                index_files_count += indices_count
+            } else {
+                index_files_count++
+            }
+        }
+        segment_files_count += rowset.segments.size()
+    }
+    if (format == "V1") {
+        assertEquals(index_files_count, segment_files_count * expected_indices_count)
+    } else {
+        assertEquals(index_files_count, segment_files_count)
+    }
+}
+
+logger.info("Added 'check_nested_index_file' function to Suite")

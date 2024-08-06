@@ -82,6 +82,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -369,6 +370,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4EncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
@@ -705,6 +707,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAtan2(Atan2 atan2, C context) {
         return visitScalarFunction(atan2, context);
+    }
+
+    default R visitAutoPartitionName(AutoPartitionName autoPartitionName, C context) {
+        return visitScalarFunction(autoPartitionName, context);
     }
 
     default R visitBin(Bin bin, C context) {
@@ -1833,6 +1839,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSplitByChar(SplitByChar splitByChar, C context) {
         return visitScalarFunction(splitByChar, context);
+    }
+
+    default R visitSplitByRegexp(SplitByRegexp splitByRegexp, C context) {
+        return visitScalarFunction(splitByRegexp, context);
     }
 
     default R visitSplitByString(SplitByString splitByString, C context) {

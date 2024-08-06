@@ -268,6 +268,7 @@ struct TWorkloadGroupInfo {
   13: optional i32 spill_threshold_high_watermark
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
+  16: optional string tag
 }
 
 enum TWorkloadMetricType {

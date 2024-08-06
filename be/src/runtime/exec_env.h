@@ -204,6 +204,7 @@ public:
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
+    ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
@@ -381,6 +382,7 @@ private:
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
+    std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;

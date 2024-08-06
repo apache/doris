@@ -20,7 +20,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <ostream>
@@ -80,11 +79,14 @@ using namespace ErrorCode;
 static const char* k_segment_magic = "D0R1";
 static const uint32_t k_segment_magic_length = 4;
 
+inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
+    return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
+}
+
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                                             DataDir* data_dir, uint32_t max_row_per_segment,
+                                             DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             std::shared_ptr<MowContext> mow_context,
                                              io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
@@ -92,9 +94,9 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(std::make_unique<MemTracker>("VerticalSegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _mow_context(std::move(mow_context)) {
+          _mem_tracker(std::make_unique<MemTracker>(
+                  vertical_segment_writer_mem_tracker_name(segment_id))),
+          _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();

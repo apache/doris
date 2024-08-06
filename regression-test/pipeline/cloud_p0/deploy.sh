@@ -79,6 +79,9 @@ exit_flag=0
     if ! prepare_java_udf; then exit 1; fi
     if ! start_doris_fe; then exit 1; fi
     if ! start_doris_be; then exit 1; fi
+    if ! deploy_doris_sql_converter; then exit 1; else
+        set_session_variable sql_converter_service_url "http://127.0.0.1:${doris_sql_converter_port:-5001}/api/v1/convert"
+    fi
     if ! check_doris_ready; then exit 1; fi
 
     echo "#### 5. set session variables"

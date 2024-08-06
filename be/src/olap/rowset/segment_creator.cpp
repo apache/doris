@@ -150,14 +150,15 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
+    writer_options.max_rows_per_segment = _context.max_rows_per_segment;
+    writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
 
     writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            std::move(inverted_file_writer));
+            _context.data_dir, writer_options, std::move(inverted_file_writer));
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -187,14 +188,14 @@ Status SegmentFlusher::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
+    writer_options.mow_ctx = _context.mow_context;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
 
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            std::move(inverted_file_writer));
+            _context.data_dir, writer_options, std::move(inverted_file_writer));
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     auto s = writer->init();
     if (!s.ok()) {

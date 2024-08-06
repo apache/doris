@@ -105,6 +105,7 @@ public class BackupHandlerTest {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
         rootDir.mkdirs();
+        FeConstants.runningUnitTest = true;
 
         new Expectations() {
             {

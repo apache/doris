@@ -508,7 +508,7 @@ public class SchemaTable extends Table {
                                     .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE",
                                             ScalarType.createVarchar(64))
-                                    .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build()))
+                                    .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -532,10 +532,25 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PROPERTIES", ScalarType.createStringType())
                                     .build()))
+            .put("workload_group_privileges",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
+                            builder().column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("WORKLOAD_GROUP_NAME", ScalarType.createVarchar(256))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
+                                    .build())
+            )
             .build();
+
+    private boolean fetchAllFe = false;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);
+    }
+
+    protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema, boolean fetchAllFe) {
+        this(id, name, type, baseSchema);
+        this.fetchAllFe = fetchAllFe;
     }
 
     @Override
@@ -549,6 +564,14 @@ public class SchemaTable extends Table {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public static boolean isShouldFetchAllFe(String schemaTableName) {
+        Table table = TABLE_MAP.get(schemaTableName);
+        if (table != null && table instanceof SchemaTable) {
+            return ((SchemaTable) table).fetchAllFe;
+        }
+        return false;
     }
 
     /**

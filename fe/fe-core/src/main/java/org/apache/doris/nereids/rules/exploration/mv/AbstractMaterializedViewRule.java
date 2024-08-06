@@ -233,7 +233,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Plan rewrittenPlan;
-            Plan mvScan = materializationContext.getScanPlan();
+            Plan mvScan = materializationContext.getScanPlan(queryStructInfo);
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;

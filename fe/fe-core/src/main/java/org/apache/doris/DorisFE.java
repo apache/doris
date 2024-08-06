@@ -403,6 +403,13 @@ public class DorisFE {
         LOG.info("Build info: {}", Version.DORIS_BUILD_INFO);
         LOG.info("Build hash: {}", Version.DORIS_BUILD_HASH);
         LOG.info("Java compile version: {}", Version.DORIS_JAVA_COMPILE_VERSION);
+
+        if (Config.isCloudMode()) {
+            LogUtils.stdout("Run FE in the cloud mode, cloud_unique_id: " + Config.cloud_unique_id
+                    + ", meta_service_endpoint: " + Config.meta_service_endpoint);
+        } else {
+            LogUtils.stdout("Run FE in the local mode");
+        }
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {

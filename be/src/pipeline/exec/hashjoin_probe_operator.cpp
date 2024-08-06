@@ -21,6 +21,9 @@
 
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
+#include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::pipeline {
 
@@ -615,6 +618,54 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child_x->row_desc());
     _right_table_column_names =
             vectorized::VectorizedUtils::get_column_names(_build_side_child->row_desc());
+
+    std::vector<const SlotDescriptor*> slots_to_check;
+    for (const auto& tuple_descriptor : _intermediate_row_desc->tuple_descriptors()) {
+        for (const auto& slot : tuple_descriptor->slots()) {
+            slots_to_check.emplace_back(slot);
+        }
+    }
+
+    if (_is_mark_join) {
+        const auto* last_one = slots_to_check.back();
+        slots_to_check.pop_back();
+        auto data_type = last_one->get_data_type_ptr();
+        if (!data_type->is_nullable()) {
+            return Status::InternalError(
+                    "The last column for mark join should be Nullable(UInt8), not {}",
+                    data_type->get_name());
+        }
+
+        const auto& null_data_type = assert_cast<const vectorized::DataTypeNullable&>(*data_type);
+        if (null_data_type.get_nested_type()->get_type_id() != vectorized::TypeIndex::UInt8) {
+            return Status::InternalError(
+                    "The last column for mark join should be Nullable(UInt8), not {}",
+                    data_type->get_name());
+        }
+    }
+
+    const int right_col_idx =
+            (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
+    size_t idx = 0;
+    for (const auto* slot : slots_to_check) {
+        auto data_type = slot->get_data_type_ptr();
+        auto target_data_type = idx < right_col_idx ? _left_table_data_types[idx]
+                                                    : _right_table_data_types[idx - right_col_idx];
+        ++idx;
+        if (data_type->equals(*target_data_type)) {
+            continue;
+        }
+
+        auto data_type_non_nullable = vectorized::remove_nullable(data_type);
+        if (data_type_non_nullable->equals(*target_data_type)) {
+            continue;
+        }
+
+        return Status::InternalError("intermediate slot({}) data type not match: '{}' vs '{}'",
+                                     slot->id(), data_type->get_name(),
+                                     _left_table_data_types[idx]->get_name());
+    }
+
     _build_side_child.reset();
     return Status::OK();
 }

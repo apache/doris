@@ -119,10 +119,10 @@ Status SpillStream::spill_eof() {
     DBUG_EXECUTE_IF("fault_inject::spill_stream::spill_eof", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream spill_eof failed");
     });
-    RETURN_IF_ERROR(writer_->close());
+    auto status = writer_->close();
     total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
-    return Status::OK();
+    return status;
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {

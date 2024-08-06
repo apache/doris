@@ -311,9 +311,6 @@ public class SingleNodePlanner {
             // TODO: External sort could be used for very large limits
             // not just unlimited order-by
             boolean useTopN = true;
-            if (limit == -1 && analyzer.getContext().getSessionVariable().enableSpilling) {
-                useTopN = false;
-            }
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
             ((SortNode) root).setDefaultLimit(limit == -1);

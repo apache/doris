@@ -1713,7 +1713,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         }
     }
 
-    permits = compaction->get_compaction_permits();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
+        permits = 0;
+    } else {
+        permits = compaction->get_compaction_permits();
+    }
     return Status::OK();
 }
 

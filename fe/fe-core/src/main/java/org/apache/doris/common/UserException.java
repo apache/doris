@@ -54,7 +54,12 @@ public class UserException extends Exception {
         super(Strings.nullToEmpty(msg));
         this.errorCode = errCode;
         mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
+    }
 
+    public UserException(InternalErrorCode errCode, String msg, Throwable cause) {
+        super(Strings.nullToEmpty(msg), cause);
+        this.errorCode = errCode;
+        mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
     }
 
     public InternalErrorCode getErrorCode() {

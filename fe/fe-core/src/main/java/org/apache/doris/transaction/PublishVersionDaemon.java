@@ -253,6 +253,8 @@ public class PublishVersionDaemon extends MasterDaemon {
     // Merge task tablets update rows to tableToTabletsDelta.
     private void calculateTaskUpdateRows(Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows, PublishVersionTask task) {
         if (CollectionUtils.isEmpty(task.getErrorTablets())) {
+            LOG.info("Task backend id {}, update rows info : [{}]",
+                    task.getBackendId(), task.getTableIdToTabletDeltaRows());
             for (Entry<Long, Map<Long, Long>> tableEntry : task.getTableIdToTabletDeltaRows().entrySet()) {
                 if (tableIdToTabletDeltaRows.containsKey(tableEntry.getKey())) {
                     Map<Long, Long> tabletsDelta = tableIdToTabletDeltaRows.get(tableEntry.getKey());

@@ -473,6 +473,11 @@ public class GsonUtils134 {
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
+    //
+    // ATTN:
+    // Since GsonBuilder.create() adds all registered factories to GSON in reverse order, if you
+    // need to ensure the search order of two RuntimeTypeAdapterFactory instances, be sure to
+    // register them in reverse priority order.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
@@ -480,8 +485,8 @@ public class GsonUtils134 {
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
-            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
+            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
@@ -659,6 +664,11 @@ public class GsonUtils134 {
 
             final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            if (!Expr.class.isAssignableFrom(rawType)) {
+                // reduce the stack depth.
+                return null;
+            }
 
             return new TypeAdapter<T>() {
                 public void write(JsonWriter out, T value) throws IOException {

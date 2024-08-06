@@ -120,18 +120,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    // // clang-format off
-    // auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
-    //         to, offset, bytes_req, bytes_read);
-    // // clang-format on
-    // if (resp.status.code != ErrorCode::OK) {
-    //     return std::move(Status(resp.status.code, std::move(resp.status.msg))
-    //                              .append(fmt::format("failed to read from {}", _path.native())));
-    // }
-    // if (*bytes_read != bytes_req) {
-    //     return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
-    //                                  _path.native(), *bytes_read, bytes_req);
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
 
     int retry_count = 0;
     const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds

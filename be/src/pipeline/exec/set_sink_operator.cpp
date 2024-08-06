@@ -130,9 +130,13 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             block.get_by_position(result_col_id).column =
                     block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         }
+        // Do make nullable should not change the origin column and type in origin block
+        // which may cause coredump problem
         if (local_state._shared_state->build_not_ignore_null[i]) {
-            block.get_by_position(result_col_id).column =
-                    make_nullable(block.get_by_position(result_col_id).column);
+            auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
+            block.insert(
+                    {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
+            result_col_id = block.columns() - 1;
         }
 
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();

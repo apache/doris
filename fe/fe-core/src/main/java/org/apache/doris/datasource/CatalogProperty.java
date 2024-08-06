@@ -115,6 +115,10 @@ public class CatalogProperty implements Writable {
         this.properties.put(key, val);
     }
 
+    public void deleteProperty(String key) {
+        this.properties.remove(key);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));

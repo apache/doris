@@ -1,0 +1,238 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+set debug_skip_fold_constant=true;
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-01-01 00:00:00, presto : 2020-01-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('quarter', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-04-01 00:00:00, presto : 2020-04-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('month', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('week', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-04 00:00:00, presto : 2020-05-04 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('day', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-10 00:00:00, presto : 2020-05-10 00:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('hour', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:00:00, presto : 2020-05-10 12:00:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('minute', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:00, presto : 2020-05-10 12:34:00.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu') # error: errCode = 2, detailMessage = date_trunc function second param only support argument is year|quarter|month|week|day|hour|minute|second
