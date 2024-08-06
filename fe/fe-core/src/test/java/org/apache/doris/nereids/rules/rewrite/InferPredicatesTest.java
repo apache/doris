@@ -73,6 +73,12 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');");
 
+        createTables("CREATE TABLE `test`.`test_tt` (\n"
+                + "`key` varchar(*) NOT NULL,\n"
+                + "  `value` varchar(*) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DISTRIBUTED BY HASH(`key`) BUCKETS 1\n"
+                + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -644,5 +650,43 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                  )
                          ))
                 );
+    }
+
+    @Test
+    void testAggMultiAliasWithSameChild() {
+        String sql = "SELECT t.*\n"
+                + "FROM (\n"
+                + "        SELECT `key`, a , b \n"
+                + "        FROM (\n"
+                + "                SELECT `key`,\n"
+                + "                       any_value(value) AS a,\n"
+                + "                       any_value(CAST(value AS double)) AS b\n"
+                + "                FROM (\n"
+                + "                        SELECT `key`, CAST(value AS double) AS value\n"
+                + "                        FROM test_tt\n"
+                + "                        WHERE `key` = '1'\n"
+                + "                ) agg\n"
+                + "                GROUP BY `key`\n"
+                + "        ) proj\n"
+                + ") t\n"
+                + "LEFT JOIN\n"
+                + "( SELECT id, name FROM student) t2\n"
+                + "ON t.`key`=t2.`name`";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalJoin(
+                                any(),
+                                logicalProject(
+                                        logicalFilter(
+                                                logicalOlapScan()
+                                        ).when(filter -> filter.getConjuncts().size() == 1
+                                                && filter.getPredicate().toSql().contains("name = '1'"))
+                                )
+                        ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+
     }
 }
