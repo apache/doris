@@ -2776,7 +2776,8 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
         auto inverted_index_result_column_for_exprs = expr_ctx->get_inverted_index_result_column();
         for (auto& inverted_index_result_bitmap_for_expr : inverted_index_result_bitmap_for_exprs) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
-            auto index_result_bitmap = inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
+            auto index_result_bitmap =
+                    inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
             auto index_result_column = vectorized::ColumnUInt8::create();
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
             vec_match_pred.resize(block->rows());

@@ -77,11 +77,10 @@ class InvertedIndexResultBitmap {
 private:
     std::shared_ptr<roaring::Roaring> _data_bitmap;
     std::shared_ptr<roaring::Roaring> _null_bitmap;
+
 public:
     // Default constructor
-    InvertedIndexResultBitmap()
-            : _data_bitmap(nullptr),
-              _null_bitmap(nullptr) {}
+    InvertedIndexResultBitmap() : _data_bitmap(nullptr), _null_bitmap(nullptr) {}
 
     // Constructor with arguments
     InvertedIndexResultBitmap(std::shared_ptr<roaring::Roaring> data_bitmap,
@@ -157,18 +156,12 @@ public:
         return *this;
     }
 
-    std::shared_ptr<roaring::Roaring> get_data_bitmap() {
-        return _data_bitmap;
-    }
+    std::shared_ptr<roaring::Roaring> get_data_bitmap() { return _data_bitmap; }
 
-    std::shared_ptr<roaring::Roaring> get_null_bitmap() {
-        return _null_bitmap;
-    }
+    std::shared_ptr<roaring::Roaring> get_null_bitmap() { return _null_bitmap; }
 
     // Check if both bitmaps are empty
-    bool is_empty() const {
-        return (_data_bitmap == nullptr && _null_bitmap == nullptr);
-    }
+    bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
 };
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {

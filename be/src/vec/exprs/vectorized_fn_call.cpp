@@ -174,7 +174,7 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
         }
         RETURN_IF_ERROR(_function->evaluate_inverted_index(arguments, storage_name_type, iter,
                                                            segment_num_rows, result_bitmap));
-        *result_bitmap.data_bitmap -= *result_bitmap.null_bitmap;
+        //*result_bitmap.data_bitmap -= *result_bitmap.null_bitmap;
         context->set_inverted_index_result_for_expr(this, result_bitmap);
     } else {
         return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
