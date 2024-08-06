@@ -221,6 +221,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release
         size_t size) const {
     doris::ThreadContext* thread_context = doris::thread_context(true);
     if (thread_context) {
+        // phmap FlatHashSetPolicy may release memory not allocated by Allocator,
+        // and consume_memory may not be called before release_memory is called, in which case _tracker is nullptr.
         DCHECK(!_tracker || thread_context->thread_mem_tracker()->label() == _tracker->label());
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
