@@ -27,6 +27,7 @@ import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
 import com.qcloud.cos.auth.COSCredentials;
 import com.qcloud.cos.exception.CosClientException;
+import com.qcloud.cos.exception.CosServiceException;
 import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.http.HttpProtocol;
 import com.qcloud.cos.model.COSObjectSummary;
@@ -65,7 +66,7 @@ public class CosRemote extends DefaultRemote {
             COSCredentials cred = new BasicCOSCredentials(obj.getAk(), obj.getSk());
             ClientConfig clientConfig = new ClientConfig();
             clientConfig.setRegion(new Region(obj.getRegion()));
-            clientConfig.setHttpProtocol(HttpProtocol.https);
+            clientConfig.setHttpProtocol(HttpProtocol.http);
             cosClient = new COSClient(cred, clientConfig);
         }
     }
@@ -130,11 +131,16 @@ public class CosRemote extends DefaultRemote {
             ObjectFile objectFile = new ObjectFile(key, getRelativePath(key), formatEtag(metadata.getETag()),
                     metadata.getContentLength());
             return new ListObjectsResult(Lists.newArrayList(objectFile), false, null);
-        } catch (CosClientException e) {
-            if (e.getErrorCode().equals(OSSErrorCode.NO_SUCH_KEY)) {
+        } catch (CosServiceException e) {
+            if (e.getStatusCode() == 404) {
                 LOG.warn("NoSuchKey when head object for COS, subKey={}", subKey);
                 return new ListObjectsResult(Lists.newArrayList(), false, null);
             }
+            LOG.warn("Failed to head object for COS, subKey={}", subKey, e);
+            throw new DdlException(
+                    "Failed to head object for COS, subKey=" + subKey + ", Error code=" + e.getErrorCode()
+                            + ", Error message=" + e.getCause().getMessage());
+        } catch (CosClientException e) {
             LOG.warn("Failed to head object for COS, subKey={}", subKey, e);
             throw new DdlException(
                     "Failed to head object for COS, subKey=" + subKey + ", Error code=" + e.getErrorCode()
