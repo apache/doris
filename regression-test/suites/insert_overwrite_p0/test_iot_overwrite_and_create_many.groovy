@@ -52,8 +52,14 @@ suite("test_iot_overwrite_and_create_many") {
     sql """ insert into source select "Beijing" from numbers("number" = "20000"); """
     sql """ insert into source select "Shanghai" from numbers("number" = "20000"); """
     sql """ insert into source select "zzz" from numbers("number"= "20000"); """
+    def result
+    result = sql " show partitions from target; "
+    logger.info("origin: ${result}")
 
     sql " insert overwrite table target partition(*) select * from source; "
+    result = sql " show partitions from target; "
+    logger.info("changed: ${result}")
+
     qt_sql1 " select k0, count(k0) from target group by k0 order by k0; "
 
     sql """ insert into source select "yyy" from numbers("number" = "20000"); """

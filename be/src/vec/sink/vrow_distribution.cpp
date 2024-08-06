@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -417,6 +418,11 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
                                                      _tablet_indexes, stop_processing, _skip,
                                                      &_missing_map));
+        std::string tmp;
+        for (auto v : _missing_map) {
+            tmp += std::to_string(v).append(", ");
+        }
+        VLOG_TRACE << "Debugging " << this << ' ' << tmp;
     } else {
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
                                                      _tablet_indexes, stop_processing, _skip));
@@ -491,16 +497,20 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     Status st = Status::OK();
+    LOG(WARNING) << "Debugging " << this << ' ' << block->dump_data();
     if (_vpartition->is_auto_detect_overwrite() && !_deal_batched) {
         // when overwrite, no auto create partition allowed.
+        LOG(WARNING) << "Debugging " << this << ' ' << 1;
         st = _generate_rows_distribution_for_auto_overwrite(block.get(), partition_cols_idx,
                                                             has_filtered_rows, row_part_tablet_ids,
                                                             rows_stat_val);
     } else if (_vpartition->is_auto_partition() && !_deal_batched) {
+        LOG(WARNING) << "Debugging " << this << ' ' << 2;
         st = _generate_rows_distribution_for_auto_partition(block.get(), partition_cols_idx,
                                                             has_filtered_rows, row_part_tablet_ids,
                                                             rows_stat_val);
     } else { // not auto partition
+        LOG(WARNING) << "Debugging " << this << ' ' << 3;
         st = _generate_rows_distribution_for_non_auto_partition(block.get(), has_filtered_rows,
                                                                 row_part_tablet_ids);
     }
