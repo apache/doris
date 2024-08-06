@@ -692,22 +692,32 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
             }
 
-            // modify partition offset first
+            // convertCustomProperties and check partitions before reset progress to make modify operation atomic
+            if (!customKafkaProperties.isEmpty()) {
+                this.customProperties.putAll(customKafkaProperties);
+                convertCustomProperties(true);
+            }
+
+            if (!kafkaPartitionOffsets.isEmpty()) {
+                ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
+            }
+
+            // It is necessary to reset the Kafka progress cache if topic change,
+            // and should reset cache before modifying partition offset.
+            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
+                this.topic = dataSourceProperties.getTopic();
+                this.progress = new KafkaProgress();
+            }
+
+            // modify partition offset
             if (!kafkaPartitionOffsets.isEmpty()) {
                 // we can only modify the partition that is being consumed
                 ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
             }
 
-            if (!customKafkaProperties.isEmpty()) {
-                this.customProperties.putAll(customKafkaProperties);
-                convertCustomProperties(true);
-            }
-            // modify broker list and topic
+            // modify broker list
             if (!Strings.isNullOrEmpty(dataSourceProperties.getBrokerList())) {
                 this.brokerList = dataSourceProperties.getBrokerList();
-            }
-            if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
-                this.topic = dataSourceProperties.getTopic();
             }
         }
         if (!jobProperties.isEmpty()) {
