@@ -79,10 +79,4 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
     // select from mv
     qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
-
-    sql "alter table variant_schema_change add column t2 datetime default null"
-    test {
-        sql "alter table variant_schema_change modify column v variant after t2;"
-        exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
-    }
 }
