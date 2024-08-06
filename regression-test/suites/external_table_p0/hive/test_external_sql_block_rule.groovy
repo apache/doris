@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive,p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -60,8 +63,18 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     sql """SET PROPERTY FOR 'external_block_user3' 'sql_block_rules' = 'external_hive_partition3';"""
     sql """grant all on *.*.* to external_block_user3;"""
 
+    Awaitility.await().atMost(10, TimeUnit.SECONDS).with().pollDelay(1000, TimeUnit.MILLISECONDS).await().until(() -> {
+        def res = sql """show table stats ${catalog_name}.`default`.parquet_partition_table"""
+        print "${res}"
+        if (res[0][2] != 0) {
+            return true;
+        }
+        return false;
+    });
+
     // login as external_block_user1 
     def result1 = connect(user = 'external_block_user1', password = '', url = context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition, reach partition_num : 3"""
@@ -69,6 +82,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     }
     // login as external_block_user2
     def result2 = connect(user = 'external_block_user2', password = '', url = context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition2, reach tablet_num : 3"""
@@ -76,6 +90,9 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     }
     // login as external_block_user3
     def result3 = connect(user = 'external_block_user3', password = '', url = context.config.jdbcUrl) {
+        def res = sql """show property;"""
+        print "${res}"
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition3, reach cardinality : 3"""
