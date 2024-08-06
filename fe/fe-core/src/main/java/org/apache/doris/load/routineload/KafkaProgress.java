@@ -132,15 +132,17 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    // modify the partition offset of this progress.
-    // throw exception is the specified partition does not exist in progress.
-    public void modifyOffset(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
+    public void checkPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws DdlException {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             if (!partitionIdToOffset.containsKey(pair.first)) {
                 throw new DdlException("The specified partition " + pair.first + " is not in the consumed partitions");
             }
         }
+    }
 
+    // modify the partition offset of this progress.
+    // throw exception is the specified partition does not exist in progress.
+    public void modifyOffset(List<Pair<Integer, Long>> kafkaPartitionOffsets) {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             partitionIdToOffset.put(pair.first, pair.second);
         }
