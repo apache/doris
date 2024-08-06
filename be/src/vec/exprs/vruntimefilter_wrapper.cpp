@@ -42,6 +42,18 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
+double get_in_list_ignore_thredhold(size_t list_size) {
+    return std::log2(list_size + 1) / 64;
+}
+
+double get_comparison_ignore_thredhold() {
+    return 0.1;
+}
+
+double get_bloom_filter_ignore_thredhold() {
+    return 0.4;
+}
+
 namespace vectorized {
 class VExprContext;
 } // namespace vectorized
@@ -78,11 +90,12 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
     DCHECK(_open_finished || _getting_const_col);
     _judge_counter--;
     if (_always_true) {
-        block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
-                       _data_type, expr_name()});
+        size_t size = block->rows();
+        block->insert({create_always_true_column(size, _data_type->is_nullable()), _data_type,
+                       expr_name()});
         *result_column_id = block->columns() - 1;
         if (_always_true_counter) {
-            COUNTER_UPDATE(_always_true_counter, 1);
+            COUNTER_UPDATE(_always_true_counter, size);
         }
         return Status::OK();
     } else {

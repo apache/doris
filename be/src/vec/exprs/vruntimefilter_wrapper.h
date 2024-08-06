@@ -33,25 +33,19 @@ namespace doris {
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
+
+double get_in_list_ignore_thredhold(size_t list_size);
+double get_comparison_ignore_thredhold();
+double get_bloom_filter_ignore_thredhold();
+
 namespace vectorized {
 class Block;
 class VExprContext;
 } // namespace vectorized
 } // namespace doris
 
-inline double get_in_list_ignore_thredhold(size_t list_size) {
-    return std::log2(list_size + 1) / 64;
-}
-
-inline double get_comparison_ignore_thredhold() {
-    return 0.1;
-}
-
-inline double get_bloom_filter_ignore_thredhold() {
-    return 0.4;
-}
-
 namespace doris::vectorized {
+
 class VRuntimeFilterWrapper final : public VExpr {
     ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
 
@@ -78,15 +72,23 @@ public:
         _always_true_counter = always_true_counter;
     }
 
-    static bool judge_selectivity(double ignore_threshold, int64_t filter_rows,
-                                  int64_t input_rows) {
-        return filter_rows / (input_rows * 1.0) < ignore_threshold;
+    template <typename T, typename TT>
+    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
+                                  T& always_true, TT& judge_counter) {
+        always_true = filter_rows / (input_rows * 1.0) < ignore_threshold;
+        judge_counter = config::runtime_filter_sampling_frequency;
     }
 
-    bool need_judge_selectivity() override { return _judge_counter == 0; }
+    bool need_judge_selectivity() override {
+        if (_judge_counter <= 0) {
+            _always_true = false;
+            return true;
+        }
+        return false;
+    }
 
     void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
-        _always_true = judge_selectivity(_ignore_thredhold, filter_rows, input_rows);
+        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _always_true, _judge_counter);
         if (_expr_filtered_rows_counter) {
             COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
         }

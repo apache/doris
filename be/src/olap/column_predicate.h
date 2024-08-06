@@ -196,9 +196,8 @@ public:
         _evaluated_rows += size;
         _passed_rows += new_size;
         if (_can_ignore() && !_judge_counter) {
-            _always_true = vectorized::VRuntimeFilterWrapper::judge_selectivity(
-                    get_ignore_threshold(), size - new_size, size);
-            _judge_counter = config::runtime_filter_sampling_frequency;
+            vectorized::VRuntimeFilterWrapper::judge_selectivity(
+                    get_ignore_threshold(), size - new_size, size, _always_true, _judge_counter);
         }
         return new_size;
     }
