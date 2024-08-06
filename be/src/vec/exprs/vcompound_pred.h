@@ -56,62 +56,67 @@ public:
 
     Status evaluate_inverted_index(VExprContext* context,
                                    uint32_t segment_num_rows) const override {
-        bool all_pass = true;
         segment_v2::InvertedIndexResultBitmap res;
-        if (_op == TExprOpcode::COMPOUND_OR) {
-            for (auto child : _children) {
-                Status st = child->evaluate_inverted_index(context, segment_num_rows);
-                if (!st.ok()) {
+        bool all_pass = true;
+
+        switch (_op) {
+        case TExprOpcode::COMPOUND_OR: {
+            for (const auto& child : _children) {
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                    !st.ok()) {
                     all_pass = false;
                     continue;
                 }
                 if (context->has_inverted_index_result_for_expr(child.get())) {
-                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
-                    res = res | index_result; // Union operation
+                    res |= context->get_inverted_index_result_for_expr(child.get());
                 } else {
-                    //column has no inverted index
                     all_pass = false;
                 }
             }
-        } else if (_op == TExprOpcode::COMPOUND_AND) {
-            bool first = true;
-            for (auto child : _children) {
-                Status st = child->evaluate_inverted_index(context, segment_num_rows);
-                if (!st.ok()) {
+            break;
+        }
+        case TExprOpcode::COMPOUND_AND: {
+            for (const auto& child : _children) {
+                if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                    !st.ok()) {
                     all_pass = false;
                     continue;
                 }
                 if (context->has_inverted_index_result_for_expr(child.get())) {
                     auto index_result = context->get_inverted_index_result_for_expr(child.get());
-                    if (first) {
+                    if (res.is_empty()) {
                         res = std::move(index_result);
-                        first = false;
                     } else {
-                        res = res & index_result;
+                        res &= index_result;
+                    }
+
+                    if (res.get_data_bitmap()->isEmpty()) {
+                        break; // Early exit if result is empty
                     }
                 } else {
                     all_pass = false;
                 }
-                if (res.data_bitmap->isEmpty()) {
-                    return Status::OK(); // Early exit if result is empty
-                }
             }
-        } else if (_op == TExprOpcode::COMPOUND_NOT) {
-            auto child = _children[0];
+            break;
+        }
+        case TExprOpcode::COMPOUND_NOT: {
+            const auto& child = _children[0];
             Status st = child->evaluate_inverted_index(context, segment_num_rows);
             if (!st.ok()) {
                 return st;
             }
-            //all_pass = false;
+
             if (context->has_inverted_index_result_for_expr(child.get())) {
                 auto index_result = context->get_inverted_index_result_for_expr(child.get());
                 roaring::Roaring full_result;
                 full_result.addRange(0, segment_num_rows);
-                res = index_result.op_not(&full_result);
+                res = std::move(index_result.op_not(&full_result));
             } else {
                 all_pass = false;
             }
-        } else {
+            break;
+        }
+        default:
             return Status::NotSupported(
                     "Compound operator must be AND, OR, or NOT to execute with inverted index.");
         }
