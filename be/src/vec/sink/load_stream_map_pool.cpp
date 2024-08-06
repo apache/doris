@@ -107,8 +107,8 @@ bool LoadStreamMap::release() {
     return false;
 }
 
-Status LoadStreamMap::close_load(bool incremental) {
-    return for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
+void LoadStreamMap::close_load(bool incremental) {
+    auto st = for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
         std::vector<PTabletID> tablets_to_commit;
         const auto& tablets = _tablets_to_commit[dst_id];
         tablets_to_commit.reserve(tablets.size());
@@ -137,6 +137,10 @@ Status LoadStreamMap::close_load(bool incremental) {
         }
         return status;
     });
+    if (!st.ok()) {
+        LOG(WARNING) << "close_load for " << (incremental ? "incremental" : "non-incremental")
+                     << " streams failed: " << st << ", load_id=" << _load_id;
+    }
 }
 
 LoadStreamMapPool::LoadStreamMapPool() = default;

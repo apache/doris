@@ -594,10 +594,7 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         // send CLOSE_LOAD on all non-incremental streams if this is the last sink
         if (is_last_sink) {
-            auto st = _load_stream_map->close_load(false);
-            if (!st.ok()) {
-                LOG(WARNING) << "close_load failed: " << st;
-            }
+            _load_stream_map->close_load(false);
         }
 
         // close_wait on all non-incremental streams, even if this is not the last sink.
@@ -609,10 +606,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // this must happen after all non-incremental streams are closed,
         // so we can ensure all sinks are in close phase before closing incremental streams.
         if (is_last_sink) {
-            auto st = _load_stream_map->close_load(true);
-            if (!st.ok()) {
-                LOG(WARNING) << "close_load failed: " << st;
-            }
+            _load_stream_map->close_load(true);
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
