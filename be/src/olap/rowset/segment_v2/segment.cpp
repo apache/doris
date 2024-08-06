@@ -315,9 +315,10 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     DCHECK_EQ(bytes_read, 12);
 
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption("Bad segment file {}: file_size: {}, magic number not match, cache_key: {}",
-                                  _file_reader->path().native(), file_size,
-                                  file_cache_key_str(_file_reader->path().native()));
+        return Status::Corruption(
+                "Bad segment file {}: file_size: {}, magic number not match, cache_key: {}",
+                _file_reader->path().native(), file_size,
+                file_cache_key_str(_file_reader->path().native()));
     }
 
     // read footer PB
