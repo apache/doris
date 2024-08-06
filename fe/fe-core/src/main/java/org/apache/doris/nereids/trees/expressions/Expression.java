@@ -148,11 +148,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             case 2:
                 Expression left = children.get(0);
                 Expression right = children.get(1);
-                this.depth = Math.max(left.depth, right.depth) + 2;
+                this.depth = Math.max(left.depth, right.depth) + 1;
                 this.width = left.width + right.width;
                 this.compareWidthAndDepth =
                         left.compareWidthAndDepth && right.compareWidthAndDepth && supportCompareWidthAndDepth();
-                this.fastChildrenHashCode = left.fastChildrenHashCode() + right.fastChildrenHashCode();
+                this.fastChildrenHashCode = left.fastChildrenHashCode() + right.fastChildrenHashCode() + 2;
                 break;
             default:
                 int maxChildDepth = 0;
