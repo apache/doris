@@ -239,9 +239,9 @@ public class BackupJob extends AbstractJob {
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
                     && !tryNewTabletSnapshotTask(task)) {
-                    status = new Status(ErrCode.NOT_FOUND,
-                            "make snapshot failed, failed to ge tablet, table will be droped or truncated");
-                    cancelInternal();
+                status = new Status(ErrCode.NOT_FOUND,
+                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                cancelInternal();
             }
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
