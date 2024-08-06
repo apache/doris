@@ -117,12 +117,18 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
 }
 
 Status LRUFileCache::initialize() {
-    MonotonicStopWatch watch;
-    watch.start();
-    std::lock_guard cache_lock(_mutex);
+    // MonotonicStopWatch watch;
+    // watch.start();
     if (!_is_initialized) {
         if (fs::exists(_cache_base_path)) {
-            RETURN_IF_ERROR(load_cache_info_into_memory(cache_lock));
+            // the cache already exists, try to load cache info asyncly
+            _lazy_open_done = false;
+            RETURN_IF_ERROR(try_convert_cache_version());
+            _cache_background_load_thread = std::thread([this]() {
+                load_cache_info_into_memory();
+                _lazy_open_done = true;
+                LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
+            });
         } else {
             std::error_code ec;
             fs::create_directories(_cache_base_path, ec);
@@ -135,18 +141,18 @@ Status LRUFileCache::initialize() {
     }
     _is_initialized = true;
     _cache_background_thread = std::thread(&LRUFileCache::run_background_operation, this);
-    int64_t cost = watch.elapsed_time() / 1000 / 1000;
-    LOG(INFO) << fmt::format(
-            "After initialize file cache path={}, disposable queue size={} elements={}, index "
-            "queue size={} "
-            "elements={}, query queue "
-            "size={} elements={}, init cost(ms)={}",
-            _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
-            _disposable_queue.get_elements_num(cache_lock),
-            _index_queue.get_total_cache_size(cache_lock),
-            _index_queue.get_elements_num(cache_lock),
-            _normal_queue.get_total_cache_size(cache_lock),
-            _normal_queue.get_elements_num(cache_lock), cost);
+    // int64_t cost = watch.elapsed_time() / 1000 / 1000;
+    // LOG(INFO) << fmt::format(
+    //         "After initialize file cache path={}, disposable queue size={} elements={}, index "
+    //         "queue size={} "
+    //         "elements={}, query queue "
+    //         "size={} elements={}, init cost(ms)={}",
+    //         _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
+    //         _disposable_queue.get_elements_num(cache_lock),
+    //         _index_queue.get_total_cache_size(cache_lock),
+    //         _index_queue.get_elements_num(cache_lock),
+    //         _normal_queue.get_total_cache_size(cache_lock),
+    //         _normal_queue.get_elements_num(cache_lock), cost);
     return Status::OK();
 }
 
@@ -197,7 +203,19 @@ FileBlocks LRUFileCache::get_impl(const Key& key, const CacheContext& context,
     /// find list [segment1, ..., segmentN] of segments which intersect with given range.
     auto it = _files.find(key);
     if (it == _files.end()) {
-        return {};
+        if (_lazy_open_done) {
+            return {};
+        }
+        // FileCacheKey key;
+        // key.hash = hash;
+        // key.meta.type = context.cache_type;
+        // key.meta.expiration_time = context.expiration_time;
+        // _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+
+        it = _files.find(hash);
+        if (it == _files.end()) [[unlikely]] {
+            return {};
+        }
     }
 
     const auto& file_blocks = it->second;
@@ -786,7 +804,7 @@ void LRUFileCache::remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>&
     }
 }
 
-Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock) {
+Status LRUFileCache::try_convert_cache_version() const {
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
     if (USE_CACHE_VERSION2 && read_file_cache_version() != "2.0") {
@@ -799,34 +817,27 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     std::string key_prefix =
                             fs::path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
                     if (!fs::exists(key_prefix)) {
-                        std::error_code ec;
-                        fs::create_directories(key_prefix, ec);
-                        if (ec) {
-                            LOG(WARNING) << "Failed to create new version cached directory: "
-                                         << ec.message();
-                            continue;
-                        }
+                        RETURN_IF_ERROR(fs::create_directories(key_prefix));
                     }
-                    std::error_code ec;
-                    std::filesystem::rename(key_it->path(), key_prefix / cache_key, ec);
-                    if (ec) {
-                        LOG(WARNING)
-                                << "Failed to move old version cached directory: " << ec.message();
-                    }
+                    RETURN_IF_ERROR(
+                            std::filesystem::rename(key_it->path(), key_prefix / cache_key));
                 }
             }
         }
         if (!write_file_cache_version().ok()) {
-            LOG(WARNING) << "Failed to write version hints for file cache";
+            Lreturn Status::InternalError("Failed to write version hints for file cache");
         }
     }
+    return Status::OK();
+}
 
+void LRUFileCache::load_cache_info_into_memory() {
+    std::lock_guard cache_lock(_mutex);
     Key key;
     uint64_t offset = 0;
     size_t size = 0;
     std::vector<std::pair<Key, size_t>> queue_entries;
     std::vector<std::string> need_to_check_if_empty_dir;
-    Status st = Status::OK();
     auto scan_file_cache = [&](fs::directory_iterator& key_it) {
         for (; key_it != fs::directory_iterator(); ++key_it) {
             key = Key(
@@ -850,8 +861,8 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                             std::error_code ec;
                             std::filesystem::remove(offset_it->path(), ec);
                             if (ec) {
-                                st = Status::IOError(ec.message());
-                                break;
+                                LOG(WARNING) << "filesystem error, failed to remove file, file="
+                                             << offset_it->path() << " error=" << ec.message();
                             }
                             continue;
                         } else {
@@ -863,8 +874,8 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                 }
 
                 if (!parsed) {
-                    st = Status::IOError("Unexpected file: {}", offset_it->path().native());
-                    break;
+                    LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
+                    continue;
                 }
 
                 size = offset_it->file_size();
@@ -872,7 +883,8 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     std::error_code ec;
                     fs::remove(offset_it->path(), ec);
                     if (ec) {
-                        LOG(WARNING) << ec.message();
+                        LOG(WARNING) << "filesystem error, failed to remove file, file="
+                                     << offset_it->path() << " error=" << ec.message();
                     }
                     continue;
                 }
@@ -884,7 +896,8 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     std::error_code ec;
                     std::filesystem::remove(offset_it->path(), ec);
                     if (ec) {
-                        st = Status::IOError(ec.message());
+                        LOG(WARNING) << "filesystem error, failed to remove file, file="
+                                     << offset_it->path() << " error=" << ec.message();
                     }
                     need_to_check_if_empty_dir.push_back(key_it->path());
                 }
@@ -912,9 +925,6 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
         fs::directory_iterator key_it {_cache_base_path};
         scan_file_cache(key_it);
     }
-    if (!st) {
-        return st;
-    }
 
     std::for_each(need_to_check_if_empty_dir.cbegin(), need_to_check_if_empty_dir.cend(),
                   [](auto& dir) {
@@ -938,7 +948,6 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
             queue.move_to_end(*cell->queue_iterator, cache_lock);
         }
     }
-    return st;
 }
 
 Status LRUFileCache::write_file_cache_version() const {

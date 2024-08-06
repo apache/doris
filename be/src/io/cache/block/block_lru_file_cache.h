@@ -53,6 +53,9 @@ public:
     LRUFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
     ~LRUFileCache() override {
         _close = true;
+        if (_cache_background_load_thread.joinable()) {
+            _cache_background_thread.join();
+        }
         if (_cache_background_thread.joinable()) {
             _cache_background_thread.join();
         }
@@ -163,7 +166,14 @@ private:
 
     size_t get_available_cache_size(CacheType cache_type) const;
 
-    Status load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
+    /**
+     * @brief Refact the cache directory as version 2.0 while the version of cache is 1.0
+     * 
+     * @return Status 
+     */
+    Status try_convert_cache_version() const;
+
+    void load_cache_info_into_memory();
 
     Status write_file_cache_version() const;
 
@@ -201,6 +211,8 @@ public:
 private:
     std::atomic_bool _close {false};
     std::thread _cache_background_thread;
+    std::atomic_bool _lazy_open_done {true};
+    std::thread _cache_background_load_thread;
     size_t _num_read_segments = 0;
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
