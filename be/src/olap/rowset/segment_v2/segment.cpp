@@ -94,7 +94,8 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      InvertedIndexFileInfo idx_file_info) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
+    std::shared_ptr<Segment> segment(
+            new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
     segment->_fs = fs;
     segment->_file_reader = std::move(file_reader);
     auto st = segment->_open();
