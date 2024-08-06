@@ -315,8 +315,8 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     DCHECK_EQ(bytes_read, 12);
 
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption("Bad segment file {}: magic number not match, cache_key: {}",
-                                  _file_reader->path().native(),
+        return Status::Corruption("Bad segment file {}: file_size: {}, magic number not match, cache_key: {}",
+                                  _file_reader->path().native(), file_size,
                                   file_cache_key_str(_file_reader->path().native()));
     }
 
@@ -339,17 +339,18 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-                "Bad segment file {}: footer checksum not match, actual={} vs expect={}, "
-                "cache_key: {}",
-                _file_reader->path().native(), actual_checksum, expect_checksum,
+                "Bad segment file {}: file_size = {}, footer checksum not match, actual={} "
+                "vs expect={}, cache_key: {}",
+                _file_reader->path().native(), file_size, actual_checksum, expect_checksum,
                 file_cache_key_str(_file_reader->path().native()));
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
         return Status::Corruption(
-                "Bad segment file {}: failed to parse SegmentFooterPB, cache_key: ",
-                _file_reader->path().native(), file_cache_key_str(_file_reader->path().native()));
+                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, cache_key: ",
+                _file_reader->path().native(), file_size,
+                file_cache_key_str(_file_reader->path().native()));
     }
     return Status::OK();
 }
