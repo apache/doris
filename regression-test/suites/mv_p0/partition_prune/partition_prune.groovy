@@ -129,6 +129,14 @@ suite("partition_prune") {
     ('ag', 'bc', '2024-07-08 12:00:00', 10.1);
     """
 
+
+    multi_sql """
+           analyze table test_unique with sync;
+           analyze table test_aggregate with sync;
+           analyze table test_duplicate with sync;
+           """
+
+           
     // test partition prune in duplicate table
 
     def mv1 = """

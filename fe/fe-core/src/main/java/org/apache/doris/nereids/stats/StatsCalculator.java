@@ -406,7 +406,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
             if (tableMeta != null) {
-                tableRowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+                // create-view after analyzing, we may get -1 for this view row count
+                tableRowCount = Math.max(1, tableMeta.getRowCount(olapScan.getSelectedIndexId()));
             } else {
                 tableRowCount = 1;
             }
