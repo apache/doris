@@ -66,7 +66,6 @@ public:
     virtual Status add_nulls(uint32_t count) = 0;
     virtual Status add_array_nulls(uint32_t row_id) = 0;
 
-    virtual Status add_array_nulls(uint32_t row_id) = 0;
     virtual Status finish() = 0;
 
     virtual int64_t size() const = 0;

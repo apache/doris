@@ -367,11 +367,6 @@ public:
         return Status::OK();
     }
 
-    Status add_array_nulls(uint32_t row_id) override {
-        _null_bitmap.add(row_id);
-        return Status::OK();
-    }
-
     Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
                             const uint8_t* offsets_ptr, size_t count) override {
         if (count == 0) {
