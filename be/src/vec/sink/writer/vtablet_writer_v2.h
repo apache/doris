@@ -147,7 +147,7 @@ private:
 
     void _calc_tablets_to_commit();
 
-    Status _close_wait(bool incremental);
+    void _close_wait(bool incremental);
 
     void _cancel(Status status);
 

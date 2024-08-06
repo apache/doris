@@ -603,12 +603,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        {
-            auto st = _close_wait(false);
-            if (!st.ok()) {
-                LOG(WARNING) << "close_wait failed: " << st;
-            }
-        }
+        _close_wait(false);
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
         // this must happen after all non-incremental streams are closed,
@@ -621,12 +616,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
-        {
-            auto st = _close_wait(true);
-            if (!st.ok()) {
-                LOG(WARNING) << "close_wait failed: " << st;
-            }
-        }
+        _close_wait(true);
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -678,9 +668,9 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-Status VTabletWriterV2::_close_wait(bool incremental) {
+void VTabletWriterV2::_close_wait(bool incremental) {
     SCOPED_TIMER(_close_load_timer);
-    return _load_stream_map->for_each_st(
+    auto st = _load_stream_map->for_each_st(
             [this, incremental](int64_t dst_id, const Streams& streams) -> Status {
                 Status status = Status::OK();
                 for (auto& stream : streams) {
@@ -701,6 +691,9 @@ Status VTabletWriterV2::_close_wait(bool incremental) {
                 }
                 return status;
             });
+    if (!st.ok()) {
+        LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
+    }
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {
