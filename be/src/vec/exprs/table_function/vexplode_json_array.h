@@ -285,6 +285,20 @@ struct ParsedDataString : public ParsedDataStringBase {
                 // Because the address of the string stored in `_backup_data` may
                 // change each time `emplace_back()` is called.
             }
+            case JsonbType::T_Int8: {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d",
+                                  static_cast<const JsonbInt8Val&>(val).val());
+                _backup_data.emplace_back(tmp_buf, wbytes);
+                _values_null_flag.emplace_back(false);
+                break;
+            }
+            case JsonbType::T_Int16: {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d",
+                                  static_cast<const JsonbInt16Val&>(val).val());
+                _backup_data.emplace_back(tmp_buf, wbytes);
+                _values_null_flag.emplace_back(false);
+                break;
+            }
             case JsonbType::T_Int64: {
                 wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64,
                                   static_cast<const JsonbInt64Val&>(val).val());
