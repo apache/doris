@@ -143,6 +143,7 @@ suite("test_count_on_index_httplogs", "p0") {
         sql "sync"
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
+        sql """analyze table ${testTable_dup} with sync""";
         // case1: test duplicate table
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")

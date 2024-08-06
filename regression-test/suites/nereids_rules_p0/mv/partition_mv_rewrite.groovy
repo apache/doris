@@ -327,7 +327,11 @@ suite("partition_mv_rewrite") {
     """
     def ttl_mv_name = "mv_10000"
 
-    sql """analyze table lineitem_static with sync;"""
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
 
     def create_ttl_mtmv = { db_name, mv_inner_name, mv_inner_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_inner_name}"""
