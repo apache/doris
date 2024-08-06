@@ -80,7 +80,7 @@ private:
 
 public:
     // Default constructor
-    InvertedIndexResultBitmap() : _data_bitmap(nullptr), _null_bitmap(nullptr) {}
+    InvertedIndexResultBitmap() : _data_bitmap(nullptr), _null_bitmap(nullptr) = default;
 
     // Constructor with arguments
     InvertedIndexResultBitmap(std::shared_ptr<roaring::Roaring> data_bitmap,
