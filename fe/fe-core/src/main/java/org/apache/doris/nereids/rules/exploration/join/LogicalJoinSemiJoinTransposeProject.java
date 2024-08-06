@@ -70,11 +70,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getMarkJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                            Plan newBottomJoin = topJoin.withChildren(ImmutableList.of(a, c));
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
                             Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
+                            Plan newTopJoin = bottomJoin.withChildren(ImmutableList.of(left, right));
                             return topProject.withChildren(newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT_PROJECT),
 
@@ -104,11 +104,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getMarkJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                            Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
+                            Plan newBottomJoin = topJoin.withChildren(ImmutableList.of(a, b));
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
                             Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, c);
 
-                            Plan newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
+                            Plan newTopJoin = bottomJoin.withChildren(ImmutableList.of(left, right));
                             return topProject.withChildren(newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT_PROJECT)
         );

@@ -533,10 +533,7 @@ public class BindExpression implements AnalysisRuleFactory {
             otherJoinConjuncts.add(otherJoinConjunct);
         }
 
-        return new LogicalJoin<>(join.getJoinType(),
-                hashJoinConjuncts.build(), otherJoinConjuncts.build(),
-                join.getDistributeHint(), join.getMarkJoinSlotReference(),
-                join.children(), null);
+        return join.withJoinConjuncts(hashJoinConjuncts.build(), otherJoinConjuncts.build());
     }
 
     private void checkConflictAlias(Plan plan) {

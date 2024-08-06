@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
@@ -92,7 +93,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                                     acProjects.add(slot);
                                 }
                             });
-                    LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c, null);
+                    LogicalJoin newBottomSemi = topSemi.withChildren(ImmutableList.of(a, c));
                     if (topSemi.isMarkJoin()) {
                         acProjects.add(topSemi.getMarkJoinSlotReference().get());
                     }
@@ -109,7 +110,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomSemi);
                     Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
-                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(left, right, null);
+                    LogicalJoin newTopSemi = bottomSemi.withChildren(ImmutableList.of(left, right));
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return topProject.withChildren(newTopSemi);

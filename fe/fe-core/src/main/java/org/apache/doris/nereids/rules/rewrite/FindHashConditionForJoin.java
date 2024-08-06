@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -71,13 +70,8 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
             if (joinType == JoinType.CROSS_JOIN && !combinedHashJoinConjuncts.isEmpty()) {
                 joinType = JoinType.INNER_JOIN;
             }
-            return new LogicalJoin<>(joinType,
-                    combinedHashJoinConjuncts,
-                    remainedNonHashJoinConjuncts,
-                    join.getMarkJoinConjuncts(),
-                    join.getDistributeHint(),
-                    join.getMarkJoinSlotReference(),
-                    join.children(), join.getJoinReorderContext());
+            return join.withJoinTypeAndConjuncts(joinType, combinedHashJoinConjuncts,
+                remainedNonHashJoinConjuncts);
         }).toRule(RuleType.FIND_HASH_CONDITION_FOR_JOIN);
     }
 }

@@ -56,9 +56,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                         return null;
                     }
                     otherConditions.addAll(join.getOtherJoinConjuncts());
-                    return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            otherConditions, join.getDistributeHint(), join.getMarkJoinSlotReference(),
-                            join.children(), join.getJoinReorderContext());
+                    return join.withJoinConjuncts(join.getHashJoinConjuncts(), otherConditions);
                 }).toRule(RuleType.PUSH_FILTER_INSIDE_JOIN);
     }
 }

@@ -83,8 +83,7 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
                             right = new LogicalProject<>(newProjects, right);
                         }
                         return join.withJoinConjuncts(join.getHashJoinConjuncts(),
-                                newOtherConjuncts, join.getJoinReorderContext())
-                                .withChildren(ImmutableList.of(left, right));
+                                newOtherConjuncts).withChildren(ImmutableList.of(left, right));
                     }
                     return null;
                 }

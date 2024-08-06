@@ -82,7 +82,7 @@ public class OtherJoinTest extends TPCHTestBase {
                 .addEdge(JoinType.LEFT_OUTER_JOIN, 0, 2)
                 .buildPlan();
         Expression oneSideCond = new EqualTo(plan.child(0).getOutput().get(0), plan.child(0).getOutput().get(2));
-        plan = ((LogicalJoin<?, ?>) plan).withJoinConjuncts(ImmutableList.of(), ImmutableList.of(oneSideCond), ((LogicalJoin<?, ?>) plan).getJoinReorderContext());
+        plan = ((LogicalJoin<?, ?>) plan).withJoinConjuncts(ImmutableList.of(), ImmutableList.of(oneSideCond));
         Set<List<String>> res = hyperGraphBuilder.evaluate(plan);
         Assertions.assertEquals(4, res.size());
     }

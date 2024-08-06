@@ -194,10 +194,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
 
-                return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.second,
-                        newOtherJoinConjuncts.second, newMarkJoinConjuncts.second,
-                        join.getDistributeHint(), join.getMarkJoinSlotReference(), join.children(),
-                        join.getJoinReorderContext());
+                return join.withJoinConjuncts(newHashJoinConjuncts.second,
+                        newOtherJoinConjuncts.second, newMarkJoinConjuncts.second);
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
 
