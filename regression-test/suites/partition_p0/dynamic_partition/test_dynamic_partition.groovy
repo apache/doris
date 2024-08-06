@@ -37,7 +37,7 @@ suite("test_dynamic_partition") {
     assertEquals(result.size(), 1)
     result = sql_return_maparray "show partitions from dy_par"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).Buckets, 10)
+    assertEquals(result.get(0).Buckets.toInteger(), 10)
     sql "drop table dy_par"
 
     sql "drop table if exists dy_par"
@@ -61,7 +61,7 @@ suite("test_dynamic_partition") {
     assertEquals(result.size(), 1)
     result = sql_return_maparray "show partitions from dy_par"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).Buckets), 10)
+    assertEquals(result.get(0).Buckets.toInteger(), 10)
     sql "drop table dy_par"
 
     sql "drop table if exists dy_par_bucket_set_by_distribution"
@@ -85,7 +85,7 @@ suite("test_dynamic_partition") {
     assertEquals(result.size(), 1)
     result = sql_return_maparray "show partitions from dy_par_bucket_set_by_distribution"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).Buckets), 3)
+    assertEquals(result.get(0).Buckets.toInteger(), 3)
     sql "drop table dy_par_bucket_set_by_distribution"
     sql "drop table if exists dy_par_bad"
     def isCloudMode = {
