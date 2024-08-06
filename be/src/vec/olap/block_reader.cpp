@@ -233,7 +233,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
         return status;
     }
-
+    if (size_t cols = _next_row.block->columns() - _return_columns_loc.size() > 0; cols > 0) {
+        _index_result_columns = cols;
+    }
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
@@ -295,6 +297,15 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
     auto target_block_row = 0;
     auto merged_row = 0;
+    // create column for index result
+    int start = _next_row.block->columns() - _index_result_columns;
+    int end = _next_row.block->columns();
+    for (int i = start; i < end; i++) {
+        _index_result_columns_idx.emplace_back(block->columns());
+        block->insert({vectorized::ColumnUInt8::create(),
+                       std::make_shared<vectorized::DataTypeUInt8>(),
+                       _next_row.block.get()->get_names()[i]});
+    }
     auto target_columns = block->mutate_columns();
     RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
@@ -345,6 +356,15 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     auto target_block_row = 0;
+    // create column for index result
+    int start = _next_row.block->columns() - _index_result_columns;
+    int end = _next_row.block->columns();
+    for (int i = start; i < end; i++) {
+        _index_result_columns_idx.emplace_back(block->columns());
+        block->insert({vectorized::ColumnUInt8::create(),
+                       std::make_shared<vectorized::DataTypeUInt8>(),
+                       _next_row.block.get()->get_names()[i]});
+    }
     auto target_columns = block->mutate_columns();
     if (UNLIKELY(_reader_context.record_rowids)) {
         _block_row_locations.resize(_reader_context.batch_size);
@@ -428,9 +448,18 @@ Status BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block.get();
 
     RETURN_IF_CATCH_EXCEPTION({
+        // insert into key column
         for (auto idx : _normal_columns_idx) {
             columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
                                                            _next_row.row_pos);
+        }
+
+        // insert into index result column
+        int start = _next_row.block->columns() - _index_result_columns;
+        for (int i = 0; i < _index_result_columns; i++) {
+            auto src_column =
+                    block->get_by_position(start++).column->convert_to_full_column_if_const();
+            columns[_index_result_columns_idx[i]]->insert_from(*src_column, _next_row.row_pos);
         }
     });
     return Status::OK();
