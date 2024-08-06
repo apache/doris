@@ -37,7 +37,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -205,14 +204,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         // get splits
         List<Split> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        // Min split size is DEFAULT_SPLIT_SIZE(128MB).
-        long splitSize = Math.max(ConnectContext.get().getSessionVariable().getFileSplitSize(), DEFAULT_SPLIT_SIZE);
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
-        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
+        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
-                TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
+                TableScanUtil.planTasks(fileScanTasks, fileSplitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 String dataFilePath = normalizeLocation(splitTask.file().path().toString());
 
