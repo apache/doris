@@ -81,7 +81,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.depth = 1;
                 this.width = 1;
                 this.compareWidthAndDepth = supportCompareWidthAndDepth();
-                this.fastChildrenHashCode = 1;
+                this.fastChildrenHashCode = 0;
                 break;
             case 1:
                 Expression child = children[0];
@@ -136,7 +136,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.depth = 1;
                 this.width = 1;
                 this.compareWidthAndDepth = supportCompareWidthAndDepth();
-                this.fastChildrenHashCode = 1;
+                this.fastChildrenHashCode = 0;
                 break;
             case 1:
                 Expression child = children.get(0);
@@ -158,7 +158,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 int maxChildDepth = 0;
                 int sumChildWidth = 0;
                 boolean compareWidthAndDepth = true;
-                int fastChildrenhashCode = 1;
+                int fastChildrenhashCode = 0;
                 for (Expression expression : children) {
                     child = expression;
                     maxChildDepth = Math.max(child.depth, maxChildDepth);
