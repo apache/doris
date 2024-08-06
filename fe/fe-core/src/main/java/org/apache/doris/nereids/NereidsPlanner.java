@@ -159,7 +159,6 @@ public class NereidsPlanner extends Planner {
         return planWithLock(plan, requireProperties, explainLevel, false);
     }
 
-
     public Plan planWithLock(LogicalPlan plan, PhysicalProperties requireProperties,
             ExplainLevel explainLevel, boolean showPlanProcess) {
         Consumer<Plan> noCallback = p -> {};
