@@ -158,8 +158,10 @@ public:
         segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
         std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        bitmap_result.null_bitmap = std::move(null_bitmap);
-        bitmap_result.data_bitmap = std::move(roaring);
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = std::move(result);
+        //bitmap_result.null_bitmap = std::move(null_bitmap);
+        //bitmap_result.data_bitmap = std::move(roaring);
 
         return Status::OK();
     }
