@@ -76,11 +76,12 @@ void NewFileScanNode::set_scan_ranges(RuntimeState* state,
             auto split_source = scan_range.split_source;
             RuntimeProfile::Counter* get_split_timer = ADD_TIMER(_runtime_profile, "GetSplitTime");
             _split_source = std::make_shared<RemoteSplitSourceConnector>(
-                    state, get_split_timer, split_source.split_source_id, split_source.num_splits);
+                    state, get_split_timer, split_source.split_source_id, split_source.num_splits,
+                    _max_scanners);
         }
     }
     if (_split_source == nullptr) {
-        _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges);
+        _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
     }
     _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
     if (scan_ranges.size() > 0 &&
