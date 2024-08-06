@@ -303,7 +303,7 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
-
+    public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
@@ -591,6 +591,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
+
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
@@ -809,7 +813,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
-    public int maxAllowedPacket = 1048576;
+    public int maxAllowedPacket = 16777216;
 
     @VariableMgr.VarAttr(name = AUTO_INCREMENT_INCREMENT)
     public int autoIncrementIncrement = 1;
@@ -1542,6 +1546,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
 
+    @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
+    public int dphyperLimit = 1000;
+
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
@@ -1678,7 +1685,7 @@ public class SessionVariable implements Serializable, Writable {
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
-    public boolean enablePreparedStmtAuditLog = true;
+    public boolean enablePreparedStmtAuditLog = false;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -1874,10 +1881,24 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveParquetUseColumnNames = true;
+
+
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveOrcUseColumnNames = true;
+
     @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
+
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -3636,7 +3657,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
-
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }
