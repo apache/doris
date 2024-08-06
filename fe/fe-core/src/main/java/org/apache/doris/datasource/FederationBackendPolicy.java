@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
