@@ -71,11 +71,11 @@ import java.util.stream.Collectors;
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime").add("CommittedVersion")
+            .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
             .build();
 
     private Database db;
