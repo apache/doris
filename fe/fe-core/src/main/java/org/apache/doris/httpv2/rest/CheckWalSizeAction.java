@@ -62,11 +62,15 @@ public class CheckWalSizeAction extends RestBaseController {
 
         String hostPorts = request.getParameter(HOST_PORTS);
         List<Backend> backends = new ArrayList<>();
-        String[] hostPortArr;
-        List<HostInfo> hostInfos = new ArrayList<>();
         if (Strings.isNullOrEmpty(hostPorts)) {
-            backends = Env.getCurrentSystemInfo().getAllClusterBackends();
+            try {
+                backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
+            } catch (AnalysisException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
         } else {
+            String[] hostPortArr;
+            List<HostInfo> hostInfos = new ArrayList<>();
             hostPortArr = hostPorts.split(",");
             if (hostPortArr.length == 0) {
                 return ResponseEntityBuilder.badRequest("No host:port specified");
@@ -80,19 +84,19 @@ public class CheckWalSizeAction extends RestBaseController {
                     return ResponseEntityBuilder.badRequest(e.getMessage());
                 }
             }
+            try {
+                backends = getBackends(hostInfos);
+            } catch (DdlException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
         }
 
-        try {
-            backends = backends.isEmpty() ? getBackends(hostInfos) : backends;
-            List<String> backendsList = new ArrayList<>();
-            for (Backend backend : backends) {
-                long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
-                backendsList.add(backend.getHost() + ":" + backend.getHeartbeatPort() + ":" + size);
-            }
-            return ResponseEntityBuilder.ok(backendsList);
-        } catch (DdlException e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        List<String> backendsList = new ArrayList<>();
+        for (Backend backend : backends) {
+            long size = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
+            backendsList.add(backend.getHost() + ":" + backend.getHeartbeatPort() + ":" + size);
         }
+        return ResponseEntityBuilder.ok(backendsList);
     }
 
     private List<Backend> getBackends(List<HostInfo> hostInfos) throws DdlException {
