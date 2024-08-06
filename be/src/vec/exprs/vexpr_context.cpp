@@ -163,8 +163,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
     int rows = block->rows();
-    DCHECK(result_filter->size() == rows);
-    DCHECK(result_filter->size() == block->rows());
+    DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
