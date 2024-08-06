@@ -67,8 +67,8 @@ suite("test_compaction") {
     try {
         updateBeConf(ipList[0], httpPortList[0], "disable_auto_compaction", "true");
         updateBeConf(ipList[1], httpPortList[1], "disable_auto_compaction", "true");
-        injectionPoint(ipList[0], httpPortList[0], "apply_suite/test_compaction");
-        injectionPoint(ipList[1], httpPortList[1], "apply_suite/test_compaction");
+        injectionPoint(ipList[0], httpPortList[0], "apply_suite?name=test_compaction");
+        injectionPoint(ipList[1], httpPortList[1], "apply_suite?name=test_compaction");
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
@@ -167,8 +167,8 @@ suite("test_compaction") {
         sql """ use @regression_cluster_name0; """
         qt_select_default """ SELECT * FROM ${tableName}; """
     } finally {
-        injectionPoint(ipList[0], httpPortList[0], "clear/all");
-        injectionPoint(ipList[1], httpPortList[1], "clear/all");
+        injectionPoint(ipList[0], httpPortList[0], "clear?name=all");
+        injectionPoint(ipList[1], httpPortList[1], "clear?name=all");
         updateBeConf(ipList[0], httpPortList[0], "disable_auto_compaction", "false");
         updateBeConf(ipList[1], httpPortList[1], "disable_auto_compaction", "false");
     }

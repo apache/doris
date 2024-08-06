@@ -132,7 +132,7 @@ suite("test_lease_compaction") {
         // cluster0 set lease_compaction_interval_seconds=1, then lease expiration will be 4s
         updateBeConf(ipList[0], httpPortList[0], "lease_compaction_interval_seconds", "1");
         // make cluster0 compaction time exceed 8s to longer than lease expiration
-        injectionPoint(ipList[0], httpPortList[0], "set/Compaction::do_compaction?behavior=sleep&duration=8000");
+        injectionPoint(ipList[0], httpPortList[0], "set?name=Compaction::do_compaction&behavior=sleep&duration=8000");
 
         sql """ use @regression_cluster_name0; """
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
@@ -153,7 +153,7 @@ suite("test_lease_compaction") {
         // Test preempting compaction job when lease expired
         //======================================================================
         // cluster0 disable lease
-        injectionPoint(ipList[0], httpPortList[0], "set/CloudCumulativeCompaction::do_lease?behavior=return");
+        injectionPoint(ipList[0], httpPortList[0], "set?name=CloudCumulativeCompaction::do_lease&behavior=return");
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
@@ -175,8 +175,8 @@ suite("test_lease_compaction") {
         // wait cluster1 compaction success
         waitForCompaction(ipList[1], httpPortList[1]);
     } finally {
-        injectionPoint(ipList[0], httpPortList[0], "clear/all");
-        injectionPoint(ipList[1], httpPortList[1], "clear/all");
+        injectionPoint(ipList[0], httpPortList[0], "clear?name=all");
+        injectionPoint(ipList[1], httpPortList[1], "clear?name=all");
         // FIXME(plat1ko): reset be conf to original value
         updateBeConf(ipList[0], httpPortList[0], "lease_compaction_interval_seconds", "20");
         updateBeConf(ipList[0], httpPortList[0], "disable_auto_compaction", "false");

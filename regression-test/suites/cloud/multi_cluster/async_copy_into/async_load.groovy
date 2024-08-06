@@ -97,7 +97,7 @@ suite("async_load") {
         'prefix' = 'regression' ,
         'ak' = '${getS3AK()}' ,
         'sk' = '${getS3SK()}' ,
-        'provider' = '${getProvider()}',
+        'provider' = '${getS3Provider()}',
         'access_type' = 'aksk',
         'default.file.column_separator' = "|" 
         );

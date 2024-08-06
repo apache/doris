@@ -76,7 +76,7 @@ suite("test_retry_e-230") {
         // set be debug point
         // curl "127.0.0.1:11101/api/injection_point/set/Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230"
         for (def i = 0; i < ipList.size(); i++) {
-            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set/Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230")
+            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set?name=Tablet::cloud_capture_rs_readers&behavior=return_error&code=-230")
         }
 
         sql """
@@ -101,7 +101,7 @@ suite("test_retry_e-230") {
         def futrue1 = thread {
             Thread.sleep(3000)
             for (def i = 0; i < ipList.size(); i++) {
-                curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear/Tablet::cloud_capture_rs_readers")
+                curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear?name=Tablet::cloud_capture_rs_readers")
             }
         }
 
@@ -157,13 +157,13 @@ suite("test_retry_e-230") {
 
         // dp again
         for (def i = 0; i < ipList.size(); i++) {
-            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set/Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230")
+            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set?name=Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230")
         }
 
         def futrue3 = thread {
             Thread.sleep(4000)
             for (def i = 0; i < ipList.size(); i++) {
-                curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear/Tablet::cloud_capture_rs_readers")
+                curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear?name=Tablet::cloud_capture_rs_readers")
             }
         }
 
@@ -181,7 +181,7 @@ suite("test_retry_e-230") {
 
     } finally {
         for (def i = 0; i < ipList.size(); i++) {
-            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear/Tablet::cloud_capture_rs_readers")
+            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/clear?name=Tablet::cloud_capture_rs_readers")
         } 
         curlFeDebugPoint.call(context.config.feHttpAddress, context.config.jdbcUser, context.config.jdbcPassword, "/api/debug_point/remove/StmtExecutor.retry.longtime")
         sql """ DROP TABLE IF EXISTS ${tbl} """

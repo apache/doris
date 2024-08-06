@@ -5,7 +5,7 @@ import groovy.json.JsonSlurper
 *   @Params url is "/xxx", data is request body
 *   @Return response body
 */
-def http_post(addr, url, data = null, user = null, password = null) {
+def http_post = { addr, url, data = null, user = null, password = null ->
     // def dst = "http://"+ context.config.feHttpAddress
     def dst = "http://"+ addr
     def conn = new URL(dst + url).openConnection()

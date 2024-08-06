@@ -127,8 +127,8 @@ suite("test_parallel_cumu_compaction") {
             } while (running)
         }
 
-        injectionPoint(ipList[0], httpPortList[0], "set/Compaction::do_compaction?behavior=sleep&duration=10000");
-        injectionPoint(ipList[1], httpPortList[1], "set/Compaction::do_compaction?behavior=sleep&duration=10000");
+        injectionPoint(ipList[0], httpPortList[0], "set?name=Compaction::do_compaction&behavior=sleep&duration=10000");
+        injectionPoint(ipList[1], httpPortList[1], "set?Compaction::do_compaction&behavior=sleep&duration=10000");
 
         sql """ use @regression_cluster_name0; """
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
@@ -197,8 +197,8 @@ suite("test_parallel_cumu_compaction") {
         assertEquals(rowsets[3].split(" ")[0], "[14-19]")
 
     } finally {
-        injectionPoint(ipList[0], httpPortList[0], "clear/all");
-        injectionPoint(ipList[1], httpPortList[1], "clear/all");
+        injectionPoint(ipList[0], httpPortList[0], "clear?name=all");
+        injectionPoint(ipList[1], httpPortList[1], "clear?name=all");
         // FIXME(plat1ko): reset be conf to original value
         updateBeConf(ipList[0], httpPortList[0], "disable_auto_compaction", "false");
         updateBeConf(ipList[1], httpPortList[1], "disable_auto_compaction", "false");
