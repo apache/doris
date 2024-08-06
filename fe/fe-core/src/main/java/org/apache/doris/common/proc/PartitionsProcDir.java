@@ -282,8 +282,6 @@ public class PartitionsProcDir implements ProcDirInterface {
                 String visibleTime = TimeUtils.longToTimeString(partition.getVisibleVersionTime());
                 partitionInfo.add(visibleTime);
                 trow.addToColumnValue(new TCell().setStringVal(visibleTime));
-                partitionInfo.add(partition.getCommittedVersion());
-                trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion()));
                 partitionInfo.add(partition.getState());
                 trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString()));
                 if (tblPartitionInfo.getType() == PartitionType.RANGE
@@ -381,6 +379,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                     partitionInfo.add(FeConstants.null_string);
                     trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
                 }
+
+                partitionInfo.add(partition.getCommittedVersion());
+                trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion()));
 
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }
