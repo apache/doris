@@ -164,16 +164,12 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
-import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
-import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -182,7 +178,6 @@ import org.apache.doris.proto.InternalService.POutfileWriteSuccessRequest;
 import org.apache.doris.proto.InternalService.POutfileWriteSuccessResult;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.Coordinator.FragmentExecParams;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
@@ -2061,26 +2056,18 @@ public class StmtExecutor {
         TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
         // 2. set brokerNetAddress
-        List<PlanFragment> fragments = coord.getFragments();
-        Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = coord.getFragmentExecParamsMap();
-        PlanFragmentId topId = fragments.get(0).getFragmentId();
-        FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
-        DataSink topDataSink = topParams.fragment.getSink();
-        TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-        if (topDataSink instanceof ResultFileSink
-                && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
+        StorageType storageType = outFileClause.getBrokerDesc() == null
+                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+        if (storageType == StorageType.BROKER) {
             // set the broker address for OUTFILE sink
-            ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
-            FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                    .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+            String brokerName = outFileClause.getBrokerDesc().getName();
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyBroker(brokerName);
             sinkOptions.setBrokerAddresses(Lists.newArrayList(new TNetworkAddress(broker.host, broker.port)));
         }
 
         // 3. set TResultFileSink properties
         TResultFileSink sink = new TResultFileSink();
         sink.setFileOptions(sinkOptions);
-        StorageType storageType = outFileClause.getBrokerDesc() == null
-                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
         sink.setStorageBackendType(storageType.toThrift());
 
         // 4. get BE
