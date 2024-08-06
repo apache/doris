@@ -2381,7 +2381,7 @@ public class Env {
         Storage storage = new Storage(this.imageDir);
         File curFile = storage.getImageFile(replayedJournalId.get());
         File ckpt = new File(this.imageDir, Storage.IMAGE_NEW);
-        saveImage(ckpt, replayedJournalId.get());
+        saveImage(ckpt, replayedJournalId.get(), Config.meta_enable_compress);
 
         // Move image.ckpt to image.dataVersion
         LOG.info("Move " + ckpt.getAbsolutePath() + " to " + curFile.getAbsolutePath());
@@ -2393,6 +2393,10 @@ public class Env {
     }
 
     public void saveImage(File curFile, long replayedJournalId) throws IOException {
+        saveImage(curFile, replayedJournalId, false);
+    }
+
+    public void saveImage(File curFile, long replayedJournalId, boolean compressed) throws IOException {
         if (curFile.exists()) {
             if (!curFile.delete()) {
                 throw new IOException(curFile.getName() + " can not be deleted.");
@@ -2401,7 +2405,7 @@ public class Env {
         if (!curFile.createNewFile()) {
             throw new IOException(curFile.getName() + " can not be created.");
         }
-        MetaWriter.write(curFile, this);
+        MetaWriter.write(curFile, this, compressed);
     }
 
     public long saveHeader(CountingDataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
@@ -5560,7 +5564,7 @@ public class Env {
         return checksum;
     }
 
-    public String dumpImage() {
+    public String dumpImage(boolean compressed) {
         LOG.info("begin to dump meta data");
         String dumpFilePath;
         List<Database> databases = Lists.newArrayList();
@@ -5595,7 +5599,7 @@ public class Env {
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
                 LOG.info("begin to dump {}", dumpFilePath);
-                saveImage(dumpFile, journalId);
+                saveImage(dumpFile, journalId, compressed);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
                 return null;
@@ -6531,7 +6535,7 @@ public class Env {
         LogUtils.stdout("check metadata compatibility successfully");
 
         if (Config.checkpoint_after_check_compatibility) {
-            String imagePath = dumpImage();
+            String imagePath = dumpImage(Config.meta_enable_compress);
             String msg = "the new image file path is: " + imagePath;
             LOG.info(msg);
             LogUtils.stdout(msg);

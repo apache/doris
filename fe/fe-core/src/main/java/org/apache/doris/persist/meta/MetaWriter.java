@@ -31,6 +31,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
+import java.util.zip.DeflaterOutputStream;
 
 /**
  * Image Format:
@@ -93,18 +94,26 @@ public class MetaWriter {
         return delegate.doWork(name, method);
     }
 
-    public static void write(File imageFile, Env env) throws IOException {
+    @SuppressWarnings("checkstyle:EmptyBlock")
+    public static void write(File imageFile, Env env, boolean compressed) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start to save image to {}. is ckpt: {}",
                 imageFile.getAbsolutePath(), Env.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         // MetaHeader should use output stream in the future.
-        long startPosition = MetaHeader.write(imageFile);
+        long startPosition = MetaHeader.write(imageFile, compressed);
         List<MetaIndex> metaIndices = Lists.newArrayList();
-        FileOutputStream imageFileOut = new FileOutputStream(imageFile, true);
-        try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(imageFileOut),
-                startPosition)) {
+
+        BufferedOutputStream imageFileOut = null;
+        FileOutputStream fileOutStream = new FileOutputStream(imageFile, true);
+        if (!compressed) {
+            imageFileOut = new BufferedOutputStream(fileOutStream);
+        } else {
+            imageFileOut = new BufferedOutputStream(new DeflaterOutputStream(fileOutStream));
+        }
+
+        try (CountingDataOutputStream dos = new CountingDataOutputStream(imageFileOut, startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = env.getReplayedJournalId();
             // 1. write header first
@@ -121,9 +130,11 @@ public class MetaWriter {
                     }
                 }));
             }
+
             // 3. force sync to disk
-            imageFileOut.getChannel().force(true);
+            fileOutStream.getChannel().force(true);
         }
+
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();

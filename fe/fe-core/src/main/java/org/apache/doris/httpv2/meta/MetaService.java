@@ -52,6 +52,7 @@ public class MetaService extends RestBaseController {
     private static final String VERSION = "version";
     private static final String HOST = "host";
     private static final String PORT = "port";
+    private static final String COMPRESSED = "compressed";
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
@@ -244,7 +245,8 @@ public class MetaService extends RestBaseController {
          *
          * TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
          */
-        String dumpFilePath = Env.getCurrentEnv().dumpImage();
+        String compressed = request.getParameter(COMPRESSED);
+        String dumpFilePath = Env.getCurrentEnv().dumpImage(Boolean.valueOf(compressed));
 
         if (dumpFilePath == null) {
             return ResponseEntityBuilder.okWithCommonError("dump failed.");
