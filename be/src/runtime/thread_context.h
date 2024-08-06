@@ -352,7 +352,7 @@ static ThreadContext* thread_context(bool allow_return_null = false) {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-        DCHECK(bthread_context != nullptr);
+        DCHECK(bthread_context != nullptr && bthread_context->thread_local_handle_count > 0);
         return bthread_context;
     }
     if (allow_return_null) {

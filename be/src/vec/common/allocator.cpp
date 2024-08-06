@@ -220,8 +220,8 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename Memory
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
     doris::ThreadContext* thread_context = doris::thread_context(true);
-    DCHECK(_tracker);
-    if (thread_context && thread_context->thread_mem_tracker()->label() == _tracker->label()) {
+    if (thread_context) {
+        DCHECK(!_tracker || thread_context->thread_mem_tracker()->label() == _tracker->label());
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
         _tracker->release(size);
