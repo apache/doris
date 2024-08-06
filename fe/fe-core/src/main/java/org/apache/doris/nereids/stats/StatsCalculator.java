@@ -417,8 +417,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(olapScan.getRelationId());
             if (optStats.isPresent()) {
+                double selectedRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
+                        / Math.max(1, olapTable.getPartitions().size());
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
-                if (tableRowCount > optStats.get().getRowCount()) {
+                if (selectedRowCount > optStats.get().getRowCount()) {
                     return optStats.get();
                 }
             }
@@ -438,7 +440,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             return builder.build();
         }
 
-        // for regression shape test, get row count from columnStats.count
+        // for regression shape test
         if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats) {
             // get row count from any visible slotReference's colStats
             for (Slot slot : olapScan.getOutput()) {
