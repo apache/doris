@@ -409,7 +409,6 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
-
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
                 (leftRange, rightRange) -> leftRange.intersect(rightRange));
 
@@ -427,6 +426,17 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitOr(Or or, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
+        if (result.result.equals(BooleanLiteral.FALSE)) {
+            return result;
+        } else if (result.childrenResult.get(0).result.equals(BooleanLiteral.FALSE)) {
+            // false or a<1 -> return range a<1
+            return new EvaluateRangeResult(result.result, result.childrenResult.get(1).columnRanges,
+                    result.childrenResult);
+        } else if (result.childrenResult.get(1).result.equals(BooleanLiteral.FALSE)) {
+            // a<1 or false -> return range a<1
+            return new EvaluateRangeResult(result.result, result.childrenResult.get(0).columnRanges,
+                    result.childrenResult);
+        }
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
                 (leftRange, rightRange) -> leftRange.union(rightRange));
         return returnFalseIfExistEmptyRange(result);
