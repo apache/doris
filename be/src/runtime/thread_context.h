@@ -220,9 +220,9 @@ public:
         ss << std::this_thread::get_id();
         return ss.str();
     }
-    // After thread_mem_tracker_mgr is initialized, the current thread Hook starts to
-    // consume/release mem_tracker.
-    // Note that the use of shared_ptr will cause a crash. The guess is that there is an
+    // Note that if set global Memory Hook, After thread_mem_tracker_mgr is initialized,
+    // the current thread Hook starts to consume/release mem_tracker.
+    // the use of shared_ptr will cause a crash. The guess is that there is an
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.

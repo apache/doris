@@ -209,14 +209,23 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) const {
+        size_t size) {
+    if (_tracker == nullptr) { // first time called
+        _tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    RELEASE_THREAD_MEM_TRACKER(size);
+    doris::ThreadContext* thread_context = doris::thread_context(true);
+    DCHECK(_tracker);
+    if (thread_context && thread_context->thread_mem_tracker()->label() == _tracker->label()) {
+        RELEASE_THREAD_MEM_TRACKER(size);
+    } else {
+        _tracker->release(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>

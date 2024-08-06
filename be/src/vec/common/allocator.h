@@ -209,6 +209,10 @@ private:
     static std::mutex _mutex;
 };
 
+namespace doris {
+class MemTrackerLimiter;
+}
+
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
   * The interface is different from std::allocator
@@ -228,7 +232,7 @@ public:
     // alloc will continue to execute, so the consume memtracker is forced.
     void memory_check(size_t size) const;
     // Increases consumption of this tracker by 'bytes'.
-    void consume_memory(size_t size) const;
+    void consume_memory(size_t size);
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 #ifndef NDEBUG
@@ -412,6 +416,8 @@ protected:
                                       | (mmap_populate ? MAP_POPULATE : 0)
 #endif
             ;
+
+    std::shared_ptr<doris::MemTrackerLimiter> _tracker {nullptr};
 };
 
 /** Allocator with optimization to place small memory ranges in automatic memory.
