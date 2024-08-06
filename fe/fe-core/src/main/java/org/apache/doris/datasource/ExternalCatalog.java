@@ -836,8 +836,8 @@ public abstract class ExternalCatalog
 
     @Override
     public boolean enableAutoAnalyze() {
-        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
-        // "enable.auto.analyze" = true
+        // By default, external catalog disables auto analyze, users could set catalog property to enable it:
+        // "enable.auto.analyze" = "true"
         Map<String, String> properties = catalogProperty.getProperties();
         boolean ret = false;
         if (properties.containsKey(ENABLE_AUTO_ANALYZE)

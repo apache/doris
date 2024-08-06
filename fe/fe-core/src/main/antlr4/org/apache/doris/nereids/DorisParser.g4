@@ -26,7 +26,7 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : statement (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
@@ -744,6 +744,7 @@ predicate
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
+    | IS NOT? kind=(TRUE | FALSE)
     ;
 
 valueExpression
