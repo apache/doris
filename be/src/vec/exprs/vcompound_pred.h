@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -53,6 +54,86 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
+        bool all_pass = true;
+        segment_v2::InvertedIndexResultBitmap res;
+        /*if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
+            return VectorizedFnCall::evaluate_inverted_index(context, segment_num_rows);
+        }*/
+        if (_op == TExprOpcode::COMPOUND_OR) {
+            //res = std::make_shared<roaring::Roaring>(); // Initialize to empty for OR
+            for (auto child : _children) {
+                Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                if (!st.ok()) {
+                    all_pass = false;
+                    continue;
+                }
+                if (context->has_inverted_index_result_for_expr(child.get())) {
+                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                    //auto index_without_null_result = *(index_result.first) - *(index_result.second);
+                    res = res | index_result; // Union operation
+                } else {
+                    //column has no inverted index
+                    all_pass = false;
+                }
+            }
+        } else if (_op == TExprOpcode::COMPOUND_AND) {
+            bool first = true;
+            for (auto child : _children) {
+                Status st = child->evaluate_inverted_index(context, segment_num_rows);
+                if (!st.ok()) {
+                    all_pass = false;
+                    continue;
+                }
+                if (context->has_inverted_index_result_for_expr(child.get())) {
+                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                    if (first) {
+                        res = index_result;
+                        first = false;
+                    } else {
+                        res = res & index_result;
+                    }
+                } else {
+                    all_pass = false;
+                }
+                if (res.data_bitmap->isEmpty()) {
+                    return Status::OK(); // Early exit if result is empty
+                }
+            }
+        } else if (_op == TExprOpcode::COMPOUND_NOT) {
+            auto child = _children[0];
+            Status st = child->evaluate_inverted_index(context, segment_num_rows);
+            if (!st.ok()) {
+                return st;
+            }
+            //all_pass = false;
+            if (context->has_inverted_index_result_for_expr(child.get())) {
+                auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                LOG(ERROR) << "bitmap before not result:" << index_result.data_bitmap->toString()
+                           << " null_bitmap:" << index_result.null_bitmap->toString();
+                segment_v2::InvertedIndexResultBitmap full_result;
+                full_result.data_bitmap->addRange(0, segment_num_rows);
+                res = full_result - index_result;
+                LOG(ERROR) << "bitmap after not result:" << res.data_bitmap->toString()
+                           << " null_bitmap:" << res.null_bitmap->toString();
+                /*res = std::make_shared<roaring::Roaring>(); // Start with full bitmap
+                res->addRange(0, segment_num_rows);
+                *res -= *(index_result.data_bitmap); // Subtract operation
+                *res -= *(index_result.null_bitmap);*/
+            } else {
+                all_pass = false;
+            }
+        } else {
+            return Status::NotSupported(
+                    "Compound operator must be AND, OR, or NOT to execute with inverted index.");
+        }
+
+        if (all_pass && !res.is_empty()) {
+            context->set_inverted_index_result_for_expr(this, res);
+        }
+        return Status::OK();
+    }
     //   1. when meet 'or' conjunct: a or b, if b can apply index, return all rows, so b should not be extracted
     //   2. when meet 'and' conjunct, function with column b can not apply inverted index
     //      eg. a and hash(b)=1, if b can apply index, but hash(b)=1 is not for index, so b should not be extracted
@@ -123,6 +204,18 @@ public:
     }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        if (context->get_inverted_index_result_column().contains(this)) {
+            size_t num_columns_without_result = block->columns();
+            // prepare a column to save result
+            auto result_column = context->get_inverted_index_result_column()[this];
+            for (int i = 0; i < result_column->size(); i++) {
+                LOG(ERROR) << "expr name:" << _expr_name
+                           << " result:" << result_column->get_data_at(i).debug_string();
+            }
+            block->insert({result_column, _data_type, _expr_name});
+            *result_column_id = num_columns_without_result;
+            return Status::OK();
+        }
         if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
@@ -318,8 +411,8 @@ private:
     }
 
     std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                         bool nullable_column) const {
-        if (nullable_column) {
+                                                         bool has_nullable_column) const {
+        if (has_nullable_column) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
             auto* data_column =
                     assert_cast<ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())

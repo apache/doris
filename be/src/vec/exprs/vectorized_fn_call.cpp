@@ -143,6 +143,46 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
+                                                 uint32_t segment_num_rows) const {
+    DCHECK_GE(get_num_children(), 1);
+    if (get_child(0)->is_slot_ref()) {
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto* iter =
+                context->get_inverted_index_iterators_by_column_id(column_slot_ref->column_id());
+        //column does not have inverted index
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+        auto storage_name_type =
+                context->get_storage_name_and_type_by_column_id(column_slot_ref->column_id());
+        vectorized::ColumnsWithTypeAndName arguments;
+        for (int right_children_size = get_num_children() - 1; right_children_size > 0;
+             --right_children_size) {
+            if (get_child(right_children_size)->is_literal()) {
+                auto* column_literal = assert_cast<VLiteral*>(get_child(right_children_size).get());
+                arguments.emplace_back(column_literal->get_column_ptr(),
+                                       column_literal->get_data_type(),
+                                       column_literal->expr_name());
+
+            } else {
+                return Status::NotSupported(
+                        "we can only eval inverted index for slot ref expr, but got ",
+                        get_child(right_children_size)->expr_name());
+            }
+        }
+        RETURN_IF_ERROR(_function->evaluate_inverted_index(arguments, storage_name_type, iter,
+                                                           segment_num_rows, result_bitmap));
+        *result_bitmap.data_bitmap -= *result_bitmap.null_bitmap;
+        context->set_inverted_index_result_for_expr(this, result_bitmap);
+    } else {
+        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
+                                    get_child(0)->expr_name());
+    }
+    return Status::OK();
+}
+
 Status VectorizedFnCall::eval_inverted_index(
         VExprContext* context,
         const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
@@ -171,8 +211,26 @@ Status VectorizedFnCall::eval_inverted_index(
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      std::vector<size_t>& args) {
-    if (is_const_and_have_executed()) { // const have execute in open function
+    if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
+    }
+    if (context->get_inverted_index_result_column().contains(this)) {
+        size_t num_columns_without_result = block->columns();
+        // prepare a column to save result
+        auto result_column = context->get_inverted_index_result_column()[this];
+        for (int i = 0; i < result_column->size(); i++) {
+            LOG(INFO) << "expr name:" << _expr_name
+                      << " result:" << result_column->get_data_at(i).debug_string();
+        }
+        if (_data_type->is_nullable()) {
+            block->insert(
+                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
+                     _data_type, _expr_name});
+        } else {
+            block->insert({result_column, _data_type, _expr_name});
+        }
+        *result_column_id = num_columns_without_result;
+        return Status::OK();
     }
 
     DCHECK(_open_finished || _getting_const_col) << debug_string();
@@ -200,6 +258,11 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    auto result_column = block->get_by_position(num_columns_without_result).column;
+    for (int i = 0; i < result_column->size(); i++) {
+        LOG(INFO) << "expr name:" << _expr_name
+                  << " result:" << result_column->get_data_at(i).debug_string();
+    }
     return Status::OK();
 }
 
