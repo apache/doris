@@ -62,9 +62,11 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
         JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
-        if (doc->getValue()->isArray() && doc->getValue()->size() > 0) {
+        if (doc && doc->getValue() && doc->getValue()->isArray()) {
             auto* a = (ArrayVal*)doc->getValue();
-            _cur_size = _parsed_data.set_output(*a, a->numElem());
+            if (a->numElem() > 0) {
+                _cur_size = _parsed_data.set_output(*a, a->numElem());
+            }
         }
     }
 }
