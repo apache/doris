@@ -323,13 +323,13 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 RETURN_IF_ERROR(status);
             }
 
-            if (pdt == PushDownType::UNACCEPTABLE &&
+            /*if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
                 _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
                                               in_predicate_checker, eq_predicate_checker);
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
-            }
+            }*/
 
             if (pdt == PushDownType::ACCEPTABLE &&
                 TExprNodeType::MATCH_PRED == cur_expr->node_type()) {

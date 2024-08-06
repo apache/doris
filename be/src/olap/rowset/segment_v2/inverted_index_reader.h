@@ -73,65 +73,75 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
-struct InvertedIndexResultBitmap {
+class InvertedIndexResultBitmap {
+public:
     std::shared_ptr<roaring::Roaring> data_bitmap;
     std::shared_ptr<roaring::Roaring> null_bitmap;
 
+    // Constructor with default arguments
     InvertedIndexResultBitmap(
             std::shared_ptr<roaring::Roaring> data_bitmap = std::make_shared<roaring::Roaring>(),
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>())
             : data_bitmap(std::move(data_bitmap)), null_bitmap(std::move(null_bitmap)) {}
 
+    // Copy constructor
+    InvertedIndexResultBitmap(const InvertedIndexResultBitmap& other)
+            : data_bitmap(std::make_shared<roaring::Roaring>(*other.data_bitmap)),
+              null_bitmap(std::make_shared<roaring::Roaring>(*other.null_bitmap)) {}
+
+    // Move constructor
+    InvertedIndexResultBitmap(InvertedIndexResultBitmap&& other) noexcept
+            : data_bitmap(std::move(other.data_bitmap)),
+              null_bitmap(std::move(other.null_bitmap)) {}
+
+    // Move assignment operator
+    InvertedIndexResultBitmap& operator=(InvertedIndexResultBitmap&& other) noexcept {
+        if (this != &other) { // Prevent self-assignment
+            data_bitmap = std::move(other.data_bitmap);
+            null_bitmap = std::move(other.null_bitmap);
+        }
+        return *this;
+    }
+    // Operator &
     InvertedIndexResultBitmap operator&(const InvertedIndexResultBitmap& other) const {
         InvertedIndexResultBitmap result;
-        // TRUE: A.data AND B.data
         *(result.data_bitmap) = *(this->data_bitmap) & *(other.data_bitmap);
-
-        // NULL: (A.data AND B.null) OR (A.null AND B.data) OR (A.null AND B.null)
         *(result.null_bitmap) = (*(this->data_bitmap) & *(other.null_bitmap)) |
                                 (*(this->null_bitmap) & *(other.data_bitmap)) |
                                 (*(this->null_bitmap) & *(other.null_bitmap));
-
         return result;
     }
 
+    // Operator |
     InvertedIndexResultBitmap operator|(const InvertedIndexResultBitmap& other) const {
         InvertedIndexResultBitmap result;
-
-        if (this->data_bitmap && other.data_bitmap) {
-            // TRUE: A.data OR B.data
-            *(result.data_bitmap) = *(this->data_bitmap) | *(other.data_bitmap);
-        }
-
-        if (this->null_bitmap && other.null_bitmap) {
-            // NULL: A.null OR B.null
-            *(result.null_bitmap) =
-                    (*(this->null_bitmap) | *(other.null_bitmap)) - *(result.data_bitmap);
-        }
-
+        *(result.data_bitmap) = *(this->data_bitmap) | *(other.data_bitmap);
+        *(result.null_bitmap) =
+                ((*(this->null_bitmap) | *(other.null_bitmap)) - *(result.data_bitmap));
         return result;
     }
 
+    // NOT operation
+    InvertedIndexResultBitmap op_not(const roaring::Roaring* universe) const {
+        InvertedIndexResultBitmap result;
+        *(result.data_bitmap) = *universe - *this->data_bitmap - *this->null_bitmap;
+        *(result.null_bitmap) = *this->null_bitmap; // Ensure result.null_bitmap is a copy
+        return result;
+    }
+
+    // Operator -
     InvertedIndexResultBitmap operator-(const InvertedIndexResultBitmap& other) const {
-        InvertedIndexResultBitmap result(std::make_shared<roaring::Roaring>(),
-                                         std::make_shared<roaring::Roaring>());
-
-        if (this->data_bitmap && other.data_bitmap) {
-            // TRUE: A.data - B.data
-            *(result.data_bitmap) = *(this->data_bitmap) - *(other.data_bitmap) -
-                                    *(this->null_bitmap) - *(other.null_bitmap);
-        }
-
-        if (this->null_bitmap && other.null_bitmap) {
-            // NULL: A.null - B.null
-            *(result.null_bitmap) = *(this->null_bitmap) - *(other.null_bitmap);
-        }
-
+        InvertedIndexResultBitmap result;
+        *(result.data_bitmap) = *(this->data_bitmap) - *(other.data_bitmap) - *(this->null_bitmap) -
+                                *(other.null_bitmap);
+        *(result.null_bitmap) = *(this->null_bitmap) - *(other.null_bitmap);
         return result;
     }
 
-    bool is_empty() const { return !data_bitmap && !null_bitmap; }
+    // Check if both bitmaps are empty
+    bool is_empty() const { return data_bitmap->isEmpty() && null_bitmap->isEmpty(); }
 };
+
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
