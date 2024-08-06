@@ -25,17 +25,24 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -510,5 +517,53 @@ public class MTMVPartitionUtil {
             }
         }
         throw new AnalysisException("can not getPartitionColumnType by:" + col);
+    }
+
+    public static List<String> getPartitionsByRange(MTMV mtmv, MTMVRefreshPartitionRange range)
+            throws AnalysisException {
+        List<String> res = Lists.newArrayList();
+        Collection<Partition> partitions = mtmv.getPartitions();
+        for (Partition partition : partitions) {
+            PartitionItem item = mtmv.getPartitionInfo().getItem(partition.getId());
+            if (ifPartitionItemInRange(item, range)) {
+                res.add(partition.getName());
+            }
+        }
+        return res;
+    }
+
+    public static boolean ifPartitionItemInRange(PartitionItem item, MTMVRefreshPartitionRange refreshPartitionRange)
+            throws AnalysisException {
+        Range<DateV2Literal> range = refreshPartitionRange.getRange();
+        if (item instanceof ListPartitionItem) {
+            ListPartitionItem listPartitionItem = (ListPartitionItem) item;
+            List<PartitionKey> keys = listPartitionItem.getItems();
+            for (PartitionKey key : keys) {
+                if (range.contains(transferPartitionKeyToDate(key))) {
+                    return true;
+                }
+            }
+        } else if (item instanceof RangePartitionItem) {
+            RangePartitionItem rangePartitionItem = (RangePartitionItem) item;
+            Range<PartitionKey> items = rangePartitionItem.getItems();
+            DateV2Literal lowerDate = transferPartitionKeyToDate(items.lowerEndpoint());
+            DateV2Literal upperDate = transferPartitionKeyToDate(items.upperEndpoint());
+            Range<DateV2Literal> partitionRange = Range.closedOpen(lowerDate, upperDate);
+            return range.isConnected(partitionRange) && !range.intersection(partitionRange).isEmpty();
+        }
+        return false;
+    }
+
+    private static DateV2Literal transferPartitionKeyToDate(PartitionKey partitionKey) throws AnalysisException {
+        Preconditions.checkState(partitionKey.getKeys().size() == 1,
+                "only support one partition column");
+        String stringValue = partitionKey.getKeys().get(0).getStringValue();
+        DateV2Literal dateV2Literal;
+        try {
+            dateV2Literal = new DateV2Literal(stringValue);
+        } catch (Exception e) {
+            throw new AnalysisException("cannot convert to date type: " + stringValue);
+        }
+        return dateV2Literal;
     }
 }
