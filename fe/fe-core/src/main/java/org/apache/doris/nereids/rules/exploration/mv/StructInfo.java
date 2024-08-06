@@ -749,7 +749,7 @@ public class StructInfo {
                 }
             } else {
                 // todo Support other type partition table
-                // Not support to partition check now, support later.
+                // Not support to partition check now when query external catalog table, support later.
                 targetTablePartitionMap.clear();
             }
             return catalogRelation;
