@@ -276,28 +276,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
         Optional<List<? extends Expression>> boundedOpt;
-
-        if (unboundSlot.getNameParts().size() == 3) {
-            List<String> list = Stream.of(
-                    unboundSlot.getNameParts().get(0),
-                    context.cascadesContext.getTables().get(0).getName(),
-                    unboundSlot.getNameParts().get(2)
-            ).collect(Collectors.toList());
-            UnboundSlot unboundSlot1 = new UnboundSlot(list);
-            boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot1));
-        } else if (unboundSlot.getNameParts().size() == 4) {
-            List<String> list = Stream.of(
-                    unboundSlot.getNameParts().get(0),
-                    unboundSlot.getNameParts().get(1),
-                    context.cascadesContext.getTables().get(0).getName(),
-                    unboundSlot.getNameParts().get(3)
-            ).collect(Collectors.toList());
-            UnboundSlot unboundSlot1 = new UnboundSlot(list);
-            boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot1));
-        } else {
-            boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
-        }
-
+        boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
 
         // Currently only looking for symbols on the previous level.
