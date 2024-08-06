@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -148,7 +149,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 continue;
             }
             for (int i = 1; i < func.arity(); i++) {
-                if (!func.child(i).getInputSlots().isEmpty()) {
+                if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
                     // think about group_concat(distinct col_1, ',')
                     distinctMultiColumns = true;
                     break;

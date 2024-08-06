@@ -46,7 +46,9 @@ struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                        std::shared_ptr<pipeline::Dependency> dep,
+                        std::shared_ptr<pipeline::Dependency> fin_dep);
 
     ~VIcebergTableWriter() = default;
 

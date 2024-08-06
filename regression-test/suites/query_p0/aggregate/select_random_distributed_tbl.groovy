@@ -67,23 +67,31 @@ suite("select_random_distributed_tbl") {
             }
             def sql1 = "select * except (v_generic) from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_1 "${sql1}"
-            def res1 = sql """ explain ${sql1} """
-            assertTrue(res1.toString().contains("VAGGREGATE"))
+            explain {
+                sql("${sql1}")
+                contains "VAGGREGATE"
+            }
 
             def sql2 = "select k1 ,k2 ,v_sum ,v_max ,v_min ,v_hll ,v_bitmap ,v_quantile_union from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_2 "${sql2}"
-            def res2 = sql """ explain ${sql2} """
-            assertTrue(res2.toString().contains("VAGGREGATE"))
+            explain {
+                sql("${sql2}")
+                contains "VAGGREGATE"
+            }
 
             def sql3 = "select k1+1, k2, v_sum from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_3 "${sql3}"
-            def res3 = sql """ explain ${sql3} """
-            assertTrue(res3.toString().contains("VAGGREGATE"))
+            explain {
+                sql("${sql3}")
+                contains "VAGGREGATE"
+            }
 
             def sql4 = "select k1, k2, v_sum+1 from ${tableName} ${whereStr} order by k1, k2"
             qt_sql_4 "${sql4}"
-            def res4 = sql """ explain ${sql4} """
-            assertTrue(res4.toString().contains("VAGGREGATE"))
+            explain {
+                sql("${sql4}")
+                contains "VAGGREGATE"
+            }
 
             def sql5 =  """ select k1, sum(v_sum), max(v_max), min(v_min), avg_merge(v_generic), 
                 hll_union_agg(v_hll), bitmap_union_count(v_bitmap), quantile_percent(quantile_union(v_quantile_union),0.5) 
@@ -98,14 +106,17 @@ suite("select_random_distributed_tbl") {
 
             def sql8 = "select max(k1) from ${tableName} ${whereStr}"
             qt_sql_8 "${sql8}"
-            def res8 = sql """ explain ${sql8} """
-            // no pre agg
-            assertFalse(res8.toString().contains("sum"))
+            explain {
+                sql("${sql8}")
+                contains "VAGGREGATE"
+            }
 
             def sql9 = "select max(v_sum) from ${tableName} ${whereStr}"
             qt_sql_9 "${sql9}"
-            def res9 = sql """ explain ${sql9} """
-            assertTrue(res9.toString().contains("sum"))
+            explain {
+                sql("${sql9}")
+                contains "VAGGREGATE"
+            }
 
             def sql10 = "select sum(v_max) from ${tableName} ${whereStr}"
             qt_sql_10 "${sql10}"

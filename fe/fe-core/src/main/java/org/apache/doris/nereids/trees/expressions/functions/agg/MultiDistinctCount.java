@@ -37,38 +37,35 @@ import java.util.List;
 /** MultiDistinctCount */
 public class MultiDistinctCount extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature, MultiDistinction {
-
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
+    private final boolean mustUseMultiDistinctAgg;
 
     // MultiDistinctCount is created in AggregateStrategies phase
     // can't change getSignatures to use type coercion rule to add a cast expr
     // because AggregateStrategies phase is after type coercion
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
-                .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
-                        ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(ImmutableList.toImmutableList()));
+        this(false, arg0, varArgs);
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs)
+        this(false, false, ExpressionUtils.mergeArguments(arg0, varArgs));
+    }
+
+    private MultiDistinctCount(boolean mustUseMultiDistinctAgg, boolean distinct, List<Expression> children) {
+        super("multi_distinct_count", false, children
                 .stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() > 0);
-        if (children.size() > 1) {
-            return new MultiDistinctCount(distinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        } else {
-            return new MultiDistinctCount(distinct, children.get(0));
-        }
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, distinct, children);
     }
 
     @Override
@@ -79,5 +76,15 @@ public class MultiDistinctCount extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg;
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, false, children);
     }
 }

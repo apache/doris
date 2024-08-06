@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -1273,8 +1272,7 @@ public class ReportHandler extends Daemon {
                 if (groupSchema != null) {
                     replicaAlloc = groupSchema.getReplicaAlloc();
                 }
-                TabletStatus status =
-                        tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
+                TabletStatus status = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
                 if (status == TabletStatus.HEALTHY) {
                     return false;
                 }
@@ -1286,8 +1284,7 @@ public class ReportHandler extends Daemon {
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
-            Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
-                    visibleVersion, replicaAlloc, aliveBeIds);
+            TabletStatus status = tablet.getHealth(infoService, visibleVersion, replicaAlloc, aliveBeIds).status;
 
             // FORCE_REDUNDANT is a specific missing case.
             // So it can add replica when it's in FORCE_REDUNDANT.
@@ -1296,16 +1293,16 @@ public class ReportHandler extends Daemon {
             // it's safe to add this replica.
             // Because if the tablet scheduler want to delete a replica, it will choose the sched
             // unavailable replica and avoid the repeating loop as above.
-            boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
+            boolean canAddForceRedundant = status == TabletStatus.FORCE_REDUNDANT
                     && infoService.checkBackendScheduleAvailable(backendId)
                     && tablet.getReplicas().stream().anyMatch(
                             r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
 
             if (isColocateBackend
                     || canAddForceRedundant
-                    || status.first == TabletStatus.VERSION_INCOMPLETE
-                    || status.first == TabletStatus.REPLICA_MISSING
-                    || status.first == TabletStatus.UNRECOVERABLE) {
+                    || status == TabletStatus.VERSION_INCOMPLETE
+                    || status == TabletStatus.REPLICA_MISSING
+                    || status == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
 
                 // For some partition created by old version's Doris
@@ -1381,7 +1378,7 @@ public class ReportHandler extends Daemon {
 
                 LOG.info("add replica[{}-{}] to catalog. backend[{}], tablet status {}, tablet size {}, "
                         + "is colocate backend {}",
-                        tabletId, replicaId, backendId, status.first.name(), tablet.getReplicas().size(),
+                        tabletId, replicaId, backendId, status.name(), tablet.getReplicas().size(),
                         isColocateBackend);
                 return true;
             } else {
@@ -1395,7 +1392,7 @@ public class ReportHandler extends Daemon {
                 }
                 LOG.warn("no add replica [{}-{}] cause it is enough[{}-{}], tablet status {}",
                         tabletId, replicaId, tablet.getReplicas().size(), replicaAlloc.toCreateStmt(),
-                        status.first.name());
+                        status.name());
                 return false;
             }
         } finally {
