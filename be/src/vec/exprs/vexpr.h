@@ -456,10 +456,10 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_float_literal(float_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
     } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        const auto* origin_value = reinterpret_cast<const StringRef*>(data);
+        const auto* origin_value = reinterpret_cast<const std::string*>(data);
         (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
-        string_literal.__set_value(origin_value->to_string());
+        string_literal.__set_value(*origin_value);
         (*node).__set_string_literal(string_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
     } else {
