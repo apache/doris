@@ -224,8 +224,39 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const vectorized::VExprSPtr& expr) {
+    if (!state()->enable_common_expr_pushdown() || !vectorized::VExpr::is_acting_on_a_slot(*expr)) {
+        return false;
+    }
+
+    // MOW or DUPLICATE table
+    if (_storage_no_merge()) {
+        return true;
+    }
+
+    // MOR or AGG table
+    auto slot_is_key_column = [&, this](auto self, const vectorized::VExprSPtr& expr) -> bool {
+        if (expr->is_slot_ref()) {
+            const auto* slot_ref = dynamic_cast<const vectorized::VSlotRef*>(expr.get());
+            if (slot_ref == nullptr) {
+                return false;
+            }
+            auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
+            if (entry == _slot_id_to_value_range.end()) {
+                return false;
+            }
+            auto* slot_desc = entry->second.first;
+            if (!_is_key_column(slot_desc->col_name())) {
+                return false;
+            }
+        } else if (const auto& children = expr->children(); children.size() > 0) {
+            return std::all_of(
+                    children.cbegin(), children.cend(),
+                    [&](const vectorized::VExprSPtr& child) { return self(self, child); });
+        }
+        return true;
+    };
+    return slot_is_key_column(slot_is_key_column, expr);
 }
 
 bool OlapScanLocalState::_storage_no_merge() {
