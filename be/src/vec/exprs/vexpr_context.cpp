@@ -129,6 +129,22 @@ Status VExprContext::eval_inverted_index(
     return _root->eval_inverted_index(this, colid_to_inverted_index_iter, num_rows, bitmap);
 }
 
+Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
+    return st;
+}
+
+Status VExprContext::evaluate_inverted_index(const VExprContextSPtrs& conjuncts,
+                                             uint32_t segment_num_rows) {
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct->evaluate_inverted_index(segment_num_rows) != Status::OK()) {
+            return Status::InternalError("evaluate inverted index failed");
+        }
+    }
+    return Status::OK();
+}
+
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();

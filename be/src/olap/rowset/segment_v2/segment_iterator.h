@@ -205,6 +205,7 @@ private:
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
     [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
+    [[nodiscard]] Status _apply_index_expr_except_leafnode_of_andnode();
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t cid);
@@ -320,6 +321,8 @@ private:
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                      vectorized::Block* block);
+    void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
+                                              vectorized::Block* block);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
@@ -330,6 +333,7 @@ private:
                                           bool is_match = false);
     void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
     void _calculate_func_in_remaining_conjunct_root();
+    Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -487,6 +491,7 @@ private:
     std::vector<vectorized::VExprSPtr> compound_func_exprs;
 
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
+    vectorized::VExprContextSPtrs _compound_expr_ctxs;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;

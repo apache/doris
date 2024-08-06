@@ -198,6 +198,14 @@ public:
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
     }
+    virtual Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return Status::NotSupported("evaluate_inverted_index is not supported in function: ",
+                                    get_name());
+    }
 
     /// Do cleaning work when function is finished, i.e., release state variables in the
     /// `FunctionContext` which are registered in `prepare` phase.
@@ -471,6 +479,14 @@ protected:
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
     }
 
+    Status evaluate_inverted_index(const ColumnsWithTypeAndName& arguments,
+                                   const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+                                   segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                                   segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return function->evaluate_inverted_index(arguments, data_type_with_name, iter, num_rows,
+                                                 bitmap_result);
+    }
+
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const final {
@@ -533,6 +549,15 @@ public:
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
+    }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& args,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return function->evaluate_inverted_index(args, data_type_with_name, iter, num_rows,
+                                                 bitmap_result);
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,

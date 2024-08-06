@@ -115,6 +115,54 @@ public:
         return Status::OK();
     }
 
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, FULLTEXT reader can not support array_index");
+        }
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
+                                                                           query_param));
+        if (is_string_type(param_type)) {
+            Status st = iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
+            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+                // if analyzed param with no term, we do not filter any rows
+                // return all rows with OK status
+                roaring->addRange(0, num_rows);
+            } else if (st != Status::OK()) {
+                return st;
+            }
+        } else {
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name.first, query_param->get_value(),
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        }
+
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        bitmap_result.null_bitmap = std::move(null_bitmap);
+        bitmap_result.data_bitmap = std::move(roaring);
+
+        return Status::OK();
+    }
     /**
      * eval inverted index. we can filter array rows with inverted index iter
      */

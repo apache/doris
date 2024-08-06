@@ -27,6 +27,7 @@
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
 
@@ -57,6 +58,7 @@ public:
                                                          segment_v2::InvertedIndexIterator*>>&
                     colid_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
