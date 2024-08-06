@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
@@ -33,21 +32,14 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
-        Optional<ColumnStatistic> columnStatistic = Optional.empty();
+        Optional<ColumnStatistic> columnStatistic;
         try {
             // Load from statistics table.
             columnStatistic = loadFromStatsTable(key);
             if (!columnStatistic.isPresent()) {
                 // Load from data source metadata
-                try {
-                    TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
-                    columnStatistic = table.getColumnStatistic(key.colName);
-                } catch (Exception e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
-                                key.catalogId, key.dbId, key.tableId, e);
-                    }
-                }
+                TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
+                columnStatistic = table.getColumnStatistic(key.colName);
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
@@ -55,6 +47,7 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
             if (LOG.isDebugEnabled()) {
                 LOG.debug(t);
             }
+            return null;
         }
         if (columnStatistic.isPresent()) {
             // For non-empty table, return UNKNOWN if we can't collect ndv value.
@@ -68,22 +61,9 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
     }
 
     private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
-        List<ResultRow> columnResults;
-        try {
-            columnResults = StatisticsRepository.loadColStats(
-                    key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
-        } catch (InternalQueryExecutionException e) {
-            LOG.info("Failed to load stats for table {} column {}. Reason:{}",
-                    key.tableId, key.colName, e.getMessage());
-            return Optional.empty();
-        }
-        ColumnStatistic columnStatistics;
-        try {
-            columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
-        } catch (Exception e) {
-            LOG.warn("Exception to deserialize column statistics", e);
-            return Optional.empty();
-        }
+        List<ResultRow> columnResults
+                = StatisticsRepository.loadColStats(key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
+        ColumnStatistic columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
         if (columnStatistics == null) {
             return Optional.empty();
         } else {

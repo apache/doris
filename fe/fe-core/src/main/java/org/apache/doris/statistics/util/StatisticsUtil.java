@@ -180,8 +180,7 @@ public class StatisticsUtil {
         }
     }
 
-    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
@@ -192,7 +191,8 @@ public class StatisticsUtil {
         return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());
     }
 
-    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches) {
+    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches)
+            throws IOException {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }

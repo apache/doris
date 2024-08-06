@@ -15,6 +15,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite("test_partial_update_insert_schema_change", "p0") {
 
@@ -47,16 +49,15 @@ suite("test_partial_update_insert_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-    def try_times=100
-    while(true){
+    def try_times=12000
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
     
     // test insert data without new column
@@ -106,16 +107,14 @@ suite("test_partial_update_insert_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
 
     // test insert data without delete column
@@ -181,16 +180,14 @@ suite("test_partial_update_insert_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
 
     // test insert data with update column
@@ -219,42 +216,36 @@ suite("test_partial_update_insert_schema_change", "p0") {
     
     // schema change
     sql """ ALTER table ${tableName} ADD COLUMN c1 int key default "0"; """
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
 
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
 
     sql " ALTER table ${tableName} ADD COLUMN c3 int null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
 
     // test insert data with all key column, should fail because
@@ -300,16 +291,14 @@ suite("test_partial_update_insert_schema_change", "p0") {
 
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql "sync"
     
     //test insert data with create index
