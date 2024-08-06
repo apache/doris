@@ -432,15 +432,19 @@ Status Segment::_load_index_impl() {
 // Return the storage datatype of related column to field.
 // Return nullptr meaning no such storage infomation for this column
 vectorized::DataTypePtr Segment::get_data_type_of(vectorized::PathInDataPtr path, bool is_nullable,
-                                                  bool ignore_children) const {
+                                                  bool read_flat_leaves) const {
     // Path has higher priority
     if (path != nullptr && !path->empty()) {
         const auto* node = _sub_column_tree.find_leaf(*path);
         const auto* sparse_node = _sparse_column_tree.find_exact(*path);
         if (node) {
-            if (ignore_children || (node->children.empty() && sparse_node == nullptr)) {
+            if (read_flat_leaves || (node->children.empty() && sparse_node == nullptr)) {
                 return node->data.file_column_type;
             }
+        }
+        // missing in storage, treat it using input data type
+        if (read_flat_leaves && !node && !sparse_node) {
+            return nullptr;
         }
         // it contains children or column missing in storage, so treat it as variant
         return is_nullable
@@ -604,7 +608,25 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto new_default_iter = [&]() {
         if (tablet_column.is_nested_subcolumn() &&
             type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
-            *iter = std::make_unique<EmptyColumnIterator>();
+            // We find node that represents the same Nested type as path.
+            const auto* parent = _sub_column_tree.find_best_match(*tablet_column.path_info_ptr());
+            VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
+                       << " parent " << (parent ? parent->path.get_path() : "nullptr") << ", type "
+                       << TabletColumn::get_string_by_field_type(tablet_column.type());
+            if (parent && parent->is_nested()) {
+                /// Find any leaf of Nested subcolumn.
+                const auto* leaf = SubcolumnColumnReaders::find_leaf(
+                        parent, [](const auto& node) { return node.path.has_nested_part(); });
+                assert(leaf);
+                std::unique_ptr<ColumnIterator> sibling_iter;
+                ColumnIterator* sibling_iter_ptr;
+                RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+                sibling_iter.reset(sibling_iter_ptr);
+                *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
+                                                                      leaf->data.file_column_type);
+            } else {
+                *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
+            }
             return Status::OK();
         }
         return new_default_iterator(tablet_column, iter);
@@ -869,9 +891,9 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 }
 
 bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
-                                     bool ignore_children) const {
+                                     bool read_flat_leaves) const {
     auto file_column_type = get_data_type_of(schema.column(cid)->path(),
-                                             schema.column(cid)->is_nullable(), ignore_children);
+                                             schema.column(cid)->is_nullable(), read_flat_leaves);
     auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
 #ifndef NDEBUG
     if (file_column_type && !file_column_type->equals(*expected_type)) {

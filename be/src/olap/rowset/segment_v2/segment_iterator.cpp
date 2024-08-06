@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
 #include <assert.h>
+#include <fmt/core.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -2407,81 +2408,6 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
 }
 
-vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*>
-SegmentIterator::_get_nested_array_offsets_columns(const vectorized::Block& block) {
-    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*> offsets;
-    for (size_t i = 0; i < block.columns(); ++i) {
-        auto cid = _schema->column_id(i);
-        const auto* column_desc = _schema->column(cid);
-        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
-            column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            offsets.add(*column_desc->path(),
-                        &vectorized::check_and_get_column<vectorized::ColumnArray>(
-                                 remove_nullable(block.get_by_position(i).column).get())
-                                 ->get_offsets());
-            LOG(INFO) << "fuck";
-        }
-    }
-    return offsets;
-}
-
-Status SegmentIterator::_fill_missing_columns(vectorized::Block* block) {
-    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*> offsets =
-            _get_nested_array_offsets_columns(*block);
-    for (size_t i = 0; i < block->columns(); ++i) {
-        auto cid = _schema->column_id(i);
-        const auto* column_desc = _schema->column(cid);
-        int64_t current_size = block->get_by_position(i).column->size();
-        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
-            current_size < block->rows()) {
-            const auto* leaf = offsets.get_leaf_of_the_same_nested(
-                    *column_desc->path(), [](const auto& node) { return node.data->size(); },
-                    current_size);
-            if (!leaf) {
-                VLOG_DEBUG << "Not found any subcolumns column_desc: "
-                           << column_desc->path()->get_path() << ", current_size: " << current_size
-                           << ", block_rows: " << block->rows();
-                block->get_by_position(i).column->assume_mutable()->insert_many_defaults(
-                        block->rows() - current_size);
-                continue;
-            }
-            LOG(INFO) << "fuck";
-            const vectorized::ColumnArray::Offsets64* offset = leaf->data;
-            int64_t nested_padding_size = offset->back() - (*offset)[current_size - 1];
-            auto nested_column =
-                    vectorized::check_and_get_data_type<vectorized::DataTypeArray>(
-                            remove_nullable(block->get_by_position(i).type).get())
-                            ->get_nested_type()
-                            ->create_column_const_with_default_value(nested_padding_size);
-            auto nested_new_offset = vectorized::ColumnArray::ColumnOffsets::create();
-            nested_new_offset->reserve(block->rows() - current_size);
-            for (size_t i = current_size; i < block->rows(); ++i) {
-                nested_new_offset->get_data().push_back_without_reserve(
-                        (*offset)[i] - (*offset)[current_size - 1]);
-            }
-            vectorized::ColumnPtr nested_padding_column =
-                    vectorized::ColumnArray::create(nested_column, std::move(nested_new_offset));
-            if (block->get_by_position(i).column->is_nullable()) {
-                nested_padding_column = vectorized::make_nullable(nested_padding_column);
-            }
-            block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                    *nested_padding_column, 0, nested_padding_column->size());
-        }
-    }
-
-#ifndef NDEBUG
-    // check offsets aligned
-    for (size_t i = 0; i < block->columns(); ++i) {
-        auto cid = _schema->column_id(i);
-        const auto* column_desc = _schema->column(cid);
-        if (column_desc->path() != nullptr && column_desc->path()->has_nested_part() &&
-            column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        }
-    }
-#endif
-    return Status::OK();
-}
-
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
@@ -2745,8 +2671,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
-    RETURN_IF_ERROR(_fill_missing_columns(block));
 
 #ifndef NDEBUG
     size_t rows = block->rows();

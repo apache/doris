@@ -1,0 +1,163 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("regression_test_variant_nested", "p0,nonConcurrent"){
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+
+    try {
+        set_be_config.call("variant_enable_flatten_nested", "true")
+ 
+        def table_name = "var_nested"
+        sql "DROP TABLE IF EXISTS ${table_name}"
+
+        sql """
+                CREATE TABLE IF NOT EXISTS ${table_name} (
+                    k bigint,
+                    v variant
+                )
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 4
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
+            """
+        sql """
+            insert into var_nested values (1, '{"xx" : 10}');
+            insert into var_nested values (1, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (2, '{"xx" : 10}');
+            insert into var_nested values (2, '{"nested": [{"baaa" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (3, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (4, '{"nested": [{"mmm" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (5, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (6, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (7, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (7, '{"xx" : 10}');
+            insert into var_nested values (8, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (9, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (10, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (11, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (12, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (13, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (14, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (15, '{"xx" : 10}');
+            insert into var_nested values (15, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (16, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (17, '{"nested": [{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (18, '{"nested": [{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}, {"zzz11" : "123333"}]}');
+            insert into var_nested values (19, '{"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+        """   
+
+        sql """
+            insert into var_nested values (20, '{"xx" : 10}');
+            insert into var_nested values (20, '{"nested":{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
+            insert into var_nested values (22, '{"xx" : 10}');
+            insert into var_nested values (21, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
+            insert into var_nested values (22, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');
+        """
+        sql """set describe_extend_variant_column = true"""
+        qt_sql """DESC var_nested"""
+        qt_sql """
+            select * from var_nested order by k limit 101
+        """ 
+        for (i = 101; i < 121; ++i) {
+            sql """insert into var_nested values (${i}, '{"nested${i}" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');"""
+        }
+        def trigger_full_compaction_on_tablets = { tablets ->
+            for (def tablet : tablets) {
+                String tablet_id = tablet.TabletId
+                String backend_id = tablet.BackendId
+                int times = 1
+
+                String compactionStatus;
+                do{
+                    def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+                    ++times
+                    sleep(2000)
+                    compactionStatus = parseJson(out.trim()).status.toLowerCase();
+                } while (compactionStatus!="success" && times<=10)
+
+
+                if (compactionStatus == "fail") {
+                    logger.info("Compaction was done automatically!")
+                }
+            }
+        }
+
+        def wait_full_compaction_done = { tablets ->
+            for (def tablet in tablets) {
+                boolean running = true
+                do {
+                    Thread.sleep(1000)
+                    String tablet_id = tablet.TabletId
+                    String backend_id = tablet.BackendId
+                    def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                    assertEquals(code, 0)
+                    def compactionStatus = parseJson(out.trim())
+                    assertEquals("success", compactionStatus.status.toLowerCase())
+                    running = compactionStatus.run_status
+                } while (running)
+            }
+        } 
+        def triger_compaction = { ->
+            // triger compaction
+            def tablets = sql_return_maparray """ show tablets from var_nested; """
+
+            
+            trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
+        }
+        triger_compaction.call()
+
+        qt_sql """
+            select * from var_nested order by k limit 101
+        """ 
+
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "100");"""
+        sql """INSERT INTO var_nested SELECT *, '{"k2":1, "k3": "nice", "k4" : [1234], "k5" : 1.10000, "k6" : [[123]], "nested2" : {"nested1" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "5013") where number >= 100;"""
+        triger_compaction.call()
+
+        qt_sql """select * from var_nested where v['k2'] = 'some' order by k limit 10"""
+        qt_sql """select * from var_nested where v['k2'] = 'some'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
+
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "4096") where number > 1024 limit 1024;"""
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "what", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "4096") where number > 2048 limit 1024;"""
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "about", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "4096") where number > 3072 limit 1024;"""
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "nested", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "6000") where number > 4096 limit 1024;"""
+        qt_sql """select * from var_nested where v['k2'] = 'what' order by k limit 10"""
+        qt_sql """select * from var_nested where v['k2'] = 'some'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
+
+        // type change case
+        sql """INSERT INTO var_nested SELECT *, '{"k1":"1", "k2": 1.1, "k3" : [1234.0], "k4" : 1.10000, "k5" : [["123"]], "nested1" : {"nested2" : [{"a" : "10", "b" : "1.1", "c" : 1111.111}]}}' FROM numbers("number" = "8000") where number > 7000 limit 100;"""
+        qt_sql """select * from var_nested where v['k2'] = 'what'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
+        triger_compaction.call()
+        qt_sql """select * from var_nested where v['k2'] = 'nested'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
+        sql """select * from var_nested where v['k2'] = 'some' or v['k3'] = 'nice' limit 100;"""
+    } finally {
+        // reset flags
+        set_be_config.call("variant_enable_flatten_nested", "false")
+    }
+
+}

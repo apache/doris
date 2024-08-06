@@ -226,10 +226,6 @@ private:
     void _vec_init_char_column_id(vectorized::Block* block);
     bool _has_char_type(const Field& column_desc);
 
-    vectorized::SubcolumnsTree<const vectorized::ColumnArray::Offsets64*>
-    _get_nested_array_offsets_columns(const vectorized::Block& block);
-    Status _fill_missing_columns(vectorized::Block* block);
-
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
 

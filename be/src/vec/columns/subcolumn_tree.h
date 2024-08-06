@@ -73,8 +73,6 @@ public:
             kind = Kind::SCALAR;
         }
 
-        void modify_to_nested() { kind = Kind::NESTED; }
-
         void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
             next_node->parent = this;
             StringRef key_ref;
@@ -145,8 +143,6 @@ public:
         leaves.push_back(root);
     }
 
-    void create_nested_root() { root = std::make_shared<Node>(Node::NESTED); }
-
     void add_leaf(const NodePtr& node) { leaves.push_back(node); }
 
     bool add(const PathInData& path, const NodeCreator& node_creator) {
@@ -167,10 +163,6 @@ public:
             if (it != current_node->children.end()) {
                 current_node = it->second.get();
                 node_creator(current_node->kind, true);
-
-                if (current_node->is_nested() != parts[i].is_nested) {
-                    return false;
-                }
             } else {
                 auto next_kind = parts[i].is_nested ? Node::NESTED : Node::TUPLE;
                 auto next_node = node_creator(next_kind, false);
@@ -237,8 +229,7 @@ public:
     }
 
     const Node* get_leaf_of_the_same_nested(const PathInData& path,
-                                            std::function<size_t(const Node&)> subcolumn_size_fn,
-                                            size_t old_size) const {
+                                            const NodePredicate& pred) const {
         if (!path.has_nested_part()) {
             return nullptr;
         }
@@ -260,9 +251,7 @@ public:
             /// for the last rows.
             /// If there are no leaves, skip current node and find
             /// the next node up to the current.
-            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, [&](const auto& candidate) {
-                return subcolumn_size_fn(candidate) > old_size;
-            });
+            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, pred);
 
             if (leaf) {
                 break;

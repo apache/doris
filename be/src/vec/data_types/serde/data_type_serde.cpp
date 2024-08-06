@@ -16,10 +16,13 @@
 // under the License.
 #include "data_type_serde.h"
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "runtime/descriptors.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_jsonb_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -83,6 +86,12 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
     case vectorized::Field::Types::Float64:
         target.SetDouble(field.get<Float64>());
         break;
+    case vectorized::Field::Types::JSONB: {
+        const auto& val = field.get<JsonbField>();
+        JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
+        convert_jsonb_to_rapidjson(*json_val, target, allocator);
+        break;
+    }
     case vectorized::Field::Types::String: {
         const String& val = field.get<String>();
         target.SetString(val.data(), val.size());
@@ -99,7 +108,8 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
         break;
     }
     default:
-        CHECK(false) << "unkown field type: " << field.get_type_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "unkown field type: {}",
+                               field.get_type_name());
         break;
     }
 }

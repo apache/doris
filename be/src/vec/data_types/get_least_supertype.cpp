@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_object.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -38,6 +39,7 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -261,6 +263,10 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
         }
         if (which.is_json()) {
             *type = std::make_shared<DataTypeJsonb>();
+            return;
+        }
+        if (which.is_variant_type()) {
+            *type = std::make_shared<DataTypeObject>();
             return;
         }
         *type = std::make_shared<DataTypeJsonb>();

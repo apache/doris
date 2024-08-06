@@ -122,7 +122,7 @@ private:
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
         }
-        // parent -> subcolumns
+        // parent path -> subcolumns
         std::map<PathInData, PathsWithColumnAndType> nested_subcolumns;
         PathsWithColumnAndType non_nested_subcolumns;
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
@@ -182,44 +182,6 @@ private:
             container_variant.add_sub_column(entry.first, array->assume_mutable(),
                                              ColumnObject::NESTED_TYPE);
         }
-        // if (has_nested) {
-        //     // rewrite nested nodes
-        //     container_variant.finalize_if_not();
-        //     MutableColumnPtr nested_object = ColumnObject::create(true, false);
-        //     MutableColumnPtr offset =
-        //             check_and_get_column<ColumnArray>(
-        //                     *remove_nullable(container_variant.get_subcolumns()
-        //                                              .get_leaves()[0]
-        //                                              ->data.get_finalized_column_ptr()))
-        //                     ->get_offsets_ptr()
-        //                     ->assume_mutable();
-        //     auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
-        //     // flatten nested arrays
-        //     for (const auto& entry : container_variant.get_subcolumns()) {
-        //         auto& column = entry->data.get_finalized_column_ptr();
-        //         const auto& type = entry->data.get_least_common_type();
-        //         if (!remove_nullable(column)->is_column_array()) {
-        //             return Status::InvalidArgument(
-        //                     "Meet none array column when flatten nested array, path {}, type {}",
-        //                     entry->path.get_path(), entry->data.get_finalized_column().get_name());
-        //         }
-        //         MutableColumnPtr flattend_column =
-        //                 check_and_get_column<ColumnArray>(
-        //                         remove_nullable(entry->data.get_finalized_column_ptr()).get())
-        //                         ->get_data_ptr()
-        //                         ->assume_mutable();
-        //         DataTypePtr flattend_type =
-        //                 check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
-        //                         ->get_nested_type();
-        //         nested_object_ptr->add_sub_column(entry->path, std::move(flattend_column),
-        //                                           std::move(flattend_type));
-        //     }
-        //     nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
-        //     auto array =
-        //             make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
-        //     container_variant.clear();
-        //     container_variant.create_root(ColumnObject::NESTED_TYPE, array->assume_mutable());
-        // }
 
         // TODO select v:b -> v.b / v.b.c but v.d maybe in v
         // copy container variant to dst variant, todo avoid copy

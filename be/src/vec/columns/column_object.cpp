@@ -196,6 +196,10 @@ public:
         have_nulls = true;
         return 1;
     }
+    size_t operator()(const VariantMap&) {
+        type = TypeIndex::VARIANT;
+        return 1;
+    }
     template <typename T>
     size_t operator()(const T&) {
         type = TypeId<NearestFieldType<T>>::value;
@@ -257,6 +261,11 @@ public:
     size_t operator()(const JsonbField& x) {
         field_types.insert(FieldType::JSONB);
         type_indexes.insert(TypeIndex::JSONB);
+        return 0;
+    }
+    size_t operator()(const VariantMap&) {
+        field_types.insert(FieldType::VariantMap);
+        type_indexes.insert(TypeIndex::VARIANT);
         return 0;
     }
     size_t operator()(const Null&) {
@@ -416,9 +425,9 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     }
     if (data.empty()) {
         add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
-    } else if (least_common_type.get_type_id() != base_type.idx && !base_type.is_nothing()) {
-        if (schema_util::is_conversion_required_between_integers(base_type.idx,
-                                                                 least_common_type.get_type_id())) {
+    } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
+        if (schema_util::is_conversion_required_between_integers(
+                    base_type.idx, least_common_type.get_base_type_id())) {
             LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
                                    << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
@@ -453,7 +462,7 @@ static DataTypePtr create_array(TypeIndex type, size_t num_dimensions) {
     for (size_t i = 0; i < num_dimensions; ++i) {
         result_type = std::make_shared<DataTypeArray>(nested_type);
     }
-    return result_type;
+    return make_nullable(result_type);
 }
 
 Array create_empty_array_field(size_t num_dimensions) {
@@ -477,10 +486,10 @@ static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, Ty
                                                      size_t num_dimensions) {
     const auto* column_array = check_and_get_column<ColumnArray>(column.get());
     if (column_array && num_dimensions) {
-        return ColumnArray::create(
+        return make_nullable(ColumnArray::create(
                 recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
                                                     num_dimensions - 1),
-                IColumn::mutate(column_array->get_offsets_ptr()));
+                IColumn::mutate(column_array->get_offsets_ptr())));
     }
 
     return create_array(scalar_type, num_dimensions)
@@ -985,8 +994,15 @@ void ColumnObject::get(size_t n, Field& res) const {
     auto& object = res.get<VariantMap&>();
 
     for (const auto& entry : subcolumns) {
-        auto it = object.try_emplace(entry->path.get_path()).first;
-        entry->data.get(n, it->second);
+        // auto it = object.try_emplace(entry->path.get_path()).first;
+        Field field;
+        entry->data.get(n, field);
+        if (field.get_type() != Field::Types::Null) {
+            object.try_emplace(entry->path.get_path(), field);
+        }
+    }
+    if (object.empty()) {
+        res = Null();
     }
 }
 
@@ -1290,6 +1306,35 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     return find_leaf_node_by_path(current, path, idx + 1);
 }
 
+bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,
+                     const PathInData& path) {
+    // skip nulls
+    if (nullable->is_null_at(row)) {
+        return true;
+    }
+    // check if it is empty nested json array, then skip
+    if (type->equals(*ColumnObject::NESTED_TYPE)) {
+        Field field = (*nullable)[row];
+        if (field.get_type() == Field::Types::Array) {
+            const auto& array = field.get<Array>();
+            bool only_nulls_inside = true;
+            for (const auto& elem : array) {
+                if (elem.get_type() != Field::Types::Null) {
+                    only_nulls_inside = false;
+                    break;
+                }
+            }
+            // if only nulls then skip
+            return only_nulls_inside;
+        }
+    }
+    // skip empty jsonb value
+    if ((path.empty() && nullable->get_data_at(row).empty())) {
+        return true;
+    }
+    return false;
+}
+
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                                 rapidjson::Value& root,
@@ -1302,7 +1347,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
     const auto* nullable = assert_cast<const ColumnNullable*>(column);
-    if (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty())) {
+    if (skip_empty_json(nullable, type, row, path)) {
         return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info
@@ -1869,8 +1914,8 @@ ColumnObject::Subcolumn ColumnObject::Subcolumn::cut(size_t start, size_t length
 const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
         const Subcolumns::NodePtr& entry) const {
     const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
-            entry->path, [](const Subcolumns::Node& node) { return node.data.size(); },
-            entry->data.size());
+            entry->path,
+            [&](const Subcolumns::Node& node) { return node.data.size() > entry->data.size(); });
     if (leaf && is_nothing(leaf->data.get_least_common_typeBase())) {
         return nullptr;
     }
