@@ -83,7 +83,7 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
                         logicalProject(
                                 logicalOlapScan()
                         ).when(proj -> proj.getReplaces().size() == 1
-                                && proj.getProjects().get(0).getName().equals("name"))
+                                && proj.getProjects().get(0).getName().equals("id"))
                 );
     }
 

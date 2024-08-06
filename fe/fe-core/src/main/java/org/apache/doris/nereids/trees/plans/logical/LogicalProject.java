@@ -153,6 +153,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         LogicalProject<?> that = (LogicalProject<?>) o;
         boolean equal = projectsSet.get().equals(that.projectsSet.get())
                 && excepts.equals(that.excepts)
+                && replaces.equals(that.replaces)
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparison
         if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
@@ -163,7 +164,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public int hashCode() {
-        return Objects.hash(projectsSet.get());
+        return Objects.hash(projectsSet.get(), excepts, replaces, isDistinct);
     }
 
     @Override
