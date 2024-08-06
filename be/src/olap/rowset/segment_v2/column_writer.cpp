@@ -1020,7 +1020,7 @@ Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t
                                           size_t num_rows) {
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     if (is_nullable()) {
-        if (_opts.need_inverted_index) {
+        if (_opts.inverted_index) {
             for (int row_id = 0; row_id < num_rows; row_id++) {
                 if (null_map[row_id] == 1) {
                     RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(row_id));
