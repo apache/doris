@@ -743,7 +743,7 @@ Status InMemoryFileReader::read_at_impl(size_t offset, Slice result, size_t* byt
                                         const IOContext* io_ctx) {
     if (_data == nullptr) {
         _data = std::make_unique_for_overwrite<char[]>(_size);
-        
+
         size_t file_size = 0;
         RETURN_IF_ERROR(_reader->read_at(0, Slice(_data.get(), _size), &file_size, io_ctx));
         DCHECK_EQ(file_size, _size);
