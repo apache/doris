@@ -180,8 +180,8 @@ suite("dml_insert_and_overwrite") {
         sql """insert into insert_target_olap_table
             ${insert_into_sync_query}"""
         check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_into_sync_mv_name) : false
+            // In branch 2.1, query rewrite by sync mv is old, so common check
+            return result.contains(insert_into_sync_mv_name)
         }
     }
     sql """insert into insert_target_olap_table ${insert_into_sync_query}"""
@@ -285,8 +285,8 @@ suite("dml_insert_and_overwrite") {
         sql """INSERT OVERWRITE table insert_target_olap_table
             ${insert_overwrite_sync_query}"""
         check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_overwrite_sync_mv_name) : false
+            // In branch 2.1, query rewrite by sync mv is old, so common check
+            return result.contains(insert_overwrite_sync_mv_name)
         }
     }
 

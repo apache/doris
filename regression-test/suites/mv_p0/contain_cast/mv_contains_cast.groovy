@@ -121,7 +121,9 @@ suite("mv_contains_cast") {
 
     explain {
         sql("""${query_sql}""")
-        contains "(sync_mv)"
+        // query rewrite by async materialized view capacity is not on 2.1 but on master, so tmp comment out
+        // when 2.1 support query rewrite by async materialized view, this can be uncomment
+        // contains "(sync_mv)"
     }
 
     order_qt_query_after "${query_sql}"

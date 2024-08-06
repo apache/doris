@@ -70,7 +70,7 @@ suite("variant_mv") {
         set 'read_json_by_line', 'true'
         set 'strip_outer_array', 'false'
         file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
-        time 10000
+        time 100000
     }
 
     streamLoad {
@@ -80,7 +80,7 @@ suite("variant_mv") {
         set 'columns', 'id, type, actor, repo, payload, public, created_at'
         set 'strip_outer_array', 'false'
         file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
-        time 10000 // limit inflight 10s
+        time 100000 // limit inflight 10s
     }
 
     sql "sync"

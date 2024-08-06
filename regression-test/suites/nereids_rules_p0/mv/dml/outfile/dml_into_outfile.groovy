@@ -209,8 +209,8 @@ suite("dml_into_outfile", "p0") {
     explain {
         sql """${into_outfile_sync_query}"""
         check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(into_outfile_sync_mv_name) : false
+            // In branch 2.1, query rewrite by sync mv is old, so common check
+            return result.contains(into_outfile_sync_mv_name)
         }
     }
 
