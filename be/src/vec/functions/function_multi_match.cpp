@@ -75,7 +75,11 @@ Status FunctionMultiMatch::open(FunctionContext* context,
                         field_names_str.end());
                 std::vector<std::string> field_names;
                 boost::split(field_names, field_names_str, boost::algorithm::is_any_of(","));
-                state->fields.insert(field_names.begin(), field_names.end());
+                for (const auto& field_name : field_names) {
+                    if (!field_name.empty()) {
+                        state->fields.insert(field_name);
+                    }
+                }
             } break;
             case 2:
                 state->type = const_data.to_string();
@@ -106,7 +110,6 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     const auto& tablet_schema = opts.tablet_schema;
 
     std::vector<ColumnId> columns_ids;
-
     for (const auto& column_name : match_param->fields) {
         auto cid = tablet_schema->field_index(column_name);
         if (cid < 0) {
@@ -153,10 +156,8 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     }
 
     // search
-    bool first = true;
     for (const auto& column_name : match_param->fields) {
         auto cid = tablet_schema->field_index(column_name);
-
         auto& index_iterator = segment_iterator->inverted_index_iterators()[cid];
         if (!index_iterator) {
             RETURN_IF_ERROR(segment_iterator->_init_inverted_index_iterators(cid));
@@ -164,14 +165,10 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
         const auto& index_reader = index_iterator->reader();
 
         auto result = std::make_shared<roaring::Roaring>();
+        StringRef query_value(match_param->query.data());
         RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state, column_name,
-                                            match_param->query.data(), query_type, result));
-        if (first) {
-            (*params.result).swap(*result);
-            first = false;
-        } else {
-            (*params.result) |= (*result);
-        }
+                                            &query_value, query_type, result));
+        (*params.result) |= (*result);
     }
 
     params.result->runOptimize();

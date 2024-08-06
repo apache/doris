@@ -524,7 +524,7 @@ private:
     std::unordered_map<int, std::unordered_map<std::string, bool>>
             _column_predicate_inverted_index_status;
 
-    DorisCallOnce<Status> _init_single_inverted_index_iterator;
+    std::mutex _idx_init_lock;
 };
 
 } // namespace segment_v2
