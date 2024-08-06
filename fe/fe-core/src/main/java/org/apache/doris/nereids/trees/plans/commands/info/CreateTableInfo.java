@@ -694,7 +694,7 @@ public class CreateTableInfo {
             if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
                 distributionDesc.updateBucketNum(FeConstants.default_bucket_num);
             } else {
-                long partitionSize = ParseUtil.analyzeDataVolumn(
+                long partitionSize = ParseUtil.analyzeDataVolume(
                         newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
                 distributionDesc.updateBucketNum(AutoBucketUtils.getBucketsNum(partitionSize,
                         Config.autobucket_min_buckets));
