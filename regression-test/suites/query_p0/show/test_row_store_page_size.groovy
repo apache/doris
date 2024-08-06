@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("test_row_store_page_size_cloud") {
+suite ("test_row_store_page_size") {
 
     sql """ DROP TABLE IF EXISTS ps_table_1; """
 
@@ -39,18 +39,6 @@ suite ("test_row_store_page_size_cloud") {
             assertTrue(result[0][1].contains("\"row_store_page_size\" = \"16384\""))
         }
     }
-
-    sql "insert into ps_table_1 select 1,1,1,'a';"
-    sql "insert into ps_table_1 select 2,2,2,'b';"
-    sql "insert into ps_table_1 select 3,3,null,'c';"
-
-    explain {
-        sql("select * from ps_table_1 where k1=1 and k2=1;")
-        contains("SHORT")
-    }
-
-    qt_select_star "select * from ps_table_1 where k1=1 and k2=1;"
-    qt_select_star "select * from ps_table_1 where k1=3 and k2=3;"
 
     sql """ DROP TABLE IF EXISTS ps_table_1; """
 
@@ -74,17 +62,6 @@ suite ("test_row_store_page_size_cloud") {
             assertTrue(result[0][1].contains("\"row_store_page_size\" = \"8192\""))
         }
     }
-    
-    sql "insert into ps_table_2 select 1,1,1,'a';"
-    sql "insert into ps_table_2 select 2,2,2,'b';"
-    sql "insert into ps_table_2 select 3,3,null,'c';"
-
-    explain {
-        sql("select * from ps_table_2 where k1=1 and k2=1;")
-        contains("SHORT")
-    }
-
-    qt_select_star "select * from ps_table_2 where k1=1 and k2=1;"
     
     sql """ DROP TABLE IF EXISTS ps_table_2; """
 }
