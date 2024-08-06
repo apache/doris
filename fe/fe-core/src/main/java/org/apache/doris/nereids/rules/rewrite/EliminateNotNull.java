@@ -68,8 +68,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
                             if (newOtherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()) {
                                 return null;
                             }
-                            return join.withJoinConjuncts(join.getHashJoinConjuncts(), newOtherJoinConjuncts,
-                                        join.getJoinReorderContext());
+                            return join.withJoinConjuncts(join.getHashJoinConjuncts(), newOtherJoinConjuncts);
                         })
                         .toRule(RuleType.ELIMINATE_NOT_NULL)
         );

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
@@ -80,7 +81,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
+                    LogicalJoin newBottomJoin = topJoin.withChildren(ImmutableList.of(a, c));
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -92,7 +93,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
                     Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
+                    LogicalJoin newTopJoin = bottomJoin.withChildren(ImmutableList.of(left, right));
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

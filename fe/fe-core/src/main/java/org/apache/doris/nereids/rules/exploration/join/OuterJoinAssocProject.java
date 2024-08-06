@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
@@ -97,7 +98,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     }
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
+                    LogicalJoin newBottomJoin = topJoin.withChildren(ImmutableList.of(b, c));
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Set<ExprId> topUsedExprIds = new HashSet<>();
@@ -107,7 +108,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     Plan left = CBOUtils.newProjectIfNeeded(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
+                    LogicalJoin newTopJoin = bottomJoin.withChildren(ImmutableList.of(left, right));
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
 
