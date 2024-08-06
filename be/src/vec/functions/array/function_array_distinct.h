@@ -261,23 +261,23 @@ private:
     }
 
         WhichDataType which(remove_nullable(nested_type));
-        EXECUTE_NUMBER(ColumnUInt8, uint8)
-        EXECUTE_NUMBER(ColumnInt8, int8)
-        EXECUTE_NUMBER(ColumnInt16, int16)
-        EXECUTE_NUMBER(ColumnInt32, int32)
-        EXECUTE_NUMBER(ColumnInt64, int64)
-        EXECUTE_NUMBER(ColumnInt128, int128)
-        EXECUTE_NUMBER(ColumnFloat32, float32)
-        EXECUTE_NUMBER(ColumnFloat64, float64)
-        EXECUTE_NUMBER(ColumnDate, date)
-        EXECUTE_NUMBER(ColumnDateTime, date_time)
-        EXECUTE_NUMBER(ColumnDateV2, date_v2)
-        EXECUTE_NUMBER(ColumnDateTimeV2, date_time_v2)
-        EXECUTE_NUMBER(ColumnDecimal32, decimal32)
-        EXECUTE_NUMBER(ColumnDecimal64, decimal64)
-        EXECUTE_NUMBER(ColumnDecimal128V3, decimal128v3)
-        EXECUTE_NUMBER(ColumnDecimal256, decimal256)
-        EXECUTE_NUMBER(ColumnDecimal128V2, decimal128v2)
+        EXECUTE_NUMBER(ColumnUInt8, uint8);
+        EXECUTE_NUMBER(ColumnInt8, int8);
+        EXECUTE_NUMBER(ColumnInt16, int16);
+        EXECUTE_NUMBER(ColumnInt32, int32);
+        EXECUTE_NUMBER(ColumnInt64, int64);
+        EXECUTE_NUMBER(ColumnInt128, int128);
+        EXECUTE_NUMBER(ColumnFloat32, float32);
+        EXECUTE_NUMBER(ColumnFloat64, float64);
+        EXECUTE_NUMBER(ColumnDate, date);
+        EXECUTE_NUMBER(ColumnDateTime, date_time);
+        EXECUTE_NUMBER(ColumnDateV2, date_v2);
+        EXECUTE_NUMBER(ColumnDateTimeV2, date_time_v2);
+        EXECUTE_NUMBER(ColumnDecimal32, decimal32);
+        EXECUTE_NUMBER(ColumnDecimal64, decimal64);
+        EXECUTE_NUMBER(ColumnDecimal128V3, decimal128v3);
+        EXECUTE_NUMBER(ColumnDecimal256, decimal256);
+        EXECUTE_NUMBER(ColumnDecimal128V2, decimal128v2);
         if (which.is_string()) {
             return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                    dest_null_map);
