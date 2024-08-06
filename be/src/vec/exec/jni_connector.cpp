@@ -463,8 +463,6 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
@@ -547,8 +545,6 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];

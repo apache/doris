@@ -69,7 +69,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DOUBLE:
         *result = arrow::float64();
         break;
-    case TYPE_TIME:
+    case TYPE_TIMEV2:
         *result = arrow::float64();
         break;
     case TYPE_IPV4:

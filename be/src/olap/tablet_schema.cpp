@@ -97,8 +97,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_HLL;
     case PrimitiveType::TYPE_DECIMALV2:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_TIME:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
     case PrimitiveType::TYPE_OBJECT:
         return FieldType::OLAP_FIELD_TYPE_OBJECT;
     case PrimitiveType::TYPE_STRING:
