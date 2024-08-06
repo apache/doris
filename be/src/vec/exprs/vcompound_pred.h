@@ -58,11 +58,7 @@ public:
                                    uint32_t segment_num_rows) const override {
         bool all_pass = true;
         segment_v2::InvertedIndexResultBitmap res;
-        /*if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
-            return VectorizedFnCall::evaluate_inverted_index(context, segment_num_rows);
-        }*/
         if (_op == TExprOpcode::COMPOUND_OR) {
-            //res = std::make_shared<roaring::Roaring>(); // Initialize to empty for OR
             for (auto child : _children) {
                 Status st = child->evaluate_inverted_index(context, segment_num_rows);
                 if (!st.ok()) {
@@ -71,7 +67,6 @@ public:
                 }
                 if (context->has_inverted_index_result_for_expr(child.get())) {
                     auto index_result = context->get_inverted_index_result_for_expr(child.get());
-                    //auto index_without_null_result = *(index_result.first) - *(index_result.second);
                     res = res | index_result; // Union operation
                 } else {
                     //column has no inverted index
@@ -89,7 +84,7 @@ public:
                 if (context->has_inverted_index_result_for_expr(child.get())) {
                     auto index_result = context->get_inverted_index_result_for_expr(child.get());
                     if (first) {
-                        res = index_result;
+                        res = std::move(index_result);
                         first = false;
                     } else {
                         res = res & index_result;
@@ -110,17 +105,9 @@ public:
             //all_pass = false;
             if (context->has_inverted_index_result_for_expr(child.get())) {
                 auto index_result = context->get_inverted_index_result_for_expr(child.get());
-                LOG(ERROR) << "bitmap before not result:" << index_result.data_bitmap->toString()
-                           << " null_bitmap:" << index_result.null_bitmap->toString();
-                segment_v2::InvertedIndexResultBitmap full_result;
-                full_result.data_bitmap->addRange(0, segment_num_rows);
-                res = full_result - index_result;
-                LOG(ERROR) << "bitmap after not result:" << res.data_bitmap->toString()
-                           << " null_bitmap:" << res.null_bitmap->toString();
-                /*res = std::make_shared<roaring::Roaring>(); // Start with full bitmap
-                res->addRange(0, segment_num_rows);
-                *res -= *(index_result.data_bitmap); // Subtract operation
-                *res -= *(index_result.null_bitmap);*/
+                roaring::Roaring full_result;
+                full_result.addRange(0, segment_num_rows);
+                res = index_result.op_not(&full_result);
             } else {
                 all_pass = false;
             }
