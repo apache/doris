@@ -237,7 +237,7 @@ public class BindExpression implements AnalysisRuleFactory {
         alias.add(subQueryAlias.child(0).getOutput().get(0).getQualifier().get(0));
         alias.add(subQueryAlias.child(0).getOutput().get(0).getQualifier().get(1));
         alias.add(subQueryAlias.getAlias());
-        return subQueryAlias;
+        return new LogicalSubQueryAlias<>(alias, subQueryAlias.child());
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
