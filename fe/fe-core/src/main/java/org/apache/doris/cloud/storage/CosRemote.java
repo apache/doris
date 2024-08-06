@@ -20,7 +20,6 @@ package org.apache.doris.cloud.storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 
-import com.aliyun.oss.OSSErrorCode;
 import com.google.common.collect.Lists;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.ClientConfig;
