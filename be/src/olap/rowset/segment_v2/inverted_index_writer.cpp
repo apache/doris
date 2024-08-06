@@ -341,6 +341,10 @@ public:
         return Status::OK();
     }
 
+    Status add_array_nulls(uint32_t row_id) override {
+        _null_bitmap.add(row_id);
+        return Status::OK();
+    }
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
             _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
