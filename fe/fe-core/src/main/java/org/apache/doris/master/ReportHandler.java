@@ -866,7 +866,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                             olapTable.getTimeSeriesCompactionLevelThreshold(),
                                             olapTable.storeRowColumn(),
-                                            binlogConfig, objectPool);
+                                            binlogConfig, objectPool,
+                                            olapTable.rowStorePageSize());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexStorageFormat(olapTable

@@ -254,14 +254,17 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
 #undef CHECK_FIELD_TYPE
 
-        if (column.is_row_store_column()) {
-            // smaller page size for row store column
-            opts.data_page_size = config::row_column_page_size;
-        }
-        std::unique_ptr<ColumnWriter> writer;
-        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
-        RETURN_IF_ERROR(writer->init());
-        _column_writers.push_back(std::move(writer));
+    if (column.is_row_store_column()) {
+        // smaller page size for row store column
+        auto page_size = _tablet_schema->row_store_page_size();
+        opts.data_page_size =
+                (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
+    std::unique_ptr<ColumnWriter> writer;
+    RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
+    RETURN_IF_ERROR(writer->init());
+    _column_writers.push_back(std::move(writer));
 
         _olap_data_convertor->add_column_data_convertor(column);
         return Status::OK();
