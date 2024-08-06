@@ -217,7 +217,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
         // handle the scene that query top plan not use the group by in query bottom aggregate
-        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+        if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
             for (Expression expression : queryGroupByExpressions) {
                 if (queryTopPlanGroupBySet.contains(expression)) {
                     continue;
@@ -264,6 +264,34 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return NormalizeRepeat.doNormalize(repeat);
         }
         return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+    }
+
+    /**
+     * handle the scene that query top plan not use the group by in query bottom aggregate
+     * If mv is select o_orderdate from  orders group by o_orderdate;
+     * query is select 1 from orders group by o_orderdate.
+     * Or mv is select o_orderdate from  orders group by o_orderdate, o_order_key;
+     * query is select o_orderdate from orders group by o_orderdate;
+     * if the slot which query top project use can not cover the slot which query bottom aggregate group by slot
+     * should compensate group by to make sure the data is right.
+     */
+    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopPlanGroupBySet,
+            List<Expression> queryGroupByExpressions) {
+        Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
+        if (queryGroupByExpressionSet.size() != queryTopPlanGroupBySet.size()) {
+            return true;
+        }
+        Set<NamedExpression> queryTopPlanGroupByUseNamedExpressions = new HashSet<>();
+        Set<NamedExpression> queryGroupByUseNamedExpressions = new HashSet<>();
+        for (Expression expr : queryTopPlanGroupBySet) {
+            queryTopPlanGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        for (Expression expr : queryGroupByExpressionSet) {
+            queryGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        // if the slots query top project use can not cover the slots which query bottom aggregate use
+        // Should compensate.
+        return !queryTopPlanGroupByUseNamedExpressions.containsAll(queryGroupByUseNamedExpressions);
     }
 
     /**
