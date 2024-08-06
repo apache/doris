@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import cfjd.com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
 
@@ -60,12 +63,24 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
 
     @Test
     void testReplace() {
-        String sql = "select * replace (2 as t1k1, t2k1 * 2 as t2k1) from "
+        String sql1 = "select * replace (2 as t1k1, t2k1 * 2 as t2k1) from "
                 + "(select 1, t1.k1 as t1k1, t2.k1 as t2k1 from t1 join t2 on t1.id = t2.id) t";
-        connectContext.getSessionVariable().nereidsTimeoutSecond = 1000;
-        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
-            System.out.println(planner.getPhysicalPlan().toString());
+        PlanChecker.from(connectContext).checkPlannerResult(sql1);
+
+        String sql2 = "select * replace (1 as k1) except (k2) from t1";
+        PlanChecker.from(connectContext).checkPlannerResult(sql2, planner -> {
+            Assertions.assertEquals(4, planner.getPhysicalPlan().getOutput().size());
         });
+
+        // k1 in both except and replace
+        String sql3 = "select * replace (1 as k1, 2 as k2) except (k1) from t1";
+        Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql3));
+
+        // replace with same name
+        String sql4 = "select * replace (1 as k1, 2 as k1) from t1";
+        Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql4));
     }
 
     @Test
@@ -141,5 +156,16 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
                                 )
                         )
                 )));
+
+        // with except and replace
+        String sql6 = "select * except (v1) replace('new' as v2) from t1";
+        PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql6, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        )
+                ));
     }
 }

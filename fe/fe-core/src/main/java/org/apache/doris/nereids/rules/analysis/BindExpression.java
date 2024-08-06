@@ -645,7 +645,21 @@ public class BindExpression implements AnalysisRuleFactory {
                     for (NamedExpression replace : boundReplaces.get()) {
                         Preconditions.checkArgument(replace instanceof Alias);
                         Alias alias = (Alias) replace;
+                        if (replaceMap.containsKey(alias.getName())) {
+                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
+                        }
                         replaceMap.put(alias.getName(), alias);
+                    }
+
+                    if (!excepts.isEmpty()) {
+                        Set<String> exceptNames = boundExcepts.get().stream()
+                                .map(NamedExpression::getName)
+                                .collect(Collectors.toSet());
+                        for (String replaceName : replaceMap.keySet()) {
+                            if (exceptNames.contains(replaceName)) {
+                                throw new AnalysisException("Replace column name: " + replaceName + " is in excepts");
+                            }
+                        }
                     }
 
                     for (Slot slot : slots) {

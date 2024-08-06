@@ -21,4 +21,5 @@ suite("select_replace") {
 
     qt_select "select * replace (concat(s_name, s_address) as s_name) from supplier order by s_suppkey"
     qt_select "select * replace (1 as s_name) from supplier order by s_suppkey"
+    qt_select "select * replace (1 as s_name) except (s_suppkey) from supplier order by s_suppkey"
 }
