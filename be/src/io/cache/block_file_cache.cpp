@@ -1757,8 +1757,8 @@ std::string BlockFileCache::clear_file_cache_directly() {
 std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {
     std::map<size_t, FileBlockSPtr> offset_to_block;
     std::lock_guard cache_lock(_mutex);
-    if (_files.contains(hash)) {
-        for (auto& [offset, cell] : _files[hash]) {
+    if (auto find_it = _files.find(hash); find_it != _files.end()) {
+        for (auto& [offset, cell] : find_it->second) {
             if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
                 offset_to_block.emplace(offset, cell.file_block);
                 use_cell(cell, nullptr,
@@ -1768,6 +1768,11 @@ std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128W
         }
     }
     return offset_to_block;
+}
+
+bool BlockFileCache::contains(const UInt128Wrapper& hash) {
+    std::lock_guard cache_lock(_mutex);
+    return _files.contains(hash);
 }
 
 void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {

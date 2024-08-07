@@ -51,8 +51,19 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _remote_file_reader(std::move(remote_file_reader)) {
     _is_doris_table = opts.is_doris_table;
     if (_is_doris_table) {
-        _cache_hash = BlockFileCache::hash(path().filename().native());
-        _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
+        const auto& path = _remote_file_reader->path();
+        auto cache_hash = BlockFileCache::hash(path.filename().native());
+        auto* cache = FileCacheFactory::instance()->get_by_path(cache_hash);
+        if (cache->contains(cache_hash)) {
+            // Data has been cached in old cache key rule, which using file name as cache hash
+            _cache_hash = cache_hash;
+            _cache = cache;
+        } else {
+            // New cache key rule, use full path as cache hash for generality
+            _cache_hash = BlockFileCache::hash(path.native());
+            _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
+        }
+
         if (config::enable_read_cache_file_directly) {
             _cache_file_readers = _cache->get_blocks_by_key(_cache_hash);
         }
