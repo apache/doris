@@ -317,6 +317,9 @@ struct TQueryOptions {
   123: optional bool hive_parquet_use_column_names = true;
   124: optional bool hive_orc_use_column_names = true;
 
+  125: optional bool enable_match_without_inverted_index = true;
+  126: optional bool enable_fallback_on_missing_inverted_index = true;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
