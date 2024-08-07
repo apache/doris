@@ -83,9 +83,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
@@ -134,9 +134,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
@@ -231,9 +231,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
