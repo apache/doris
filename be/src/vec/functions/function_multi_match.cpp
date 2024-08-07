@@ -75,7 +75,11 @@ Status FunctionMultiMatch::open(FunctionContext* context,
                         field_names_str.end());
                 std::vector<std::string> field_names;
                 boost::split(field_names, field_names_str, boost::algorithm::is_any_of(","));
-                state->fields.insert(field_names.begin(), field_names.end());
+                for (const auto& field_name : field_names) {
+                    if (!field_name.empty()) {
+                        state->fields.insert(field_name);
+                    }
+                }
             } break;
             case 2:
                 state->type = const_data.to_string();
@@ -93,7 +97,8 @@ Status FunctionMultiMatch::open(FunctionContext* context,
 }
 
 Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
-                                               segment_v2::FuncExprParams& params) {
+                                               segment_v2::FuncExprParams& params,
+                                               std::shared_ptr<roaring::Roaring>& result) {
     auto* match_param = reinterpret_cast<MatchParam*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (match_param == nullptr) {
@@ -106,7 +111,6 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     const auto& tablet_schema = opts.tablet_schema;
 
     std::vector<ColumnId> columns_ids;
-
     for (const auto& column_name : match_param->fields) {
         auto cid = tablet_schema->field_index(column_name);
         if (cid < 0) {
@@ -148,14 +152,14 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
     if (cache->lookup(cache_key, &cache_handler)) {
-        params.result = cache_handler.get_bitmap();
+        result = cache_handler.get_bitmap();
         return Status::OK();
     }
 
     // search
-    bool first = true;
     for (const auto& column_name : match_param->fields) {
         auto cid = tablet_schema->field_index(column_name);
+        const auto& column = *DORIS_TRY(tablet_schema->column(column_name));
 
         auto& index_iterator = segment_iterator->inverted_index_iterators()[cid];
         if (!index_iterator) {
@@ -163,19 +167,16 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
         }
         const auto& index_reader = index_iterator->reader();
 
-        auto result = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state, column_name,
-                                            match_param->query.data(), query_type, result));
-        if (first) {
-            (*params.result).swap(*result);
-            first = false;
-        } else {
-            (*params.result) |= (*result);
-        }
+        auto single_result = std::make_shared<roaring::Roaring>();
+        StringRef query_value(match_param->query.data());
+        RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state,
+                                            std::to_string(column.unique_id()), &query_value,
+                                            query_type, single_result));
+        (*result) |= (*single_result);
     }
 
-    params.result->runOptimize();
-    cache->insert(cache_key, params.result, &cache_handler);
+    result->runOptimize();
+    cache->insert(cache_key, result, &cache_handler);
 
     return Status::OK();
 }

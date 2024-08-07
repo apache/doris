@@ -263,8 +263,9 @@ bool VectorizedFnCall::can_fast_execute() const {
 }
 
 Status VectorizedFnCall::eval_inverted_index(VExprContext* context,
-                                             segment_v2::FuncExprParams& params) {
-    return _function->eval_inverted_index(context->fn_context(_fn_context_index), params);
+                                             segment_v2::FuncExprParams& params,
+                                             std::shared_ptr<roaring::Roaring>& result) {
+    return _function->eval_inverted_index(context->fn_context(_fn_context_index), params, result);
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

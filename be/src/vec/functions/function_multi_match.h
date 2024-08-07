@@ -63,8 +63,8 @@ public:
 
     bool can_push_down_to_index() const override { return true; }
 
-    Status eval_inverted_index(FunctionContext* context,
-                               segment_v2::FuncExprParams& params) override;
+    Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
+                               std::shared_ptr<roaring::Roaring>& result) override;
 };
 
 } // namespace doris::vectorized
