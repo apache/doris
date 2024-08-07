@@ -44,11 +44,16 @@ services:
       /bin/sh -c "
           spark-sql --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f /mnt/spark-init-iceberg.sql 2>&1;
           spark-sql --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f /mnt/spark-init-paimon.sql 2>&1;
+          touch /mnt/SUCCESS;
           tail -f /dev/null
       "
     networks:
       - doris--iceberg
-
+    healthcheck:
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      interval: 5s
+      timeout: 120s
+      retries: 120
   rest:
     image: tabulario/iceberg-rest
     container_name: doris--iceberg-rest
