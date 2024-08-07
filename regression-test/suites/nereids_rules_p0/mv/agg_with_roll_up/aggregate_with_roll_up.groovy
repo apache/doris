@@ -128,6 +128,10 @@ suite("aggregate_with_roll_up") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """analyze table partsupp with sync"""
+    sql """analyze table lineitem with sync"""
+    sql """analyze table orders with sync"""
+
     def check_rewrite_with_mv_partition = { mv_sql, query_sql, mv_name, partition_column ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""

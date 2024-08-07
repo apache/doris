@@ -270,20 +270,28 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * handle the scene that query top plan not use the group by in query bottom aggregate
      * If mv is select o_orderdate from  orders group by o_orderdate;
      * query is select 1 from orders group by o_orderdate.
-     * Or mv is select o_orderdate from  orders group by o_orderdate, o_order_key;
-     * query is select o_orderdate from orders group by o_orderdate;
+     * Or mv is select o_orderdate from orders group by o_orderdate
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
      * if the slot which query top project use can not cover the slot which query bottom aggregate group by slot
      * should compensate group by to make sure the data is right.
+     * For example:
+     * mv is select o_orderdate from orders group by o_orderdate;
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     *
+     * @param queryGroupByExpressions query bottom aggregate group by is o_orderdate, o_orderkey
+     * @param queryTopProject query top project is o_orderdate
+     * @return need to compensate group by if true or not need
+     *
      */
-    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopPlanGroupBySet,
+    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopProject,
             List<Expression> queryGroupByExpressions) {
         Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
-        if (queryGroupByExpressionSet.size() != queryTopPlanGroupBySet.size()) {
+        if (queryGroupByExpressionSet.size() != queryTopProject.size()) {
             return true;
         }
         Set<NamedExpression> queryTopPlanGroupByUseNamedExpressions = new HashSet<>();
         Set<NamedExpression> queryGroupByUseNamedExpressions = new HashSet<>();
-        for (Expression expr : queryTopPlanGroupBySet) {
+        for (Expression expr : queryTopProject) {
             queryTopPlanGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
         }
         for (Expression expr : queryGroupByExpressionSet) {
@@ -463,7 +471,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     /**
      * Check group by is equal or not after group by eliminate by functional dependency
-     * Such as query group by expression is (l_orderdate#1, l_supperkey#2)
+     * Such as query is select l_orderdate, l_supperkey, count(*) from table group by l_orderdate, l_supperkey;
+     * materialized view is select l_orderdate, l_supperkey, l_partkey count(*) from table
+     * group by l_orderdate, l_supperkey, l_partkey;
+     * Would check the extra l_partkey is can be eliminated by functional dependency.
+     * The process step and  data is as following:
+     * group by expression is (l_orderdate#1, l_supperkey#2)
      * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
      * materialized view expression mapping is
      * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}
