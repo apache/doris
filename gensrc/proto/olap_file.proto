@@ -601,3 +601,18 @@ message RowsetBinlogMetasPB {
 
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
 }
+
+message PartialUpdateInfoPB {
+    optional bool is_partial_update = 1 [default = false];
+    repeated string partial_update_input_columns = 2;
+    repeated uint32 missing_cids = 3;
+    repeated uint32 update_cids = 4;
+    optional bool can_insert_new_rows_in_partial_update = 5 [default = false];
+    optional bool is_strict_mode = 6 [default = false];
+    optional int64 timestamp_ms = 7 [default = 0];
+    optional string timezone = 8;
+    optional bool is_input_columns_contains_auto_inc_column = 9 [default = false];
+    optional bool is_schema_contains_auto_inc_column = 10 [default = false];
+    repeated string default_values = 11;
+    optional int64 max_version_in_flush_phase = 12 [default = -1];
+}
