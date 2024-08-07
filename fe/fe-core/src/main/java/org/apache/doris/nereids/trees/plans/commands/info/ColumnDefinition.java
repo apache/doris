@@ -199,10 +199,37 @@ public class ColumnDefinition {
         }
     }
 
+    private void checkKeyColumnType(boolean isOlap) {
+        if (isOlap) {
+            if (type.isFloatLikeType()) {
+                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
+            } else if (type.isStringType()) {
+                throw new AnalysisException("String Type should not be used in key column[" + name + "]");
+            } else if (type.isArrayType()) {
+                throw new AnalysisException("Array can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
+        }
+        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+            throw new AnalysisException("Key column can not set complex type:" + name);
+        } else if (type.isJsonType()) {
+            throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
+        } else if (type.isVariantType()) {
+            throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
+        } else if (type.isMapType()) {
+            throw new AnalysisException("Map can only be used in the non-key column of"
+                    + " the duplicate table at present.");
+        } else if (type.isStructType()) {
+            throw new AnalysisException("Struct can only be used in the non-key column of"
+                    + " the duplicate table at present.");
+        }
+    }
+
     /**
      * validate column definition and analyze
      */
-    public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+    public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
+            KeysType keysType) {
         try {
             FeNameFormat.checkColumnName(name);
         } catch (Exception e) {
@@ -234,33 +261,7 @@ public class ColumnDefinition {
                 throw new AnalysisException(
                         String.format("Key column %s can not set aggregation type", name));
             }
-            if (isOlap) {
-                if (type.isFloatLikeType()) {
-                    throw new AnalysisException(
-                            "Float or double can not used as a key, use decimal instead.");
-                } else if (type.isStringType()) {
-                    throw new AnalysisException(
-                            "String Type should not be used in key column[" + name + "]");
-                } else if (type.isArrayType()) {
-                    throw new AnalysisException("Array can only be used in the non-key column of"
-                            + " the duplicate table at present.");
-                }
-            }
-            if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
-                throw new AnalysisException("Key column can not set complex type:" + name);
-            } else if (type.isJsonType()) {
-                throw new AnalysisException(
-                        "JsonType type should not be used in key column[" + getName() + "].");
-            } else if (type.isVariantType()) {
-                throw new AnalysisException(
-                        "Variant type should not be used in key column[" + getName() + "].");
-            } else if (type.isMapType()) {
-                throw new AnalysisException("Map can only be used in the non-key column of"
-                        + " the duplicate table at present.");
-            } else if (type.isStructType()) {
-                throw new AnalysisException("Struct can only be used in the non-key column of"
-                        + " the duplicate table at present.");
-            }
+            checkKeyColumnType(isOlap);
         } else if (aggType == null && isOlap) {
             Preconditions.checkState(keysType != null, "keysType is null");
             if (keysType.equals(KeysType.DUP_KEYS)) {
@@ -272,6 +273,10 @@ public class ColumnDefinition {
             } else {
                 throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
             }
+        }
+
+        if (clusterKeySet.contains(name)) {
+            checkKeyColumnType(isOlap);
         }
 
         if (aggType != null) {
