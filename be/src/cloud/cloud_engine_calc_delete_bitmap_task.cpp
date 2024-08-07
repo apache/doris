@@ -211,6 +211,9 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;
     txn_info.publish_version = _version;
+    txn_info.base_compaction_cnt = _ms_base_compaction_cnt;
+    txn_info.cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
+    txn_info.cumulative_point = _ms_cumulative_point;
     auto update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         _version == previous_pubished_version &&

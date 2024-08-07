@@ -75,7 +75,10 @@ struct TabletTxnInfo {
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
-    int64_t publish_version;
+    int64_t publish_version {-1};
+    int64_t base_compaction_cnt {-1};
+    int64_t cumulative_compaction_cnt {-1};
+    int64_t cumulative_point {-1};
     TxnState state {TxnState::PREPARED};
 
     TabletTxnInfo() = default;
