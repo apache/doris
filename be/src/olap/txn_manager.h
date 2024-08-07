@@ -75,6 +75,7 @@ struct TabletTxnInfo {
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
+    int64_t publish_version;
     TxnState state {TxnState::PREPARED};
 
     TabletTxnInfo() = default;

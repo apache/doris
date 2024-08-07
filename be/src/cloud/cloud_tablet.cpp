@@ -648,8 +648,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), new_delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED);
+    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), new_delete_bitmap,
+                                                             cur_rowset_ids, PublishStatus::SUCCEED,
+                                                             txn_info->publish_version);
 
     return Status::OK();
 }

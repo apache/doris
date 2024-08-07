@@ -48,14 +48,6 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block", [wait_token: "token1"])
 
         // the first load
-        // streamLoad {
-        //     table "${table1}"
-        //     set 'column_separator', ','
-        //     set 'format', 'csv'
-        //     set 'columns', 'k1,c1,c2'
-        //     file 'cloud_mow_stale_resp.csv'
-        //     time 100000 // 100s
-        // }
         t1 = Thread.start {
             sql "insert into ${table1} values(1,999,999),(2,888,888);"
         }
@@ -73,10 +65,11 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
 
         order_qt_sql "select * from ${table1};"
 
-        // GetDebugPoint().enableDebugPointForAllFEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token1"])
+        // GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token1"])
 
-        // keep waiting to let the coordinator BE to retry to commit the first load's txn
-        Thread.sleep(12 * 1000)
+        // keep waiting util the delete bitmap calculation timeout(Config.calculate_delete_bitmap_task_timeout_seconds = 15s)
+        // and the coordinator BE will retry to commit the first load's txn
+        Thread.sleep(15 * 1000)
 
         // let the first partial update load finish
         GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")
@@ -93,5 +86,5 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 
-    sql "DROP TABLE IF EXISTS ${table1};"
+    // sql "DROP TABLE IF EXISTS ${table1};"
 }

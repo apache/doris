@@ -186,9 +186,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
+    int64_t previous_pubished_version {-1};
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             _transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status);
+            &partial_update_info, &publish_status, &previous_pubished_version);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id
                      << ", txn_id=" << _transaction_id << ", status=" << status;
@@ -204,8 +205,13 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;
+    txn_info.publish_version = _version;
     auto update_delete_bitmap_time_us = 0;
-    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED)) {
+    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+        _version == previous_pubished_version) {
+        // if _version > previous_pubished_version, it means that this is a retry and there are
+        // compaction or other loads finished successfully on the same tablet. So the previous publish
+        // is stale and we should re-calculate the delete bitmap
         LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
                   << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
     } else {
