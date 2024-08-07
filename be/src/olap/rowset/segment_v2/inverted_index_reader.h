@@ -75,12 +75,13 @@ class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
 class InvertedIndexResultBitmap {
 private:
-    std::shared_ptr<roaring::Roaring> _data_bitmap;
-    std::shared_ptr<roaring::Roaring> _null_bitmap;
+    std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
+    std::shared_ptr<roaring::Roaring> _null_bitmap = nullptr;
 
 public:
     // Default constructor
-    InvertedIndexResultBitmap() : _data_bitmap(nullptr), _null_bitmap(nullptr) = default;
+    InvertedIndexResultBitmap() = default;
+    ~InvertedIndexResultBitmap() = default;
 
     // Constructor with arguments
     InvertedIndexResultBitmap(std::shared_ptr<roaring::Roaring> data_bitmap,
@@ -154,6 +155,12 @@ public:
             *_null_bitmap -= *other._null_bitmap;
         }
         return *this;
+    }
+
+    void mask_out_null() {
+        if (_data_bitmap && _null_bitmap) {
+            *_data_bitmap -= *_null_bitmap;
+        }
     }
 
     std::shared_ptr<roaring::Roaring> get_data_bitmap() { return _data_bitmap; }

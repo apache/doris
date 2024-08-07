@@ -52,40 +52,24 @@ public:
     VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_inverted_index_iterators(
-            const std::vector<std::unique_ptr<segment_v2::InvertedIndexIterator>>& iterators) {
-        _inverted_index_iterators.clear();
-        _inverted_index_iterators.reserve(iterators.size());
-
-        for (const auto& iterator : iterators) {
-            _inverted_index_iterators.push_back(iterator.get());
-        }
+            const std::unordered_map<std::string, segment_v2::InvertedIndexIterator*>& iterators) {
+        _inverted_index_iterators_by_col_name = iterators;
     }
 
     void set_storage_name_and_type(
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type) {
-        _storage_name_and_type = storage_name_and_type;
+            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
+                    storage_name_and_type) {
+        _storage_name_and_type_by_col_name = std::move(storage_name_and_type);
     }
 
-    segment_v2::InvertedIndexIterator* get_inverted_index_iterators_by_column_id(
-            ColumnId column_id) const {
-        if (column_id >= _inverted_index_iterators.size()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "_inverted_index_iterators column_id invalid, column_id={}, "
-                            "_inverted_index_iterators.size()={}",
-                            column_id, _inverted_index_iterators.size());
-        }
-        return _inverted_index_iterators[column_id];
+    segment_v2::InvertedIndexIterator* get_inverted_index_iterators_by_column_name(
+            std::string column_name) {
+        return _inverted_index_iterators_by_col_name[column_name];
     }
 
-    vectorized::IndexFieldNameAndTypePair get_storage_name_and_type_by_column_id(
-            ColumnId column_id) const {
-        if (column_id >= _storage_name_and_type.size()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "_storage_name_and_type column_id invalid, column_id={}, "
-                            "_storage_name_and_type.size()={}",
-                            column_id, _storage_name_and_type.size());
-        }
-        return _storage_name_and_type[column_id];
+    vectorized::IndexFieldNameAndTypePair get_storage_name_and_type_by_column_name(
+            std::string column_name) {
+        return _storage_name_and_type_by_col_name[column_name];
     }
 
     bool has_inverted_index_result_for_expr(const vectorized::VExpr* expr) const {
@@ -280,8 +264,9 @@ private:
     std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>
             _inverted_index_result_bitmap;
     std::unordered_map<const vectorized::VExpr*, ColumnPtr> _inverted_index_result_column;
-    std::vector<segment_v2::InvertedIndexIterator*> _inverted_index_iterators;
+    std::unordered_map<std::string, segment_v2::InvertedIndexIterator*> _inverted_index_iterators_by_col_name;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
-    std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
+            _storage_name_and_type_by_col_name;
 };
 } // namespace doris::vectorized
