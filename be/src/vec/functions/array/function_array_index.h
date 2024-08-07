@@ -120,6 +120,10 @@ public:
             const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
             segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(arguments.size() == 1);
+        if (iter == nullptr) {
+            return Status::OK();
+        }
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         Field param_value;
         arguments[0].column->get(0, param_value);

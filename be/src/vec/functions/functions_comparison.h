@@ -39,6 +39,8 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
+//#include "olap/rowset/segment_v2/inverted_index_reader.h"
+
 namespace doris::vectorized {
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -524,6 +526,68 @@ public:
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeUInt8>();
+    }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(arguments.size() == 1);
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        std::string column_name = data_type_with_name.first;
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
+        segment_v2::InvertedIndexQueryType query_type =
+                segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
+        if (name == "eq") {
+            query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        } else if (name == "ne") {
+            query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        } else if (name == "lt") {
+            query_type = segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY;
+        } else if (name == "le") {
+            query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
+        } else if (name == "gt") {
+            query_type = segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY;
+        } else if (name == "ge") {
+            query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+        } else {
+            return Status::InvalidArgument("invalid comparison op type {}", Name::name);
+        }
+
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
+        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
+                                                       query_type, num_rows, roaring));
+
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+            bitmap_result = std::move(result);
+        } else {
+            std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+            segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+            bitmap_result = std::move(result);
+        }
+
+        if (name == "ne") {
+            roaring::Roaring full_result;
+            full_result.addRange(0, num_rows);
+            bitmap_result.op_not(&full_result);
+        }
+
+        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
