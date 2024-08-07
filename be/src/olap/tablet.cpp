@@ -2649,14 +2649,21 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 }
 
 void Tablet::clear_cache() {
-    std::shared_lock rlock(get_header_lock());
-    static auto recycle_segment_cache = [](const auto& rowset_map) {
-        for (auto& [_, rowset] : rowset_map) {
-            rowset->clear_cache();
+    std::list<RowsetSharedPtr> rowsets;
+    {
+        std::shared_lock rlock(get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+
+        for (auto& [_, rowset] : rowset_map()) {
+            rowsets.push_back(rowset);
         }
-    };
-    recycle_segment_cache(rowset_map());
-    recycle_segment_cache(stale_rowset_map());
+        for (auto& [_, rowset] : stale_rowset_map()) {
+            rowsets.push_back(rowset);
+        }
+    }
+    for (auto& rowset : rowsets) {
+        rowset->clear_cache();
+    }
 }
 
 } // namespace doris
