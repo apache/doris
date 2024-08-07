@@ -115,7 +115,9 @@ Status InvertedIndexFileWriter::close() {
     }
     DBUG_EXECUTE_IF("inverted_index_storage_format_must_be_v2", {
         if (_storage_format != InvertedIndexStorageFormatPB::V2) {
-            _CLTHROWA(CL_ERR_IO, "inverted index storage format must be v2");
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "InvertedIndexFileWriter::close fault injection:inverted index storage format "
+                    "must be v2");
         }
     })
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
