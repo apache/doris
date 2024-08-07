@@ -114,6 +114,16 @@ public class Tag implements Writable {
         return new Tag(type, value);
     }
 
+    public static Tag createAllowEmptyValue(String type, String value) throws AnalysisException {
+        if (!type.matches(TAG_TYPE_REGEX)) {
+            throw new AnalysisException("Invalid tag type format: " + type);
+        }
+        if (!value.isEmpty() && !value.matches(TAG_VALUE_REGEX)) {
+            throw new AnalysisException("Invalid tag value format: " + value);
+        }
+        return new Tag(type, value);
+    }
+
     public static Tag createNotCheck(String type, String value) {
         return new Tag(type, value);
     }

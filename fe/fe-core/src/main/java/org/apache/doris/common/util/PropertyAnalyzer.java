@@ -1185,6 +1185,11 @@ public class PropertyAnalyzer {
         return defaultValue;
     }
 
+    public static Map<String, String> analyzeBackendTagsProperties(Map<String, String> properties, Tag defaultValue)
+            throws AnalysisException {
+        return analyzeBackendTagsProperties(properties, defaultValue, false);
+    }
+
     /**
      * Found property with "tag." prefix and return a tag map, which key is tag type and value is tag value
      * Eg.
@@ -1197,7 +1202,8 @@ public class PropertyAnalyzer {
      * @return
      * @throws AnalysisException
      */
-    public static Map<String, String> analyzeBackendTagsProperties(Map<String, String> properties, Tag defaultValue)
+    public static Map<String, String> analyzeBackendTagsProperties(Map<String, String> properties, Tag defaultValue,
+            boolean allowEmptyValue)
             throws AnalysisException {
         Map<String, String> tagMap = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
@@ -1211,7 +1217,8 @@ public class PropertyAnalyzer {
                 continue;
             }
             String val = entry.getValue().replaceAll(" ", "");
-            Tag tag = Tag.create(keyParts[1], val);
+            Tag tag = allowEmptyValue && !Tag.TYPE_LOCATION.equals(keyParts[1]) && !Tag.TYPE_ROLE.equals(keyParts[1])
+                    ? Tag.createAllowEmptyValue(keyParts[1], val) : Tag.create(keyParts[1], val);
             tagMap.put(tag.type, tag.value);
             iter.remove();
         }

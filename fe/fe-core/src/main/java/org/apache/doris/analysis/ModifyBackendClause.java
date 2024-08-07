@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -45,15 +44,12 @@ public class ModifyBackendClause extends BackendClause {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         super.analyze(analyzer);
-        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null, true);
         isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
         isLoadDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, null);
         if (!tagMap.isEmpty()) {
-            if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
-                throw new AnalysisException(NEED_LOCATION_TAG_MSG);
-            }
             if (!Config.enable_multi_tags && tagMap.size() > 1) {
                 throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
             }

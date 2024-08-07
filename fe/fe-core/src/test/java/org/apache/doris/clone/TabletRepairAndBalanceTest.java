@@ -181,6 +181,58 @@ public class TabletRepairAndBalanceTest {
     }
 
     @Test
+    public void testAlterBeTag() throws Exception {
+        Assert.assertEquals(5, backends.size());
+        Backend be = backends.get(0);
+
+            // create wg tag
+            {
+                String wgTagStr = "rg1";
+                Tag wgTag = Tag.create(Tag.WORKLOAD_GROUP, wgTagStr);
+                String createStmt = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+                        + "\" set ('tag.workload_group' = '" + wgTagStr + "')";
+                AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(createStmt, connectContext);
+                DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+                Assert.assertEquals(wgTag, backends.get(0).getWorkloadGroupTag());
+            }
+
+            // update wg tag
+            {
+                String wgTagStr2 = "rg1";
+                Tag wgTag2 = Tag.create(Tag.WORKLOAD_GROUP, wgTagStr2);
+                String updateStmt = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+                        + "\" set ('tag.workload_group' = '" + wgTagStr2 + "')";
+                AlterSystemStmt stmt2 = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(updateStmt, connectContext);
+                DdlExecutor.execute(Env.getCurrentEnv(), stmt2);
+                Assert.assertEquals(wgTag2, backends.get(0).getWorkloadGroupTag());
+            }
+
+            // delete wg tag
+            {
+                String delStmt = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+                        + "\" set ('tag.workload_group' = '')";
+                AlterSystemStmt stmt2 = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(delStmt, connectContext);
+                DdlExecutor.execute(Env.getCurrentEnv(), stmt2);
+                Assert.assertTrue(backends.get(0).getTagMap().get(Tag.WORKLOAD_GROUP) == null);
+            }
+
+            // test location not null
+            {
+                String alterStmt = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+                        + "\" set ('tag.location' = '')";
+                ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag value format",
+                        () -> UtFrameUtils.parseAndAnalyzeStmt(alterStmt, connectContext));
+            }
+            // test role not null
+            {
+                String alterStmt = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+                        + "\" set ('tag.role' = '')";
+                ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag value format",
+                        () -> UtFrameUtils.parseAndAnalyzeStmt(alterStmt, connectContext));
+            }
+    }
+
+    @Test
     public void test() throws Exception {
         Assert.assertEquals(5, backends.size());
 
@@ -197,12 +249,7 @@ public class TabletRepairAndBalanceTest {
             DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         }
 
-        // Test set tag without location type, expect throw exception
         Backend be1 = backends.get(0);
-        String alterString = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
-                + "\" set ('tag.compute' = 'abc')";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.NEED_LOCATION_TAG_MSG,
-                () -> UtFrameUtils.parseAndAnalyzeStmt(alterString, connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is false
         Config.enable_multi_tags = false;
