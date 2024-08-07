@@ -166,6 +166,10 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
     _shared_state->child_quantity = parent._child_quantity;
+    _shared_state->build_not_ignore_null.resize(_child_exprs.size());
+
+    RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
+
     return Status::OK();
 }
 
@@ -177,16 +181,7 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
 
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
-    auto& child_exprs_lists = _shared_state->child_exprs_lists;
-    _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
     _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
-
-    for (const auto& ctl : child_exprs_lists) {
-        for (int i = 0; i < ctl.size(); ++i) {
-            _shared_state->build_not_ignore_null[i] =
-                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
-        }
-    }
     _shared_state->hash_table_init();
     return Status::OK();
 }
