@@ -1053,8 +1053,6 @@ DEFINE_mInt64(max_tablet_io_errors, "-1");
 DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
 DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
-// Page size of row column, default 4KB
-DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
@@ -1265,7 +1263,7 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 

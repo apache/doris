@@ -15,8 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.JdbcUtils
+
 suite("test_show_create_table_and_views", "show") {
     sql "SET enable_nereids_planner=false;"
+
+    def shouldNotShowHiddenColumnsAndCreateWithHiddenColumns = {
+        connect {
+            multi_sql """
+            SET enable_nereids_planner=false;
+            drop table if exists test_show_create_table_no_hidden_column;
+            create table test_show_create_table_no_hidden_column(id int, name varchar(50)) unique key(id) distributed by hash(id) properties('replication_num'='1');
+            set show_hidden_columns=true;
+            """
+
+            def result = JdbcUtils.executeToMapArray(context.getConnection(),  "show create table test_show_create_table_no_hidden_column")
+            assertTrue(!result[0].get("Create Table").toString().contains("__DORIS_DELETE_SIGN__"))
+
+            test {
+                sql "create table table_with_hidden_sign(id int, __DORIS_DELETE_SIGN__ int) distributed by hash(id) properties('replication_num'='1')"
+                exception "Disable to create table column with name start with __DORIS_: "
+            }
+        }
+    }()
+
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {

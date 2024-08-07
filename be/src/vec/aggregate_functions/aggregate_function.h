@@ -43,6 +43,8 @@ class AggregateFunctionBitmapCount;
 template <typename Op>
 class AggregateFunctionBitmapOp;
 struct AggregateFunctionBitmapUnionOp;
+class IAggregateFunction;
+using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -178,11 +180,6 @@ public:
                                         const size_t offset, IColumn& to,
                                         const size_t num_rows) const = 0;
 
-    /** Returns true for aggregate functions of type -State.
-      * They are executed as other aggregate functions, but not finalized (return an aggregation state that can be combined with another).
-      */
-    virtual bool is_state() const { return false; }
-
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
@@ -222,6 +219,8 @@ public:
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
 
     virtual void set_version(const int version_) { version = version_; }
+
+    virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
 
 protected:
     DataTypes argument_types;
@@ -518,8 +517,6 @@ public:
         assert_cast<const Derived*>(this)->merge(place, rhs, arena);
     }
 };
-
-using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
 
 class AggregateFunctionGuard {
 public:

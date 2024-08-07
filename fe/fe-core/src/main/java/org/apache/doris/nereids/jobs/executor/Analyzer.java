@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
@@ -123,6 +124,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
+            bottomUp(new AddInitMaterializationHook()),
             bottomUp(
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDistinct property

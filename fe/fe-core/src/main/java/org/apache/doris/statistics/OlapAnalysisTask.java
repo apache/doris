@@ -106,7 +106,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
-            LOG.warn("Scale factor is infinite or Nan, will set scale factor to 1.");
             scaleFactor = 1;
             tabletIds = Collections.emptyList();
             pair.second = totalRowCount;

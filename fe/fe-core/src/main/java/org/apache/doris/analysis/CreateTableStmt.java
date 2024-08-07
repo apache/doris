@@ -116,7 +116,7 @@ public class CreateTableStmt extends DdlStmt {
             distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
-                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                    .analyzeDataVolume(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
             distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
@@ -310,6 +310,11 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
+            }
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");

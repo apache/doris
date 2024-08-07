@@ -969,6 +969,14 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
+        }
+    });
+
     return status;
 }
 
@@ -1997,8 +2005,11 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
     }
 
     permits = 0;
-    for (auto&& rowset : compaction->input_rowsets()) {
-        permits += rowset->rowset_meta()->get_compaction_score();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+        for (auto&& rowset : compaction->input_rowsets()) {
+            permits += rowset->rowset_meta()->get_compaction_score();
+        }
     }
     return Status::OK();
 }
