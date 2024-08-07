@@ -255,6 +255,13 @@ Status InvertedIndexReader::handle_searcher_cache(
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
 
+        bool open_idx_file_cache = true;
+        auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                    open_idx_file_cache);
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+            return st;
+        }
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap

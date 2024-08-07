@@ -185,14 +185,7 @@ Status Segment::_open_inverted_index() {
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
-    bool open_idx_file_cache = true;
-    auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                open_idx_file_cache);
-    if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
-        LOG(INFO) << st;
-        return Status::OK();
-    }
-    return st;
+    return Status::OK();
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
