@@ -83,7 +83,7 @@ public class ExplainCommand extends Command implements NoForward {
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            planner.addHook(InitMaterializationContextHook.INSTANCE);
+            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);

@@ -119,7 +119,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    true,
                     queryStructInfo.getTableBitSet());
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
@@ -356,7 +355,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     viewGroupExpressionQueryBased
             );
         }
-        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.values())) {
+        if (queryGroupShuttledExpression.equals(viewShuttledExpressionQueryBasedToGroupByExpressionMap.keySet())) {
             // return true, if equals directly
             return true;
         }
