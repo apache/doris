@@ -249,6 +249,19 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
             }
         }
     }
+    if (filters != nullptr) {
+        for (auto* filter : *filters) {
+            auto* __restrict filter_data = filter->data();
+            const size_t size = filter->size();
+            for (size_t i = 0; i < size; ++i) {
+                result_filter_data[i] &= filter_data[i];
+            }
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+    }
     return Status::OK();
 }
 
