@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -42,6 +45,8 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.policy.DataMaskType;
+import org.apache.doris.policy.DorisDataMaskPolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -156,7 +161,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
                     currentUserIdentity, ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
-                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
+                Expression unboundExpr = getMaskTypeDef(nereidsParser, dataMaskPolicy.get(), slot);
                 Expression childOfAlias
                         = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
                 Alias alias = new Alias(
@@ -229,5 +234,63 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             this.rowPolicyFilter = rowPolicyFilter;
             this.dataMaskProjects = dataMaskProjects;
         }
+    }
+
+    private Expression getMaskTypeDef(NereidsParser parser, DataMaskPolicy dataMaskPolicy, Slot slot) {
+        if (dataMaskPolicy instanceof DorisDataMaskPolicy) {
+            DorisDataMaskPolicy policy = (DorisDataMaskPolicy) dataMaskPolicy;
+            if (policy.getMaskType() == DataMaskType.MASK_DEFAULT) {
+                return StringLiteral.of(getDataTypeDefaultValue(slot));
+            }
+        }
+        return parser.parseExpression(dataMaskPolicy.getMaskTypeDef());
+    }
+
+    private String getDataTypeDefaultValue(Slot slot) {
+        Type dataType = slot.getDataType().toCatalogDataType();
+        if (dataType instanceof ScalarType) {
+            switch (dataType.getPrimitiveType()) {
+                case BOOLEAN:
+                    return "FALSE";
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                case BIGINT:
+                case LARGEINT:
+                    return "0";
+                case CHAR:
+                case VARCHAR:
+                case STRING:
+                    return "";
+                case FLOAT:
+                case DOUBLE:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                    return "0.0";
+                case DATEV2:
+                case DATE:
+                    return "1970-01-01";
+                case TIME:
+                case TIMEV2:
+                    return "00:00:00";
+                case DATETIME:
+                case DATETIMEV2:
+                    return "1970-01-01 00:00:00";
+                case IPV4:
+                    return "0.0.0.0";
+                case ARRAY:
+                    return "[]";
+                case MAP:
+                case JSONB:
+                case STRUCT:
+                    return "{}";
+                default:
+                    return "NULL";
+            }
+        }
+        return "NULL";
     }
 }
