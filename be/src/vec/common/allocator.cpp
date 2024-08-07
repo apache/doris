@@ -226,10 +226,9 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename Memory
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
     doris::ThreadContext* thread_context = doris::thread_context(true);
-    if (thread_context) {
-        DCHECK(tracker->label() == doris::thread_context()->thread_mem_tracker()->label())
-                << ", thread mem tracker label: "
-                << doris::thread_context()->thread_mem_tracker()->label()
+    if (thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") {
+        DCHECK(tracker->label() == thread_context->thread_mem_tracker()->label())
+                << ", thread mem tracker label: " << thread_context->thread_mem_tracker()->label()
                 << ", allocator tracker label: " << tracker->label();
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
