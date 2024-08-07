@@ -57,7 +57,7 @@ public class IcebergMetadataCache {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
-                Config.max_hive_table_cache_num,
+                Config.max_external_table_cache_num,
                 false,
                 null);
         this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
@@ -65,7 +65,7 @@ public class IcebergMetadataCache {
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
-                Config.max_hive_table_cache_num,
+                Config.max_external_table_cache_num,
                 false,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
