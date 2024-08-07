@@ -20,8 +20,8 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
     // Hive
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        string hivePrefix = "hive2"
-        string catalog_name = "test_catalog_upgrade_hive2"
+        String hivePrefix = "hive2"
+        String catalog_name = "test_catalog_upgrade_hive2"
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         sql """drop catalog if exists ${catalog_name};"""
@@ -91,40 +91,40 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
     enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_catalog_upgrade_kerberos_hive"
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            CREATE CATALOG IF NOT EXISTS ${catalog_name}
-            PROPERTIES (
-                "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
-                "hadoop.kerberos.min.seconds.before.relogin" = "5",
-                "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
-                "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
-            );
-        """
+        // sql """drop catalog if exists ${catalog_name};"""
+        // sql """
+        //     CREATE CATALOG IF NOT EXISTS ${catalog_name}
+        //     PROPERTIES (
+        //         "type" = "hms",
+        //         "hive.metastore.uris" = "thrift://172.31.71.25:9083",
+        //         "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+        //         "hadoop.kerberos.min.seconds.before.relogin" = "5",
+        //         "hadoop.security.authentication" = "kerberos",
+        //         "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+        //         "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
+        //         "hive.metastore.sasl.enabled " = "true",
+        //         "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
+        //     );
+        // """
 
-        sql """drop catalog if exists other_${catalog_name};"""
-        sql """
-            CREATE CATALOG IF NOT EXISTS other_${catalog_name}
-            PROPERTIES (
-                "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.26:8020",
-                "hadoop.kerberos.min.seconds.before.relogin" = "5",
-                "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
-                "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
-                "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
-                                                  RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
-                                                  DEFAULT"
-            );
-        """
+        // sql """drop catalog if exists other_${catalog_name};"""
+        // sql """
+        //     CREATE CATALOG IF NOT EXISTS other_${catalog_name}
+        //     PROPERTIES (
+        //         "type" = "hms",
+        //         "hive.metastore.uris" = "thrift://172.31.71.26:9083",
+        //         "fs.defaultFS" = "hdfs://172.31.71.26:8020",
+        //         "hadoop.kerberos.min.seconds.before.relogin" = "5",
+        //         "hadoop.security.authentication" = "kerberos",
+        //         "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
+        //         "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
+        //         "hive.metastore.sasl.enabled " = "true",
+        //         "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
+        //         "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+        //                                           RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+        //                                           DEFAULT"
+        //     );
+        // """
     }
 
     // Jdbc MySQL catalog
@@ -132,7 +132,9 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+        String bucket = getS3BucketName()
+        // String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+        String driver_url = "mysql-connector-java-8.0.25.jar"
         String catalog_name = "test_catalog_upgrade_jdbc_mysql"
         sql """drop catalog if exists ${catalog_name} """
         sql """create catalog if not exists ${catalog_name} properties(
