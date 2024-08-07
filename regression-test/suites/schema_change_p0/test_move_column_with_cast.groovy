@@ -15,32 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_move_column_with_cast") {
+    def tableName = "test_move_column_with_cast"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ 
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+        k BIGINT,
+        v SMALLINT NOT NULL
+    ) DUPLICATE KEY(`k`)
+      DISTRIBUTED BY HASH(k) BUCKETS 4
+      properties("replication_num" = "1");
+    """
 
-#include <gen_cpp/Exprs_types.h>
+    sql """ INSERT INTO ${tableName} VALUES(1, 1); """
+    sql """ ALTER TABLE ${tableName} ADD COLUMN t2 DATETIME DEFAULT NULL; """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN v BIGINT AFTER t2; """
 
-#include <memory>
-
-#include "olap/tablet_schema.h"
-namespace doris {
-
-class WrapperField;
-
-struct ColumnMapping {
-    ColumnMapping() = default;
-    virtual ~ColumnMapping() = default;
-
-    bool has_reference() const { return expr != nullptr || ref_column_idx >= 0; }
-
-    // <0: use default value
-    // >=0: use origin column
-    int32_t ref_column_idx = -1;
-    // normally for default value. stores values for filters
-    WrapperField* default_value = nullptr;
-    std::shared_ptr<TExpr> expr;
-    const TabletColumn* new_column = nullptr;
-};
-
-using SchemaMapping = std::vector<ColumnMapping>;
-
-} // namespace doris
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1"""
+        time 600
+    }
+}

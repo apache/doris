@@ -84,8 +84,8 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    Status _check_cast_valid(vectorized::ColumnPtr ref_column, vectorized::ColumnPtr new_column,
-                             AlterTabletType type) const;
+    static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
+                                    vectorized::ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
