@@ -215,6 +215,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) {
+    // `alloc` requires that the current thread_mem_tracker label is not `Orphan`
+    // and is the same as the thread_mem_tracker label when Allocator is constructed.
     DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
             << ", thread mem tracker label: "
             << doris::thread_context()->thread_mem_tracker()->label()
@@ -225,6 +227,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
+    // If thread_context does not exist or the label of thread_mem_tracker is `Orphan,
+    // it usually happens during object destruction. This means that the scope of SCOPED_ATTACH_TASK has been left,
+    // thread_mem_tracker is not set, and reserved memory does not exist,
+    // so Allocator tracker can be used directly to release memory.
+    // Otherwise, thread_mem_tracker should be used to release memory, which will do some additional operations,
+    // such as modifying reserved memory.
     doris::ThreadContext* thread_context = doris::thread_context(true);
     if (thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") {
         DCHECK(thread_context->thread_mem_tracker()->label() == tracker->label())
