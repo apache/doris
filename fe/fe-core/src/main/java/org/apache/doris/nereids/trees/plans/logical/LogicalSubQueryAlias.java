@@ -30,9 +30,11 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +82,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         List<Slot> childOutput = child().getOutput();
         List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
+
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
             String columnAlias;
@@ -88,8 +91,19 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             } else {
                 columnAlias = originSlot.getName();
             }
+            List<String> originQualifier = originSlot.getQualifier();
+
+            ArrayList<String> newQualifier = Lists.newArrayList(originQualifier);
+            if (newQualifier.size() >= qualifier.size()) {
+                for (int j = 0; j < qualifier.size(); j++) {
+                    newQualifier.set(newQualifier.size() - qualifier.size() + j, qualifier.get(j));
+                }
+            } else {
+                newQualifier.addAll(qualifier);
+            }
+
             Slot qualified = originSlot
-                    .withQualifier(qualifier)
+                    .withQualifier(newQualifier)
                     .withName(columnAlias);
             currentOutput.add(qualified);
         }
