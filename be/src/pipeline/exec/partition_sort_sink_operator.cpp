@@ -184,8 +184,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             //just simply use partition num to check
             //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
             if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
-                local_state._num_partition > config::partition_topn_partition_threshold &&
-                local_state.child_input_rows < 10000 * local_state._num_partition) {
+                local_state._num_partition > state->partition_topn_partition_threshold()) {
                 {
                     COUNTER_UPDATE(local_state._passthrough_rows_counter,
                                    (int64_t)input_block->rows());
