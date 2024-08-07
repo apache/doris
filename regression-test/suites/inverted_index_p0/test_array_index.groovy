@@ -94,7 +94,6 @@ suite("test_array_index2"){
     def useTime = 0
 
     def indexTblName = "test_array_index2"
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table
