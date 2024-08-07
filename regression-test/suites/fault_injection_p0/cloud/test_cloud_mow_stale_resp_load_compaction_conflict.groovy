@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
+import org.junit.Assert
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
+suite("test_cloud_mow_stale_resp_load_compaction_conflict", "nonConcurrent") {
     if (!isCloudMode()) {
         return
     }
 
-    def table1 = "test_cloud_mow_stale_resp_load_load_conflict"
+    def table1 = "test_cloud_mow_stale_resp_load_compaction_conflict"
     sql "DROP TABLE IF EXISTS ${table1} FORCE;"
     sql """ CREATE TABLE IF NOT EXISTS ${table1} (
             `k1` int NOT NULL,
@@ -38,6 +42,21 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
     sql "insert into ${table1} values(3,3,3);"
     sql "sync;"
     order_qt_sql "select * from ${table1};"
+
+
+    def beNodes = sql_return_maparray("show backends;")
+    def tabletStat = sql_return_maparray("show tablets from ${table1};").get(0)
+    def tabletBackendId = tabletStat.BackendId
+    def tabletId = tabletStat.TabletId
+    def tabletBackend;
+    for (def be : beNodes) {
+        if (be.BackendId == tabletBackendId) {
+            tabletBackend = be
+            break;
+        }
+    }
+    logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
+
 
     try {
         GetDebugPoint().clearDebugPointsForAllFEs()
@@ -57,12 +76,25 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
         // Config.delete_bitmap_lock_expiration_seconds = 10s
         Thread.sleep(11 * 1000)
 
-        // the second load
-        GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token2"])
-        Thread.sleep(200)
+        // trigger full compaction on tablet
+        logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
+        def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        Assert.assertEquals(code, 0)
+        def compactJson = parseJson(out.trim())
+        Assert.assertEquals("success", compactJson.status.toLowerCase())
 
-        sql "insert into ${table1}(k1,c1,c2) values(1,666,666),(2,555,555);"
-
+        // wait for full compaction to complete
+        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            {
+                (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                Assert.assertEquals(code, 0)
+                def compactionStatus = parseJson(out.trim())
+                Assert.assertEquals("success", compactionStatus.status.toLowerCase())
+                return !compactionStatus.run_status
+            }
+        )
         order_qt_sql "select * from ${table1};"
 
 
@@ -85,5 +117,5 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 
-    sql "DROP TABLE IF EXISTS ${table1};"
+    // sql "DROP TABLE IF EXISTS ${table1};"
 }
