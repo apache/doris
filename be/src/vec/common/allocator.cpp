@@ -44,6 +44,11 @@ std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::Allocator() {
+    tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+}
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_check(
         size_t size) const {
 #ifdef BE_TEST
@@ -210,9 +215,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) {
-    if (_tracker == nullptr) { // first time called
-        _tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
+    DCHECK(tracker->label() == doris::thread_context()->thread_mem_tracker()->label())
+            << ", thread mem tracker label: "
+            << doris::thread_context()->thread_mem_tracker()->label()
+            << ", allocator tracker label: " << tracker->label();
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
@@ -221,12 +227,13 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release
         size_t size) const {
     doris::ThreadContext* thread_context = doris::thread_context(true);
     if (thread_context) {
-        // phmap FlatHashSetPolicy may release memory not allocated by Allocator,
-        // and consume_memory may not be called before release_memory is called, in which case _tracker is nullptr.
-        DCHECK(!_tracker || thread_context->thread_mem_tracker()->label() == _tracker->label());
+        DCHECK(tracker->label() == doris::thread_context()->thread_mem_tracker()->label())
+                << ", thread mem tracker label: "
+                << doris::thread_context()->thread_mem_tracker()->label()
+                << ", allocator tracker label: " << tracker->label();
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
-        _tracker->release(size);
+        tracker->release(size);
     }
 }
 

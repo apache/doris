@@ -26,7 +26,7 @@ namespace doris::vectorized {
 /// `Allocator_` implements several interfaces of `std::allocator`
 /// which `phmap::flat_hash_map` will use.
 template <typename T>
-class Allocator_ : private Allocator<true, false, false, DefaultMemoryAllocator> {
+class Allocator_ : public Allocator<true, false, false, DefaultMemoryAllocator> {
 public:
     using value_type = T;
     using pointer = T*;
@@ -34,7 +34,14 @@ public:
     Allocator_() = default;
 
     template <typename T_>
-    Allocator_(const Allocator_<T_>&) {};
+    Allocator_(const Allocator_<T_>& that)
+            : Allocator<true, false, false, DefaultMemoryAllocator>(that) {};
+
+    template <typename T_>
+    Allocator_<T_>& operator=(const Allocator_<T_>& that) {
+        Allocator<true, false, false, DefaultMemoryAllocator>::operator=(that);
+        return *this;
+    }
 
     constexpr T* allocate(size_t n) { return static_cast<T*>(Allocator::alloc(n * sizeof(T))); }
 

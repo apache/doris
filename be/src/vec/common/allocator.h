@@ -226,6 +226,13 @@ class MemTrackerLimiter;
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 class Allocator {
 public:
+    Allocator();
+    Allocator(const Allocator& that) { tracker = that.tracker; }
+    Allocator& operator=(const Allocator& that) {
+        tracker = that.tracker;
+        return *this;
+    }
+
     void sys_memory_check(size_t size) const;
     void memory_tracker_check(size_t size) const;
     // If sys memory or tracker exceeds the limit, but there is no external catch bad_alloc,
@@ -399,6 +406,8 @@ public:
         return buf;
     }
 
+    std::shared_ptr<doris::MemTrackerLimiter> tracker {nullptr};
+
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
 
@@ -416,8 +425,6 @@ protected:
                                       | (mmap_populate ? MAP_POPULATE : 0)
 #endif
             ;
-
-    std::shared_ptr<doris::MemTrackerLimiter> _tracker {nullptr};
 };
 
 /** Allocator with optimization to place small memory ranges in automatic memory.
