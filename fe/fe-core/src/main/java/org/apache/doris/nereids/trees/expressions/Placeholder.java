@@ -61,8 +61,18 @@ public class Placeholder extends Expression implements LeafExpression {
     }
 
     @Override
+    public String toString() {
+        return "$" + placeholderId.asInt();
+    }
+
+    @Override
     public String toSql() {
         return "?";
+    }
+
+    @Override
+    public int fastChildrenHashCode() {
+        return placeholderId.asInt();
     }
 
     @Override
