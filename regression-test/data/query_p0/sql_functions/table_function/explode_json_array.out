@@ -94,10 +94,10 @@
 \N	80	{"id":3,"name":"Bob"}
 
 -- !explode_json_array12 --
-0	4
-9223372036854775807	4
+9223372036854775807	8
 
 -- !explode_json_array13 --
+-9223372036854775808	8
 
 -- !explode_json_array14 --
 100	John	30	1	Street 1	1.23	-1273982982312333

@@ -417,6 +417,7 @@ private:
     void _insert_values_into_column(MutableColumnPtr& column, int max_step);
     DataImpl _parsed_data;
     ColumnPtr _text_column;
+    DataTypePtr _text_datatype;
 };
 
 } // namespace doris::vectorized
