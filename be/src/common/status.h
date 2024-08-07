@@ -684,14 +684,6 @@ inline std::string Status::to_string_no_stack() const {
         }                                                          \
     } while (false);
 
-#define RETURN_IF_OK(stmt)             \
-    do {                               \
-        Status _status_ = (stmt);      \
-        if (UNLIKELY(_status_.ok())) { \
-            return _status_;           \
-        }                              \
-    } while (false)
-
 template <typename T>
 using Result = expected<T, Status>;
 
