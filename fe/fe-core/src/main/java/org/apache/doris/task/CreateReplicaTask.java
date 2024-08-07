@@ -64,6 +64,7 @@ public class CreateReplicaTask extends AgentTask {
     private TStorageType storageType;
     private TStorageMedium storageMedium;
     private TCompressionType compressionType;
+    private long rowStorePageSize;
 
     private List<Column> columns;
 
@@ -148,7 +149,8 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
                              BinlogConfig binlogConfig,
-                             Map<Object, Object> objectPool) {
+                             Map<Object, Object> objectPool,
+                             long rowStorePageSize) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -193,6 +195,8 @@ public class CreateReplicaTask extends AgentTask {
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
+        this.rowStorePageSize = rowStorePageSize;
+
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -334,6 +338,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setRowStorePageSize(rowStorePageSize);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
