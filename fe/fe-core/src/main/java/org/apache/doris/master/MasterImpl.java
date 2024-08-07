@@ -671,6 +671,15 @@ public class MasterImpl {
                         "backend: " + task.getBackendId() + ", error_tablet_size: "
                                 + request.getErrorTabletIdsSize() + ", err_msg: "
                                 + request.getTaskStatus().getErrorMsgs().toString());
+            } else if (request.isSetRespPartitions()
+                    && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
+                LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
+                        + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
+                                request.getReportVersion(),
+                                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
+                                                request.getRespPartitions().toString());
+                calcDeleteBitmapTask.countDownToZero(TStatusCode.INTERNAL_ERROR, "get staled response from backend "
+                        + task.getBackendId() + ", report version: " + request.getReportVersion());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {
