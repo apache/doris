@@ -21,6 +21,7 @@ UNIQUE KEY (`d_datekey`)
 CLUSTER BY (`d_sellingseason`, `d_holidayfl`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "disable_auto_compaction" = "true",

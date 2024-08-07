@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS lineitem (
 DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
 DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 32
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

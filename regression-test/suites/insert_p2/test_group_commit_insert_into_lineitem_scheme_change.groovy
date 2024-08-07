@@ -129,6 +129,7 @@ DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "1"
 );
         """
@@ -161,6 +162,7 @@ DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "1"
 );
         """

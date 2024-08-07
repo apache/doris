@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS customer (
 UNIQUE KEY(C_CUSTKEY)
 DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 

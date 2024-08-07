@@ -11,6 +11,7 @@ UNIQUE KEY (`s_suppkey`)
 CLUSTER BY (`s_address`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "disable_auto_compaction" = "true",

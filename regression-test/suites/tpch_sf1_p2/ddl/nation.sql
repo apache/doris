@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS nation  (
 DUPLICATE KEY(N_NATIONKEY, N_NAME)
 DISTRIBUTED BY HASH(N_NATIONKEY) BUCKETS 3
 PROPERTIES (
+  "enable_mow_light_delete" = "true",
   "replication_num" = "1"
 )
 
