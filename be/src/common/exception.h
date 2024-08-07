@@ -162,3 +162,4 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
+
