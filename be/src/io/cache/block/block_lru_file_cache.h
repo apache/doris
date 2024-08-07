@@ -166,14 +166,7 @@ private:
 
     size_t get_available_cache_size(CacheType cache_type) const;
 
-    /**
-     * @brief Refact the cache directory as version 2.0 while the version of cache is 1.0
-     * 
-     * @return Status 
-     */
-    Status try_convert_cache_version() const;
-
-    void load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
+    Status load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
 
     Status write_file_cache_version() const;
 
