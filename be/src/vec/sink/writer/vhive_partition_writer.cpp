@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_map.h"
 #include "vec/core/materialize_block.h"
+#include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 
@@ -38,6 +39,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
                                            int file_name_index,
                                            TFileFormatType::type file_format_type,
                                            TFileCompressType::type hive_compress_type,
+                                           const THiveSerDeProperties& hive_serde_properties,
                                            const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
@@ -48,6 +50,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
+          _hive_serde_properties(hive_serde_properties),
           _hadoop_conf(hadoop_conf) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
@@ -107,6 +110,13 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         _file_format_transformer.reset(
                 new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
                                     _write_column_names, false, _hive_compress_type));
+        return _file_format_transformer->open();
+    }
+    case TFileFormatType::FORMAT_CSV_PLAIN: {
+        _file_format_transformer.reset(
+                new VCSVTransformer(state, _file_writer.get(), _write_output_expr_ctxs, false,
+                                    "csv", "", _hive_serde_properties.field_delim,
+                                    _hive_serde_properties.line_delim, false, _hive_compress_type));
         return _file_format_transformer->open();
     }
     default: {
@@ -189,7 +199,23 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
         break;
     }
     case TFileCompressType::ZSTD: {
-        compress_name = ".zstd";
+        compress_name = ".zst";
+        break;
+    }
+    case TFileCompressType::GZ: {
+        compress_name = ".gz";
+        break;
+    }
+    case TFileCompressType::BZ2: {
+        compress_name = ".bz2";
+        break;
+    }
+    case TFileCompressType::DEFLATE: {
+        compress_name = ".deflate";
+        break;
+    }
+    case TFileCompressType::LZ4BLOCK: {
+        compress_name = ".lz4";
         break;
     }
     default: {

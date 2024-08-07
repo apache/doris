@@ -41,6 +41,15 @@ public:
 
     faststring() : data_(initial_data_), len_(0), capacity_(kInitialCapacity) {}
 
+    faststring(faststring&& other) {
+        data_ = other.data_;
+        len_ = other.len_;
+        capacity_ = other.capacity_;
+        other.data_ = initial_data_;
+        other.len_ = 0;
+        other.capacity_ = kInitialCapacity;
+    }
+
     // Construct a string with the given capacity, in bytes.
     explicit faststring(size_t capacity)
             : data_(initial_data_), len_(0), capacity_(kInitialCapacity) {
