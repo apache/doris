@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -89,10 +88,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                     Plan left = PlanUtils.filterOrSelf(leftConjuncts, join.left());
                     Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
 
-                    return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            remainingOther, join.getMarkJoinConjuncts(), join.getDistributeHint(),
-                            join.getMarkJoinSlotReference(), left, right, join.getJoinReorderContext());
-
+                    return join.withOtherJoinConjunctsAndChildren(remainingOther, left, right);
                 }).toRule(RuleType.PUSH_DOWN_JOIN_OTHER_CONDITION);
     }
 

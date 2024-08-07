@@ -66,8 +66,7 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                 .build();
         join = join.withJoinConjuncts(
                 ImmutableList.of(),
-                ImmutableList.of(new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0))),
-                join.getJoinReorderContext());
+                ImmutableList.of(new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0))));
 
         Assertions.assertEquals(1, PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyExploration(JoinCommute.BUSHY.build())
