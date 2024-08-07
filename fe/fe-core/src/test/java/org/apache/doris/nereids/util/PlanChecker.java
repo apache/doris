@@ -555,7 +555,7 @@ public class PlanChecker {
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN));
-        nereidsPlanner.plan(adapter);
+        nereidsPlanner.planWithLock(adapter);
         consumer.accept(nereidsPlanner);
         return this;
     }
@@ -564,7 +564,7 @@ public class PlanChecker {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;
     }
