@@ -37,8 +37,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
@@ -1304,7 +1306,13 @@ public class PropertyAnalyzer {
         if (!Config.force_olap_table_replication_allocation.isEmpty()) {
             properties = forceRewriteReplicaAllocation(properties, prefix);
         }
-        return analyzeReplicaAllocationImpl(properties, prefix, true);
+        if (Config.check_resource_tag_when_creating_table) {
+            ReplicaAllocation replicaAllocation = analyzeReplicaAllocationImpl(properties, prefix, true);
+            checkUserHasTagAuthForReplicaAllocation(replicaAllocation);
+            return replicaAllocation;
+        } else {
+            return analyzeReplicaAllocationImpl(properties, prefix, true);
+        }
     }
 
     public static Map<String, String> forceRewriteReplicaAllocation(Map<String, String> properties,
@@ -1324,6 +1332,33 @@ public class PropertyAnalyzer {
         }
         properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
         return properties;
+    }
+
+    private static void checkUserHasTagAuthForReplicaAllocation(ReplicaAllocation replicaAllocation)
+             throws AnalysisException {
+        if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
+            String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
+            if (qualifiedUser.equalsIgnoreCase(Auth.ROOT_USER) || qualifiedUser.equalsIgnoreCase(Auth.ADMIN_USER)) {
+                return;
+            }
+            Set<Tag> tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+            if (tags == null || tags.isEmpty()) {
+                throw new AnalysisException(String.format("User [%s] doesn't have any tag auth.", qualifiedUser));
+            }
+            Set<Tag> allocationTags;
+            if (replicaAllocation.isNotSet()) {
+                allocationTags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
+            } else {
+                allocationTags = replicaAllocation.getAllocMap().keySet();
+            }
+            if (!tags.containsAll(allocationTags)) {
+                Set<Tag> missingTags = allocationTags.stream()
+                        .filter(tag -> !tags.contains(tag))
+                        .collect(Collectors.toSet());
+                throw new AnalysisException(
+                    String.format("User [%s] doesn't have tag auth: %s", qualifiedUser, missingTags));
+            }
+        }
     }
 
     // There are 2 kinds of replication property:
