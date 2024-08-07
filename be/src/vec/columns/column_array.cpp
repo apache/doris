@@ -382,7 +382,7 @@ void ColumnArray::insert(const Field& x) {
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     DCHECK_LT(n, src_.size());
-    const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
+    const ColumnArray& src = assert_cast<const ColumnArray&, TypeCheck::Disable>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
@@ -451,7 +451,7 @@ bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
 void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
-    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&, TypeCheck::Disable>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -484,7 +484,7 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
 void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                                     size_t length) {
-    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&, TypeCheck::Disable>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -580,17 +580,17 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
 
     auto res = ColumnArray::create(data->clone_empty());
 
-    auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
+    auto& res_elems = assert_cast<ColumnVector<T>&, TypeCheck::Disable>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
-    filter_arrays_impl<T, Offset64>(assert_cast<const ColumnVector<T>&>(*data).get_data(),
+    filter_arrays_impl<T, Offset64>(assert_cast<const ColumnVector<T>&, TypeCheck::Disable>(*data).get_data(),
                                     get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
 
 template <typename T>
 size_t ColumnArray::filter_number(const Filter& filter) {
-    return filter_arrays_impl<T, Offset64>(assert_cast<ColumnVector<T>&>(*data).get_data(),
+    return filter_arrays_impl<T, Offset64>(assert_cast<ColumnVector<T>&, TypeCheck::Disable>(*data).get_data(),
                                            get_offsets(), filter);
 }
 
@@ -794,12 +794,12 @@ size_t ColumnArray::filter_generic(const Filter& filter) {
 ColumnPtr ColumnArray::filter_nullable(const Filter& filt, ssize_t result_size_hint) const {
     if (get_offsets().empty()) return ColumnArray::create(data);
 
-    const ColumnNullable& nullable_elems = assert_cast<const ColumnNullable&>(*data);
+    const ColumnNullable& nullable_elems = assert_cast<const ColumnNullable&, TypeCheck::Disable>(*data);
 
     auto array_of_nested = ColumnArray::create(nullable_elems.get_nested_column_ptr(), offsets);
     auto filtered_array_of_nested_owner = array_of_nested->filter(filt, result_size_hint);
     const auto& filtered_array_of_nested =
-            assert_cast<const ColumnArray&>(*filtered_array_of_nested_owner);
+            assert_cast<const ColumnArray&, TypeCheck::Disable>(*filtered_array_of_nested_owner);
     const auto& filtered_offsets = filtered_array_of_nested.get_offsets_ptr();
 
     auto res_null_map = ColumnUInt8::create();
@@ -817,7 +817,7 @@ size_t ColumnArray::filter_nullable(const Filter& filter) {
         return 0;
     }
 
-    ColumnNullable& nullable_elems = assert_cast<ColumnNullable&>(*data);
+    ColumnNullable& nullable_elems = assert_cast<ColumnNullable&, TypeCheck::Disable>(*data);
     const auto result_size =
             filter_arrays_impl_only_data(nullable_elems.get_null_map_data(), get_offsets(), filter);
 
@@ -916,7 +916,7 @@ ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offset
 
     if (0 == col_size) return res;
 
-    ColumnArray& res_arr = assert_cast<ColumnArray&>(*res);
+    ColumnArray& res_arr = assert_cast<ColumnArray&, TypeCheck::Disable>(*res);
 
     const ColumnString& src_string = typeid_cast<const ColumnString&>(*data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
@@ -1019,7 +1019,7 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
     column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
-    ColumnArray& res_concrete = assert_cast<ColumnArray&>(*res);
+    ColumnArray& res_concrete = assert_cast<ColumnArray&, TypeCheck::Disable>(*res);
 
     if (0 == col_size) return res;
 
@@ -1037,7 +1037,7 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
 }
 
 ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offsets) const {
-    const ColumnNullable& nullable = assert_cast<const ColumnNullable&>(*data);
+    const ColumnNullable& nullable = assert_cast<const ColumnNullable&, TypeCheck::Disable>(*data);
 
     /// Make temporary arrays for each components of Nullable. Then replicate them independently and collect back to result.
     /// NOTE Offsets are calculated twice and it is redundant.
@@ -1051,9 +1051,9 @@ ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offs
 
     return ColumnArray::create(
             ColumnNullable::create(
-                    assert_cast<const ColumnArray&>(*array_of_nested).get_data_ptr(),
-                    assert_cast<const ColumnArray&>(*array_of_null_map).get_data_ptr()),
-            assert_cast<const ColumnArray&>(*array_of_nested).get_offsets_ptr());
+                    assert_cast<const ColumnArray&, TypeCheck::Disable>(*array_of_nested).get_data_ptr(),
+                    assert_cast<const ColumnArray&, TypeCheck::Disable>(*array_of_null_map).get_data_ptr()),
+            assert_cast<const ColumnArray&, TypeCheck::Disable>(*array_of_nested).get_offsets_ptr());
 }
 
 ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
