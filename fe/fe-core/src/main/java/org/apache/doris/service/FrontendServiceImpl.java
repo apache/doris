@@ -1842,6 +1842,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         try {
+            if (DebugPointUtil.isEnable("FrontendServiceImpl.loadTxnRollback.error")) {
+                throw new UserException("FrontendServiceImpl.loadTxnRollback.error");
+            }
             loadTxnRollbackImpl(request);
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
