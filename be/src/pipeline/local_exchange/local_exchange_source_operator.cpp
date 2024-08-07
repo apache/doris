@@ -56,7 +56,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         _exchanger->close(*this);
     }
     if (_shared_state) {
-        _shared_state->sub_running_source_operators();
+        _shared_state->sub_running_source_operators(*this);
     }
 
     return Base::close(state);
@@ -64,9 +64,8 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
 
 std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
-        deps.push_back(dep);
+    for (auto& dep : _shared_state->source_deps) {
+        deps.push_back(dep.get());
     }
     return deps;
 }
