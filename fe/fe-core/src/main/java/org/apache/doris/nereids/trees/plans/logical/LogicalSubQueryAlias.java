@@ -94,7 +94,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             List<String> originQualifier = originSlot.getQualifier();
 
             ArrayList<String> newQualifier = Lists.newArrayList(originQualifier);
-            if (!newQualifier.isEmpty()) {
+            if (newQualifier.size() >= qualifier.size()) {
                 for (int j = 0; j < qualifier.size(); j++) {
                     newQualifier.set(newQualifier.size() - qualifier.size() + j, qualifier.get(j));
                 }
