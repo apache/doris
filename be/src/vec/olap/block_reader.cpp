@@ -324,6 +324,8 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             target_block_row++;
         } else {
             merged_row++;
+            LOG(INFO) << "merged_row++";
+            LOG(INFO) << "merged_row:" << merged_row;
         }
 
         _append_agg_data(target_columns);
@@ -335,6 +337,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
+    LOG(INFO) << "_merged_rows:" << _merged_rows;
     return Status::OK();
 }
 
