@@ -696,7 +696,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
         PhysicalRelation relation = storageLayerAggregate.getRelation();
-        Preconditions.checkArgument(relation instanceof PhysicalOlapScan, "aaaa");
+        Preconditions.checkArgument(relation instanceof PhysicalOlapScan, "StorageLayerAggregate only support OlapTable");
         return relation.accept(this, context);
 
     }
