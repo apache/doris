@@ -1923,12 +1923,12 @@ public class Config extends ConfigBase {
 
     /**
      * Maximum backend heartbeat failure tolerance count.
-     * Default is 3, which means if 3 heart failed, the backend will be marked as dead.
+     * Default is 1, which means if 1 heart failed, the backend will be marked as dead.
      * A larger value can improve the tolerance of the cluster to occasional heartbeat failures.
      * For example, when running regression tests, this value can be increased.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long max_backend_heartbeat_failure_tolerance_count = 3;
+    public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
     /**
      * Abort transaction time after lost heartbeat.
