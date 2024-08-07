@@ -82,7 +82,7 @@ suite("test_apsarad_internal_stage_copy_into") {
         strBuilder.append(""" -H fileName:""" + remoteFilePath)
         strBuilder.append(""" -H host:""" + "private")
         strBuilder.append(""" -T """ + localFilePath)
-        def feHttpAddress = context.config.isDorisEnv ? context.config.feHttpAddress : context.config.feCloudHttpAddress
+        def feHttpAddress = context.config.feHttpAddress
         strBuilder.append(""" -L http://""" + feHttpAddress + """/copy/upload""")
 
         String command = strBuilder.toString()
@@ -140,7 +140,7 @@ suite("test_apsarad_internal_stage_copy_into") {
     logger.info("cloud_delete_loaded_internal_stage_files=" + cloud_delete_loaded_internal_stage_files)
 
     try {
-        setFeConfig('apsaradb_env_enabled', true)
+        setFeConfig('security_checker_class_name', 'com.aliyun.securitysdk.SecurityUtil')
         def fileName = "internal_customer.csv"
         def filePath = "${context.config.dataPath}/cloud/copy_into/" + fileName
         def remoteFileName = fileName + "test_apsaradb_internal_stage"
@@ -176,7 +176,7 @@ suite("test_apsarad_internal_stage_copy_into") {
         }
 
     } finally {
-        setFeConfig('apsaradb_env_enabled', false)
+        setFeConfig('security_checker_class_name', '')
         sql """ DROP TABLE IF EXISTS ${tableName}; """
     }
 }

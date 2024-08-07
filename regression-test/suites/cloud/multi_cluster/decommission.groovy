@@ -105,7 +105,7 @@ suite("decommission") {
     """
 
     sleep(20000)
-    setFeConfig("balance_tablet_percent_per_run", 0.5)
+    setFeConfig("cloud_balance_tablet_percent_per_run", 0.5)
 
     sql """ use @regression_cluster_name0 """
 
@@ -141,7 +141,7 @@ suite("decommission") {
         assertTrue(Integer.valueOf((String) row[1]) == 0 || Integer.valueOf((String) row[1]) == 48)
     }
 
-    setFeConfig("balance_tablet_percent_per_run", 0.05)
+    setFeConfig("cloud_balance_tablet_percent_per_run", 0.05)
     sql """ drop table IF EXISTS table100 """
     sql """ drop table IF EXISTS table_p2 """
 }

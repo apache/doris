@@ -153,20 +153,20 @@ suite("table_rebalance") {
 
     }
 
-    def balance_tablet_percent_per_run = 0.5
-    for (def enable_global_balance in [false, true]) {
-        for (def preheating_enabled in [false, true]) {
-            log.info("test table rebalance with balance_tablet_percent_per_run=${balance_tablet_percent_per_run}, " 
-                    + "enable_global_balance=${enable_global_balance}, preheating_enabled=${preheating_enabled}")
+    def cloud_balance_tablet_percent_per_run = 0.5
+    for (def enable_cloud_global_balance in [false, true]) {
+        for (def enable_cloud_warm_up_for_rebalance in [false, true]) {
+            log.info("test table rebalance with cloud_balance_tablet_percent_per_run=${cloud_balance_tablet_percent_per_run}, " 
+                    + "enable_cloud_global_balance=${enable_cloud_global_balance}, enable_cloud_warm_up_for_rebalance=${enable_cloud_warm_up_for_rebalance}")
             try {
-                setFeConfig('balance_tablet_percent_per_run', balance_tablet_percent_per_run)
-                setFeConfig('enable_global_balance', enable_global_balance)
-                setFeConfig('preheating_enabled', preheating_enabled)
+                setFeConfig('cloud_balance_tablet_percent_per_run', cloud_balance_tablet_percent_per_run)
+                setFeConfig('enable_cloud_global_balance', enable_cloud_global_balance)
+                setFeConfig('enable_cloud_warm_up_for_rebalance', enable_cloud_warm_up_for_rebalance)
                 testFunc.call()
             } finally {
-                setFeConfig('balance_tablet_percent_per_run', 0.05)
-                setFeConfig('enable_global_balance', true)
-                setFeConfig('preheating_enabled', true)
+                setFeConfig('cloud_balance_tablet_percent_per_run', 0.05)
+                setFeConfig('enable_cloud_global_balance', true)
+                setFeConfig('enable_cloud_warm_up_for_rebalance', true)
             }
         }
     }

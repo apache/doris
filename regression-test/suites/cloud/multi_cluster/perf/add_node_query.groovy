@@ -242,7 +242,7 @@ suite("add_node_query") {
     println("isBalanced: " + isBalanced);
 
     // test decommission
-    //sql """ admin set frontend config("preheating_enabled"="false"); """
+    //sql """ admin set frontend config("enable_cloud_warm_up_for_rebalance"="false"); """
 
     add_node.call(beUniqueIdList[2], ipList[2], hbPortList[2],
                   "regression_cluster_name0", "regression_cluster_id0");

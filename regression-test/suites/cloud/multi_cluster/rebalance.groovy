@@ -116,10 +116,8 @@ suite("rebalance") {
     """
 
     wait_cluster_change()
-    setFeConfig('balance_tablet_percent_per_run', 0.5)
-    if (context.config.isDorisEnv) {
-        setFeConfig('pre_heating_time_limit_sec', 1)
-    }
+    setFeConfig('cloud_balance_tablet_percent_per_run', 0.5)
+    setFeConfig('cloud_pre_heating_time_limit_sec', 1)
 
     add_node.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                   "regression_cluster_name0", "regression_cluster_id0");
@@ -177,7 +175,7 @@ suite("rebalance") {
         assertTrue(Integer.valueOf((String) row[1]) <= 2 && Integer.valueOf((String) row[1]) >= 1)
     }
 
-    setFeConfig('balance_tablet_percent_per_run', 0.05)
+    setFeConfig('cloud_balance_tablet_percent_per_run', 0.05)
     sql """ drop table IF EXISTS table100 """
     sql """ drop table IF EXISTS table_p2 """
 }

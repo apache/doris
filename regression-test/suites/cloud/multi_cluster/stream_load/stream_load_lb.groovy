@@ -162,7 +162,7 @@ suite("stream_load_lb") {
     sleep(30000)
 
     try {
-        setFeConfig('apsaradb_env_enabled', true)
+        setFeConfig('security_checker_class_name', 'com.aliyun.securitysdk.SecurityUtil')
 
         // case4 apsaradb public endpoint
         streamLoad {
@@ -218,7 +218,7 @@ suite("stream_load_lb") {
         order_qt_q9 "SELECT count(*) FROM ${tableName3}" // 20
         order_qt_q10 "SELECT count(*) FROM ${tableName3} where k1 <= 10"  // 11
     } finally {
-        setFeConfig('apsaradb_env_enabled', false)
+        setFeConfig('security_checker_class_name', '')
     }
     } finally {
         sql """ drop table if exists ${tableName3} """
