@@ -624,8 +624,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 () -> analyzer.analyzeToSet(project.getExcepts()));
 
         List<NamedExpression> replaces = project.getReplaces();
-        Supplier<Set<NamedExpression>> boundReplaces = Suppliers.memoize(
-                () -> analyzer.analyzeToSet(project.getReplaces()));
+        Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                () -> analyzer.analyzeToList(project.getReplaces()));
 
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
         StatementContext statementContext = ctx.statementContext;
@@ -637,38 +637,32 @@ public class BindExpression implements AnalysisRuleFactory {
                 BoundStar boundStar = (BoundStar) expr;
                 List<Slot> slots = boundStar.getSlots();
                 if (!excepts.isEmpty()) {
-                    slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
+                    slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains((Slot) slot));
                 }
                 if (!replaces.isEmpty()) {
-                    final Map<String, NamedExpression> replaceMap = new HashMap<>();
-                    final Set<String> replaced = new HashSet<>();
+                    final Map<Expression, Expression> replaceMap = new HashMap<>();
+                    final Set<Expression> replaced = new HashSet<>();
                     for (NamedExpression replace : boundReplaces.get()) {
                         Preconditions.checkArgument(replace instanceof Alias);
                         Alias alias = (Alias) replace;
-                        if (replaceMap.containsKey(alias.getName())) {
+                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
+                        Expression slot = analyzer.analyze(unboundSlot);
+                        if (replaceMap.containsKey(slot)) {
                             throw new AnalysisException("Duplicate replace column name: " + alias.getName());
                         }
-                        replaceMap.put(alias.getName(), alias);
+                        replaceMap.put(slot, alias);
                     }
 
-                    if (!excepts.isEmpty()) {
-                        Set<String> exceptNames = boundExcepts.get().stream()
-                                .map(NamedExpression::getName)
-                                .collect(Collectors.toSet());
-                        for (String replaceName : replaceMap.keySet()) {
-                            if (exceptNames.contains(replaceName)) {
-                                throw new AnalysisException("Replace column name: " + replaceName + " is in excepts");
-                            }
-                        }
+                    Collection c = CollectionUtils.intersection(boundExcepts.get(), replaceMap.keySet());
+                    if (!c.isEmpty()) {
+                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
                     }
-
-                    for (Slot slot : slots) {
-                        if (replaceMap.containsKey(slot.getName())) {
-                            replaced.add(slot.getName());
-                            boundProjections.add(replaceMap.get(slot.getName()));
-                        } else {
-                            boundProjections.add(slot);
+                    for (Slot s : slots) {
+                        Expression e = ExpressionUtils.replace(s, replaceMap);
+                        if (s != e) {
+                            replaced.add(s);
                         }
+                        boundProjections.add((NamedExpression) e);
                     }
 
                     if (replaced.size() != replaceMap.size()) {

@@ -75,10 +75,19 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
         Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(sql3));
 
-        // replace with same name
+        // duplicate replace column
         String sql4 = "select * replace (1 as k1, 2 as k1) from t1";
         Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(sql4));
+
+        String sql5 = "select * replace (1 as k1) from t1, t1 t1_copy";
+        Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql5));
+
+        // Unknown column
+        String sql6 = "select * replace (1 as fake) from t1";
+        Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql6));
     }
 
     @Test
