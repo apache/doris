@@ -321,38 +321,8 @@ int64_t Compaction::merge_way_num() {
     for (auto&& rowset : _input_rowsets) {
         way_num += rowset->rowset_meta()->get_merge_way_num();
     }
-
-<<<<<<< HEAD
+    
     return way_num;
-=======
-    auto* data_dir = tablet()->data_dir();
-    int64_t permits = get_compaction_permits();
-    data_dir->disks_compaction_score_increment(permits);
-    data_dir->disks_compaction_num_increment(1);
-
-    auto record_compaction_stats = [&](const doris::Exception& ex) {
-        _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
-        data_dir->disks_compaction_score_increment(-permits);
-        data_dir->disks_compaction_num_increment(-1);
-    };
-
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
-    record_compaction_stats(doris::Exception());
-
-    if (enable_compaction_checksum) {
-        EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
-                                         _input_rowsets.back()->end_version(), &checksum_after);
-        RETURN_IF_ERROR(checksum_task.execute());
-        if (checksum_before != checksum_after) {
-            return Status::InternalError(
-                    "compaction tablet checksum not consistent, before={}, after={}, tablet_id={}",
-                    checksum_before, checksum_after, _tablet->tablet_id());
-        }
-    }
-
-    _load_segment_to_cache();
-    return Status::OK();
->>>>>>> d5ae44635e (add try catch for schema change action and compaction)
 }
 
 Status Compaction::do_compaction_impl(int64_t permits) {
@@ -1232,96 +1202,6 @@ void Compaction::set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets) {
 RowsetSharedPtr Compaction::output_rowset() {
     return _output_rowset;
 }
-<<<<<<< HEAD
 #endif
-=======
 
-CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
-                                           const std::string& label)
-        : Compaction(tablet, label), _engine(engine) {}
-
-Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
-    OlapStopWatch watch;
-
-    build_basic_info();
-
-    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
-              << ", output_version=" << _output_version << ", permits: " << permits;
-
-    RETURN_IF_ERROR(merge_input_rowsets());
-
-    RETURN_IF_ERROR(do_inverted_index_compaction());
-
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
-
-    // 4. modify rowsets in memory
-    RETURN_IF_ERROR(modify_rowsets());
-
-    return Status::OK();
-}
-
-Status CloudCompactionMixin::execute_compact() {
-    TEST_INJECTION_POINT("Compaction::do_compaction");
-    int64_t permits = get_compaction_permits();
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
-                                        [&](const doris::Exception& ex) { garbage_collection(); });
-    _load_segment_to_cache();
-    return Status::OK();
-}
-
-Status CloudCompactionMixin::modify_rowsets() {
-    return Status::OK();
-}
-
-Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (config::inverted_index_compaction_enable &&
-        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-           _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
-        construct_skip_inverted_index(ctx);
-    }
-
-    // Use the storage resource of the previous rowset
-    ctx.storage_resource =
-            *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
-
-    ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
-                 std::numeric_limits<int64_t>::max(); // MUST be positive
-    ctx.txn_expiration = _expiration;
-
-    ctx.version = _output_version;
-    ctx.rowset_state = VISIBLE;
-    ctx.segments_overlap = NONOVERLAPPING;
-    ctx.tablet_schema = _cur_tablet_schema;
-    ctx.newest_write_timestamp = _newest_write_timestamp;
-    ctx.write_type = DataWriteType::TYPE_COMPACTION;
-
-    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    ctx.compaction_level =
-            _engine.cumu_compaction_policy(compaction_policy)->new_compaction_level(_input_rowsets);
-
-    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
-    ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
-    _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
-    return Status::OK();
-}
-
-void CloudCompactionMixin::garbage_collection() {
-    if (!config::enable_file_cache) {
-        return;
-    }
-    if (_output_rs_writer) {
-        auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
-        DCHECK(beta_rowset_writer);
-        for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
-            auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
-            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-            file_cache->remove_if_cached(file_key);
-        }
-    }
-}
-
->>>>>>> d5ae44635e (add try catch for schema change action and compaction)
 } // namespace doris
