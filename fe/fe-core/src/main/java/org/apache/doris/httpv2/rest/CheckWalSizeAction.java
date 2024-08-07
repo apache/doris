@@ -69,13 +69,11 @@ public class CheckWalSizeAction extends RestBaseController {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
         } else {
-            String[] hostPortArr;
-            List<HostInfo> hostInfos = new ArrayList<>();
-            hostPortArr = hostPorts.split(",");
+            String[] hostPortArr = hostPorts.split(",");
             if (hostPortArr.length == 0) {
                 return ResponseEntityBuilder.badRequest("No host:port specified");
             }
-            hostInfos = Lists.newArrayList();
+            List<HostInfo> hostInfos = new ArrayList<>();
             for (String hostPort : hostPortArr) {
                 try {
                     HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
