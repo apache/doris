@@ -127,7 +127,9 @@ public class PlanReceiver implements AbstractReceiver {
         }
         Group group = planTable.get(fullKey);
         CopyInResult copyInResult = memo.copyIn(logicalPlan, group, false, planTable);
-        proposeAllDistributedPlans(copyInResult.correspondingExpression);
+        if (copyInResult.generateNewExpression) {
+            proposeAllDistributedPlans(copyInResult.correspondingExpression);
+        }
 
         return true;
     }

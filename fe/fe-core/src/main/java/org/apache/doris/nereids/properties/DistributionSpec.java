@@ -45,7 +45,7 @@ public abstract class DistributionSpec {
         PhysicalDistribute<GroupPlan> distribution = new PhysicalDistribute<>(
                 this,
                 new GroupPlan(child));
-        return new GroupExpression(distribution, Lists.newArrayList(child));
+        return new GroupExpression(distribution, Lists.newArrayList(child), true);
     }
 
     @Override

@@ -338,7 +338,7 @@ public class Memo {
         }
 
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups, true);
         Group group = new Group(groupIdGenerator.getNextId(), newGroupExpression, plan.getLogicalProperties());
 
         groups.put(group.getGroupId(), group);
@@ -401,7 +401,7 @@ public class Memo {
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
 
         // try to create a new group expression
-        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups, true);
 
         // slow check the groupExpression/plan whether exists in the memo
         GroupExpression existedExpression = groupExpressions.get(newGroupExpression);
@@ -458,8 +458,9 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
-        return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties(), planTable);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups, false);
+        return insertGroupExpression(newGroupExpression, targetGroup, childrenGroups,
+                plan.getLogicalProperties(), planTable);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -504,7 +505,7 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult insertGroupExpression(GroupExpression groupExpression, Group target,
-            LogicalProperties logicalProperties, HashMap<Long, Group> planTable) {
+            List<Group> childrenGroups, LogicalProperties logicalProperties, HashMap<Long, Group> planTable) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
@@ -515,6 +516,8 @@ public class Memo {
             groupExpression.children().forEach(childGroup -> childGroup.removeParentExpression(groupExpression));
             return CopyInResult.of(false, existedGroupExpression);
         }
+        // init the parent expression of groupExpression
+        groupExpression.initParentExpression(childrenGroups);
         if (target != null) {
             target.addGroupExpression(groupExpression);
         } else {
