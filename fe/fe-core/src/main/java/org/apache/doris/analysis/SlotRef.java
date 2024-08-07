@@ -680,5 +680,7 @@ public class SlotRef extends Expr {
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        analysisDone();
     }
 }
