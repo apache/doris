@@ -28,7 +28,7 @@ suite("test_match_without_index", "p0") {
           `status` string NULL COMMENT "",
           `size` int NULL COMMENT "",
            INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-            INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT '',
+            INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="unicode", "lower_case" = "false") COMMENT '',
             INDEX status_idx (`status`) USING INVERTED COMMENT '',
             INDEX size_idx (`size`) USING INVERTED COMMENT ''
           ) ENGINE=OLAP
@@ -41,6 +41,7 @@ suite("test_match_without_index", "p0") {
       """
 
     sql """ INSERT INTO ${testTable} VALUES (123, '17.0.0.0', 'HTTP GET', '200', 20); """
+    sql """ INSERT INTO ${testTable} VALUES (123, '17.0.0.0', 'Life is like a box of chocolates, you never know what you are going to get.', '200', 20); """
     // sql """ """
 
     List<Object> match_res_without_index = new ArrayList<>();
@@ -48,6 +49,10 @@ suite("test_match_without_index", "p0") {
     def create_sql = {
         List<String> list = new ArrayList<>()
         list.add(" select count() from ${testTable} where clientip match_phrase '17' ");
+        list.add(" select count() from ${testTable} where clientip match_all '17' ");
+        list.add(" select count() from ${testTable} where clientip match_any '17' ");
+        list.add(" select count() from ${testTable} where request match_any 'get' ");
+        list.add(" select count() from ${testTable} where request match_phrase_prefix 'like box' ");
         return list;
     }
 
@@ -65,7 +70,7 @@ suite("test_match_without_index", "p0") {
                 logger.info("sql is {}", executedSql[i])
                 logger.info("match_res_without_index is {}", match_res_without_index[i])
                 logger.info("match_res_with_index is {}", match_res_with_index[i])
-                assertTrue(False)
+                assertTrue(false)
             }
         }
     }
