@@ -303,6 +303,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
+
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
@@ -348,9 +349,10 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
         // If the `max_scanners_count` was not set,
-        // use `config::doris_scanner_thread_pool_thread_num` as the default value.
+        // use `config::doris_scanner_thread_pool_thread_num * 3` as the default value.
         if (max_scanners_count <= 0) {
-            max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            max_scanners_count = config::doris_scanner_thread_pool_thread_num * 3 /
+                                 state()->query_parallel_instance_num();
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.

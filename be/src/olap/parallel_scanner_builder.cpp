@@ -41,6 +41,7 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
+    int loc = 0;
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_rowsets.contains(tablet->tablet_id()));
         auto& rowsets = _all_rowsets[tablet->tablet_id()];
@@ -61,6 +62,16 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
         TabletReader::ReadSource read_source;
 
         int64_t rows_collected = 0;
+        auto split_count = _tablets_rows[loc] / _rows_per_scanner;
+        auto left = _tablets_rows[loc] % _rows_per_scanner;
+        split_count += left > 0 ? 1 : 0;
+
+        int64_t rows_per_scanner =
+                left == 0 || left / _rows_per_scanner >= 0.5
+                        ? _rows_per_scanner
+                        : _tablets_rows[loc] / std::max((long)split_count - 1, 1l);
+        loc++;
+
         for (auto& rowset : rowsets) {
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             RowsetReaderSharedPtr reader;
@@ -87,7 +98,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                 // try to split large segments into RowRanges
                 while (offset_in_segment < rows_of_segment) {
                     const int64_t remaining_rows = rows_of_segment - offset_in_segment;
-                    auto rows_need = _rows_per_scanner - rows_collected;
+                    auto rows_need = rows_per_scanner - rows_collected;
 
                     // 0.9: try to avoid splitting the segments into excessively small parts.
                     if (rows_need >= remaining_rows * 0.9) {
@@ -102,7 +113,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                     offset_in_segment += rows_need;
 
                     // If collected enough rows, build a new scanner
-                    if (rows_collected >= _rows_per_scanner) {
+                    if (rows_collected >= rows_per_scanner) {
                         split.segment_offsets.first = segment_start,
                         split.segment_offsets.second = i + 1;
                         split.segment_row_ranges.emplace_back(std::move(row_ranges));
@@ -111,7 +122,6 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                                   split.segment_row_ranges.size());
 
                         read_source.rs_splits.emplace_back(std::move(split));
-
                         scanners.emplace_back(
                                 _build_scanner(tablet, version, _key_ranges,
                                                {std::move(read_source.rs_splits),
@@ -134,7 +144,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                 }
             }
 
-            DCHECK_LE(rows_collected, _rows_per_scanner);
+            DCHECK_LE(rows_collected, rows_per_scanner);
             if (rows_collected > 0) {
                 split.segment_offsets.first = segment_start;
                 split.segment_offsets.second = segments.size();
@@ -145,7 +155,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
             }
         } // end `for (auto& rowset : rowsets)`
 
-        DCHECK_LE(rows_collected, _rows_per_scanner);
+        DCHECK_LE(rows_collected, rows_per_scanner);
         if (rows_collected > 0) {
             DCHECK_GT(read_source.rs_splits.size(), 0);
 #ifndef NDEBUG
@@ -162,7 +172,6 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                                     reade_source_with_delete_info.delete_predicates}));
         }
     }
-
     return Status::OK();
 }
 
@@ -170,7 +179,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  * Load rowsets of each tablet with specified version, segments of each rowset.
  */
 Status ParallelScannerBuilder::_load() {
-    _total_rows = 0;
+    _tablets_rows.resize(_tablets.size());
+    int i = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& rowsets = _all_rowsets[tablet_id];
@@ -193,10 +203,12 @@ Status ParallelScannerBuilder::_load() {
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
                     enable_segment_cache, false, disable_file_cache));
-            _total_rows += rowset->num_rows();
+            _tablets_rows[i] += rowset->num_rows();
         }
+        ++i;
     }
 
+    _total_rows = std::accumulate(_tablets_rows.begin(), _tablets_rows.end(), 0l);
     _rows_per_scanner = _total_rows / _max_scanners_count;
     _rows_per_scanner = std::max<size_t>(_rows_per_scanner, _min_rows_per_scanner);
 

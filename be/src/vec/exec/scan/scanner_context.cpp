@@ -75,7 +75,7 @@ ScannerContext::ScannerContext(
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
     _max_thread_num = _state->num_scanner_threads() > 0
                               ? _state->num_scanner_threads()
-                              : config::doris_scanner_thread_pool_thread_num /
+                              : config::doris_scanner_thread_pool_thread_num * 3 /
                                         (_local_state ? num_parallel_instances
                                                       : state->query_parallel_instance_num());
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;

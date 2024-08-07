@@ -89,6 +89,7 @@ private:
     bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
+    std::vector<size_t> _tablets_rows;
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
 };
