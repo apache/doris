@@ -397,6 +397,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     Status result_status;
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
                     { status = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.load_error",
+                    { status = Status::InternalError("load_error"); });
     if (status.ok()) {
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
                         { status = Status::InternalError(""); });
@@ -425,6 +427,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 },
                 10000L);
         result_status = Status::create(result.status);
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_success_and_rpc_error",
+                        { result_status = Status::InternalError("commit_success_and_rpc_error"); });
     } else {
         // abort txn
         TLoadTxnRollbackRequest request;
