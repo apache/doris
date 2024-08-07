@@ -678,8 +678,10 @@ public class MasterImpl {
                                 request.getReportVersion(),
                                         calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
                                                 request.getRespPartitions().toString());
-                calcDeleteBitmapTask.countDownToZero(TStatusCode.INTERNAL_ERROR, "get staled response from backend "
-                        + task.getBackendId() + ", report version: " + request.getReportVersion());
+                // DELETE_BITMAP_LOCK_ERROR will be retried
+                calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
+                        "get staled response from backend " + task.getBackendId() + ", report version: "
+                                + request.getReportVersion());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {
