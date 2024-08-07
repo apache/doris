@@ -122,6 +122,7 @@ suite("rebalance") {
     add_node.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                   "regression_cluster_name0", "regression_cluster_id0");
     wait_cluster_change()
+    sleep(100000)
 
     sql """ use @regression_cluster_name0 """
 

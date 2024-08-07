@@ -74,9 +74,17 @@ suite("test_retry_e-230") {
 
     try {
         // set be debug point
-        // curl "127.0.0.1:11101/api/injection_point/set/Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230"
+        // curl "127.0.0.1:11101/api/injection_point/set?Tablet::cloud_capture_rs_readers&behavior=return_error&code=-230"
         for (def i = 0; i < ipList.size(); i++) {
             curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set?name=Tablet::cloud_capture_rs_readers&behavior=return_error&code=-230")
+        }
+
+        List<List<Object>> sc = sql """show clusters"""
+        logger.info("show clusters {}", sc)
+        if (sc.size() == 0) {
+            add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
+                        "regression_cluster_name0", "regression_cluster_id0");
+            wait_cluster_change()
         }
 
         sql """
@@ -157,7 +165,7 @@ suite("test_retry_e-230") {
 
         // dp again
         for (def i = 0; i < ipList.size(); i++) {
-            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set?name=Tablet::cloud_capture_rs_readers?behavior=return_error&code=-230")
+            curlBeDebugPoint.call("${ipList[i]}:${httpPortList[i]}", "/api/injection_point/set?name=Tablet::cloud_capture_rs_readers&behavior=return_error&code=-230")
         }
 
         def futrue3 = thread {
