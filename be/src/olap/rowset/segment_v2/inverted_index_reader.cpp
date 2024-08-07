@@ -205,6 +205,13 @@ Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
+            bool open_idx_file_cache = true;
+            auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                        open_idx_file_cache);
+            if (!st.ok()) {
+                LOG(WARNING) << st;
+                return st;
+            }
             auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
             dir = directory.release();
             owned_dir = true;
