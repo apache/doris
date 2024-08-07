@@ -133,7 +133,7 @@ suite('test_cast', "arrow_flight_sql") {
 
     test {
         sql "select * from ${tbl} where case when k0 = 101 then '12' else 0 end"
-        result([])
+        result([[101]])
     }
 
     test {

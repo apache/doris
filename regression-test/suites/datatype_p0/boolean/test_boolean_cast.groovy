@@ -25,7 +25,7 @@ suite("test_boolean_cast", "datatype_p0") {
         ) DUPLICATE KEY(k) DISTRIBUTED BY HASH (k) BUCKETS 1 PROPERTIES ('replication_num' = '1');"""
     
     sql """insert into ${tableName} select 1, 1024, 1073741824, 'abc', '2020-01-01', '2020-01-01 10:10:10', 1024.1024, 1024.1024, '127.0.0.1';"""
-    sql """insert into ${tableName} select 2, 0, 0, '0', '0000-00-00', '0000-00-00 00:00:00', 0.00, 0.00, '0.0.0.0';"""
+    sql """insert into ${tableName} select 2, 0, 0, '0', '1970-01-01', '1970-01-01 00:00:00', 0.00, 0.00, '0.0.0.0';"""
 
     qt_select """select k, cast(v0 as boolean), cast(v1 as boolean),
     cast(v2 as boolean), cast(v3 as boolean), cast(v4 as boolean), 
