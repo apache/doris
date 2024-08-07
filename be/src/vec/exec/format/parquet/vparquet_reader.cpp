@@ -941,13 +941,13 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         bool ignore_min_max_stats = false;
         // Min-max of statistic is plain-encoded value
         if (statistic.__isset.min_value && statistic.__isset.max_value) {
-            ColumnOrderName columnOrder =
+            ColumnOrderName column_order =
                     col_schema->physical_type == tparquet::Type::INT96 ||
                                     col_schema->parquet_schema.logicalType.__isset.UNKNOWN
                             ? ColumnOrderName::UNDEFINED
                             : ColumnOrderName::TYPE_DEFINED_ORDER;
             if ((statistic.min_value != statistic.max_value) &&
-                (columnOrder != ColumnOrderName::TYPE_DEFINED_ORDER)) {
+                (column_order != ColumnOrderName::TYPE_DEFINED_ORDER)) {
                 ignore_min_max_stats = true;
             }
             *filter_group = ParquetPredicate::filter_by_stats(
@@ -959,9 +959,22 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
 
                 SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
                 bool sort_orders_match = SortOrder::SIGNED == sort_order;
-                if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
-                                                                col_schema->physical_type)) {
-                    VLOG_DEBUG << "Ignoring corrupt statistics in " << _file_description.path;
+                if (!sort_orders_match && !max_equals_min) {
+                    ignore_min_max_stats = true;
+                }
+                bool should_ignore_corrupted_stats = false;
+                if (_ignored_stats.count(col_schema->physical_type) == 0) {
+                    if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
+                                                                    col_schema->physical_type)) {
+                        _ignored_stats[col_schema->physical_type] = true;
+                        should_ignore_corrupted_stats = true;
+                    } else {
+                        _ignored_stats[col_schema->physical_type] = false;
+                    }
+                } else if (_ignored_stats[col_schema->physical_type]) {
+                    should_ignore_corrupted_stats = true;
+                }
+                if (should_ignore_corrupted_stats) {
                     ignore_min_max_stats = true;
                 } else if (!sort_orders_match && !max_equals_min) {
                     ignore_min_max_stats = true;
