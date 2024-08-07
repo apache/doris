@@ -164,9 +164,9 @@ public class NereidsPlanner extends Planner {
     }
 
     @VisibleForTesting
-    public void planWithLock(StatementBase queryStmt) {
+    public void plan(StatementBase queryStmt) {
         try {
-            planWithLock(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
+            plan(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
         } catch (Exception e) {
             throw new NereidsException(e.getMessage(), e);
         }

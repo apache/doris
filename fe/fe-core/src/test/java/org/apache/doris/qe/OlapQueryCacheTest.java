@@ -511,7 +511,7 @@ public class OlapQueryCacheTest {
             StatementContext statementContext = new StatementContext(ctx, originStatement);
             NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
             LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, statementContext);
-            nereidsPlanner.planWithLock(adapter);
+            nereidsPlanner.plan(adapter);
             statementContext.setParsedStatement(adapter);
             stmt = adapter;
         } catch (Throwable throwable) {
