@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.UseDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -177,6 +178,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropCatalogRecycleBinCommand(DropCatalogRecycleBinCommand dropCatalogRecycleBinCommand, C context) {
         return visitCommand(dropCatalogRecycleBinCommand, context);
+    }
+
+    default R visitUseDatabaseCommand(UseDatabaseCommand userDatabaseCommand, C context) {
+        return visitCommand(userDatabaseCommand, context);
     }
 
     default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
