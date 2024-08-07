@@ -264,7 +264,8 @@ private:
     std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>
             _inverted_index_result_bitmap;
     std::unordered_map<const vectorized::VExpr*, ColumnPtr> _inverted_index_result_column;
-    std::unordered_map<std::string, segment_v2::InvertedIndexIterator*> _inverted_index_iterators_by_col_name;
+    std::unordered_map<std::string, segment_v2::InvertedIndexIterator*>
+            _inverted_index_iterators_by_col_name;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
             _storage_name_and_type_by_col_name;

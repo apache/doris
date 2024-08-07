@@ -24,7 +24,56 @@
 #include "util/debug_points.h"
 
 namespace doris::vectorized {
+Status FunctionMatchBase::evaluate_inverted_index(
+        const ColumnsWithTypeAndName& arguments,
+        const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+        segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    DCHECK(arguments.size() == 1);
+    if (iter == nullptr) {
+        return Status::OK();
+    }
+    if (get_name() == "match_phrase" || get_name() == "match_phrase_prefix" ||
+        get_name() == "match_phrase_edge") {
+        if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
+            get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                    "phrase queries require setting support_phrase = true");
+        }
+    }
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    Field param_value;
+    arguments[0].column->get(0, param_value);
+    auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+    std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+    RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
+                                                                       query_param));
+    if (is_string_type(param_type)) {
+        auto inverted_index_query_type = get_query_type_from_fn_name();
+        RETURN_IF_ERROR(
+                iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
+                                               inverted_index_query_type, num_rows, roaring));
+    } else {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
+                param_type);
+    }
 
+    if (iter->has_null()) {
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = std::move(result);
+    } else {
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = std::move(result);
+    }
+
+    return Status::OK();
+}
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
                                        size_t input_rows_count) const {
