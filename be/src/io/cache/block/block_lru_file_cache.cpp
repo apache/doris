@@ -203,19 +203,7 @@ FileBlocks LRUFileCache::get_impl(const Key& key, const CacheContext& context,
     /// find list [segment1, ..., segmentN] of segments which intersect with given range.
     auto it = _files.find(key);
     if (it == _files.end()) {
-        if (_lazy_open_done) {
-            return {};
-        }
-        // FileCacheKey key;
-        // key.hash = hash;
-        // key.meta.type = context.cache_type;
-        // key.meta.expiration_time = context.expiration_time;
-        // _storage->load_blocks_directly_unlocked(this, key, cache_lock);
-
-        it = _files.find(hash);
-        if (it == _files.end()) [[unlikely]] {
-            return {};
-        }
+        return {};
     }
 
     const auto& file_blocks = it->second;
@@ -394,6 +382,16 @@ void LRUFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, co
 
 FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t size,
                                           const CacheContext& context) {
+    if (!_lazy_open_done) {
+        // Cache is not ready yet
+        LOG(WARNING) << std::format(
+                "Cache is not ready yet, skip cache for key: {}, offset: {}, size: {}.",
+                key.to_string(), offset, size);
+        FileBlocks file_blocks = {std::make_shared<FileBlock>(
+                offset, size, key, this, FileBlock::State::SKIP_CACHE, context.cache_type)};
+        return FileBlocksHolder(std::move(file_blocks));
+    }
+
     FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
