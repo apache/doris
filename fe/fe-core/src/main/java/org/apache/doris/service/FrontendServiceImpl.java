@@ -66,6 +66,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -285,7 +286,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
@@ -3519,7 +3519,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         OlapTable olapTable = (OlapTable) table;
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
-        ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
+        MonitoredReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
         if (taskLock == null) {
             errorStatus.setErrorMsgs(Lists
                     .newArrayList(new String("cannot find task group " + taskGroupId + ", maybe already failed.")));

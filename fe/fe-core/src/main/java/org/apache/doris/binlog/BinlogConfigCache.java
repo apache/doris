@@ -22,23 +22,23 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BinlogConfigCache {
     private static final Logger LOG = LogManager.getLogger(BinlogConfigCache.class);
 
     private Map<Long, BinlogConfig> dbTableBinlogEnableMap; // db or table all use id
-    private ReentrantReadWriteLock lock;
+    private MonitoredReentrantReadWriteLock lock;
 
     public BinlogConfigCache() {
         dbTableBinlogEnableMap = new HashMap<Long, BinlogConfig>();
-        lock = new ReentrantReadWriteLock();
+        lock = new MonitoredReentrantReadWriteLock();
     }
 
     // Get the binlog config of the specified db, return null if no such database

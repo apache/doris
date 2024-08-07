@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -40,7 +41,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public abstract class Resource implements Writable, GsonPostProcessable {
@@ -94,7 +94,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     @SerializedName(value = "version")
     protected long version = -1;
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     public void writeLock() {
         lock.writeLock().lock();

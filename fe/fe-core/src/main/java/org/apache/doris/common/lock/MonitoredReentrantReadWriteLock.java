@@ -29,6 +29,14 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
     private final AbstractMonitoredLock writeLockMonitor = new AbstractMonitoredLock() {
     };
 
+    // Constructor for creating a monitored lock with fairness option
+    public MonitoredReentrantReadWriteLock(boolean fair) {
+        super(fair);
+    }
+
+    public MonitoredReentrantReadWriteLock() {
+    }
+
     /**
      * Monitored read lock class that extends ReentrantReadWriteLock.ReadLock.
      */

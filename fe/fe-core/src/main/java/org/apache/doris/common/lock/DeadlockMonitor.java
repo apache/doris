@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.lock;
 
+import com.google.gson.Gson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,13 +38,14 @@ import java.util.concurrent.TimeUnit;
  */
 public class DeadlockMonitor {
     private static final Logger LOG = LoggerFactory.getLogger(DeadlockMonitor.class);
-
+    private final Gson gson;
     private final ThreadMXBean threadMXBean;
     private final ScheduledExecutorService scheduler;
 
     public DeadlockMonitor() {
         this.threadMXBean = ManagementFactory.getThreadMXBean();
         this.scheduler = Executors.newScheduledThreadPool(1);
+        this.gson = new Gson();
     }
 
     /**
@@ -53,7 +55,7 @@ public class DeadlockMonitor {
      * @param unit   the time unit of the period parameter
      */
     public void startMonitoring(long period, TimeUnit unit) {
-        scheduler.scheduleAtFixedRate(this::detectAndReportDeadlocks, 0, period, unit);
+        scheduler.scheduleAtFixedRate(this::detectAndReportDeadlocks, 5, period, unit);
     }
 
     /**
@@ -65,7 +67,9 @@ public class DeadlockMonitor {
 
         // Check if there are no deadlocked threads
         if (deadlockedThreadIds == null || deadlockedThreadIds.length == 0) {
-            LOG.info("No deadlocks detected.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("No deadlocks detected.");
+            }
             return;
         }
 
@@ -73,30 +77,20 @@ public class DeadlockMonitor {
         ThreadInfo[] threadInfos = threadMXBean.getThreadInfo(deadlockedThreadIds, true, true);
 
         // Build a deadlock report
-        StringBuilder deadlockReport = new StringBuilder("Deadlocks detected:\n");
-        for (ThreadInfo threadInfo : threadInfos) {
-            deadlockReport.append("Thread Name: ").append(threadInfo.getThreadName()).append("\n")
-                    .append("Thread State: ").append(threadInfo.getThreadState()).append("\n")
-                    .append("Lock Info: ").append(threadInfo.getLockInfo()).append("\n")
-                    .append("Blocked by: ").append(threadInfo.getLockName()).append("\n")
-                    .append("Stack Trace: \n").append(formatStackTrace(threadInfo.getStackTrace())).append("\n");
-        }
 
         // Log the deadlock report
-        LOG.warn(deadlockReport.toString());
+        DeadlockThreadsInfo deadlockThreadsInfo = new DeadlockThreadsInfo(threadInfos);
+        LOG.warn("Deadlocks detected {}", gson.toJson(deadlockThreadsInfo));
     }
 
-    /**
-     * Formats a stack trace for better readability.
-     *
-     * @param stackTraceElements the stack trace elements to format
-     * @return a formatted stack trace string
-     */
-    private String formatStackTrace(StackTraceElement[] stackTraceElements) {
-        StringBuilder formattedStackTrace = new StringBuilder();
-        for (StackTraceElement element : stackTraceElements) {
-            formattedStackTrace.append("\tat ").append(element).append("\n");
+    private static class DeadlockThreadsInfo {
+        private String[] threadInfos;
+
+        private DeadlockThreadsInfo(ThreadInfo[] threadInfos) {
+            this.threadInfos = new String[threadInfos.length];
+            for (int i = 0; i < threadInfos.length; i++) {
+                this.threadInfos[i] = threadInfos[i].toString();
+            }
         }
-        return formattedStackTrace.toString();
     }
 }

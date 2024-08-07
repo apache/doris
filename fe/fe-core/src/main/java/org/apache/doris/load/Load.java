@@ -62,6 +62,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.ExprUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
@@ -93,7 +94,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -120,7 +120,7 @@ public class Load {
 
     // lock for load job
     // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock;
+    private MonitoredReentrantReadWriteLock lock;
 
     static {
         Set<JobState> pendingDestStates = Sets.newHashSet();
@@ -180,7 +180,7 @@ public class Load {
         idToQuorumFinishedLoadJob = Maps.newLinkedHashMap();
         loadingPartitionIds = Sets.newHashSet();
         dbToMiniLabels = Maps.newHashMap();
-        lock = new ReentrantReadWriteLock(true);
+        lock = new MonitoredReentrantReadWriteLock(true);
     }
 
     public void readLock() {

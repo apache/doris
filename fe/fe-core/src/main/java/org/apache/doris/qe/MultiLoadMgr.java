@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
@@ -60,8 +61,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 // Class used to record state of multi-load operation
@@ -69,7 +68,7 @@ public class MultiLoadMgr {
     private static final Logger LOG = LogManager.getLogger(MultiLoadMgr.class);
 
     private Map<LabelName, MultiLoadDesc> infoMap = Maps.newHashMap();
-    private ReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     // Start multi-load transaction.
     // Label is the only need parameter, maybe other properties?

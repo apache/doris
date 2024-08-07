@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
@@ -61,7 +62,6 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class StreamLoadRecordMgr extends MasterDaemon {
@@ -107,7 +107,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
     Queue<StreamLoadItem> streamLoadRecordHeap = new PriorityQueue<>(new StreamLoadComparator());
     private Map<Long, Map<String, StreamLoadRecord>> dbIdToLabelToStreamLoadRecord = Maps.newConcurrentMap();
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
 
 
     public StreamLoadRecordMgr(String name, long intervalMs) {

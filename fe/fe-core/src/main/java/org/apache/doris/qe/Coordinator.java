@@ -29,6 +29,7 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -161,8 +162,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -206,7 +205,7 @@ public class Coordinator implements CoordInterface {
     private TNetworkAddress currentConnectFE;
 
     // protects all fields below
-    private final Lock lock = new ReentrantLock();
+    private final MonitoredReentrantLock lock = new MonitoredReentrantLock();
 
     // If true, the query is done returning all results.  It is possible that the
     // coordinator still needs to wait for cleanup on remote fragments (e.g. queries

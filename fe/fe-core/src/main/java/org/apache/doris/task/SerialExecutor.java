@@ -17,6 +17,8 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.lock.MonitoredReentrantLock;
+
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
@@ -28,13 +30,12 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class SerialExecutor extends AbstractExecutorService {
 
     private final ExecutorService taskPool;
 
-    private final ReentrantLock lock = new ReentrantLock();
+    private final MonitoredReentrantLock lock = new MonitoredReentrantLock();
     private final Condition terminating = lock.newCondition();
 
     private final BlockingQueue<Runnable> tasks = new LinkedBlockingQueue<>();

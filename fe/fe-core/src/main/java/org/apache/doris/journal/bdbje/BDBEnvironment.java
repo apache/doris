@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
 import org.apache.doris.ha.FrontendNodeType;
@@ -58,7 +59,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -79,7 +79,7 @@ public class BDBEnvironment {
     private ReplicationConfig replicationConfig;
     private DatabaseConfig dbConfig;
     private Database epochDB = null;  // used for fencing
-    private ReentrantReadWriteLock lock;
+    private MonitoredReentrantReadWriteLock lock;
     private List<Database> openedDatabases;
 
     private final boolean isElectable;
@@ -87,7 +87,7 @@ public class BDBEnvironment {
 
     public BDBEnvironment(boolean isElectable, boolean metadataFailureRecovery) {
         openedDatabases = new ArrayList<Database>();
-        this.lock = new ReentrantReadWriteLock(true);
+        this.lock = new MonitoredReentrantReadWriteLock(true);
         this.isElectable = isElectable;
         this.metadataFailureRecovery = metadataFailureRecovery;
     }

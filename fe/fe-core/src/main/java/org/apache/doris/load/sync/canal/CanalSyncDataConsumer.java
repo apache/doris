@@ -20,6 +20,7 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.load.sync.SyncChannelHandle;
 import org.apache.doris.load.sync.SyncDataConsumer;
 import org.apache.doris.load.sync.SyncFailMsg;
@@ -53,7 +54,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class CanalSyncDataConsumer extends SyncDataConsumer {
     private static Logger logger = LogManager.getLogger(CanalSyncDataConsumer.class);
@@ -70,7 +70,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     private PositionMeta<EntryPosition> positionMeta;
     private LinkedBlockingQueue<Events<CanalEntry.Entry, EntryPosition>> dataBlockingQueue;
     private SyncChannelHandle handle;
-    private ReentrantLock getLock;
+    private MonitoredReentrantLock getLock;
     private int sleepTimeMs;
     private long commitIntervalSecond;
 
@@ -82,7 +82,8 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         this.idToChannels = idToChannels;
     }
 
-    public CanalSyncDataConsumer(CanalSyncJob syncJob, CanalConnector connector, ReentrantLock getLock, boolean debug) {
+    public CanalSyncDataConsumer(CanalSyncJob syncJob, CanalConnector connector,
+                                 MonitoredReentrantLock getLock, boolean debug) {
         super(debug);
         this.syncJob = syncJob;
         this.connector = connector;

@@ -19,6 +19,7 @@ package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
@@ -28,7 +29,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
@@ -36,7 +36,7 @@ public class MetaServiceProxy {
     // use exclusive lock to make sure only one thread can add or remove client from
     // serviceMap.
     // use concurrent map to allow access serviceMap in multi thread.
-    private ReentrantLock lock = new ReentrantLock();
+    private MonitoredReentrantLock lock = new MonitoredReentrantLock();
     private final Map<String, MetaServiceClient> serviceMap;
 
     static {

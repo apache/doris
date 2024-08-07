@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -39,7 +40,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * A manager to manage all backup repositories
@@ -52,7 +52,7 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
     private ConcurrentMap<String, Repository> repoNameMap = Maps.newConcurrentMap();
     private ConcurrentMap<Long, Repository> repoIdMap = Maps.newConcurrentMap();
 
-    private ReentrantLock lock = new ReentrantLock();
+    private MonitoredReentrantLock lock = new MonitoredReentrantLock();
 
     public RepositoryMgr() {
         super(Repository.class.getSimpleName(), 600 * 1000 /* 10min */);

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog.InsertOverwriteOpType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -40,7 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteManager.class);
@@ -57,7 +57,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // for one task group, there may be different requests about changing a partition to new.
     // but we only change one time and save the relations in partitionPairs. they're protected by taskLocks
     @SerializedName(value = "taskLocks")
-    private Map<Long, ReentrantLock> taskLocks = Maps.newConcurrentMap();
+    private Map<Long, MonitoredReentrantLock> taskLocks = Maps.newConcurrentMap();
     // <groupId, <oldPartId, newPartId>>. no need concern which task it belongs to.
     @SerializedName(value = "partitionPairs")
     private Map<Long, Map<Long, Long>> partitionPairs = Maps.newConcurrentMap();
@@ -94,7 +94,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     public long registerTaskGroup() {
         long groupId = Env.getCurrentEnv().getNextId();
         taskGroups.put(groupId, new ArrayList<Long>());
-        taskLocks.put(groupId, new ReentrantLock());
+        taskLocks.put(groupId, new MonitoredReentrantLock());
         partitionPairs.put(groupId, Maps.newConcurrentMap());
         return groupId;
     }
@@ -141,7 +141,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     }
 
     // lock is a symbol of TaskGroup exist. if not, means already failed.
-    public ReentrantLock getLock(long groupId) {
+    public MonitoredReentrantLock getLock(long groupId) {
         return taskLocks.get(groupId);
     }
 
@@ -149,7 +149,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     // it will cause ConcurrentModification or NullPointer.
     public void taskGroupFail(long groupId) {
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] failed");
-        ReentrantLock lock = getLock(groupId);
+        MonitoredReentrantLock lock = getLock(groupId);
         lock.lock();
         try {
             // will rollback temp partitions in `taskFail`

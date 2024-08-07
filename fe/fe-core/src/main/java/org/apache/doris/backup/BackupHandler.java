@@ -46,6 +46,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
@@ -80,9 +82,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -95,7 +94,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     private RepositoryMgr repoMgr = new RepositoryMgr();
 
     // this lock is used for updating dbIdToBackupOrRestoreJobs
-    private final ReentrantLock jobLock = new ReentrantLock();
+    private final MonitoredReentrantLock jobLock = new MonitoredReentrantLock();
 
     // db id ->  last 10(max_backup_restore_job_num_per_db) backup/restore jobs
     // Newly submitted job will replace the current job, only if current job is finished or cancelled.
@@ -104,7 +103,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     private final Map<Long, Deque<AbstractJob>> dbIdToBackupOrRestoreJobs = new HashMap<>();
 
     // this lock is used for handling one backup or restore request at a time.
-    private ReentrantLock seqlock = new ReentrantLock();
+    private MonitoredReentrantLock seqlock = new MonitoredReentrantLock();
 
     private boolean isInit = false;
 
@@ -114,7 +113,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     // this map not present in persist && only in fe master memory
     // one table only keep one snapshot info, only keep last
     private final Map<String, Snapshot> localSnapshots = new HashMap<>();
-    private ReadWriteLock localSnapshotsLock = new ReentrantReadWriteLock();
+    private MonitoredReentrantReadWriteLock localSnapshotsLock = new MonitoredReentrantReadWriteLock();
 
     public BackupHandler() {
         // for persist

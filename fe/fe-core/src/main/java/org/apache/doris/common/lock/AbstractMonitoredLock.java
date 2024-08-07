@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.lock;
 
+import org.apache.doris.common.Config;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +30,8 @@ import org.slf4j.LoggerFactory;
  * a specified timeout.
  */
 public abstract class AbstractMonitoredLock {
-    protected static final long HOLD_TIMEOUT = 5000; // Lock hold timeout in milliseconds
+    // Lock hold timeout in milliseconds
+    protected static final long HOLD_TIMEOUT = Config.max_lock_hold_threshold_seconds * 1000L;
     private static final Logger LOG = LoggerFactory.getLogger(AbstractMonitoredLock.class);
 
     // Thread-local variable to store the lock start time
@@ -52,9 +55,8 @@ public abstract class AbstractMonitoredLock {
         if (startTime != null) {
             long lockHoldTimeNanos = System.nanoTime() - startTime;
             long lockHoldTimeMs = lockHoldTimeNanos >> 20;
-            Thread currentThread = Thread.currentThread();
-
             if (lockHoldTimeMs > HOLD_TIMEOUT) {
+                Thread currentThread = Thread.currentThread();
                 String stackTrace = getThreadStackTrace(currentThread.getStackTrace());
                 LOG.warn("Thread ID: {}, Thread Name: {} - Lock held for {} ms, exceeding hold timeout of {} ms \n"
                                 + "Thread stack trace:\n{}",

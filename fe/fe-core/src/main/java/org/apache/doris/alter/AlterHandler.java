@@ -33,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -49,7 +50,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class AlterHandler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
@@ -64,7 +64,7 @@ public abstract class AlterHandler extends MasterDaemon {
      *  and this requires atomic operations. So the lock must be held to do this operations.
      *  Operations like Get or Put do not need lock.
      */
-    protected ReentrantLock lock = new ReentrantLock();
+    protected MonitoredReentrantLock lock = new MonitoredReentrantLock();
 
     public AlterHandler(String name) {
         this(name, FeConstants.default_scheduler_interval_millisecond);

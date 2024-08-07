@@ -23,6 +23,7 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -43,7 +44,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Password policy for a specific user.
@@ -56,7 +56,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class PasswordPolicy implements Writable {
     private static final Logger LOG = LogManager.getLogger(PasswordPolicy.class);
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
 
     private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
     private static final String PASSWORD_CREATION_TIME = "password_policy.password_creation_time";

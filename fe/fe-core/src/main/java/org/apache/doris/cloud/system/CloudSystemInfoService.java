@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
@@ -57,15 +58,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class CloudSystemInfoService extends SystemInfoService {
     private static final Logger LOG = LogManager.getLogger(CloudSystemInfoService.class);
 
     // use rw lock to make sure only one thread can change clusterIdToBackend and clusterNameToId
-    private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
+    private static final MonitoredReentrantReadWriteLock rwlock = new MonitoredReentrantReadWriteLock();
 
     private static final Lock rlock = rwlock.readLock();
 

@@ -28,7 +28,17 @@ public class MonitoredReentrantLock extends ReentrantLock {
     private static final long serialVersionUID = 1L;
 
     // Monitor for tracking lock acquisition and release
-    private final AbstractMonitoredLock lockMonitor = new AbstractMonitoredLock() {};
+    private final AbstractMonitoredLock lockMonitor = new AbstractMonitoredLock() {
+    };
+
+    // Constructor for creating a monitored lock with fairness option
+    public MonitoredReentrantLock(boolean fair) {
+        super(fair);
+    }
+
+    // Constructor for creating a monitored lock with fairness option
+    public MonitoredReentrantLock() {
+    }
 
     /**
      * Acquires the lock.
@@ -69,7 +79,7 @@ public class MonitoredReentrantLock extends ReentrantLock {
      * Records the time when the lock attempt started and logs the result.
      *
      * @param timeout the time to wait for the lock
-     * @param unit the time unit of the timeout argument
+     * @param unit    the time unit of the timeout argument
      * @return true if the lock was acquired, false if the waiting time elapsed before the lock was acquired
      * @throws InterruptedException if the current thread is interrupted while waiting
      */

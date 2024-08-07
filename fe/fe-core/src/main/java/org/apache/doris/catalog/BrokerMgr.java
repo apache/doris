@@ -25,6 +25,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -46,7 +47,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Broker manager
@@ -64,7 +64,7 @@ public class BrokerMgr {
     private final Map<String, ArrayListMultimap<String, FsBroker>> brokersMap = Maps.newHashMap();
     // { BrokerName -> { list of FsBroker }
     private final Map<String, List<FsBroker>> brokerListMap = Maps.newHashMap();
-    private final ReentrantLock lock = new ReentrantLock();
+    private final MonitoredReentrantLock lock = new MonitoredReentrantLock();
     private BrokerProcNode procNode = null;
 
     public BrokerMgr() {

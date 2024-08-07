@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.sync.canal;
 
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.load.sync.SyncChannel;
 
 import com.alibaba.otter.canal.client.CanalConnector;
@@ -27,7 +28,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class SyncCanalClient {
     protected static Logger logger = LogManager.getLogger(SyncCanalClient.class);
@@ -39,8 +39,8 @@ public class SyncCanalClient {
     // channel id -> channel
     private final Map<Long, CanalSyncChannel> idToChannels;
 
-    protected ReentrantLock lock = new ReentrantLock(true);
-    protected ReentrantLock getLock = new ReentrantLock();
+    protected MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
+    protected MonitoredReentrantLock getLock = new MonitoredReentrantLock();
 
     protected void lock() {
         lock.lock();

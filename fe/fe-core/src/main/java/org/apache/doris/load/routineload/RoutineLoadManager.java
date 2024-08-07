@@ -40,6 +40,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
@@ -73,7 +74,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -89,7 +89,7 @@ public class RoutineLoadManager implements Writable {
 
     private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     private void readLock() {
         lock.readLock().lock();

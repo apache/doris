@@ -27,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -59,7 +60,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -88,7 +88,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
-    protected ReentrantLock commitLock;
+    protected MonitoredReentrantLock commitLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -138,7 +138,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -163,7 +163,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
     }
 
     public void markDropped() {

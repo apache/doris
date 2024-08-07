@@ -34,7 +34,7 @@ public interface FlightAuthResult {
     String getRemoteIp();
 
     static FlightAuthResult of(String userName, UserIdentity userIdentity, String remoteIp) {
-        return ImmutableFlightAuthResult.builder()
+        return org.apache.doris.service.arrowflight.auth2.ImmutableFlightAuthResult.builder()
                 .userName(userName)
                 .userIdentity(userIdentity)
                 .remoteIp(remoteIp)

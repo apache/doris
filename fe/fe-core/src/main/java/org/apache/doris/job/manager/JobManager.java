@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
@@ -55,7 +56,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 @Log4j2
@@ -67,7 +67,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     // lock for job
     // lock is private and must use after db lock
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     private void readLock() {
         lock.readLock().lock();

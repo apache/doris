@@ -18,6 +18,7 @@
 package org.apache.doris.qe.help;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +39,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -88,7 +88,7 @@ public class HelpModule {
     private static long lastCheckTime = 0L;
     private boolean isloaded = false;
     private static String zipFilePath;
-    private static ReentrantLock lock = new ReentrantLock();
+    private static MonitoredReentrantLock lock = new MonitoredReentrantLock();
 
     // Files in zip is not recursive, so we only need to traverse it
     public void setUpByZip(String path) throws IOException, UserException {

@@ -54,6 +54,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
@@ -87,7 +88,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 
@@ -116,7 +116,7 @@ public class Auth implements Writable {
 
     private PasswordPolicyManager passwdPolicyManager = new PasswordPolicyManager();
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
 
     private void readLock() {
         lock.readLock().lock();

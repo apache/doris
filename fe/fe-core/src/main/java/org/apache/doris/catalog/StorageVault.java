@@ -23,6 +23,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -33,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.IntStream;
 
 public abstract class StorageVault {
@@ -65,7 +65,7 @@ public abstract class StorageVault {
     private boolean ifNotExists;
     private boolean setAsDefault;
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     public void writeLock() {
         lock.writeLock().lock();
