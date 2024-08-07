@@ -808,6 +808,7 @@ message FileCacheBlockMeta {
     required int64 size = 6;
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
+    optional int64 file_size = 9;
 }
 
 message PGetFileCacheMetaResponse {
