@@ -47,7 +47,7 @@ suite("push_down_min_through_join") {
     sql "insert into min_t values (8, null, 'c')"
     sql "insert into min_t values (9, 3, null)"
     sql "insert into min_t values (10, null, null)"
-
+    sql "analyze table max_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select min(t1.score) from min_t t1, min_t t2 where t1.id = t2.id group by t1.name;
     """
