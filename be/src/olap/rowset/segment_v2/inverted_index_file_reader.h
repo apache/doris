@@ -79,6 +79,7 @@ private:
     bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;
     mutable std::shared_mutex _mutex; // Use mutable for const read operations
+    bool _inited = false;
 };
 
 } // namespace segment_v2
