@@ -34,14 +34,7 @@ public:
     Allocator_() = default;
 
     template <typename T_>
-    Allocator_(const Allocator_<T_>& that)
-            : Allocator<true, false, false, DefaultMemoryAllocator>(that) {};
-
-    template <typename T_>
-    Allocator_<T_>& operator=(const Allocator_<T_>& that) {
-        Allocator<true, false, false, DefaultMemoryAllocator>::operator=(that);
-        return *this;
-    }
+    Allocator_(const Allocator_<T_>&) {};
 
     constexpr T* allocate(size_t n) { return static_cast<T*>(Allocator::alloc(n * sizeof(T))); }
 

@@ -227,11 +227,6 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename Memory
 class Allocator {
 public:
     Allocator();
-    Allocator(const Allocator& that) { tracker = that.tracker; }
-    Allocator& operator=(const Allocator& that) {
-        tracker = that.tracker;
-        return *this;
-    }
 
     void sys_memory_check(size_t size) const;
     void memory_tracker_check(size_t size) const;
