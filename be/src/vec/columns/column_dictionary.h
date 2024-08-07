@@ -117,15 +117,15 @@ public:
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,	    
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_permutation not supported in ColumnDictionary");
-	__builtin_unreachable();
+        __builtin_unreachable();
     }
-    
+
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "pop_back not supported in ColumnDictionary");
-	__builtin_unreachable();
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { _codes.reserve(n); }

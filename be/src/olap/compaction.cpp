@@ -321,7 +321,7 @@ int64_t Compaction::merge_way_num() {
     for (auto&& rowset : _input_rowsets) {
         way_num += rowset->rowset_meta()->get_merge_way_num();
     }
-    
+
     return way_num;
 }
 

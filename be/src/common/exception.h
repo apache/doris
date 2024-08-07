@@ -123,7 +123,6 @@ inline const std::string& Exception::to_string() const {
         }                                                                                        \
     } while (0)
 
-
 #define HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(stmt, exception_handler)                             \
     do {                                                                                         \
         try {                                                                                    \
@@ -146,4 +145,3 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
-
