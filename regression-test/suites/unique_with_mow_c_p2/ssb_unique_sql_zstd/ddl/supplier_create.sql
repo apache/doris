@@ -13,6 +13,5 @@ DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
 "compression"="zstd",
 "replication_num" = "1",
-"disable_auto_compaction" = "true",
 "enable_unique_key_merge_on_write" = "true"
 );
