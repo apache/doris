@@ -16,21 +16,21 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[c_current_cdemo_sk]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF1 cd_demo_sk->[c_current_cdemo_sk]
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[cs_bill_customer_sk]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF0 c_customer_sk->[cs_bill_customer_sk]
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[cs_bill_cdemo_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF2 RF4 RF5
+--------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF4 RF5
 ------------------------------------------PhysicalProject
---------------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
-----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF1 RF3
+--------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
+----------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
+------------------------------------------PhysicalOlapScan[customer] apply RFs: RF2 RF3
 ----------------------------------PhysicalProject
-------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
---------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------PhysicalProject
 --------------------------------filter(ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
 ----------------------------------PhysicalOlapScan[customer_address]
