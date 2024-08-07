@@ -250,9 +250,9 @@ suite("test_nereids_set_operation") {
     EXCEPT
     SELECT k1 FROM setOperationTable WHERE k3 = 2
     UNION ALL
-    (SELECT k1 FROM setOperationTable WHERE k3 = 2
+    SELECT k1 FROM setOperationTable WHERE k3 = 2
     INTERSECT
-    SELECT k1 FROM setOperationTable WHERE k2 > 0)
+    SELECT k1 FROM setOperationTable WHERE k2 > 0
     """
 
     order_qt_select43 """

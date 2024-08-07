@@ -22,7 +22,6 @@ parser grammar DorisParser;
 options { tokenVocab = DorisLexer; }
 
 @members {
-    public boolean doris_legacy_SQL_syntax = true;
 }
 
 multiStatements
@@ -385,7 +384,8 @@ query
 
 queryTerm
     : queryPrimary                                                         #queryTermDefault
-    | left=queryTerm operator=(UNION | EXCEPT | MINUS | INTERSECT)
+    | left=queryTerm operator=INTERSECT setQuantifier? right=queryTerm     #setOperation
+    | left=queryTerm operator=(UNION | EXCEPT | MINUS)
       setQuantifier? right=queryTerm                                       #setOperation
     ;
 
@@ -406,8 +406,7 @@ querySpecification
       fromClause?
       whereClause?
       aggClause?
-      havingClause?
-      {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
+      havingClause?                                                        #regularQuerySpecification
     ;
 
 cte
