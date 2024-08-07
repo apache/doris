@@ -327,12 +327,6 @@ suite("partition_mv_rewrite") {
     """
     def ttl_mv_name = "mv_10000"
 
-    multi_sql """
-        analyze table lineitem_static with sync;
-        analyze table lineitem with sync;
-        analyze table orders with sync;
-        """
-
     def create_ttl_mtmv = { db_name, mv_inner_name, mv_inner_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_inner_name}"""
         sql"""
@@ -351,6 +345,12 @@ suite("partition_mv_rewrite") {
     }
 
     create_ttl_mtmv(db, ttl_mv_name, ttl_mv_def_sql)
+
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
 
     // test when mv is ttl
     // enable union rewrite
@@ -428,6 +428,13 @@ suite("partition_mv_rewrite") {
         """
     waitingMTMVTaskFinished(getJobName(db, mv_name))
 
+
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
+
     explain {
         sql("${roll_up_all_partition_sql}")
         contains("${mv_name}(${mv_name})")
@@ -446,6 +453,12 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_17_0_before "${roll_up_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
+    
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
     explain {
         sql("${roll_up_all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table add new partition
@@ -478,6 +491,7 @@ suite("partition_mv_rewrite") {
     // base table partition add data
     sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
     waitingMTMVTaskFinished(getJobName(db, mv_name))
+    
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-11-21', '2023-11-21', '2023-11-21', 'd', 'd', 'yyyyyyyyy'),
@@ -488,6 +502,13 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_19_0_before "${roll_up_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
+
+    
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
     explain {
         sql("${roll_up_all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table add new partition

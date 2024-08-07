@@ -129,14 +129,6 @@ suite("partition_prune") {
     ('ag', 'bc', '2024-07-08 12:00:00', 10.1);
     """
 
-
-    multi_sql """
-           analyze table test_unique with sync;
-           analyze table test_aggregate with sync;
-           analyze table test_duplicate with sync;
-           """
-
-           
     // test partition prune in duplicate table
 
     def mv1 = """
@@ -174,6 +166,9 @@ suite("partition_prune") {
     AS
     ${mv1}
     """)
+
+    sql "analyze table test_duplicate with sync;"
+
     explain {
         sql("""${query1}""")
         check {result ->
@@ -208,6 +203,9 @@ suite("partition_prune") {
     AS
     ${mv2}
     """)
+
+    sql "analyze table test_unique with sync;"
+
     explain {
         sql("""${query2}""")
         check {result ->
@@ -254,6 +252,9 @@ suite("partition_prune") {
     AS
     ${mv3}
     """)
+
+    sql "analyze table test_aggregate with sync;"
+
     explain {
         sql("""${query3}""")
         check {result ->
