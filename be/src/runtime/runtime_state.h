@@ -490,6 +490,12 @@ public:
                        : 0;
     }
 
+    int partition_topn_partition_threshold() const {
+        return _query_options.__isset.partition_topn_partition_threshold
+                       ? _query_options.partition_topn_partition_threshold
+                       : 1024;
+    }
+
     int64_t parallel_scan_min_rows_per_scanner() const {
         return _query_options.__isset.parallel_scan_min_rows_per_scanner
                        ? _query_options.parallel_scan_min_rows_per_scanner

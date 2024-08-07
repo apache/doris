@@ -240,7 +240,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
-
+    public static final String PARTITION_TOPN_PARTITION_THRESHOLD = "partition_topn_partition_threshold";
+    
     public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
@@ -1239,6 +1240,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_TOPN_PARTITION_THRESHOLD, needForward = true, description = {
+            "这个阈值决定了partition_topn计算时的分区数量，超过这个阈值后，剩余的数据将直接透传给下一个算子",
+            "This threshold determines how many partitions will be allocated for window function get topn." +
+                    " and if this threshold is exceeded, the remaining data will be pass through to other node directly."
+    })
+    private int partitionTopNPartitionThreshold = 1024;
 
     @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
@@ -3676,7 +3684,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
-
+        tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
+        tResult.setPartitionTopnPartitionThreshold(partitionTopNPartitionThreshold);
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
         } else {
