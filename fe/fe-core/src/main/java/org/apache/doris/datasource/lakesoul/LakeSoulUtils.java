@@ -24,7 +24,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -42,12 +41,12 @@ import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
-import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
 import io.substrait.expression.Expression;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -63,7 +62,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 
 public class LakeSoulUtils {
 
@@ -417,19 +415,10 @@ public class LakeSoulUtils {
                 func = "lt:any_any";
                 break;
             case INVALID_OPCODE:
-                if (dorisExpr instanceof FunctionCallExpr) {
-                    String name = dorisExpr.getExprName().toLowerCase();
-                    String s = literalExpr.getStringValue();
-                    if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
-                        namespace = DefaultExtensionCatalog.FUNCTIONS_STRING;
-                        func = "like:bool";
-                        break;
-                    }
-                } else if (dorisExpr instanceof IsNullPredicate) {
+                if (dorisExpr instanceof IsNullPredicate) {
                     if (((IsNullPredicate) dorisExpr).isNotNull()) {
                         namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
                         func = "is_not_null:any";
-
                     } else {
                         namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
                         func = "is_null:any";
@@ -458,7 +447,9 @@ public class LakeSoulUtils {
                 if (dateLiteral.getType().isDatetimeV2() || dateLiteral.getType().isDatetime()) {
                     return null;
                 }
-                return dateLiteral.getLongValue();
+                return (int) LocalDate.of((int) dateLiteral.getYear(),
+                        (int) dateLiteral.getMonth(),
+                        (int) dateLiteral.getDay()).toEpochDay();
             }
             if (type instanceof Type.TimestampTZ || type instanceof Type.Timestamp) {
                 return dateLiteral.getLongValue();
