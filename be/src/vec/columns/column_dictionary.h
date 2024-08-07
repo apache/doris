@@ -166,20 +166,19 @@ public:
         __builtin_unreachable();
     }
 
-<<<<<<< HEAD
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not supported in ColumnDictionary";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "compare_at not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
-=======
->>>>>>> d5ae44635e (add try catch for schema change action and compaction)
     bool is_fixed_and_contiguous() const override { return true; }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "get_indices_of_non_default_rows not supported in ColumnDictionary");
         __builtin_unreachable();
     }
 
