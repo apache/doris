@@ -124,9 +124,6 @@ public class IndexDefinition {
             }
 
             if (indexType == IndexType.INVERTED) {
-                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
-                    throw new AnalysisException("inverted index does not support array type column: " + indexColName);
-                }
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
                             colType.toCatalogDataType().getPrimitiveType(), properties);
