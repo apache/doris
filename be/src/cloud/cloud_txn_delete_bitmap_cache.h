@@ -43,7 +43,8 @@ public:
                                RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
                                std::shared_ptr<PartialUpdateInfo>* partial_update_info,
                                std::shared_ptr<PublishStatus>* publish_status,
-                               int64_t* previous_published_version);
+                               int64_t* previous_published_version, int64_t* base_compaction_cnt,
+                               int64_t* cumulative_compaction_cnt, int64_t* cumulative_point);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
@@ -53,7 +54,10 @@ public:
     void update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                 DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& rowset_ids,
-                                PublishStatus publish_status, int64_t publish_version = -1);
+                                PublishStatus publish_status, int64_t publish_version = -1,
+                                int64_t base_compaction_cnt = -1,
+                                int64_t cumulative_compaction_cnt = -1,
+                                int64_t cumulative_point = -1);
 
     void remove_expired_tablet_txn_info();
 
@@ -91,6 +95,9 @@ private:
         std::shared_ptr<PublishStatus> publish_status = nullptr;
         // used to determine if the retry needs to re-calculate the delete bitmap
         int64_t publish_version {-1};
+        int64_t base_compaction_cnt {-1};
+        int64_t cumulative_compaction_cnt {-1};
+        int64_t cumulative_point {-1};
         TxnVal() : txn_expiration(0) {};
         TxnVal(RowsetSharedPtr rowset_, int64_t txn_expiration_,
                std::shared_ptr<PartialUpdateInfo> partial_update_info_,

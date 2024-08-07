@@ -55,7 +55,9 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-        std::shared_ptr<PublishStatus>* publish_status, int64_t* previous_published_version) {
+        std::shared_ptr<PublishStatus>* publish_status, int64_t* previous_published_version,
+        int64_t* base_compaction_cnt, int64_t* cumulative_compaction_cnt,
+        int64_t* cumulative_point) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -69,9 +71,10 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *txn_expiration = iter->second.txn_expiration;
         *partial_update_info = iter->second.partial_update_info;
         *publish_status = iter->second.publish_status;
-        if (iter->second.publish_version != -1) {
-            *previous_published_version = iter->second.publish_version;
-        }
+        *previous_published_version = iter->second.publish_version;
+        *base_compaction_cnt = iter->second.base_compaction_cnt;
+        *cumulative_compaction_cnt = iter->second.cumulative_compaction_cnt;
+        *cumulative_point = iter->second.cumulative_point;
     }
     RETURN_IF_ERROR(
             get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr));
@@ -153,20 +156,22 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
             .tag("delete_bitmap_size", charge);
 }
 
-void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transaction_id,
-                                                       int64_t tablet_id,
-                                                       DeleteBitmapPtr delete_bitmap,
-                                                       const RowsetIdUnorderedSet& rowset_ids,
-                                                       PublishStatus publish_status,
-                                                       int64_t publish_version) {
+void CloudTxnDeleteBitmapCache::update_tablet_txn_info(
+        TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
+        const RowsetIdUnorderedSet& rowset_ids, PublishStatus publish_status,
+        int64_t publish_version, int64_t base_compaction_cnt, int64_t cumulative_compaction_cnt,
+        int64_t cumulative_point) {
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
         CHECK(_txn_map.contains(txn_key));
         TxnVal& txn_val = _txn_map[txn_key];
         *(txn_val.publish_status) = publish_status;
-        if (publish_status == PublishStatus::SUCCEED && publish_version != -1) {
+        if (publish_status == PublishStatus::SUCCEED) {
             txn_val.publish_version = publish_version;
+            txn_val.base_compaction_cnt = base_compaction_cnt;
+            txn_val.cumulative_compaction_cnt = cumulative_compaction_cnt,
+            txn_val.cumulative_point = cumulative_point;
         }
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);

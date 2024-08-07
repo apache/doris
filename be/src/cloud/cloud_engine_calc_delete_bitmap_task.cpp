@@ -187,9 +187,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     int64_t previous_pubished_version {-1};
+    int64_t previous_base_compaction_cnt {-1};
+    int64_t previous_cumulative_compaction_cnt {-1};
+    int64_t previous_cumulative_point {-1};
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             _transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_pubished_version);
+            &partial_update_info, &publish_status, &previous_pubished_version,
+            &previous_base_compaction_cnt, &previous_cumulative_compaction_cnt,
+            &previous_cumulative_point);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id
                      << ", txn_id=" << _transaction_id << ", status=" << status;
@@ -208,8 +213,11 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.publish_version = _version;
     auto update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
-        _version == previous_pubished_version) {
-        // if _version > previous_pubished_version, it means that this is a retry and there are
+        _version == previous_pubished_version &&
+        _ms_base_compaction_cnt == previous_base_compaction_cnt &&
+        _ms_cumulative_compaction_cnt == previous_cumulative_compaction_cnt &&
+        _ms_cumulative_point == previous_cumulative_point) {
+        // if version or compaction stats can't match, it means that this is a retry and there are
         // compaction or other loads finished successfully on the same tablet. So the previous publish
         // is stale and we should re-calculate the delete bitmap
         LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
