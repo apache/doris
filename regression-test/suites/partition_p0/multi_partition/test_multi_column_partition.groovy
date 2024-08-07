@@ -51,7 +51,7 @@ suite("test_multi_partition_key", "p0") {
             sql "select * from ${tableName} order by k1, k2"
             resultFile "partition_table.out"
         }
-        def result = sql "SHOW PARTITIONS FROM ${tableName}"
+        def result = sql_return_maparray "SHOW PARTITIONS FROM ${tableName}"
         assertTrue(result.size() > 1)
         if (ifDropTbl) {
             try_sql """DROP TABLE ${tableName}"""
@@ -139,8 +139,8 @@ suite("test_multi_partition_key", "p0") {
             false
     )
     // expect partition_f range: [ [126, 126] ~ [500, -128] )
-    def ret = sql "SHOW PARTITIONS FROM test_default_minvalue WHERE PartitionName='partition_f'"
-    assertTrue(ret[0][6].contains("[500, -128]"))
+    def ret = sql_return_maparray "SHOW PARTITIONS FROM test_default_minvalue WHERE PartitionName='partition_f'"
+    assertTrue(ret[0].Range.contains("[500, -128]"))
 
     // partition columns error
     test {
@@ -221,8 +221,8 @@ suite("test_multi_partition_key", "p0") {
     }
 
     sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') "
-    def ret_add_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_add WHERE PartitionName='partition_add'"
-    assertTrue(ret[0][6].contains("[500, -128]"))
+    def ret_add_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_add WHERE PartitionName='partition_add'"
+    assertTrue(ret[0].Range.contains("[500, -128]"))
     test {
         sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION add_partition_wrong " +
                 "VALUES LESS THAN ('30', '800') DISTRIBUTED BY hash(k1) BUCKETS 5"
@@ -243,11 +243,11 @@ suite("test_multi_partition_key", "p0") {
             false
     )
     sql "ALTER TABLE test_multi_col_test_partition_drop DROP PARTITION partition_d"
-    def ret_drop_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_d'"
+    def ret_drop_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_d'"
     assertEquals(0, ret_drop_p.size())
     sql "ALTER TABLE test_multi_col_test_partition_drop ADD PARTITION partition_dd VALUES LESS THAN ('0','0') "
-    ret_drop_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_dd'"
-    assertTrue(ret_drop_p[0][6].contains("[0, 0]"))
+    ret_drop_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_dd'"
+    assertTrue(ret_drop_p[0].Range.contains("[0, 0]"))
     // null value in the lowest partition, if drop the partition null is deleted.
     sql """drop table if exists test_multi_col_test_partition_null_value"""
     sql """
@@ -366,8 +366,8 @@ suite("test_multi_partition_key", "p0") {
     if (!isCloudMode()) {
         sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
     }
-    ret = sql "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
-    assertEquals('1', ret[0][9])
+    ret = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
+    assertEquals(1, ret[0].ReplicationNum as int)
     // create table with range partition
     testPartitionTbl(
             "test_multi_column_fixed_range_1",
@@ -393,7 +393,7 @@ suite("test_multi_partition_key", "p0") {
     )
     // add partition with range
     sql "ALTER TABLE test_multi_column_fixed_range_1 ADD PARTITION partition_add VALUES LESS THAN ('50','1000') "
-    ret = sql "SHOW PARTITIONS FROM test_multi_column_fixed_range_1 WHERE PartitionName='partition_add'"
+    ret = sql_return_maparray "SHOW PARTITIONS FROM test_multi_column_fixed_range_1 WHERE PartitionName='partition_add'"
     assertEquals(1, ret.size(), )
     test {
         sql "ALTER TABLE test_multi_column_fixed_range_1 ADD PARTITION add_partition_wrong VALUES LESS THAN ('50','800')"

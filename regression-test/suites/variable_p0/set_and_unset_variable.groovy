@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_and_unset_variable") {
+suite("set_and_unset_variable", "nonConcurrent") {
     qt_cmd """UNSET VARIABLE ALL"""
     qt_cmd """UNSET global VARIABLE ALL"""
 

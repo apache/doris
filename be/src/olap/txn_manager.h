@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -52,6 +51,7 @@ namespace doris {
 class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
+struct PartialUpdateInfo;
 
 enum class TxnState {
     NOT_FOUND = 0,
@@ -145,8 +145,8 @@ public:
 
     Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
-                      bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -161,8 +161,8 @@ public:
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
-                      bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     // remove a txn from txn manager
     // not persist rowset meta because

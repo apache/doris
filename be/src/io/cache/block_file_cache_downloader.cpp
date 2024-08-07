@@ -171,7 +171,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
         DownloadFileMeta download_meta {
                 .path = storage_resource.value()->remote_segment_path(*find_it->second,
                                                                       meta.segment_id()),
-                .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
+                .file_size = meta.has_file_size() ? meta.file_size()
+                                                  : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
                 .file_system = storage_resource.value()->fs,

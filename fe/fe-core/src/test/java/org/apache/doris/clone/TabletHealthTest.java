@@ -61,6 +61,7 @@ public class TabletHealthTest extends TestWithFeService {
         Config.colocate_group_relocate_delay_second = -1000; // be dead will imm relocate
         Config.tablet_schedule_interval_ms = 7200_000L;  //disable schedule
         Config.tablet_checker_interval_ms = 7200_000L;  //disable checker
+        Config.max_backend_heartbeat_failure_tolerance_count = 1;
     }
 
     @Override

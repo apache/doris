@@ -1289,6 +1289,10 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
     _indexes = std::move(indexes);
 }
 
+bool TabletSchema::exist_column(const std::string& field_name) const {
+    return _field_name_to_index.contains(StringRef {field_name});
+}
+
 Status TabletSchema::have_column(const std::string& field_name) const {
     if (!_field_name_to_index.contains(StringRef(field_name))) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(

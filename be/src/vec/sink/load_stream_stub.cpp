@@ -339,6 +339,9 @@ Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
 
 void LoadStreamStub::cancel(Status reason) {
     LOG(WARNING) << *this << " is cancelled because of " << reason;
+    if (_is_init.load()) {
+        brpc::StreamClose(_stream_id);
+    }
     {
         std::lock_guard<bthread::Mutex> lock(_cancel_mutex);
         _cancel_reason = reason;
