@@ -173,7 +173,7 @@ private:
      */
     Status try_convert_cache_version() const;
 
-    void load_cache_info_into_memory();
+    void load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
 
     Status write_file_cache_version() const;
 

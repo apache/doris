@@ -117,17 +117,31 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
 }
 
 Status LRUFileCache::initialize() {
-    // MonotonicStopWatch watch;
-    // watch.start();
+    MonotonicStopWatch watch;
+    watch.start();
     if (!_is_initialized) {
         if (fs::exists(_cache_base_path)) {
             // the cache already exists, try to load cache info asyncly
             _lazy_open_done = false;
             RETURN_IF_ERROR(try_convert_cache_version());
             _cache_background_load_thread = std::thread([this]() {
-                load_cache_info_into_memory();
+                MonotonicStopWatch watch;
+                watch.start();
+                std::lock_guard<std::mutex> cache_lock(_mutex);
+                load_cache_info_into_memory(cache_lock);
                 _lazy_open_done = true;
-                LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
+                LOG_INFO("", _cache_base_path);
+                int64_t cost = watch.elapsed_time() / 1000 / 1000;
+                LOG(INFO) << fmt::format(
+                        "FileCache lazy load done path={}, disposable queue size={} elements={}, "
+                        "index queue size={} elements={}, query queue size={} elements={}, init "
+                        "cost(ms)={}",
+                        _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
+                        _disposable_queue.get_elements_num(cache_lock),
+                        _index_queue.get_total_cache_size(cache_lock),
+                        _index_queue.get_elements_num(cache_lock),
+                        _normal_queue.get_total_cache_size(cache_lock),
+                        _normal_queue.get_elements_num(cache_lock), cost);
             });
         } else {
             std::error_code ec;
@@ -141,18 +155,8 @@ Status LRUFileCache::initialize() {
     }
     _is_initialized = true;
     _cache_background_thread = std::thread(&LRUFileCache::run_background_operation, this);
-    // int64_t cost = watch.elapsed_time() / 1000 / 1000;
-    // LOG(INFO) << fmt::format(
-    //         "After initialize file cache path={}, disposable queue size={} elements={}, index "
-    //         "queue size={} "
-    //         "elements={}, query queue "
-    //         "size={} elements={}, init cost(ms)={}",
-    //         _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
-    //         _disposable_queue.get_elements_num(cache_lock),
-    //         _index_queue.get_total_cache_size(cache_lock),
-    //         _index_queue.get_elements_num(cache_lock),
-    //         _normal_queue.get_total_cache_size(cache_lock),
-    //         _normal_queue.get_elements_num(cache_lock), cost);
+    int64_t cost = watch.elapsed_time() / 1000 / 1000;
+    LOG(INFO) << fmt::format("After initialize file cache path={}, init cost(ms)={}", cost);
     return Status::OK();
 }
 
@@ -829,8 +833,7 @@ Status LRUFileCache::try_convert_cache_version() const {
     return Status::OK();
 }
 
-void LRUFileCache::load_cache_info_into_memory() {
-    std::lock_guard cache_lock(_mutex);
+void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock) {
     Key key;
     uint64_t offset = 0;
     size_t size = 0;
