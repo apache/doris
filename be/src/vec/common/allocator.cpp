@@ -215,7 +215,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) {
-    DCHECK(tracker->label() == doris::thread_context()->thread_mem_tracker()->label())
+    DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
             << ", thread mem tracker label: "
             << doris::thread_context()->thread_mem_tracker()->label()
             << ", allocator tracker label: " << tracker->label();
@@ -227,7 +227,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release
         size_t size) const {
     doris::ThreadContext* thread_context = doris::thread_context(true);
     if (thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") {
-        DCHECK(tracker->label() == thread_context->thread_mem_tracker()->label())
+        DCHECK(thread_context->thread_mem_tracker()->label() == tracker->label())
                 << ", thread mem tracker label: " << thread_context->thread_mem_tracker()->label()
                 << ", allocator tracker label: " << tracker->label();
         RELEASE_THREAD_MEM_TRACKER(size);
