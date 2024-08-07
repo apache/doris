@@ -364,6 +364,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 }
             }
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
+            _storage_name_and_type_by_col_name[col->name()] =
+                    std::make_pair(field_name, storage_type);
         }
     }
 
@@ -1514,6 +1516,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                                                                  check_inverted_index_by_type),
                     _opts, &_inverted_index_iterators[cid]));
         }
+        _inverted_index_iterators_by_col_name[_schema->column(cid)->name()] =
+                _inverted_index_iterators[cid].get();
     }
     return Status::OK();
 }
@@ -2963,32 +2967,11 @@ Status SegmentIterator::_construct_compound_expr_context() {
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
-        context->set_inverted_index_iterators(_inverted_index_iterators);
-        context->set_storage_name_and_type(_storage_name_and_type);
+        context->set_inverted_index_iterators(_inverted_index_iterators_by_col_name);
+        context->set_storage_name_and_type(_storage_name_and_type_by_col_name);
         _compound_expr_ctxs.emplace_back(context);
     }
     return Status::OK();
-    /*for (const auto& root_expr : _remaining_conjunct_roots) {
-        std::stack<vectorized::VExprSPtr> stack;
-        stack.push(root_expr);
-
-        while (!stack.empty()) {
-            vectorized::VExprSPtr cur_expr = stack.top();
-            stack.pop();
-
-            if (cur_expr->node_type() == TExprNodeType::COMPOUND_PRED) {
-                auto expr_ctx = std::make_shared<vectorized::VExprContext>(cur_expr);
-                expr_ctx->set_root(cur_expr);
-                expr_ctx->set_inverted_index_iterators(_inverted_index_iterators);
-                _compound_expr_ctxs.push_back(expr_ctx);
-                break;
-            } else {
-                for (const auto& child : cur_expr->children()) {
-                    stack.push(child);
-                }
-            }
-        }
-    }*/
 }
 
 void SegmentIterator::_calculate_func_in_remaining_conjunct_root() {

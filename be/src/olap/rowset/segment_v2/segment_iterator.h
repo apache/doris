@@ -432,6 +432,9 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    std::unordered_map<std::string, InvertedIndexIterator*> _inverted_index_iterators_by_col_name;
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
+            _storage_name_and_type_by_col_name;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
