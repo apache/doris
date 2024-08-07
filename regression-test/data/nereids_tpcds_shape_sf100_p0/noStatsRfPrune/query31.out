@@ -24,7 +24,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ws_sold_date_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=()
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_sales] apply RFs: RF3
 --------------------PhysicalProject
