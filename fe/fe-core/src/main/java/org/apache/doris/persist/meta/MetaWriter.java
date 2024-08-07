@@ -79,14 +79,14 @@ public class MetaWriter {
 
     private Delegate delegate;
 
-    public void setDelegate(CountingDataOutputStream dos, List<MetaIndex> indices) {
+    private void setDelegate(CountingDataOutputStream dos, List<MetaIndex> indices) {
         this.delegate = (name, method) -> {
             indices.add(new MetaIndex(name, dos.getCount()));
             return method.write();
         };
     }
 
-    public long doWork(String name, WriteMethod method) throws IOException {
+    private long doWork(String name, WriteMethod method) throws IOException {
         if (delegate == null) {
             return method.write();
         }

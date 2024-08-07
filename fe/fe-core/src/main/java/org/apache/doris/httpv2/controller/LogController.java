@@ -45,10 +45,7 @@ import javax.servlet.http.HttpServletRequest;
 public class LogController {
 
     private static final Logger LOG = LogManager.getLogger(LogController.class);
-    private static long WEB_LOG_BYTES = 1024 * 1024;  // 1MB
-
-    private String addVerboseName;
-    private String delVerboseName;
+    private static final long WEB_LOG_BYTES = 1024 * 1024;  // 1MB
 
     @Autowired
     private ReadEnvironment readEnvironment;
@@ -56,7 +53,7 @@ public class LogController {
     @RequestMapping(path = "/log", method = RequestMethod.GET)
     public Object log(HttpServletRequest request) {
         Map<String, Map<String, String>> map = new HashMap<>();
-        appendLogConf(map);
+        appendLogConf(map,null,null);
         appendLogInfo(map);
         return ResponseEntityBuilder.ok(map);
     }
@@ -65,14 +62,14 @@ public class LogController {
     public Object logLevel(HttpServletRequest request) {
         Map<String, Map<String, String>> map = new HashMap<>();
         // get parameters
-        addVerboseName = request.getParameter("add_verbose");
-        delVerboseName = request.getParameter("del_verbose");
+        String addVerboseName = request.getParameter("add_verbose");
+        String delVerboseName = request.getParameter("del_verbose");
         LOG.info("add verbose name: {}, del verbose name: {}", addVerboseName, delVerboseName);
-        appendLogConf(map);
+        appendLogConf(map,addVerboseName,delVerboseName);
         return ResponseEntityBuilder.ok(map);
     }
 
-    private void appendLogConf(Map<String, Map<String, String>> content) {
+    private void appendLogConf(Map<String, Map<String, String>> content,String addVerboseName,String delVerboseName) {
         Map<String, String> map = new HashMap<>();
 
         try {
@@ -82,7 +79,7 @@ public class LogController {
                 List<String> verboseNames = Lists.newArrayList(configs.y);
                 if (!verboseNames.contains(addVerboseName)) {
                     verboseNames.add(addVerboseName);
-                    configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
+                    configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[0]),
                             null);
                     readEnvironment.reinitializeLoggingSystem();
                 }
@@ -92,7 +89,7 @@ public class LogController {
                 List<String> verboseNames = Lists.newArrayList(configs.y);
                 if (verboseNames.contains(delVerboseName)) {
                     verboseNames.remove(delVerboseName);
-                    configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
+                    configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[0]),
                             null);
                     readEnvironment.reinitializeLoggingSystem();
                 }
@@ -104,7 +101,6 @@ public class LogController {
             content.put("LogConfiguration", map);
         } catch (IOException e) {
             LOG.error(e);
-            e.printStackTrace();
         }
     }
 
@@ -119,7 +115,7 @@ public class LogController {
             raf = new RandomAccessFile(logPath, "r");
             long fileSize = raf.length();
             long startPos = fileSize < WEB_LOG_BYTES ? 0L : fileSize - WEB_LOG_BYTES;
-            long webContentLength = fileSize < WEB_LOG_BYTES ? fileSize : WEB_LOG_BYTES;
+            long webContentLength = Math.min(fileSize, WEB_LOG_BYTES);
             raf.seek(startPos);
             map.put("showingLast", webContentLength + " bytes of log");
             StringBuilder sb = new StringBuilder();

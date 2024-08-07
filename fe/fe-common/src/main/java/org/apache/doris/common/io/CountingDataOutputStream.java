@@ -18,7 +18,7 @@
 package org.apache.doris.common.io;
 
 import java.io.DataOutputStream;
-import java.io.FilterOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -28,47 +28,75 @@ import java.io.OutputStream;
  */
 
 public class CountingDataOutputStream extends DataOutputStream {
+    private static final long FSYNC_SIZE_IN_BYTES = 1024 * 1024 * 8;
+    /**
+     * The number of bytes written to the data output stream so far. If this counter overflows,
+     * it will be wrapped to Long.MAX_VALUE.
+     */
+    private long count;
+    /**
+     * The number of bytes since from last force sync so far. If the fsyncDelta greater than fsyncSize,
+     * it will force sync
+     */
+    private long fsyncDelta;
+    protected long fsyncSize;
 
     public CountingDataOutputStream(OutputStream out) {
-        super(new CountingOutputStream(out, 0L));
+        this(out, 0, FSYNC_SIZE_IN_BYTES);
     }
 
-    public CountingDataOutputStream(OutputStream out, long count) {
-        super(new CountingOutputStream(out, count));
+    public CountingDataOutputStream(OutputStream out, long fsyncSize) {
+        this(out, 0, fsyncSize);
+    }
+
+    public CountingDataOutputStream(OutputStream out, long count, long fsyncSize) {
+        super(out);
+        this.count = count;
+        this.fsyncSize = fsyncSize;
+        this.fsyncDelta = 0;
     }
 
     public long getCount() {
-        return ((CountingOutputStream) this.out).getCount();
+        return this.count;
     }
 
-    public void close() throws IOException {
-        this.out.close();
+    public void write(byte[] b, int off, int len) throws IOException {
+        super.write(b, off, len);
+        incCount(len);
+        partialFsync(len);
     }
 
-    public static class CountingOutputStream extends FilterOutputStream {
-        private long count;
+    /**
+     * see {@link java.io.DataOutputStream#write(int)} or {@link java.io.OutputStream#write(int)}
+     */
+    @Override
+    public synchronized void write(int b) throws IOException {
+        super.write(b);
+        incCount(1);
+        partialFsync(1);
+    }
 
-        public CountingOutputStream(OutputStream out, long count) {
-            super(out);
-            this.count = count;
+    /**
+     * Increases the written counter by the specified value until it reaches Long.MAX_VALUE.
+     */
+    private void incCount(int value) {
+        long temp = count + value;
+        if (temp < 0) {
+            temp = Long.MAX_VALUE;
         }
+        count = temp;
+    }
 
-        public long getCount() {
-            return this.count;
-        }
-
-        public void write(byte[] b, int off, int len) throws IOException {
-            this.out.write(b, off, len);
-            this.count += len;
-        }
-
-        public void write(int b) throws IOException {
-            this.out.write(b);
-            ++this.count;
-        }
-
-        public void close() throws IOException {
-            this.out.close();
+    /**
+     * image file force sync partial，avoid excessive sync size that causes disk IO throughput to be full，so we force sync
+     * partial ahead
+     */
+    private void partialFsync(int deltaBytes) throws IOException {
+        this.fsyncDelta += deltaBytes;
+        // if this.out is FileOutputStream we should force sync disk in a batch (eg:8MB)
+        if (this.fsyncDelta >= fsyncSize && this.out instanceof FileOutputStream) {
+            ((FileOutputStream) this.out).getChannel().force(true);
+            this.fsyncDelta = 0;
         }
     }
 }

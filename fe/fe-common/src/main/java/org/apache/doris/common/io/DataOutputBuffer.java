@@ -68,18 +68,18 @@ public class DataOutputBuffer extends DataOutputStream {
         }
 
         public void write(DataInput in, int len) throws IOException {
-            int newcount = count + len;
-            if (newcount > buf.length) {
-                byte[] newbuf = new byte[Math.max(buf.length << 1, newcount)];
-                System.arraycopy(buf, 0, newbuf, 0, count);
-                buf = newbuf;
+            int newCount = count + len;
+            if (newCount > buf.length) {
+                byte[] newBuf = new byte[Math.max(buf.length << 1, newCount)];
+                System.arraycopy(buf, 0, newBuf, 0, count);
+                buf = newBuf;
             }
             in.readFully(buf, count, len);
-            count = newcount;
+            count = newCount;
         }
     }
 
-    private Buffer buffer;
+    private final Buffer buffer;
 
     /** Constructs a new empty buffer. */
     public DataOutputBuffer() {
