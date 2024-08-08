@@ -31,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -706,14 +707,35 @@ public class LoadAction extends RestBaseController {
         return backend;
     }
 
-    @RequestMapping(path = "/api/ingestion_load/{" + DB_KEY + "}/_create", method = RequestMethod.POST)
+    /**
+     * Requset body example:
+     * {
+     *     "label": "test",
+     *     "tableToPartition": {
+     *         "tbl_test_spark_load": ["p1","p2"]
+     *     },
+     *     "properties": {
+     *         "strict_mode": "true",
+     *         "timeout": 3600000
+     *     }
+     * }
+     *
+     */
+    @RequestMapping(path = "/api/ingestion_load/{" + CATALOG_KEY + "}/{" + DB_KEY
+            + "}/_create", method = RequestMethod.POST)
     public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
+                                  @PathVariable(value = CATALOG_KEY) String catalog,
                                   @PathVariable(value = DB_KEY) String db) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
 
         executeCheckPassword(request, response);
+
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            return ResponseEntityBuilder.okWithCommonError("Only support internal catalog. "
+                    + "Current catalog is " + catalog);
+        }
 
         String fullDbName = getFullDbName(db);
 
@@ -794,9 +816,26 @@ public class LoadAction extends RestBaseController {
 
     }
 
-    @RequestMapping(path = "/api/ingestion_load/{" + DB_KEY + "}/_update", method = RequestMethod.POST)
+    /**
+     * Requset body example:
+     * {
+     *     "statusInfo": {
+     *         "msg": "",
+     *         "hadoopProperties": "{\"fs.defaultFS\":\"hdfs://hadoop01:8020\",\"hadoop.username\":\"hadoop\"}",
+     *         "appId": "local-1723088141438",
+     *         "filePathToSize": "{\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/dpp_result.json\":179,\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/load_meta.json\":3441,\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/V1.test.25056.29373.25057.0.366242211.parquet\":5745}",
+     *         "dppResult": "{\"isSuccess\":true,\"failedReason\":\"\",\"scannedRows\":10,\"fileNumber\":1,\"fileSize\":2441,\"normalRows\":10,\"abnormalRows\":0,\"unselectRows\":0,\"partialAbnormalRows\":\"[]\",\"scannedBytes\":0}",
+     *         "status": "SUCCESS"
+     *     },
+     *     "loadId": 36018
+     * }
+     *
+     */
+    @RequestMapping(path = "/api/ingestion_load/{" + CATALOG_KEY + "}/{" + DB_KEY
+            + "}/_update", method = RequestMethod.POST)
     public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
-                                  @PathVariable(value = DB_KEY) String db) {
+                                      @PathVariable(value = CATALOG_KEY) String catalog,
+                                      @PathVariable(value = DB_KEY) String db) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
