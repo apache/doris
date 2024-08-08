@@ -138,6 +138,7 @@ private:
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
+    RuntimeProfile::Counter* _init_brpc_stub_timer = nullptr;
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange

@@ -454,12 +454,12 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
     *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
-int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
+std::pair<int64_t, int64_t> ExchangeSinkBuffer::get_sum_rpc_time() {
     int64_t sum_time = 0;
     for (auto& [id, time] : _instance_to_rpc_time) {
         sum_time += time;
     }
-    return sum_time;
+    return {sum_time, _instance_to_rpc_time.size()};
 }
 
 void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
@@ -473,11 +473,12 @@ void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
 }
 
 void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
-    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
-    auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
-    auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
+    auto* _max_rpc_timer = ADD_TIMER(profile, "InstanceRpcMaxTime");
+    auto* _min_rpc_timer = ADD_TIMER(profile, "InstanceRpcMinTime");
+    auto* _sum_rpc_timer = ADD_TIMER(profile, "InstanceRpcSumTime");
     auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
-    auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
+    auto* _sum_instance = ADD_COUNTER(profile, "InstanceSum", TUnit::UNIT);
+    auto* _avg_rpc_timer = ADD_TIMER(profile, "InstanceRpcAvgTime");
 
     int64_t max_rpc_time = 0, min_rpc_time = 0;
     get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
@@ -485,9 +486,10 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     _min_rpc_timer->set(min_rpc_time);
 
     _count_rpc->set(_rpc_count);
-    int64_t sum_time = get_sum_rpc_time();
+    auto [sum_time, sum_instance] = get_sum_rpc_time();
     _sum_rpc_timer->set(sum_time);
-    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+    _sum_instance->set(sum_instance);
+    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), sum_instance));
 }
 
 } // namespace pipeline
