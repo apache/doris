@@ -837,7 +837,9 @@ public:
         }
     }
 
-    Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }
+    virtual std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
+        return {source_deps[channel_id]};
+    }
     virtual Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
@@ -912,6 +914,10 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {
         return sink_deps[channel_id].get();
+    }
+
+    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) override {
+        return source_deps;
     }
 
 private:
