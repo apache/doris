@@ -30,8 +30,7 @@ import org.slf4j.LoggerFactory;
  * a specified timeout.
  */
 public abstract class AbstractMonitoredLock {
-    // Lock hold timeout in milliseconds
-    protected static final long HOLD_TIMEOUT = Config.max_lock_hold_threshold_seconds * 1000;
+
     private static final Logger LOG = LoggerFactory.getLogger(AbstractMonitoredLock.class);
 
     // Thread-local variable to store the lock start time
@@ -55,12 +54,12 @@ public abstract class AbstractMonitoredLock {
         if (startTime != null) {
             long lockHoldTimeNanos = System.nanoTime() - startTime;
             long lockHoldTimeMs = lockHoldTimeNanos >> 20;
-            if (lockHoldTimeMs > HOLD_TIMEOUT) {
+            if (lockHoldTimeMs > Config.max_lock_hold_threshold_seconds * 1000) {
                 Thread currentThread = Thread.currentThread();
                 String stackTrace = getThreadStackTrace(currentThread.getStackTrace());
                 LOG.warn("Thread ID: {}, Thread Name: {} - Lock held for {} ms, exceeding hold timeout of {} ms "
                                 + "Thread stack trace:{}",
-                        currentThread.getId(), currentThread.getName(), lockHoldTimeMs, HOLD_TIMEOUT, stackTrace);
+                        currentThread.getId(), currentThread.getName(), lockHoldTimeMs, lockHoldTimeMs, stackTrace);
             }
             lockStartTime.remove();
         }
