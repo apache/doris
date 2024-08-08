@@ -56,7 +56,7 @@ public class FileSplit implements Split {
         this.modificationTime = modificationTime;
         this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
-        this.locationType = path.getTFileTypeForBE();
+        this.locationType = path.isBindBroker() ?  TFileType.FILE_BROKER : path.getTFileTypeForBE();
     }
 
     public String[] getHosts() {

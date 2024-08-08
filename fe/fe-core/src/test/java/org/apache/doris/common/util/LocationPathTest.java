@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.util.LocationPath.Scheme;
 import org.apache.doris.fs.FileSystemType;
 
 import org.junit.jupiter.api.Assertions;
@@ -171,7 +172,7 @@ public class LocationPathTest {
         LocationPath locationPath = new LocationPath("unknown://test.com", rangeProps);
         // FE
         Assertions.assertTrue(locationPath.get().startsWith("unknown://"));
-        Assertions.assertTrue(locationPath.getLocationType() == LocationPath.LocationType.UNKNOWN);
+        Assertions.assertTrue(locationPath.getScheme() == Scheme.UNKNOWN);
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("unknown://"));
@@ -184,7 +185,7 @@ public class LocationPathTest {
         LocationPath locationPath = new LocationPath("/path/to/local", rangeProps);
         // FE
         Assertions.assertTrue(locationPath.get().equalsIgnoreCase("/path/to/local"));
-        Assertions.assertTrue(locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME);
+        Assertions.assertTrue(locationPath.getScheme() == Scheme.NOSCHEME);
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));

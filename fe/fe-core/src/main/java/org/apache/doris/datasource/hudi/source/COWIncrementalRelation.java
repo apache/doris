@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.spi.Split;
 
@@ -210,13 +211,13 @@ public class COWIncrementalRelation implements IncrementalRelation {
                 : Collections.emptyList();
         for (String baseFile : filteredMetaBootstrapFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
+            splits.add(new FileSplit(new LocationPath(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
                     0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }
         for (String baseFile : filteredRegularFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
+            splits.add(new FileSplit(new LocationPath(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
                     0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }

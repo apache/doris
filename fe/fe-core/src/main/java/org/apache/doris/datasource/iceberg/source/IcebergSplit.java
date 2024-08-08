@@ -19,8 +19,6 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.thrift.TFileType;
 
 import lombok.Data;
 
@@ -45,9 +43,6 @@ public class IcebergSplit extends FileSplit {
                         Integer formatVersion, Map<String, String> config,
                         List<String> partitionList, String originalPath) {
         super(file, start, length, fileLength, 0, hosts, partitionList);
-        if (config.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            this.locationType = TFileType.FILE_BROKER;
-        }
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;

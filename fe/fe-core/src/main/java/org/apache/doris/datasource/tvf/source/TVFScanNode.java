@@ -102,7 +102,7 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         TFileCompressType fileCompressType = tableValuedFunction.getTFileCompressType();
-        return Util.getOrInferCompressType(fileCompressType, fileSplit.getPath().toString());
+        return Util.getOrInferCompressType(fileCompressType, fileSplit.getPathString());
     }
 
     @Override

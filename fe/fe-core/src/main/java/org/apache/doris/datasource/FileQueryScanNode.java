@@ -371,7 +371,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Split split,
             List<String> pathPartitionKeys) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
-        TFileType locationType = fileSplit.getLocationType();
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
         // Otherwise, use the values in file path.
@@ -384,8 +383,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
 
-        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
-                locationType);
+        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
         if (isACID) {
@@ -415,7 +413,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setScanParams(rangeDesc, fileSplit);
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();
-        setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+        setLocationPropertiesIfNecessary(backend, fileSplit.getLocationType(), locationProperties);
         location.setBackendId(backend.getId());
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
@@ -478,8 +476,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys, TFileType locationType)
-            throws UserException {
+                                               List<String> columnsFromPathKeys) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
@@ -489,9 +486,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
-        rangeDesc.setFileType(locationType);
-        rangeDesc.setPath(fileSplit.getPath().toString());
-        if (locationType == TFileType.FILE_HDFS) {
+        rangeDesc.setFileType(fileSplit.getLocationType());
+        rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
+        if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
             URI fileUri = fileSplit.getPath().getPath().toUri();
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
@@ -548,7 +545,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
+        return Util.inferFileCompressTypeByPath(fileSplit.getPathString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {
