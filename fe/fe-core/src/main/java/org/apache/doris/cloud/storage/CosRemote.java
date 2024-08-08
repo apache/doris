@@ -106,7 +106,7 @@ public class CosRemote extends DefaultRemote {
             return Triple.of(credentials.getTmpSecretId(), credentials.getTmpSecretKey(),
                     credentials.getToken());
         } catch (Exception e) {
-            LOG.warn("Failed get oss sts token", e);
+            LOG.warn("Failed get cos sts token", e);
             throw new DdlException(e.getMessage());
         }
     }
@@ -166,7 +166,7 @@ public class CosRemote extends DefaultRemote {
             }
             return new ListObjectsResult(objectFiles, objectListing.isTruncated(), objectListing.getMarker());
         } catch (CosClientException e) {
-            LOG.warn("Failed to list objects for OSS", e);
+            LOG.warn("Failed to list objects for COS", e);
             throw new DdlException("Failed to list objects for COS, Error code=" + e.getErrorCode() + ", Error message="
                     + e.getCause().getMessage());
         }
