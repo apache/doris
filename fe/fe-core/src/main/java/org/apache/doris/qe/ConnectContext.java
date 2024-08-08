@@ -1270,6 +1270,11 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
             choseWay = "default cluster";
+            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
+                    cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                throw new ClusterException(String.format("default cluster %s check auth failed", cluster),
+                    ClusterException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER);
+            }
         } else {
             String authorizedCluster = getAuthorizedCloudCluster();
             if (!Strings.isNullOrEmpty(authorizedCluster)) {

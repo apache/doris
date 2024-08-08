@@ -28,6 +28,7 @@ suite('test_no_cluster_hits', 'multi_cluster') {
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'sys_log_verbose_modules=org',
+        'max_query_retry_time=2000'
     ]
     options.setFeNum(3)
     options.setBeNum(3)
@@ -109,6 +110,19 @@ suite('test_no_cluster_hits', 'multi_cluster') {
         result = sql """select * from $table"""
         log.info("result = {}", result)
         assertEquals(2, result.size())
+
+        sql """REVOKE USAGE_PRIV ON CLUSTER ${currentCluster.cluster} from $user"""
+        try {
+            connectInDocker(user = user, password = '') {
+                sql """SET PROPERTY FOR '${user}' 'default_cloud_cluster' = '${currentCluster.cluster}'"""
+                // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER
+                sql """select * from $table"""
+            }
+        } catch (Exception e) {
+            logger.info("exception: {}", e.getMessage())
+            assertTrue(e.getMessage().contains("ClusterException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_CLUSTER"))
+            assertTrue(e.getMessage().contains("check auth failed"))
+        } 
 
         // no cluster
         def tag = getCloudBeTagByName(currentCluster.cluster)
