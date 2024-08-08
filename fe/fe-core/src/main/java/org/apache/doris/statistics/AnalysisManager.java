@@ -658,8 +658,10 @@ public class AnalysisManager implements Writable {
             return;
         }
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
-        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        boolean allColumn = false;
         if (columns == null) {
+            allColumn = true;
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
@@ -682,8 +684,12 @@ public class AnalysisManager implements Writable {
                     }
                 }
                 tableStats.removeColumn(indexName, column);
-                statisticsCache.invalidate(catalogId, dbId, tableId, indexId, column);
+                statsCache.invalidate(catalogId, dbId, tableId, indexId, column);
             }
+        }
+        // To remove stale column name that is changed before.
+        if (allColumn) {
+            tableStats.removeAllColumn();
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;

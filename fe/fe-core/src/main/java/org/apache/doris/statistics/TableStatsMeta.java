@@ -124,6 +124,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         colToColStatsMeta.remove(Pair.of(indexName, colName));
     }
 
+    public void removeAllColumn() {
+        colToColStatsMeta.clear();
+    }
+
     public Set<Pair<String, String>> analyzeColumns() {
         return colToColStatsMeta.keySet();
     }
@@ -173,6 +177,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         }
         if (newPartitionLoaded == null) {
             newPartitionLoaded = new AtomicBoolean(false);
+        }
+        if (colToColStatsMeta == null) {
+            colToColStatsMeta = new ConcurrentHashMap<>();
         }
     }
 
