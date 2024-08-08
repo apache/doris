@@ -56,6 +56,10 @@ import java.util.Optional;
 
 /**LogicalPlanBuilderForCreateView*/
 public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
+    public LogicalPlanBuilderForCreateView() {
+        super(null);
+    }
+
     @Override
     protected LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
         ConnectContext.get().getStatementContext().addIndexInSqlToString(
