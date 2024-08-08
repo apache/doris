@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class AbstractMonitoredLock {
     // Lock hold timeout in milliseconds
-    protected static final long HOLD_TIMEOUT = Config.max_lock_hold_threshold_seconds * 1;
+    protected static final long HOLD_TIMEOUT = Config.max_lock_hold_threshold_seconds * 1000;
     private static final Logger LOG = LoggerFactory.getLogger(AbstractMonitoredLock.class);
 
     // Thread-local variable to store the lock start time

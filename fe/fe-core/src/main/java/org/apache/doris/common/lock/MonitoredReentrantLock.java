@@ -90,4 +90,9 @@ public class MonitoredReentrantLock extends ReentrantLock {
         lockMonitor.afterTryLock(acquired, start); // Log result and elapsed time
         return acquired;
     }
+
+    @Override
+    public Thread getOwner() {
+        return super.getOwner();
+    }
 }

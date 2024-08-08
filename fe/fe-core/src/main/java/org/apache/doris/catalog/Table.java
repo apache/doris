@@ -28,7 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
-import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -84,7 +84,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected TableType type;
     @SerializedName(value = "createTime")
     protected long createTime;
-    protected QueryableReentrantReadWriteLock rwLock;
+    protected MonitoredReentrantReadWriteLock rwLock;
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
@@ -134,7 +134,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
@@ -158,7 +158,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();

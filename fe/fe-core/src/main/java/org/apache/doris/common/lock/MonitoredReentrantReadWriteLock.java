@@ -24,10 +24,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * monitoring capabilities for read and write locks.
  */
 public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
-    private final AbstractMonitoredLock readLockMonitor = new AbstractMonitoredLock() {
-    };
-    private final AbstractMonitoredLock writeLockMonitor = new AbstractMonitoredLock() {
-    };
+    // Monitored read and write lock instances
+    private final ReadLock readLock = new ReadLock(this);
+    private final WriteLock writeLock = new WriteLock(this);
 
     // Constructor for creating a monitored lock with fairness option
     public MonitoredReentrantReadWriteLock(boolean fair) {
@@ -42,6 +41,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     public class ReadLock extends ReentrantReadWriteLock.ReadLock {
         private static final long serialVersionUID = 1L;
+        private final AbstractMonitoredLock monitor = new AbstractMonitoredLock() {};
 
         /**
          * Constructs a new ReadLock instance.
@@ -59,7 +59,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
         @Override
         public void lock() {
             super.lock();
-            readLockMonitor.afterLock();
+            monitor.afterLock();
         }
 
         /**
@@ -68,7 +68,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
          */
         @Override
         public void unlock() {
-            readLockMonitor.afterUnlock();
+            monitor.afterUnlock();
             super.unlock();
         }
     }
@@ -78,6 +78,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     public class WriteLock extends ReentrantReadWriteLock.WriteLock {
         private static final long serialVersionUID = 1L;
+        private final AbstractMonitoredLock monitor = new AbstractMonitoredLock() {};
 
         /**
          * Constructs a new WriteLock instance.
@@ -95,7 +96,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
         @Override
         public void lock() {
             super.lock();
-            writeLockMonitor.afterLock();
+            monitor.afterLock();
         }
 
         /**
@@ -104,7 +105,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
          */
         @Override
         public void unlock() {
-            writeLockMonitor.afterUnlock();
+            monitor.afterUnlock();
             super.unlock();
         }
     }
@@ -116,7 +117,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     @Override
     public ReadLock readLock() {
-        return new ReadLock(this);
+        return readLock;
     }
 
     /**
@@ -126,6 +127,11 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     @Override
     public WriteLock writeLock() {
-        return new WriteLock(this);
+        return writeLock;
+    }
+
+    @Override
+    public Thread getOwner() {
+        return super.getOwner();
     }
 }

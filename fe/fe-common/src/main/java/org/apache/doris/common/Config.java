@@ -2997,7 +2997,7 @@ public class Config extends ConfigBase {
             "Deadlock detection interval time, unit minute"})
     public static long deadlock_detection_interval_minute = 5;
 
-    @ConfField(description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
-    public static long  max_lock_hold_threshold_seconds = 30;
+    public static long  max_lock_hold_threshold_seconds = 10;
 }
