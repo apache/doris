@@ -88,7 +88,18 @@ public class CompoundPredicate extends Predicate {
             Preconditions.checkState(op == Operator.NOT);
             return "NOT " + getChild(0).toSql();
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            String left = getChild(0).toSql();
+            String right = getChild(1).toSql();
+
+            // Add parentheses only for CompoundPredicate children
+            if (getChild(0) instanceof CompoundPredicate) {
+                left = "(" + left + ")";
+            }
+            if (getChild(1) instanceof CompoundPredicate) {
+                right = "(" + right + ")";
+            }
+
+            return left + " " + op.toString() + " " + right;
         }
     }
 
