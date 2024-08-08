@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))) build RFs:RF4 c_custkey->[o_custkey]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))) build RFs:RF4 c_custkey->[o_custkey]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF3 l_orderkey->[o_orderkey]
 ----------------------PhysicalProject

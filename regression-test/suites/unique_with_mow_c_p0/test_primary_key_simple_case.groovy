@@ -41,7 +41,6 @@ suite("test_primary_key_simple_case") {
         CLUSTER BY(`user_id`, `age`, `cost`, `sex`)
         DISTRIBUTED BY HASH(`user_id`)
         PROPERTIES ( "replication_num" = "1",
-                     "disable_auto_compaction" = "true",
                      "enable_unique_key_merge_on_write" = "true"
         );
     """

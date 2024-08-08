@@ -558,7 +558,9 @@ public class CreateTableInfo {
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, finalEnableMergeOnWrite,
+        Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        clusterKeySet.addAll(clusterKeysColumnNames);
+        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, clusterKeySet, finalEnableMergeOnWrite,
                 keysType));
 
         // validate index

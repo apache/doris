@@ -28,13 +28,18 @@
 namespace doris::segment_v2 {
 
 Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_file_cache) {
-    _read_buffer_size = read_buffer_size;
-    _open_idx_file_cache = open_idx_file_cache;
-    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
-        return _init_from_v2(read_buffer_size);
-    } else {
-        return Status::OK();
+    if (!_inited) {
+        _read_buffer_size = read_buffer_size;
+        _open_idx_file_cache = open_idx_file_cache;
+        if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+            auto st = _init_from_v2(read_buffer_size);
+            if (!st.ok()) {
+                return st;
+            }
+        }
+        _inited = true;
     }
+    return Status::OK();
 }
 
 Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {

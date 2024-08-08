@@ -137,7 +137,7 @@ public class MTMVPartitionDefinition {
         cascadesContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             Plan mvRewrittenPlan =
-                    planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+                    planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             RelatedTableInfo relatedTableInfo = MaterializedViewUtils
                     .getRelatedTableInfo(partitionColName, timeUnit, mvRewrittenPlan, cascadesContext);
             if (!relatedTableInfo.isPctPossible()) {

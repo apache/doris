@@ -102,7 +102,7 @@ PhysicalResultSink
 -- !multiple_full_outer_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((t1.id = t3.id)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
@@ -148,7 +148,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((expr_cast(score as BIGINT) = expr_(score + 10))) otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((expr_cast(score as BIGINT) = expr_(score + 10))) otherCondition=()
 --------PhysicalProject
 ----------filter(( not id IS NULL))
 ------------PhysicalOlapScan[t]
@@ -246,7 +246,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(score as BIGINT) = expr_(score * 2))) otherCondition=((t1.id < t2.id))
+------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_cast(score as BIGINT) = expr_(score * 2))) otherCondition=((t1.id < t2.id))
 --------PhysicalProject
 ----------PhysicalOlapScan[t]
 --------PhysicalProject

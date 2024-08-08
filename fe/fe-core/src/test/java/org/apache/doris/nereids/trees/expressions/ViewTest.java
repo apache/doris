@@ -101,7 +101,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
             System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             NereidsPlanner planner = new NereidsPlanner(statementContext);
-            PhysicalPlan plan = planner.plan(
+            PhysicalPlan plan = planner.planWithLock(
                     new NereidsParser().parseSingle(sql),
                     PhysicalProperties.ANY
             );

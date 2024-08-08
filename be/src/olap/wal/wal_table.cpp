@@ -171,8 +171,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
-            },
-            10000L);
+            });
     auto result_status = Status::create<false>(result.status);
     LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
     return result_status;
@@ -192,10 +191,8 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
         [[maybe_unused]] auto st = _try_abort_txn(_db_id, label);
     }
 #endif
-    DBUG_EXECUTE_IF("WalTable.replay_wals.stop", {
-        // LOG(INFO) << "WalTable.replay_wals.stop";
-        return Status::InternalError("WalTable.replay_wals.stop");
-    });
+    DBUG_EXECUTE_IF("WalTable.replay_wals.stop",
+                    { return Status::InternalError("WalTable.replay_wals.stop"); });
     return _replay_one_wal_with_streamload(wal_id, wal, label);
 }
 

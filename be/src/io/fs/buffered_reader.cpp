@@ -28,6 +28,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 
@@ -585,15 +587,19 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     if (UNLIKELY(0 == _len || _offset + _len < off)) {
         return Status::OK();
     }
-    // [0]: maximum len trying to read, [1] maximum length buffer can provide, [2] actual len buffer has
-    size_t read_len = std::min({buf_len, _offset + _size - off, _offset + _len - off});
+
     {
-        SCOPED_RAW_TIMER(&_statis.copy_time);
-        memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+        LIMIT_REMOTE_SCAN_IO(bytes_read);
+        // [0]: maximum len trying to read, [1] maximum length buffer can provide, [2] actual len buffer has
+        size_t read_len = std::min({buf_len, _offset + _size - off, _offset + _len - off});
+        {
+            SCOPED_RAW_TIMER(&_statis.copy_time);
+            memcpy((void*)out, _buf.get() + (off - _offset), read_len);
+        }
+        *bytes_read = read_len;
+        _statis.request_io += 1;
+        _statis.request_bytes += read_len;
     }
-    *bytes_read = read_len;
-    _statis.request_io += 1;
-    _statis.request_bytes += read_len;
     if (off + *bytes_read == _offset + _len) {
         reset_offset(_offset + _whole_buffer_size);
     }

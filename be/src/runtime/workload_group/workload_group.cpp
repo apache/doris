@@ -573,15 +573,16 @@ void WorkloadGroup::upsert_scan_io_throttle(WorkloadGroupInfo* tg_info) {
     _remote_scan_io_throttle->set_io_bytes_per_second(tg_info->remote_read_bytes_per_second);
 }
 
-std::shared_ptr<IOThrottle> WorkloadGroup::get_scan_io_throttle(const std::string& disk_dir) {
-    if (disk_dir == io::FileReader::VIRTUAL_REMOTE_DATA_DIR) {
-        return _remote_scan_io_throttle;
-    }
+std::shared_ptr<IOThrottle> WorkloadGroup::get_local_scan_io_throttle(const std::string& disk_dir) {
     auto find_ret = _scan_io_throttle_map.find(disk_dir);
     if (find_ret != _scan_io_throttle_map.end()) {
         return find_ret->second;
     }
     return nullptr;
+}
+
+std::shared_ptr<IOThrottle> WorkloadGroup::get_remote_scan_io_throttle() {
+    return _remote_scan_io_throttle;
 }
 
 void WorkloadGroup::try_stop_schedulers() {

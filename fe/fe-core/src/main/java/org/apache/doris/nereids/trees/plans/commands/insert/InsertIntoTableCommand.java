@@ -204,9 +204,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-
-            insertExecutor.beginTransaction();
-            insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
+            if (!insertExecutor.isEmptyInsert()) {
+                insertExecutor.beginTransaction();
+                insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
+            }
             targetTableIf.readUnlock();
         } catch (Throwable e) {
             targetTableIf.readUnlock();
