@@ -169,6 +169,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
