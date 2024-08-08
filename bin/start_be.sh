@@ -172,7 +172,7 @@ setup_java_env || true
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
-    exit 1
+    exit 0
 fi
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
