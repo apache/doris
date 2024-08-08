@@ -221,7 +221,7 @@ int64_t MemTxnKv::get_last_read_version() {
 std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin, std::string end,
                                                                FullRangeGetIteratorOptions opts) {
     return std::make_unique<memkv::FullRangeGetIterator>(std::move(begin), std::move(end),
-                                                         std::move(opts));
+                                                         std::move(opts), *this);
 }
 
 } // namespace doris::cloud
@@ -484,8 +484,8 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 }
 
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
-                                           FullRangeGetIteratorOptions opts)
-        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {}
+                                           FullRangeGetIteratorOptions opts, MemTxnKv& txn_kv)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)), txn_kv_(txn_kv) {}
 
 FullRangeGetIterator::~FullRangeGetIterator() = default;
 
@@ -495,27 +495,49 @@ bool FullRangeGetIterator::has_next() {
     }
 
     if (!inner_iter_) {
-        auto* txn = opts_.txn;
-        if (!txn) {
-            // Create a new txn for each inner range get
-            std::unique_ptr<cloud::Transaction> txn1;
-            TxnErrorCode err = opts_.txn_kv->create_txn(&txn_);
-            if (err != TxnErrorCode::TXN_OK) {
-                is_valid_ = false;
-                return false;
-            }
-
-            txn = txn_.get();
-        }
-
-        TxnErrorCode err = txn->get(begin_, end_, &inner_iter_, opts_.snapshot, 0);
-        if (err != TxnErrorCode::TXN_OK) {
-            is_valid_ = false;
+        inner_get(begin_);
+        if (!is_valid_) {
             return false;
         }
+
+        return inner_iter_->has_next();
     }
 
-    return inner_iter_->has_next();
+    if (inner_iter_->has_next()) {
+        return true;
+    }
+
+    if (!inner_iter_->more()) {
+        return false;
+    }
+
+    inner_get(inner_iter_->next_begin_key());
+    return is_valid_ ? inner_iter_->has_next() : false;
+}
+
+void FullRangeGetIterator::inner_get(std::string_view begin) {
+    auto* txn = opts_.txn;
+    if (!txn) {
+        // Create a new txn for each inner range get
+        std::unique_ptr<cloud::Transaction> txn1;
+        TxnErrorCode err = txn_kv_.create_txn(&txn_);
+        if (err != TxnErrorCode::TXN_OK) {
+            is_valid_ = false;
+            return;
+        }
+
+        txn = txn_.get();
+    }
+
+    if (opts_.obj_pool && inner_iter_) {
+        opts_.obj_pool->push_back(std::move(inner_iter_));
+    }
+
+    TxnErrorCode err = txn->get(begin, end_, &inner_iter_, opts_.snapshot, 0);
+    if (err != TxnErrorCode::TXN_OK) {
+        is_valid_ = false;
+        return;
+    }
 }
 
 std::optional<std::pair<std::string_view, std::string_view>> FullRangeGetIterator::next() {

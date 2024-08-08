@@ -579,10 +579,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
 
     {
         // Without txn
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
-
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.limit = 11});
         ASSERT_TRUE(it->is_valid());
 
         int cnt = 0;
@@ -602,11 +599,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         // With txn
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
-        opts.txn = txn.get();
 
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.limit = 11, .txn = txn.get()});
         ASSERT_TRUE(it->is_valid());
 
         int cnt = 0;
@@ -623,10 +617,6 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         // With prefetch
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
-        opts.txn = txn.get();
-        opts.prefetch = true;
 
         int prefetch_cnt = 0;
         doris::SyncPoint::CallbackGuard guard;
@@ -638,7 +628,8 @@ TEST(TxnKvTest, FullRangeGetIterator) {
                 },
                 &guard);
 
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end,
+                                         {.prefetch = true, .limit = 11, .txn = txn.get()});
         ASSERT_TRUE(it->is_valid());
 
         int cnt = 0;
@@ -656,11 +647,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     {
         // With object pool
         std::vector<std::unique_ptr<RangeGetIterator>> obj_pool;
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
-        opts.obj_pool = &obj_pool;
-
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.limit = 11, .obj_pool = &obj_pool});
         ASSERT_TRUE(it->is_valid());
 
         int cnt = 0;
@@ -686,12 +673,9 @@ TEST(TxnKvTest, FullRangeGetIterator) {
 
     {
         // Abnormal
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        opts.txn = txn.get();
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.limit = 11, .txn = txn.get()});
         auto* fdb_it = static_cast<fdb::FullRangeGetIterator*>(it.get());
         fdb_it->is_valid_ = false;
         ASSERT_FALSE(it->is_valid());
@@ -726,10 +710,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
                 },
                 &guard);
 
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
-        opts.prefetch = true;
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.prefetch = true, .limit = 11});
         auto kvp = it->next();
         ASSERT_TRUE(kvp.has_value());
         kvp = it->next(); // Trigger prefetch
@@ -745,13 +726,10 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     {
         // Benchmark prefetch
         // No prefetch
-        FullRangeGetIteratorOptions opts(txn_kv);
-        opts.limit = 11;
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        opts.txn = txn.get();
 
-        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto it = txn_kv->full_range_get(begin, end, {.limit = 11, .txn = txn.get()});
         int cnt = 0;
         auto start = std::chrono::steady_clock::now();
         for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
@@ -768,9 +746,7 @@ TEST(TxnKvTest, FullRangeGetIterator) {
         // Prefetch
         err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        opts.txn = txn.get();
-        opts.prefetch = true;
-        it = txn_kv->full_range_get(begin, end, opts);
+        it = txn_kv->full_range_get(begin, end, {.prefetch = true, .txn = txn.get()});
         cnt = 0;
         start = std::chrono::steady_clock::now();
         for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {

@@ -28,7 +28,7 @@
 #include <string_view>
 #include <thread>
 
-#include "recycler/storage_vault_accessor.h"
+#include "recycler/storage_vault.h"
 #include "recycler/white_black_list.h"
 
 namespace brpc {
@@ -36,6 +36,7 @@ class Server;
 } // namespace brpc
 
 namespace doris::cloud {
+class InvertedIndexInfoCache;
 class TxnKv;
 class InstanceRecycler;
 class StorageVaultAccessor;
@@ -43,19 +44,16 @@ class Checker;
 class SimpleThreadPool;
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
-    RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
-                            std::shared_ptr<SimpleThreadPool> recycle_tablet_pool,
+    RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> recycle_storage_vault_pool,
                             std::shared_ptr<SimpleThreadPool> group_recycle_function_pool)
-            : s3_producer_pool(std::move(s3_producer_pool)),
-              recycle_tablet_pool(std::move(recycle_tablet_pool)),
+            : recycle_storage_vault_pool(std::move(recycle_storage_vault_pool)),
               group_recycle_function_pool(std::move(group_recycle_function_pool)) {}
     ~RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(const RecyclerThreadPoolGroup&) = default;
     RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup& other) = default;
     RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup&& other) = default;
     RecyclerThreadPoolGroup(RecyclerThreadPoolGroup&&) = default;
-    std::shared_ptr<SimpleThreadPool> s3_producer_pool;
-    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
+    std::shared_ptr<SimpleThreadPool> recycle_storage_vault_pool;
     std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
 };
 
@@ -149,13 +147,6 @@ public:
     int recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id = -1,
                         bool is_empty_tablet = false);
 
-    /**
-     * recycle all rowsets belonging to the tablet specified by `tablet_id`
-     *
-     * @return 0 for success otherwise error
-     */
-    int recycle_tablet(int64_t tablet_id);
-
     // scan and recycle useless partition version kv
     int recycle_versions();
 
@@ -198,14 +189,6 @@ private:
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
                          std::function<int()> loop_done = nullptr);
-    // return 0 for success otherwise error
-    int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
-    // return 0 for success otherwise error
-    // NOTE: this function ONLY be called when the file paths cannot be calculated
-    int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
-                           const std::string& rowset_id);
-    // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
@@ -224,17 +207,15 @@ private:
     std::string instance_id_;
     InstanceInfoPB instance_info_;
 
-    // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
-    std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
-    using InvertedIndexInfo =
-            std::pair<InvertedIndexStorageFormatPB, std::vector<std::pair<int64_t, std::string>>>;
+    // TODO(plat1ko): Add new storage vault to map in runtime for new created storage vaults
+    std::unordered_map<std::string, StorageVault> storage_vault_map_;
 
-    class InvertedIndexIdCache;
-    std::unique_ptr<InvertedIndexIdCache> inverted_index_id_cache_;
+    std::unique_ptr<InvertedIndexInfoCache> inverted_index_info_cache_;
 
-    std::mutex recycled_tablets_mtx_;
-    // Store recycled tablets, we can skip deleting rowset data of these tablets because these data has already been deleted.
-    std::unordered_set<int64_t> recycled_tablets_;
+    std::mutex dropped_tablets_mtx_;
+    // Store id of dropped tablets, we can skip deleting rowset data of these tablets because these
+    // data will be deleted by recycle the entire tablet.
+    std::unordered_set<int64_t> dropped_tablets_;
 
     std::mutex recycle_tasks_mutex;
     // <task_name, start_time>>

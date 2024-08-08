@@ -53,7 +53,6 @@ class TxnKv;
  * }
  */
 struct FullRangeGetIteratorOptions {
-    std::shared_ptr<TxnKv> txn_kv;
     // Trigger prefetch getting next batch kvs before access them
     bool prefetch = false;
     bool snapshot = false;
@@ -65,8 +64,6 @@ struct FullRangeGetIteratorOptions {
     // If users want to extend the lifespan of the kv pair returned by `next()`, they can pass an
     // object pool to collect the inner iterators that have completed iterated.
     std::vector<std::unique_ptr<RangeGetIterator>>* obj_pool = nullptr;
-
-    FullRangeGetIteratorOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
 };
 
 class FullRangeGetIterator {
@@ -571,9 +568,11 @@ private:
     size_t approximate_bytes_ {0};
 };
 
+// ATTN: `FullRangeGetIterator`'s lifespan SHOULD NOT be longer than `FdbTxnKv`
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
 public:
-    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts,
+                         FdbTxnKv& txn_kv);
 
     ~FullRangeGetIterator() override;
 
@@ -602,6 +601,7 @@ private:
     bool is_valid_ = true;
     std::string begin_;
     std::string end_;
+    FdbTxnKv& txn_kv_;
     std::unique_ptr<Transaction> txn_;
     std::unique_ptr<RangeGetIterator> inner_iter_;
     FDBFuture* fut_ = nullptr;

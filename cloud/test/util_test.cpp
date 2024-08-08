@@ -136,7 +136,7 @@ TEST(UtilTest, stage_wrapper) {
 }
 
 TEST(UtilTest, delay) {
-    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(2);
     s3_producer_pool->start();
     // test normal execute
     {
@@ -148,12 +148,12 @@ TEST(UtilTest, delay) {
             return 1;
         };
         sync_executor.add(f2);
-        sync_executor.add(f2);
         sync_executor.add(f1);
+        sync_executor.add(f2); // cancelled
         bool finished = true;
         std::vector<int> res = sync_executor.when_all(&finished);
         ASSERT_EQ(finished, false);
-        ASSERT_EQ(3, res.size());
+        ASSERT_EQ(2, res.size());
     }
     // test normal execute
     {
@@ -166,12 +166,12 @@ TEST(UtilTest, delay) {
             return "fake";
         };
         sync_executor.add(f2);
-        sync_executor.add(f2);
         sync_executor.add(f1);
+        sync_executor.add(f2); // cancelled
         bool finished = true;
         auto res = sync_executor.when_all(&finished);
         ASSERT_EQ(finished, false);
-        ASSERT_EQ(3, res.size());
+        ASSERT_EQ(2, res.size());
     }
 }
 
@@ -209,12 +209,15 @@ TEST(UtilTest, normal) {
     {
         SyncExecutor<int> sync_executor(s3_producer_pool, "normal test",
                                         [](int k) { return k == -1; });
-        auto f1 = []() { return 1; };
+        auto f1 = []() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            return 1;
+        };
         auto cancel = []() { return -1; };
         sync_executor.add(f1);
-        sync_executor.add(f1);
-        sync_executor.add(f1);
         sync_executor.add(cancel);
+        sync_executor.add(f1);
+        sync_executor.add(f1);
         bool finished = true;
         std::vector<int> res = sync_executor.when_all(&finished);
         ASSERT_EQ(finished, false);

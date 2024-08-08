@@ -52,31 +52,4 @@ void finish_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
 int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::string& instance_id,
                                const std::string& ip_port);
 
-inline std::string segment_path(int64_t tablet_id, const std::string& rowset_id,
-                                int64_t segment_id) {
-    return fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
-}
-
-inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& rowset_id,
-                                          int64_t segment_id) {
-    return fmt::format("data/{}/{}_{}.idx", tablet_id, rowset_id, segment_id);
-}
-
-inline std::string inverted_index_path_v1(int64_t tablet_id, const std::string& rowset_id,
-                                          int64_t segment_id, int64_t index_id,
-                                          std::string_view index_path_suffix) {
-    std::string suffix =
-            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
-    return fmt::format("data/{}/{}_{}_{}{}.idx", tablet_id, rowset_id, segment_id, index_id,
-                       suffix);
-}
-
-inline std::string rowset_path_prefix(int64_t tablet_id, const std::string& rowset_id) {
-    return fmt::format("data/{}/{}_", tablet_id, rowset_id);
-}
-
-inline std::string tablet_path_prefix(int64_t tablet_id) {
-    return fmt::format("data/{}/", tablet_id);
-}
-
 } // namespace doris::cloud

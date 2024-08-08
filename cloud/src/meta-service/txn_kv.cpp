@@ -81,7 +81,7 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
 std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
                                                                FullRangeGetIteratorOptions opts) {
     return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
-                                                       std::move(opts));
+                                                       std::move(opts), *this);
 }
 
 } // namespace doris::cloud
@@ -592,9 +592,8 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 }
 
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
-                                           FullRangeGetIteratorOptions opts)
-        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
-    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+                                           FullRangeGetIteratorOptions opts, FdbTxnKv& txn_kv)
+        : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)), txn_kv_(txn_kv) {
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
 }
 
@@ -655,13 +654,16 @@ void FullRangeGetIterator::await_future() {
     auto ret = fdb::await_future(fut_);
     if (ret != TxnErrorCode::TXN_OK) {
         is_valid_ = false;
+        LOG_WARNING("failed to wait fdb future");
         return;
     }
 
     auto err = fdb_future_get_error(fut_);
     if (err) {
         is_valid_ = false;
-        LOG(WARNING) << fdb_get_error(err);
+        LOG_WARNING(fdb_get_error(err))
+                .tag("begin",
+                     inner_iter_ ? inner_iter_->next_begin_key() : begin_ /* first call */);
         return;
     }
 
@@ -697,9 +699,10 @@ void FullRangeGetIterator::async_inner_get(std::string_view begin) {
         // Create a new txn for each inner range get
         std::unique_ptr<cloud::Transaction> txn1;
         // TODO(plat1ko): Async create txn
-        TxnErrorCode err = opts_.txn_kv->create_txn(&txn1);
+        TxnErrorCode err = txn_kv_.create_txn(&txn1);
         if (err != TxnErrorCode::TXN_OK) {
             is_valid_ = false;
+            LOG_WARNING("failed to create txn").tag("begin", hex(begin));
             return;
         }
 
