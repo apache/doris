@@ -21,12 +21,12 @@ suite("test_show_create_table_and_views_nereids", "show") {
     def shouldNotShowHiddenColumnsAndCreateWithHiddenColumns = {
         connect {
             multi_sql """
-            drop table if exists test_show_create_table_no_hidden_column;
-            create table test_show_create_table_no_hidden_column(id int, name varchar(50)) unique key(id) distributed by hash(id) properties('replication_num'='1');
+            drop table if exists test_show_create_table_no_hidden_column_nereids;
+            create table test_show_create_table_no_hidden_column_nereids(id int, name varchar(50)) unique key(id) distributed by hash(id) properties('replication_num'='1');
             set show_hidden_columns=true;
             """
 
-            def result = JdbcUtils.executeToMapArray(context.getConnection(),  "show create table test_show_create_table_no_hidden_column")
+            def result = JdbcUtils.executeToMapArray(context.getConnection(),  "show create table test_show_create_table_no_hidden_column_nereids")
             assertTrue(!result[0].get("Create Table").toString().contains("__DORIS_DELETE_SIGN__"))
 
             test {
