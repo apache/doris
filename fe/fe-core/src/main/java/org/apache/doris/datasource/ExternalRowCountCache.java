@@ -88,7 +88,7 @@ public class ExternalRowCountCache {
             } catch (Exception e) {
                 LOG.warn("Failed to get table with catalogId {}, dbId {}, tableId {}", rowCountKey.catalogId,
                         rowCountKey.dbId, rowCountKey.tableId);
-                return Optional.empty();
+                return null;
             }
         }
     }
@@ -99,19 +99,19 @@ public class ExternalRowCountCache {
      * @param catalogId
      * @param dbId
      * @param tableId
-     * @return Cached row count or 0 if not exist
+     * @return Cached row count or -1 if not exist
      */
     public long getCachedRowCount(long catalogId, long dbId, long tableId) {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
             if (f.isDone()) {
-                return f.get().orElse(0L);
+                return f.get().orElse(-1L);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }
-        return 0;
+        return -1;
     }
 
     /**
@@ -128,14 +128,14 @@ public class ExternalRowCountCache {
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.getIfPresent(key);
             if (f == null) {
-                return 0;
+                return -1;
             } else if (f.isDone()) {
-                return f.get().orElse(0L);
+                return f.get().orElse(-1L);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count if present", e);
         }
-        return 0;
+        return -1;
     }
 
 }
