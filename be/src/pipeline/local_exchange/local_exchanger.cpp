@@ -51,9 +51,9 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         // `enqueue(block)` return false iff this queue's source operator is already closed so we
         // just unref the block.
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
-            block.first->unref(local_state._shared_state);
+            block.first->unref(local_state._shared_state, allocated_bytes);
         } else {
-            block->unref(local_state._shared_state);
+            block->unref(local_state._shared_state, allocated_bytes);
         }
     }
 }
