@@ -25,6 +25,7 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
@@ -59,6 +60,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.TimeUnit;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -82,6 +84,13 @@ public class DorisFE {
         options.enableHttpServer = true;
         options.enableQeService = true;
         start(DORIS_HOME_DIR, PID_DIR, args, options);
+    }
+
+    private static void startMonitor() {
+        if (Config.enable_deadlock_detection) {
+            DeadlockMonitor deadlockMonitor = new DeadlockMonitor();
+            deadlockMonitor.startMonitoring(Config.deadlock_detection_interval_minute, TimeUnit.MINUTES);
+        }
     }
 
     // entrance for doris frontend
@@ -202,7 +211,7 @@ public class DorisFE {
             }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
-
+            startMonitor();
             while (true) {
                 Thread.sleep(2000);
             }

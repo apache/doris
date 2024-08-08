@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -50,7 +51,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Base class of external database.
@@ -61,7 +61,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
+    protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "id")
     protected long id;
@@ -344,7 +344,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         for (T tbl : idToTbl.values()) {
             tableNameToId.put(tbl.getName(), tbl.getId());
         }
-        rwLock = new ReentrantReadWriteLock(true);
+        rwLock = new MonitoredReentrantReadWriteLock(true);
     }
 
     @Override
