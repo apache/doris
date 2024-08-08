@@ -217,11 +217,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume
         size_t size) {
     // `alloc` requires that the current thread_mem_tracker label is not `Orphan`
     // and is the same as the thread_mem_tracker label when Allocator is constructed.
-    // TODO, need to be 0 when the load or other memory tracker ends.
-    // DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
-    //         << ", thread mem tracker label: "
-    //         << doris::thread_context()->thread_mem_tracker()->label()
-    //         << ", allocator tracker label: " << tracker->label();
+    DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
+            << ", thread mem tracker label: "
+            << doris::thread_context()->thread_mem_tracker()->label()
+            << ", allocator tracker label: " << tracker->label();
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
