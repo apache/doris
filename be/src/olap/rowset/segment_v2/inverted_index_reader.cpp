@@ -156,6 +156,10 @@ std::unique_ptr<lucene::util::Reader> InvertedIndexReader::create_reader(
     return reader;
 }
 
+std::string InvertedIndexReader::get_index_file_path() {
+    return _inverted_index_file_reader->get_index_file_path(&_index_meta);
+}
+
 void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_result,
                                              lucene::util::Reader* reader,
                                              lucene::analysis::Analyzer* analyzer,

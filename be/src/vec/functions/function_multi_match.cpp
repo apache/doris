@@ -96,6 +96,17 @@ Status FunctionMultiMatch::open(FunctionContext* context,
     return Status::OK();
 }
 
+Status FunctionMultiMatch::evaluate_inverted_index(
+        const ColumnsWithTypeAndName& arguments,
+        const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+        segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    auto index_path = iter->reader()->get_index_file_path();
+    auto column_name = arguments[0].column->get_data_at(0).to_string();
+    auto other_column_names = arguments[1].column->get_data_at(0).to_string();
+    auto query_type = arguments[2].column->get_data_at(0).to_string();
+    StringRef query_value = arguments[3].column->get_data_at(0);
+}
 Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
                                                segment_v2::FuncExprParams& params,
                                                std::shared_ptr<roaring::Roaring>& result) {
