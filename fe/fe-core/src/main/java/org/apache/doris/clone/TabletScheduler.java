@@ -358,6 +358,10 @@ public class TabletScheduler extends MasterDaemon {
         rebalancer.updateLoadStatistic(statisticMap);
         diskRebalancer.updateLoadStatistic(statisticMap);
 
+        Set<Long> alterTableIds = Env.getCurrentEnv().getAlterInstance().getUnfinishedAlterTableIds();
+        rebalancer.updateAlterTableIds(alterTableIds);
+        diskRebalancer.updateAlterTableIds(alterTableIds);
+
         lastStatUpdateTime = System.currentTimeMillis();
     }
 

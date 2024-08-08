@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.CatalogRecycleBin;
-import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -31,7 +28,6 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -120,15 +116,7 @@ public class BeLoadRebalancer extends Rebalancer {
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         List<String> alternativeTabletInfos = Lists.newArrayList();
-
-        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
-        // so in clone ut recycleBin need to set to null.
-        CatalogRecycleBin recycleBin = null;
-        if (!FeConstants.runningUnitTest) {
-            recycleBin = Env.getCurrentRecycleBin();
-        }
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
-        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         List<Set<Long>> lowBETablets = lowBEs.stream()
                 .map(beStat -> Sets.newHashSet(invertedIndex.getTabletIdsByBackendId(beStat.getBeId())))
                 .collect(Collectors.toList());
@@ -230,11 +218,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 long replicaDataSize = replica.getDataSize();
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        continue;
-                    }
-
-                    if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
+                    if (!canBalanceTablet(tabletMeta)) {
                         continue;
                     }
 
@@ -242,11 +226,6 @@ public class BeLoadRebalancer extends Rebalancer {
                     // then it may always pick tablets that was on the low backends.
                     if (!lowBETablets.isEmpty()
                             && lowBETablets.stream().allMatch(tablets -> tablets.contains(tabletId))) {
-                        continue;
-                    }
-
-                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
