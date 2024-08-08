@@ -23,8 +23,6 @@ import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.spi.Split;
 
-import org.apache.hadoop.fs.Path;
-
 import java.util.List;
 
 public class HiveSplit extends FileSplit {

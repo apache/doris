@@ -22,7 +22,6 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileType;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 

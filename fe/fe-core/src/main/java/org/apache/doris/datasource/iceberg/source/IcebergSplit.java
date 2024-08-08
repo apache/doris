@@ -23,7 +23,6 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.thrift.TFileType;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 import java.util.Map;

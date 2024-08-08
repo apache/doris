@@ -20,8 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
 
-import org.apache.hadoop.fs.Path;
-
 import java.util.List;
 
 public interface SplitCreator {

@@ -815,8 +815,7 @@ public class HiveMetaStoreCache {
                             continue;
                         }
                         remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                            .forEach(file -> {
+                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)).forEach(file -> {
                                 LocationPath path = new LocationPath(file.getPath().toString(),
                                         catalog.getProperties());
                                 fileCacheValue.addFile(file, path);

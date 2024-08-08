@@ -21,7 +21,6 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 

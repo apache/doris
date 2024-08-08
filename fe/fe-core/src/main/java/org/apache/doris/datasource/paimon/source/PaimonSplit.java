@@ -23,7 +23,6 @@ import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
 import com.google.common.collect.Maps;
-import org.apache.hadoop.fs.Path;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
@@ -31,10 +30,10 @@ import java.util.List;
 import java.util.Optional;
 
 public class PaimonSplit extends FileSplit {
+    private final static LocationPath DUMMY_PATH = new LocationPath("hdfs://dummyPath", Maps.newHashMap());
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
-    private final static LocationPath DUMMY_PATH = new LocationPath("hdfs://dummyPath", Maps.newHashMap());
 
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
