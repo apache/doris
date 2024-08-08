@@ -84,9 +84,6 @@ namespace doris::segment_v2 {
 const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
 
 class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
-private:
-    io::FileWriterPtr _writer;
-
 protected:
     void flushBuffer(const uint8_t* b, const int32_t size) override;
 
@@ -96,6 +93,14 @@ public:
     ~FSIndexOutput() override;
     void close() override;
     int64_t length() const override;
+
+    void set_file_writer_opts_cb(std::function<io::FileWriterOptions()> cb) {
+        _file_writer_opts_cb = cb;
+    }
+
+private:
+    io::FileWriterPtr _writer;
+    std::function<io::FileWriterOptions()> _file_writer_opts_cb = nullptr;
 };
 
 class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
@@ -242,7 +247,17 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
 }
 
 void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {
-    Status status = fs->create_file(path, &_writer);
+    io::FileWriterOptions opts;
+    if (_file_writer_opts_cb) {
+        _file_writer_opts_cb(opts);
+    }
+    DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput::init.file_cache", {
+        if (fs->type() == io::FileSystemType::S3 && opts.write_file_cache == false) {
+            _CLTHROWA(CL_ERR_IO, "Inverted index failed to enter file cache");
+        }
+    });
+
+    Status status = fs->create_file(path, &_writer, &opts);
     DBUG_EXECUTE_IF(
             "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
             "init",
@@ -579,6 +594,7 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
         assert(!exists);
     }
     auto* ret = _CLNEW FSIndexOutput();
+    ret->set_file_writer_opts_cb(_file_writer_opts_cb);
     try {
         ret->init(_fs, fl);
     } catch (CLuceneError& err) {
