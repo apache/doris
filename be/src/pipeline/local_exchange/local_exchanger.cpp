@@ -43,11 +43,11 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         allocated_bytes = block->data_block.allocated_bytes();
     }
     std::unique_lock l(_m);
+    local_state._shared_state->add_mem_usage(channel_id, allocated_bytes, update_total_mem_usage);
     if (_data_queue[channel_id].enqueue(std::move(block))) {
-        local_state._shared_state->add_mem_usage(channel_id, allocated_bytes,
-                                                 update_total_mem_usage);
         local_state._shared_state->set_ready_to_read(channel_id);
     } else {
+        local_state._shared_state->sub_mem_usage(channel_id, allocated_bytes, false);
         // `enqueue(block)` return false iff this queue's source operator is already closed so we
         // just unref the block.
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
