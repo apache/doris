@@ -414,10 +414,10 @@ public:
                                                      const ResultType& scale_diff_multiplier,
                                                      DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type);
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type);
         auto column_result = ColumnDecimal<ResultType>::create(
                 1,
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type)
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type)
                         .get_scale());
 
         if constexpr (check_overflow && !is_to_null_type &&
@@ -445,11 +445,11 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type);
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type);
         auto column_left_ptr = check_and_get_column<typename Traits::ColumnVectorA>(column_left);
         auto column_result = ColumnDecimal<ResultType>::create(
                 column_left->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type)
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type)
                         .get_scale());
         DCHECK(column_left_ptr != nullptr);
 
@@ -478,11 +478,11 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type);
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type);
         auto column_right_ptr = check_and_get_column<typename Traits::ColumnVectorB>(column_right);
         auto column_result = ColumnDecimal<ResultType>::create(
                 column_right->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheck::Disable>(*res_data_type)
+                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(*res_data_type)
                         .get_scale());
         DCHECK(column_right_ptr != nullptr);
 

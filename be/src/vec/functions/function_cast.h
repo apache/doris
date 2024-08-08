@@ -720,7 +720,7 @@ struct ConvertImplGenericFromJsonb {
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
                     const auto* blob = static_cast<const JsonbBlobVal*>(value);
-                    assert_cast<ColumnString&, TypeCheck::Disable>(*col_to).insert_data(
+                    assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
                             blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
@@ -1541,7 +1541,7 @@ struct StringParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*, TypeCheck::Disable>(
+                const auto* type = assert_cast<const DataTypeDateTimeV2*, TypeCheckOnRelease::DISABLE>(
                         block.get_by_position(result).type.get());
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
                                                     type->get_scale());

@@ -99,7 +99,7 @@ struct AggregateFunctionGroupConcatImplStr {
     static const std::string separator;
     static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
                     size_t row_num) {
-        place.add(assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[0])
+        place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                           .get_data_at(row_num),
                   StringRef(separator.data(), separator.length()));
     }
@@ -108,9 +108,9 @@ struct AggregateFunctionGroupConcatImplStr {
 struct AggregateFunctionGroupConcatImplStrStr {
     static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
                     size_t row_num) {
-        place.add(assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[0])
+        place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                           .get_data_at(row_num),
-                  assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[1])
+                  assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1])
                           .get_data_at(row_num));
     }
 };

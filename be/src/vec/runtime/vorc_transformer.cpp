@@ -382,7 +382,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         for (auto* child : struct_batch->fields) {
             const IColumn& child_column = struct_col.get_column(idx);
             child->resize(child_column.size());
-            auto child_type = assert_cast<const vectorized::DataTypeStruct*, TypeCheck::Disable>(
+            auto child_type = assert_cast<const vectorized::DataTypeStruct*, TypeCheckOnRelease::DISABLE>(
                                       real_type.get())
                                       ->get_element(idx);
             ++idx;

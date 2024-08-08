@@ -157,8 +157,8 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
-                assert_cast<const ColumnVector<Int64>&, TypeCheck::Disable>(*columns[0]);
-        const auto& quantile = assert_cast<const ColumnFloat64&, TypeCheck::Disable>(*columns[1]);
+                assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& quantile = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentileOld::data(place).add(sources.get_int(row_num),
                                                         quantile.get_data(), 1);
     }
@@ -205,15 +205,15 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
-                assert_cast<const ColumnVector<Int64>&, TypeCheck::Disable>(*columns[0]);
+                assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile_array =
-                assert_cast<const ColumnArray&, TypeCheck::Disable>(*columns[1]);
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& offset_column_data = quantile_array.get_offsets();
         const auto& nested_column =
-                assert_cast<const ColumnNullable&, TypeCheck::Disable>(quantile_array.get_data())
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(quantile_array.get_data())
                         .get_nested_column();
         const auto& nested_column_data =
-                assert_cast<const ColumnFloat64&, TypeCheck::Disable>(nested_column);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 
         AggregateFunctionPercentileArrayOld::data(place).add(
                 sources.get_int(row_num), nested_column_data.get_data(),

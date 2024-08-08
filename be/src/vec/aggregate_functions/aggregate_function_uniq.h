@@ -90,10 +90,10 @@ struct OneAdder {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
         } else if constexpr (IsDecimalNumber<T>) {
-            data.set.insert(assert_cast<const ColumnDecimal<T>&, TypeCheck::Disable>(column)
+            data.set.insert(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
                                     .get_data()[row_num]);
         } else {
-            data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheck::Disable>(column)
+            data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
                                     .get_data()[row_num]);
         }
     }

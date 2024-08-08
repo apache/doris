@@ -283,16 +283,16 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& window =
-                assert_cast<const ColumnVector<Int64>&, TypeCheck::Disable>(*columns[0])
+                assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         const auto& timestamp =
-                assert_cast<const ColumnVector<NativeType>&, TypeCheck::Disable>(*columns[2])
+                assert_cast<const ColumnVector<NativeType>&, TypeCheckOnRelease::DISABLE>(*columns[2])
                         .get_data()[row_num];
         const int NON_EVENT_NUM = 3;
         for (int i = NON_EVENT_NUM; i < IAggregateFunction::get_argument_types().size(); i++) {
             const auto& is_set =
-                    assert_cast<const ColumnVector<UInt8>&, TypeCheck::Disable>(*columns[i])
+                    assert_cast<const ColumnVector<UInt8>&, TypeCheckOnRelease::DISABLE>(*columns[i])
                             .get_data()[row_num];
             if (is_set) {
                 this->data(place).add(

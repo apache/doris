@@ -26,13 +26,13 @@
 #include "common/logging.h"
 #include "vec/common/demangle.h"
 
-enum class TypeCheck : bool { Enable = true, Disable = false };
+enum class TypeCheckOnRelease : bool { ENABLE = true, DISABLE = false };
 
 /** Perform static_cast in release build.
   * Checks type by comparing typeid and throw an exception in debug build.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
-template <typename To, TypeCheck check = TypeCheck::Enable, typename From>
+template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
 PURE To assert_cast(From&& from) {
 #ifndef NDEBUG
     try {
@@ -61,7 +61,7 @@ PURE To assert_cast(From&& from) {
                               demangle(typeid(To).name()));
     __builtin_unreachable();
 #else
-    if constexpr (check == TypeCheck::Enable) {
+    if constexpr (check == TypeCheckOnRelease::ENABLE) {
         try {
             if constexpr (std::is_pointer_v<To>) {
                 if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {

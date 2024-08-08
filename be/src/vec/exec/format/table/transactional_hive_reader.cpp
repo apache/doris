@@ -156,13 +156,13 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
                 static int BUCKET_ID_INDEX = 1;
                 static int ROW_ID_INDEX = 2;
                 const ColumnInt64& original_transaction_column =
-                        assert_cast<const ColumnInt64&, TypeCheck::Disable>(
+                        assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(
                                 *block.get_by_position(ORIGINAL_TRANSACTION_INDEX).column);
                 const ColumnInt32& bucket_id_column =
-                        assert_cast<const ColumnInt32&, TypeCheck::Disable>(
+                        assert_cast<const ColumnInt32&, TypeCheckOnRelease::DISABLE>(
                                 *block.get_by_position(BUCKET_ID_INDEX).column);
                 const ColumnInt64& row_id_column =
-                        assert_cast<const ColumnInt64&, TypeCheck::Disable>(
+                        assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(
                                 *block.get_by_position(ROW_ID_INDEX).column);
 
                 DCHECK_EQ(original_transaction_column.size(), read_rows);

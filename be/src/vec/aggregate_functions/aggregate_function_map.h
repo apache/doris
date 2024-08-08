@@ -147,7 +147,7 @@ struct AggregateFunctionMapAggData {
         write_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
             write_binary(
-                    assert_cast<KeyColumnType&, TypeCheck::Disable>(*_key_column).get_data_at(i),
+                    assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column).get_data_at(i),
                     buf);
         }
         for (size_t i = 0; i < size; i++) {
@@ -165,7 +165,7 @@ struct AggregateFunctionMapAggData {
                 continue;
             }
             key.data = _arena.insert(key.data, key.size);
-            assert_cast<KeyColumnType&, TypeCheck::Disable>(*_key_column)
+            assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
                     .insert_data(key.data, key.size);
         }
         StringRef val;
@@ -209,21 +209,21 @@ public:
              Arena* arena) const override {
         if (columns[0]->is_nullable()) {
             auto& nullable_col =
-                    assert_cast<const ColumnNullable&, TypeCheck::Disable>(*columns[0]);
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             auto& nullable_map = nullable_col.get_null_map_data();
             if (nullable_map[row_num]) {
                 return;
             }
             Field value;
             columns[1]->get(row_num, value);
-            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheck::Disable>(
+            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(
                                           nullable_col.get_nested_column())
                                           .get_data_at(row_num),
                                   value);
         } else {
             Field value;
             columns[1]->get(row_num, value);
-            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheck::Disable>(*columns[0])
+            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                                           .get_data_at(row_num),
                                   value);
         }

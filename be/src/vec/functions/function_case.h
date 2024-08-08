@@ -232,7 +232,7 @@ public:
                     }
                 } else {
                     const auto* __restrict cond_raw_data =
-                            assert_cast<const ColumnUInt8*, TypeCheck::Disable>(
+                            assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
                                     when_column_ptr.get())
                                     ->get_data()
                                     .data();
@@ -303,11 +303,11 @@ public:
             }
             size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
             if constexpr (then_null) {
-                assert_cast<ColumnNullable*, TypeCheck::Disable>(result_column_ptr.get())
+                assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from_with_type<ColumnType>(*raw_columns[then_idx[row_idx]],
                                                             target);
             } else {
-                assert_cast<ColumnType*, TypeCheck::Disable>(result_column_ptr.get())
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from(*raw_columns[then_idx[row_idx]], target);
             }
         }
@@ -324,7 +324,7 @@ public:
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                assert_cast<ColumnType*, TypeCheck::Disable>(result_column_ptr.get())
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->get_data()
                         .data();
 
@@ -336,7 +336,7 @@ public:
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheck::Disable>(
+                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
                             column_holder.then_ptrs[i].value()->assume_mutable().get())
                             ->get_data()
                             .data();

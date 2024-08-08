@@ -187,7 +187,7 @@ const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
 
 int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
                              int nan_direction_hint) const {
-    const ColumnStruct& rhs = assert_cast<const ColumnStruct&, TypeCheck::Disable>(rhs_);
+    const ColumnStruct& rhs = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     const size_t lhs_tuple_size = columns.size();
     const size_t rhs_tuple_size = rhs.tuple_size();
@@ -247,7 +247,7 @@ void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t le
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         columns[i]->insert_range_from(
-                *assert_cast<const ColumnStruct&, TypeCheck::Disable>(src).columns[i], start,
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i], start,
                 length);
     }
 }
@@ -257,7 +257,7 @@ void ColumnStruct::insert_range_from_ignore_overflow(const IColumn& src, size_t 
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         columns[i]->insert_range_from_ignore_overflow(
-                *assert_cast<const ColumnStruct&, TypeCheck::Disable>(src).columns[i], start,
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i], start,
                 length);
     }
 }

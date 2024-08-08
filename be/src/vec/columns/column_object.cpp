@@ -768,7 +768,7 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
     if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
         src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
         is_finalized()) {
-        assert_cast<ColumnNullable&, TypeCheck::Disable>(*get_root())
+        assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*get_root())
                 .insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
@@ -1333,7 +1333,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
         Arena mem_pool;
         for (const auto& subcolumn : sparse_columns) {
             auto& column = subcolumn->data.get_finalized_column_ptr();
-            if (assert_cast<const ColumnNullable&, TypeCheck::Disable>(*column).is_null_at(i)) {
+            if (assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column).is_null_at(i)) {
                 ++null_count;
                 continue;
             }

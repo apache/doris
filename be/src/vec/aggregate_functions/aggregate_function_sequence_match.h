@@ -201,7 +201,7 @@ private:
 
     using PatternActions = PODArrayWithStackMemory<PatternAction, 64>;
 
-    Derived& derived() { return assert_cast<Derived&, TypeCheck::Disable>(*this); }
+    Derived& derived() { return assert_cast<Derived&, TypeCheckOnRelease::DISABLE>(*this); }
 
     void parse_pattern() {
         actions.clear();
@@ -601,19 +601,19 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
              Arena*) const override {
-        std::string pattern = assert_cast<const ColumnString*, TypeCheck::Disable>(columns[0])
+        std::string pattern = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(columns[0])
                                       ->get_data_at(0)
                                       .to_string();
         this->data(place).init(pattern, arg_count);
 
         const auto& timestamp =
-                assert_cast<const ColumnVector<NativeType>&, TypeCheck::Disable>(*columns[1])
+                assert_cast<const ColumnVector<NativeType>&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
                 events;
 
         for (auto i = 2; i < arg_count; i++) {
-            const auto event = assert_cast<const ColumnUInt8*, TypeCheck::Disable>(columns[i])
+            const auto event = assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(columns[i])
                                        ->get_data()[row_num];
             events.set(i - 2, event);
         }

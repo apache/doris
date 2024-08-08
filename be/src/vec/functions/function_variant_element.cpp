@@ -126,7 +126,7 @@ private:
             for (size_t i = 0; i < docs.size(); ++i) {
                 if (!extract_from_document(
                             parser, docs.get_data_at(i), parsed_paths,
-                            assert_cast<ColumnString*, TypeCheck::Disable>(result_column.get()))) {
+                            assert_cast<ColumnString*, TypeCheckOnRelease::DISABLE>(result_column.get()))) {
                     VLOG_DEBUG << "failed to parse " << docs.get_data_at(i) << ", field "
                                << field_name;
                     result_column->insert_default();

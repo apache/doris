@@ -3155,11 +3155,11 @@ public:
 
         for (int i = 0; i < input_rows_count; ++i) {
             StringRef origin_str =
-                    assert_cast<const ColumnString*, TypeCheck::Disable>(col_origin.get())
+                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_origin.get())
                             ->get_data_at(i);
-            StringRef old_str = assert_cast<const ColumnString*, TypeCheck::Disable>(col_old.get())
+            StringRef old_str = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_old.get())
                                         ->get_data_at(i);
-            StringRef new_str = assert_cast<const ColumnString*, TypeCheck::Disable>(col_new.get())
+            StringRef new_str = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_new.get())
                                         ->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
@@ -3697,7 +3697,7 @@ public:
                     continue;
                 }
                 if (auto const_column = check_and_get_column<const ColumnConst>(*str_columns[j])) {
-                    auto str_column = assert_cast<const ColumnString*, TypeCheck::Disable>(
+                    auto str_column = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(
                             &(const_column->get_data_column()));
                     auto data_item = str_column->get_data_at(0);
                     memcpy_small_allow_read_write_overflow15(

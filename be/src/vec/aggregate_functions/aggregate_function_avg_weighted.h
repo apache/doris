@@ -108,8 +108,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0]);
-        const auto& weight = assert_cast<const ColumnFloat64&, TypeCheck::Disable>(*columns[1]);
+        const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& weight = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         this->data(place).add(column.get_data()[row_num], weight.get_element(row_num));
     }
 

@@ -76,15 +76,15 @@ public:
         DCHECK_LT(row_num, columns[0]->size());
         if constexpr (arg_nullable) {
             auto& nullable_col =
-                    assert_cast<const ColumnNullable&, TypeCheck::Disable>(*columns[0]);
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             auto& nullable_map = nullable_col.get_null_map_data();
             if (!nullable_map[row_num]) {
-                auto& col = assert_cast<const ColVecType&, TypeCheck::Disable>(
+                auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                         nullable_col.get_nested_column());
                 this->data(place).add(col.get_data()[row_num]);
             }
         } else {
-            auto& col = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0]);
+            auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(col.get_data()[row_num]);
         }
     }

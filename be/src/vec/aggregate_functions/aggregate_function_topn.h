@@ -195,10 +195,10 @@ struct AggregateFunctionTopNData {
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
             if constexpr (std::is_same_v<T, std::string>) {
-                assert_cast<ColumnString&, TypeCheck::Disable>(to).insert_data(
+                assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
                         element.second.c_str(), element.second.length());
             } else {
-                assert_cast<ColVecType&, TypeCheck::Disable>(to).get_data().push_back(
+                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                         element.second);
             }
         }
@@ -214,9 +214,9 @@ struct AggregateFunctionTopNData {
 struct AggregateFunctionTopNImplInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
-        place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[1])
+        place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                       ->get_element(row_num));
-        place.add(assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[0])
+        place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                           .get_data_at(row_num));
     }
 };
@@ -224,9 +224,9 @@ struct AggregateFunctionTopNImplInt {
 struct AggregateFunctionTopNImplIntInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
-        place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[1])
+        place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                       ->get_element(row_num),
-                              assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[2])
+                              assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
                                       ->get_element(row_num));
         place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
     }
@@ -239,20 +239,20 @@ struct AggregateFunctionTopNImplArray {
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
-            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[1])
+            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                           ->get_element(row_num),
-                                  assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[2])
+                                  assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
                                           ->get_element(row_num));
 
         } else {
-            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[1])
+            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                           ->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            place.add(assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[0])
+            place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num));
         } else {
-            T val = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0])
+            T val = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
             place.add(val);
         }
@@ -266,9 +266,9 @@ struct AggregateFunctionTopNImplWeight {
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
-            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[2])
+            place.set_paramenters(assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
                                           ->get_element(row_num),
-                                  assert_cast<const ColumnInt32*, TypeCheck::Disable>(columns[3])
+                                  assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[3])
                                           ->get_element(row_num));
 
         } else {
@@ -276,15 +276,15 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheck::Disable>(*columns[1])
+            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
-            place.add(assert_cast<const ColumnString&, TypeCheck::Disable>(*columns[0])
+            place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num),
                       weight);
         } else {
-            T val = assert_cast<const ColVecType&, TypeCheck::Disable>(*columns[0])
+            T val = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheck::Disable>(*columns[1])
+            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
             place.add(val, weight);
         }

@@ -141,10 +141,10 @@ public:
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<COffsets&, TypeCheck::Disable>(*offsets_column).get_data();
+        return assert_cast<COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
     }
     const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const COffsets&, TypeCheck::Disable>(*offsets_column).get_data();
+        return assert_cast<const COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
     }
     IColumn& get_offsets_column() { return *offsets_column; }
     const IColumn& get_offsets_column() const { return *offsets_column; }
