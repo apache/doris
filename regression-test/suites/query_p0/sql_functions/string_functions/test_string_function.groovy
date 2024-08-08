@@ -267,6 +267,9 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substr('a',-3,1);"
     qt_sql "select substr('abcdef',3,-1);"
     qt_sql "select substr('abcdef',-3,-1);"
+    qt_sql "select substr('你好',2);"
+    qt_sql "select substr('你好',3);"
+    qt_sql "select substr('你好',-3);"
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
