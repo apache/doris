@@ -57,9 +57,6 @@ public:
                         size_t result, size_t /*input_rows_count*/) const override;
 
     bool can_push_down_to_index() const override { return true; }
-
-    Status eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
-                               std::shared_ptr<roaring::Roaring>& result) override;
 };
 
 } // namespace doris::vectorized
