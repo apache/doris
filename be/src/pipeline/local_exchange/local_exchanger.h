@@ -140,9 +140,6 @@ public:
 
 protected:
     // Enqueue data block and set downstream source operator to read.
-    // `update_total_mem_usage = true` means we should use the memory of this block to update the
-    // total memory usage, which occurs if this block is push into only one data queue. If a block
-    // is push into multiple queues, we only need to update the total usage once.
     void _enqueue_data_and_set_ready(int channel_id, LocalExchangeSinkLocalState& local_state,
                                      BlockType&& block);
     bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos,
@@ -173,10 +170,21 @@ struct BlockWrapper {
     BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
     ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
     void ref(int delta) { ref_count += delta; }
-    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes = 0) {
+    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes) {
         if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(allocated_bytes == 0 ? data_block.allocated_bytes()
-                                                                   : allocated_bytes);
+            shared_state->sub_total_mem_usage(allocated_bytes);
+            if (shared_state->exchanger->_free_block_limit == 0 ||
+                shared_state->exchanger->_free_blocks.size_approx() <
+                        shared_state->exchanger->_free_block_limit *
+                                shared_state->exchanger->_num_sources) {
+                data_block.clear_column_data();
+                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
+            }
+        }
+    }
+    void unref(LocalExchangeSharedState* shared_state) {
+        if (ref_count.fetch_sub(1) == 1) {
+            shared_state->sub_total_mem_usage(data_block.allocated_bytes());
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
                         shared_state->exchanger->_free_block_limit *

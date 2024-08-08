@@ -864,7 +864,10 @@ public:
     }
 
     virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
-        if (mem_usage.fetch_sub(delta) - delta <= config::local_exchange_buffer_mem_limit) {
+        auto prev_usage = mem_usage.fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
@@ -893,7 +896,10 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
     void sub_total_mem_usage(size_t delta, int channel_id) override {
-        if (_queues_mem_usage[channel_id].fetch_sub(delta) - delta <= _each_queue_limit) {
+        auto prev_usage = _queues_mem_usage[channel_id].fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= _each_queue_limit) {
             sink_deps[channel_id]->set_ready();
         }
         if (_queues_mem_usage[channel_id] == 0) {

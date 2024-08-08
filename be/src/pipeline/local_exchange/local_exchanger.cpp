@@ -258,7 +258,7 @@ void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
     bool eos;
     _data_queue[local_state._channel_id].set_eos();
     while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        // do nothing
+        next_block = vectorized::Block();
     }
 }
 
@@ -323,7 +323,7 @@ void LocalMergeSortExchanger::finalize(LocalExchangeSourceLocalState& local_stat
     for (auto& data_queue : _data_queue) {
         data_queue.set_eos();
         while (_dequeue_data(local_state, next_block, &eos, &block, id)) {
-            // do nothing
+            block = vectorized::Block();
         }
         id++;
     }
@@ -390,7 +390,7 @@ void BroadcastExchanger::close(LocalExchangeSourceLocalState& local_state) {
     BlockWrapperSPtr wrapper;
     _data_queue[local_state._channel_id].set_eos();
     while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        // do nothing
+        next_block = vectorized::Block();
     }
 }
 
@@ -499,7 +499,7 @@ void AdaptivePassthroughExchanger::close(LocalExchangeSourceLocalState& local_st
     BlockWrapperSPtr wrapper;
     _data_queue[local_state._channel_id].set_eos();
     while (_dequeue_data(local_state, wrapper, &eos, &next_block)) {
-        // do nothing
+        next_block = vectorized::Block();
     }
 }
 
