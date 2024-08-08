@@ -127,6 +127,8 @@ protected:
                                      BlockType&& block, bool update_total_mem_usage = true);
     bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos,
                        vectorized::Block* data_block);
+    bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos,
+                       vectorized::Block* data_block, int channel_id);
     std::vector<BlockQueue<BlockType>> _data_queue;
 
 private:

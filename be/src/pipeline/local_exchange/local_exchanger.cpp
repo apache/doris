@@ -55,13 +55,20 @@ template <typename BlockType>
 bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_state,
                                          BlockType& block, bool* eos,
                                          vectorized::Block* data_block) {
+    return _dequeue_data(local_state, block, eos, data_block, local_state._channel_id);
+}
+
+template <typename BlockType>
+bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_state,
+                                         BlockType& block, bool* eos, vectorized::Block* data_block,
+                                         int channel_id) {
     bool all_finished = _running_sink_operators == 0;
-    if (_data_queue[local_state._channel_id].try_dequeue(block)) {
+    if (_data_queue[channel_id].try_dequeue(block)) {
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
             local_state._shared_state->sub_mem_usage(
-                    local_state._channel_id, block.first->data_block.allocated_bytes(), false);
+                    channel_id, block.first->data_block.allocated_bytes(), false);
         } else {
-            local_state._shared_state->sub_mem_usage(local_state._channel_id,
+            local_state._shared_state->sub_mem_usage(channel_id,
                                                      block->data_block.allocated_bytes(), false);
             data_block->swap(block->data_block);
             block->unref(local_state._shared_state);
@@ -71,13 +78,13 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
         *eos = true;
     } else {
         std::unique_lock l(_m);
-        if (_data_queue[local_state._channel_id].try_dequeue(block)) {
+        if (_data_queue[channel_id].try_dequeue(block)) {
             if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
                 local_state._shared_state->sub_mem_usage(
-                        local_state._channel_id, block.first->data_block.allocated_bytes(), false);
+                        channel_id, block.first->data_block.allocated_bytes(), false);
             } else {
                 local_state._shared_state->sub_mem_usage(
-                        local_state._channel_id, block->data_block.allocated_bytes(), false);
+                        channel_id, block->data_block.allocated_bytes(), false);
                 data_block->swap(block->data_block);
                 block->unref(local_state._shared_state);
             }
@@ -302,16 +309,18 @@ void ExchangerBase::finalize(LocalExchangeSourceLocalState& local_state) {
     }
 }
 void LocalMergeSortExchanger::finalize(LocalExchangeSourceLocalState& local_state) {
-    ExchangerBase::finalize(local_state);
     BlockWrapperSPtr next_block;
+    vectorized::Block block;
+    bool eos;
+    int id = 0;
     for (auto& data_queue : _data_queue) {
         data_queue.set_eos();
-        while (data_queue.try_dequeue(next_block)) {
-            local_state._shared_state->sub_mem_usage(
-                    local_state._channel_id, next_block->data_block.allocated_bytes(), false);
-            next_block->unref(local_state._shared_state);
+        while (_dequeue_data(local_state, next_block, &eos, &block, id)) {
+            // do nothing
         }
+        id++;
     }
+    ExchangerBase::finalize(local_state);
 }
 
 Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
@@ -319,9 +328,10 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
     RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state.profile()));
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
-        vectorized::BlockSupplier block_supplier = [&](vectorized::Block* block, bool* eos) {
+        vectorized::BlockSupplier block_supplier = [&, id = channel_id](vectorized::Block* block,
+                                                                        bool* eos) {
             BlockWrapperSPtr next_block;
-            _dequeue_data(local_state, next_block, eos, block);
+            _dequeue_data(local_state, next_block, eos, block, id);
             return Status::OK();
         };
         child_block_suppliers.push_back(block_supplier);
