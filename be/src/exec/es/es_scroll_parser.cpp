@@ -111,6 +111,17 @@ static const std::string INVALID_NULL_VALUE =
         }                                                                    \
     } while (false)
 
+#define RETURN_ERROR_IF_COL_IS_NOT_ARRAY(col, type)                          \
+    do {                                                                     \
+        if (!col.IsArray()) {                                                \
+            std::stringstream ss;                                            \
+            ss << "Expected value of type: " << type_to_string(type)         \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Document slice is : " << json_value_to_string(col);     \
+            return Status::RuntimeError(ss.str());                           \
+        }                                                                    \
+    } while (false)
+
 #define RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type)                            \
     do {                                                                        \
         if (!col.IsString()) {                                                  \
@@ -679,7 +690,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         case TYPE_ARRAY: {
             vectorized::Array array;
             const auto& sub_type = tuple_desc->slots()[i]->type().children[0].type;
-            for (auto& sub_col : col.GetArray()) {
+            RETURN_ERROR_IF_COL_IS_NOT_ARRAY(col, type);
+            for (const auto& sub_col : col.GetArray()) {
                 switch (sub_type) {
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
