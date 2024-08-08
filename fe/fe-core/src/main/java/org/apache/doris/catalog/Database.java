@@ -31,7 +31,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;

@@ -89,7 +89,8 @@ public class UserManager implements Writable, GsonPostProcessable {
     }
 
     private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-                                       String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+                                       String remotePasswdStr, List<UserIdentity> currentUser, boolean plain)
+            throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         List<User> users = nameToUsers.get(remoteUser);
         if (CollectionUtils.isEmpty(users)) {
