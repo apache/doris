@@ -65,12 +65,6 @@ public:
 
     Status eval_inverted_index(FunctionContext* context, segment_v2::FuncExprParams& params,
                                std::shared_ptr<roaring::Roaring>& result) override;
-
-    Status evaluate_inverted_index(
-            const ColumnsWithTypeAndName& arguments,
-            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 } // namespace doris::vectorized
