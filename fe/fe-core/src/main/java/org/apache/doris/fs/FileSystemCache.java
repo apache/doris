@@ -19,19 +19,26 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.Pair;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.hadoop.conf.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class FileSystemCache {
 
+    private static final Logger LOG = LoggerFactory.getLogger(FileSystemCache.class);
     private final LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
 
     public FileSystemCache() {
@@ -42,7 +49,20 @@ public class FileSystemCache {
                 Config.max_remote_file_system_cache_num,
                 false,
                 null);
-        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
+        CustomThreadFactory threadFactory = new CustomThreadFactory("fs-cache-thread");
+        ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
+        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem, (key, fs, removalCause) -> {
+            if (key != null) {
+                LOG.info("Close file system: {}", key.fsIdent);
+            }
+            try {
+                if (fs != null) {
+                    fs.close();
+                }
+            } catch (IOException e) {
+                LOG.warn("Failed to close file system", e);
+            }
+        }, executor);
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
@@ -63,9 +83,9 @@ public class FileSystemCache {
         private final Configuration conf;
 
         public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties,
-                String bindBrokerName,
-                Configuration conf) {
+                                  Map<String, String> properties,
+                                  String bindBrokerName,
+                                  Configuration conf) {
             this.type = fs.first;
             this.fsIdent = fs.second;
             this.properties = properties;
@@ -74,7 +94,7 @@ public class FileSystemCache {
         }
 
         public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties, String bindBrokerName) {
+                                  Map<String, String> properties, String bindBrokerName) {
             this(fs, properties, bindBrokerName, null);
         }
 
