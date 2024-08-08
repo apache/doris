@@ -161,13 +161,14 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
     """
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+    set_be_config.call("variant_enable_flatten_nested", "true")
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
 
-    // build inverted index at middle of loading the data
+    // // build inverted index at middle of loading the data
     // ADD INDEX
     sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained", "support_phrase" = "true") """
     wait_for_latest_op_on_table_finish("github_events", timeout)
@@ -218,5 +219,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
+    sql """select * from github_events order by k limit 10"""
+    sql """select * from github_events order by"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+    set_be_config.call("variant_enable_flatten_nested", "false")
 }

@@ -612,6 +612,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             const auto* parent = _sub_column_tree.find_best_match(*tablet_column.path_info_ptr());
             VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
                        << " parent " << (parent ? parent->path.get_path() : "nullptr") << ", type "
+                       << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
                        << TabletColumn::get_string_by_field_type(tablet_column.type());
             if (parent && parent->is_nested()) {
                 /// Find any leaf of Nested subcolumn.

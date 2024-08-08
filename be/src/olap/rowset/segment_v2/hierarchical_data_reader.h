@@ -150,10 +150,9 @@ private:
         }
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnObject::create(true, false);
-            MutableColumnPtr offset =
-                    check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column))
-                            ->get_offsets_ptr()
-                            ->assume_mutable();
+            const auto* base_array =
+                    check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+            MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
             auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
             // flatten nested arrays
             for (const auto& subcolumn : entry.second) {
@@ -164,10 +163,17 @@ private:
                             "Meet none array column when flatten nested array, path {}, type {}",
                             subcolumn.path.get_path(), subcolumn.type->get_name());
                 }
-                MutableColumnPtr flattend_column =
-                        check_and_get_column<ColumnArray>(remove_nullable(subcolumn.column).get())
-                                ->get_data_ptr()
-                                ->assume_mutable();
+                const auto* target_array =
+                        check_and_get_column<ColumnArray>(remove_nullable(subcolumn.column).get());
+                if (!base_array->has_equal_offsets(*target_array)) {
+                    return Status::InvalidArgument(
+                            "Meet none equal offsets array when flatten nested array, path {}, "
+                            "type {}",
+                            subcolumn.path.get_path(), subcolumn.type->get_name());
+                }
+                MutableColumnPtr flattend_column = check_and_get_column<ColumnArray>(target_array)
+                                                           ->get_data_ptr()
+                                                           ->assume_mutable();
                 DataTypePtr flattend_type =
                         check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                                 ->get_nested_type();
@@ -179,7 +185,8 @@ private:
             nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
             auto array =
                     make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
-            container_variant.add_sub_column(entry.first, array->assume_mutable(),
+            PathInData path_without_nested(entry.first.get_path());
+            container_variant.add_sub_column(path_without_nested, array->assume_mutable(),
                                              ColumnObject::NESTED_TYPE);
         }
 

@@ -400,7 +400,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     auto base_type = WhichDataType(info.scalar_type_id);
-    if (base_type.is_nothing()) {
+    if (base_type.is_nothing() && info.num_dimensions == 0) {
         insertDefault();
         return;
     }
@@ -457,12 +457,11 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
 }
 
 static DataTypePtr create_array(TypeIndex type, size_t num_dimensions) {
-    DataTypePtr result_type;
-    auto nested_type = make_nullable(DataTypeFactory::instance().create_data_type(type));
+    DataTypePtr result_type = make_nullable(DataTypeFactory::instance().create_data_type(type));
     for (size_t i = 0; i < num_dimensions; ++i) {
-        result_type = std::make_shared<DataTypeArray>(nested_type);
+        result_type = make_nullable(std::make_shared<DataTypeArray>(result_type));
     }
-    return make_nullable(result_type);
+    return result_type;
 }
 
 Array create_empty_array_field(size_t num_dimensions) {
@@ -484,7 +483,7 @@ Array create_empty_array_field(size_t num_dimensions) {
 // Recreates column with default scalar values and keeps sizes of arrays.
 static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, TypeIndex scalar_type,
                                                      size_t num_dimensions) {
-    const auto* column_array = check_and_get_column<ColumnArray>(column.get());
+    const auto* column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
     if (column_array && num_dimensions) {
         return make_nullable(ColumnArray::create(
                 recreate_column_with_default_values(column_array->get_data_ptr(), scalar_type,
@@ -503,9 +502,11 @@ ColumnObject::Subcolumn ColumnObject::Subcolumn::recreateWithDefaultValues(
     new_subcolumn.least_common_type =
             LeastCommonType {create_array(field_info.scalar_type_id, field_info.num_dimensions)};
 
-    for (auto& part : new_subcolumn.data) {
-        part = recreate_column_with_default_values(part, field_info.scalar_type_id,
-                                                   field_info.num_dimensions);
+    for (int i = 0; i < new_subcolumn.data.size(); ++i) {
+        new_subcolumn.data[i] = recreate_column_with_default_values(
+                new_subcolumn.data[i], field_info.scalar_type_id, field_info.num_dimensions);
+        new_subcolumn.data_types[i] = create_array_of_type(field_info.scalar_type_id,
+                                                           field_info.num_dimensions, is_nullable);
     }
 
     return new_subcolumn;
@@ -776,7 +777,8 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
         : type(std::move(type_)),
           base_type(get_base_type_of_array(type)),
           num_dimensions(get_number_of_dimensions(*type)) {
-    if (!WhichDataType(type).is_nothing()) {
+    if (!WhichDataType(type).is_nothing() &&
+        !WhichDataType(vectorized::remove_nullable(base_type)).is_nothing()) {
         least_common_type_serder = type->get_serde();
     }
     type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
@@ -884,6 +886,10 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
+        if (field.is_null()) {
+            insert_default();
+            return;
+        }
         auto* root = get_subcolumn({});
         // Insert to an emtpy ColumnObject may result root null,
         // so create a root column of Variant is expected.
@@ -1017,7 +1023,7 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     /// We find node that represents the same Nested type as @key.
     const auto* nested_node = subcolumns.find_best_match(key);
 
-    if (nested_node && !nested_node->path.empty()) {
+    if (nested_node && nested_node->is_nested()) {
         /// Find any leaf of Nested subcolumn.
         const auto* leaf = Subcolumns::find_leaf(nested_node, [&](const auto&) { return true; });
         assert(leaf);
@@ -1330,6 +1336,10 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
     }
     // skip empty jsonb value
     if ((path.empty() && nullable->get_data_at(row).empty())) {
+        return true;
+    }
+    // skip nothing type
+    if (WhichDataType(remove_nullable(get_base_type_of_array(type))).is_nothing()) {
         return true;
     }
     return false;

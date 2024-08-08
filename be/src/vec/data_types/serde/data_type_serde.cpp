@@ -58,6 +58,11 @@ void DataTypeSerDe::convert_variant_map_to_rapidjson(
         key.SetString(item.first.data(), item.first.size());
         rapidjson::Value val;
         convert_field_to_rapidjson(item.second, val, allocator);
+        if (val.IsNull() && item.first.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
         target.AddMember(key, val, allocator);
     }
 }

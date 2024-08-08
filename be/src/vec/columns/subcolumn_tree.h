@@ -271,9 +271,6 @@ public:
         return node;
     }
 
-    // get the mutable parent node
-    static Node* get_mutable_parent(const Node* node) { return const_cast<Node*>(node->parent); }
-
     bool empty() const { return root == nullptr; }
     size_t size() const { return leaves.size(); }
 
