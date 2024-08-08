@@ -78,7 +78,7 @@ public class CreateViewInfo extends BaseViewInfo {
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
+        planner.planWithLock(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
