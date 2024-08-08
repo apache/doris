@@ -855,12 +855,7 @@ public:
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
-        mem_trackers[channel_id]->release(delta);
-        if (update_total_mem_usage) {
-            sub_total_mem_usage(delta, channel_id);
-        }
-    }
+    void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
     virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {

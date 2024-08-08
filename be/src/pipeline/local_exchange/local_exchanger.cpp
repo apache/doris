@@ -29,8 +29,7 @@ namespace doris::pipeline {
 template <typename BlockType>
 void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                        LocalExchangeSinkLocalState& local_state,
-                                                       BlockType&& block,
-                                                       bool update_total_mem_usage) {
+                                                       BlockType&& block) {
     size_t allocated_bytes = 0;
     // PartitionedBlock is used by shuffle exchanger.
     // PartitionedBlock will be push into multiple queues with different row ranges, so it will be
@@ -43,11 +42,12 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         allocated_bytes = block->data_block.allocated_bytes();
     }
     std::unique_lock l(_m);
-    local_state._shared_state->add_mem_usage(channel_id, allocated_bytes, update_total_mem_usage);
+    local_state._shared_state->add_mem_usage(channel_id, allocated_bytes,
+                                             !std::is_same_v<PartitionedBlock, BlockType>);
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state._shared_state->set_ready_to_read(channel_id);
     } else {
-        local_state._shared_state->sub_mem_usage(channel_id, allocated_bytes, false);
+        local_state._shared_state->sub_mem_usage(channel_id, allocated_bytes);
         // `enqueue(block)` return false iff this queue's source operator is already closed so we
         // just unref the block.
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
@@ -72,11 +72,11 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
     bool all_finished = _running_sink_operators == 0;
     if (_data_queue[channel_id].try_dequeue(block)) {
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
-            local_state._shared_state->sub_mem_usage(
-                    channel_id, block.first->data_block.allocated_bytes(), false);
+            local_state._shared_state->sub_mem_usage(channel_id,
+                                                     block.first->data_block.allocated_bytes());
         } else {
             local_state._shared_state->sub_mem_usage(channel_id,
-                                                     block->data_block.allocated_bytes(), false);
+                                                     block->data_block.allocated_bytes());
             data_block->swap(block->data_block);
             block->unref(local_state._shared_state);
         }
@@ -87,11 +87,11 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
         std::unique_lock l(_m);
         if (_data_queue[channel_id].try_dequeue(block)) {
             if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
-                local_state._shared_state->sub_mem_usage(
-                        channel_id, block.first->data_block.allocated_bytes(), false);
+                local_state._shared_state->sub_mem_usage(channel_id,
+                                                         block.first->data_block.allocated_bytes());
             } else {
-                local_state._shared_state->sub_mem_usage(
-                        channel_id, block->data_block.allocated_bytes(), false);
+                local_state._shared_state->sub_mem_usage(channel_id,
+                                                         block->data_block.allocated_bytes());
                 data_block->swap(block->data_block);
                 block->unref(local_state._shared_state);
             }
@@ -201,7 +201,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
                 _enqueue_data_and_set_ready(it.second, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}}, false);
+                                            {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
@@ -213,7 +213,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
                 _enqueue_data_and_set_ready(i % _num_sources, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}}, false);
+                                            {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
@@ -227,7 +227,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
                 _enqueue_data_and_set_ready(map[i], local_state,
-                                            {new_block_wrapper, {row_idx, start, size}}, false);
+                                            {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }

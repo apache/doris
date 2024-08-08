@@ -144,7 +144,7 @@ protected:
     // total memory usage, which occurs if this block is push into only one data queue. If a block
     // is push into multiple queues, we only need to update the total usage once.
     void _enqueue_data_and_set_ready(int channel_id, LocalExchangeSinkLocalState& local_state,
-                                     BlockType&& block, bool update_total_mem_usage = true);
+                                     BlockType&& block);
     bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos,
                        vectorized::Block* data_block);
     bool _dequeue_data(LocalExchangeSourceLocalState& local_state, BlockType& block, bool* eos,
