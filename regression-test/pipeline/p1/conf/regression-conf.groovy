@@ -72,7 +72,7 @@ cacheDataPath="/data/regression/"
 
 s3Source="aliyun"
 
-max_failure_num=10000000
+max_failure_num=0
 
 externalEnvIp="127.0.0.1"
 
