@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.hive.AcidInfo;
@@ -28,7 +29,7 @@ import java.util.List;
 
 public class HiveSplit extends FileSplit {
 
-    public HiveSplit(Path path, long start, long length, long fileLength,
+    private HiveSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues, AcidInfo acidInfo) {
         super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
         this.acidInfo = acidInfo;
@@ -53,12 +54,9 @@ public class HiveSplit extends FileSplit {
             this.acidInfo = acidInfo;
         }
 
-        public HiveSplitCreator() {
-            this(null);
-        }
-
         @Override
-        public Split create(Path path, long start, long length, long fileLength, long modificationTime, String[] hosts,
+        public Split create(LocationPath path, long start, long length, long fileLength,
+                long modificationTime, String[] hosts,
                 List<String> partitionValues) {
             return new HiveSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues, acidInfo);
         }

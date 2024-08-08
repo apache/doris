@@ -211,13 +211,13 @@ public class COWIncrementalRelation implements IncrementalRelation {
         for (String baseFile : filteredMetaBootstrapFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
             splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
+                    0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }
         for (String baseFile : filteredRegularFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
             splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
+                    0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }
         return splits;

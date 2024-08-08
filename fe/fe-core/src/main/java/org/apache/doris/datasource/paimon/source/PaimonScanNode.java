@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -33,19 +34,16 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
@@ -103,9 +101,16 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int rawFileSplitNum = 0;
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
+    private final String defaultFS;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
+        this.defaultFS = source.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
+    }
+
+    @Override
+    public String getDefaultFS() {
+        return defaultFS;
     }
 
     @Override
@@ -204,10 +209,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                             DeletionFile deletionFile = deletionFiles.get(i);
                             LocationPath locationPath = new LocationPath(file.path(),
                                     source.getCatalog().getProperties());
-                            Path finalDataFilePath = locationPath.toStorageLocation();
                             try {
                                 List<Split> dorisSplits = splitFile(
-                                        finalDataFilePath,
+                                        locationPath,
                                         0,
                                         null,
                                         file.length(),
@@ -232,11 +236,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                         for (RawFile file : rawFiles) {
                             LocationPath locationPath = new LocationPath(file.path(),
                                     source.getCatalog().getProperties());
-                            Path finalDataFilePath = locationPath.toStorageLocation();
                             try {
                                 splits.addAll(
                                         splitFile(
-                                                finalDataFilePath,
+                                                locationPath,
                                                 0,
                                                 null,
                                                 file.length(),
@@ -274,17 +277,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             default:
                 return false;
         }
-    }
-
-    @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType(((FileStoreTable) source.getPaimonTable()).location().toString());
-    }
-
-    @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for paimon table "));
     }
 
     @Override

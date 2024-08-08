@@ -89,6 +89,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
+    private final String defaultFS;
 
     /**
      * External file scan node for Query iceberg table
@@ -118,6 +119,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         Preconditions.checkNotNull(source);
+        defaultFS = source.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
+    }
+
+    @Override
+    public String getDefaultFS() {
+        return defaultFS;
     }
 
     @Override
@@ -147,8 +154,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
                 LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
-                Path splitDeletePath = locationPath.toStorageLocation();
-                deleteFileDesc.setPath(splitDeletePath.toString());
+                deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
                             (IcebergDeleteFileFilter.PositionDelete) filter;
@@ -211,8 +217,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, fileSplitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
-                String dataFilePath = normalizeLocation(splitTask.file().path().toString());
-
                 List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
                     StructLike structLike = splitTask.file().partition();
@@ -238,10 +242,10 @@ public class IcebergScanNode extends FileQueryScanNode {
                     // Counts the number of partitions read
                     partitionPathSet.add(structLike.toString());
                 }
-                LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
-                Path finalDataFilePath = locationPath.toStorageLocation();
+                String originalPath = splitTask.file().path().toString();
+                LocationPath locationPath = new LocationPath(originalPath, source.getCatalog().getProperties());
                 IcebergSplit split = new IcebergSplit(
-                        finalDataFilePath,
+                        locationPath,
                         splitTask.start(),
                         splitTask.length(),
                         splitTask.file().fileSizeInBytes(),
@@ -249,7 +253,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                         formatVersion,
                         source.getCatalog().getProperties(),
                         partitionValues,
-                        splitTask.file().path().toString());
+                        originalPath);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -309,36 +313,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         return filters;
-    }
-
-    @Override
-    public TFileType getLocationType() throws UserException {
-        String location = icebergTable.location();
-        return getLocationType(location);
-    }
-
-    @Override
-    public TFileType getLocationType(String location) throws UserException {
-        final String fLocation = normalizeLocation(location);
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
-    }
-
-    private String normalizeLocation(String location) {
-        Map<String, String> props = source.getCatalog().getProperties();
-        LocationPath locationPath = new LocationPath(location, props);
-        String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
-        if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            // if no scheme info, fill will HADOOP_FS_NAME
-            // if no HADOOP_FS_NAME, then should be local file system
-            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
-                String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                if (fsName != null) {
-                    location = fsName + location;
-                }
-            }
-        }
-        return location;
     }
 
     @Override

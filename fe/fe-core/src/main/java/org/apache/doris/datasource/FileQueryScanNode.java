@@ -268,7 +268,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
         if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
-            if (getLocationType() == TFileType.FILE_STREAM) {
+            if (isFileStreamType()) {
                 params.setFileType(TFileType.FILE_STREAM);
                 FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                 ExternalFileTableValuedFunction tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
@@ -309,7 +309,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
             selectedSplitNum = numApproximateSplits();
@@ -320,7 +320,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
                 locationType = TFileType.FILE_BROKER;
             } else {
-                locationType = getLocationType(fileSplit.getPath().toString());
+                locationType = fileSplit.getLocationType();
             }
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
             long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
@@ -351,7 +351,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
             selectedSplitNum = inputSplits.size();
-            if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+            if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
@@ -384,7 +384,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
             locationType = TFileType.FILE_BROKER;
         } else {
-            locationType = getLocationType(fileSplit.getPath().toString());
+            locationType = fileSplit.getLocationType();
         }
 
         TScanRangeLocations curLocations = newLocations();
@@ -507,7 +507,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setFileType(locationType);
         rangeDesc.setPath(fileSplit.getPath().toString());
         if (locationType == TFileType.FILE_HDFS) {
-            URI fileUri = fileSplit.getPath().toUri();
+            URI fileUri = fileSplit.getPath().getPath().toUri();
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
@@ -554,9 +554,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return scanRangeLocations.size();
     }
 
-    protected abstract TFileType getLocationType() throws UserException;
+    // Return true if this is a TFileType.FILE_STREAM type.
+    // Currently, only TVFScanNode may be TFileType.FILE_STREAM type.
+    protected boolean isFileStreamType() throws UserException {
+        return false;
+    }
 
-    protected abstract TFileType getLocationType(String location) throws UserException;
+    protected abstract String getDefaultFS();
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 

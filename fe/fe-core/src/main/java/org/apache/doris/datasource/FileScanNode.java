@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -46,7 +47,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -257,14 +257,14 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
     }
 
-    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+    protected List<Split> splitFile(LocationPath path, long blockSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
             throws IOException {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
         List<Split> result = Lists.newArrayList();
-        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.toString());
+        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.get());
         if (!splittable || compressType != TFileCompressType.PLAIN) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Path {} is not splittable.", path);

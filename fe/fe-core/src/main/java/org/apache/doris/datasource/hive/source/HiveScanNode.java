@@ -21,16 +21,15 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -52,7 +51,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -96,6 +94,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
 
     protected final HMSExternalTable hmsTable;
+    protected final String defaultFS;
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
@@ -118,6 +117,7 @@ public class HiveScanNode extends FileQueryScanNode {
         super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
+        defaultFS = hmsTable.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
@@ -125,6 +125,12 @@ public class HiveScanNode extends FileQueryScanNode {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
+        defaultFS = hmsTable.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
+    }
+
+    @Override
+    public String getDefaultFS() {
+        return defaultFS;
     }
 
     @Override
@@ -338,7 +344,7 @@ public class HiveScanNode extends FileQueryScanNode {
             allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
-                new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo())));
         }
     }
 
@@ -402,21 +408,6 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public TableIf getTargetTable() {
         return hmsTable;
-    }
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-        if (bindBrokerName != null) {
-            return TFileType.FILE_BROKER;
-        }
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 
     @Override

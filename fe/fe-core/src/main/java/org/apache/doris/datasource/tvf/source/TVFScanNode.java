@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -41,7 +42,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.Path;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,6 +67,12 @@ public class TVFScanNode extends FileQueryScanNode {
         super(id, desc, "TVF_SCAN_NODE", StatisticalType.TVF_SCAN_NODE, needCheckColumnPriv);
         table = (FunctionGenTable) this.desc.getTable();
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
+    }
+
+    @Override
+    protected String getDefaultFS() {
+        // TVF always has default fs in uri, no need to use defaultFS.
+        return "";
     }
 
     @Override
@@ -105,17 +112,12 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType(null);
+    protected boolean isFileStreamType() {
+        return tableValuedFunction.getTFileType() == TFileType.FILE_STREAM;
     }
 
     @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        return tableValuedFunction.getTFileType();
-    }
-
-    @Override
-    public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
+    public Map<String, String> getLocationProperties() {
         return tableValuedFunction.getLocationProperties();
     }
 
@@ -137,13 +139,14 @@ public class TVFScanNode extends FileQueryScanNode {
         }
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            Path path = new Path(fileStatus.getPath());
+            Map<String, String> prop = Maps.newHashMap();
             try {
-                splits.addAll(splitFile(path, fileStatus.getBlockSize(), null, fileStatus.getSize(),
+                splits.addAll(splitFile(new LocationPath(fileStatus.getPath(), prop), fileStatus.getBlockSize(),
+                        null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
-                LOG.warn("get file split failed for TVF: {}", path, e);
+                LOG.warn("get file split failed for TVF: {}", fileStatus.getPath(), e);
                 throw new UserException(e);
             }
         }

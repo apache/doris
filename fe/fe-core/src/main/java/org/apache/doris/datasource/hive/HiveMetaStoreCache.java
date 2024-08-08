@@ -367,11 +367,7 @@ public class HiveMetaStoreCache {
             for (RemoteFile remoteFile : remoteFiles) {
                 String srcPath = remoteFile.getPath().toString();
                 LocationPath locationPath = new LocationPath(srcPath, catalog.getProperties());
-                Path convertedPath = locationPath.toStorageLocation();
-                if (!convertedPath.toString().equals(srcPath)) {
-                    remoteFile.setPath(convertedPath);
-                }
-                result.addFile(remoteFile);
+                result.addFile(remoteFile, locationPath);
             }
         } else if (status.getErrCode().equals(ErrCode.NOT_FOUND)) {
             // User may manually remove partition under HDFS, in this case,
@@ -820,7 +816,11 @@ public class HiveMetaStoreCache {
                         }
                         remoteFiles.stream().filter(
                                 f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                            .forEach(fileCacheValue::addFile);
+                            .forEach(file -> {
+                                LocationPath path = new LocationPath(file.getPath().toString(),
+                                        catalog.getProperties());
+                                fileCacheValue.addFile(file, path);
+                            });
                     } else {
                         throw new RuntimeException(status.getErrMsg());
                     }
@@ -838,7 +838,11 @@ public class HiveMetaStoreCache {
                     if (status.ok()) {
                         remoteFiles.stream().filter(
                                 f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                                .forEach(fileCacheValue::addFile);
+                                .forEach(file -> {
+                                    LocationPath path = new LocationPath(file.getPath().toString(),
+                                            catalog.getProperties());
+                                    fileCacheValue.addFile(file, path);
+                                });
                     } else {
                         throw new RuntimeException(status.getErrMsg());
                     }
@@ -998,11 +1002,11 @@ public class HiveMetaStoreCache {
 
         private AcidInfo acidInfo;
 
-        public void addFile(RemoteFile file) {
+        public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {
                 HiveFileStatus status = new HiveFileStatus();
                 status.setBlockLocations(file.getBlockLocations());
-                status.setPath(file.getPath());
+                status.setPath(locationPath);
                 status.length = file.getSize();
                 status.blockSize = file.getBlockSize();
                 status.modificationTime = file.getModificationTime();
@@ -1013,7 +1017,6 @@ public class HiveMetaStoreCache {
         public int getValuesSize() {
             return partitionValues == null ? 0 : partitionValues.size();
         }
-
 
         public AcidInfo getAcidInfo() {
             return acidInfo;
@@ -1062,7 +1065,7 @@ public class HiveMetaStoreCache {
     @Data
     public static class HiveFileStatus {
         BlockLocation[] blockLocations;
-        Path path;
+        LocationPath path;
         long length;
         long blockSize;
         long modificationTime;

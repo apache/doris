@@ -17,23 +17,22 @@
 
 package org.apache.doris.datasource.maxcompute.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.thrift.TFileType;
 
+import java.util.List;
 import java.util.Optional;
 
 public class MaxComputeSplit extends FileSplit {
     private final Optional<String> partitionSpec;
 
-    public MaxComputeSplit(FileSplit rangeSplit) {
-        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
-                rangeSplit.hosts, rangeSplit.partitionValues);
-        this.partitionSpec = Optional.empty();
-    }
-
-    public MaxComputeSplit(String partitionSpec, FileSplit rangeSplit) {
-        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
-                rangeSplit.hosts, rangeSplit.partitionValues);
-        this.partitionSpec = Optional.of(partitionSpec);
+    public MaxComputeSplit(LocationPath path, long start, long length, long fileLength,
+            long modificationTime, String[] hosts, List<String> partitionValues, String partitionSpec) {
+        super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+        this.partitionSpec = Optional.ofNullable(partitionSpec);
+        // MC always use FILE_NET type
+        this.locationType = TFileType.FILE_NET;
     }
 
     public Optional<String> getPartitionSpec() {
