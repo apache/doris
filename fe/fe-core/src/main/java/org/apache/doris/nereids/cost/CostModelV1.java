@@ -422,7 +422,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int totalInstanceNumber = parallelInstance * beNumber;
+            int totalInstanceNumber = parallelInstance * Math.max(3, beNumber);
             if (buildSideFactor <= 1.0) {
                 if (buildStats.computeSize(physicalHashJoin.right().getOutput()) < 1024 * 1024) {
                     // no penalty to broadcast if build side is small
