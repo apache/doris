@@ -19,6 +19,7 @@
 
 #include <fcntl.h>
 #include <fmt/core.h>
+#include <glog/logging.h>
 
 #include <chrono>
 #include <filesystem>
@@ -58,6 +59,8 @@ static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 #endif
+
+using namespace std::chrono;
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
@@ -105,6 +108,10 @@ public:
                     max_usage(), max_jvm_heap_size(), config::max_hdfs_wirter_jni_heap_usage_ratio);
         }
         cur_memory_comsuption += memory_size;
+        lck.unlock();
+
+        LOG_EVERY_T(INFO, 30) << "HdfsWriteMemUsage: " << cur_memory_comsuption;
+
         return Status::OK();
 #endif
     }
@@ -144,7 +151,9 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
           _hdfs_file(hdfs_file),
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
-          _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
+          _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb),
+          _creation_time_ms(
+                  duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count()) {
     if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
         _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
                 opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
@@ -251,6 +260,9 @@ Status HdfsFileWriter::close(bool non_block) {
 }
 
 Status HdfsFileWriter::_close_impl() {
+    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
+                                           Status::InternalError("failed to close hdfs file"));
+
     if (_batch_buffer.size() != 0) {
         if (_st = _flush_buffer(); !_st.ok()) {
             return _st;
@@ -286,12 +298,19 @@ Status HdfsFileWriter::_close_impl() {
         // the HDFS response, but won't guarantee the synchronization of data to HDFS.
         ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsCloseFile(_hdfs_handler->hdfs_fs, _hdfs_file),
                                            "HdfsFileWriter::close::hdfsCloseFile");
-        inflight_hdfs_file_writer << -1;
-        _flush_and_reset_approximate_jni_buffer_size();
     }
+
+    inflight_hdfs_file_writer << -1;
+    _flush_and_reset_approximate_jni_buffer_size();
+    auto inflight_duration =
+            duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() -
+            _creation_time_ms;
+    if (inflight_duration > 10'000) { // 10s
+        LOG(INFO) << "hdfs file writer inflight duration: " << inflight_duration
+                  << "ms, fs_name: " << _fs_name << ", path: " << _path.native();
+    }
+
     _hdfs_file = nullptr;
-    TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsCloseFile",
-                                           Status::InternalError("failed to close hdfs file"));
     if (ret != 0) {
         _st = Status::InternalError(
                 "Write hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}, file_size={}",

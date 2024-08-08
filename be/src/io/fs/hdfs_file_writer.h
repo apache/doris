@@ -96,6 +96,8 @@ private:
     // So we need add one field to restore the value first time return by calling close_impl
     Status _st;
     State _state {State::OPENED};
+
+    int64_t _creation_time_ms = 0; // For profile inflight duration
 };
 
 } // namespace io
