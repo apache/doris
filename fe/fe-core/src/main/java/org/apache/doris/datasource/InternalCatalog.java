@@ -954,7 +954,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      long recycleTime) {
+            long recycleTime) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         } else if (table.isManagedTable()) {
@@ -976,7 +976,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,
-                           Long recycleTime) throws MetaNotFoundException {
+                          Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
@@ -991,7 +991,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-                                Long recycleTime) throws MetaNotFoundException {
+            Long recycleTime) throws MetaNotFoundException {
         dropTable(db, tableId, isForceDrop, true, recycleTime);
     }
 
@@ -1281,7 +1281,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 resultExpr.getSrcSlotRef().getColumnName())
                                 || (createTableStmt.getDistributionDesc() != null
                                 && createTableStmt.getDistributionDesc().inDistributionColumns(
-                                resultExpr.getSrcSlotRef().getColumnName()))) {
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
                             // String type can not be used in partition/distributed column
                             // so we replace it to varchar
                             if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
@@ -1324,11 +1324,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (column.getDefaultValueExprDef() != null) {
                         if (column.getDefaultValueExprDef().getPrecision() != null) {
                             defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
-                                    column.getDefaultValueExprDef().getExprName(),
-                                    column.getDefaultValueExprDef().getPrecision());
+                                column.getDefaultValueExprDef().getExprName(),
+                                column.getDefaultValueExprDef().getPrecision());
                         } else {
                             defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
-                                    column.getDefaultValueExprDef().getExprName());
+                                column.getDefaultValueExprDef().getExprName());
                         }
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
@@ -1524,23 +1524,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
-                        olapTable.getTimeSeriesCompactionGoalSizeMbytes().toString());
+                                                olapTable.getTimeSeriesCompactionGoalSizeMbytes().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
-                        olapTable.getTimeSeriesCompactionFileCountThreshold().toString());
+                                                olapTable.getTimeSeriesCompactionFileCountThreshold().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
-                        olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
+                                                olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
-                        olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold().toString());
+                                                olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
-                        olapTable.getTimeSeriesCompactionLevelThreshold().toString());
+                                                olapTable.getTimeSeriesCompactionLevelThreshold().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
@@ -1955,11 +1955,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId,
                     schemaHash, dataProperty.getStorageMedium());
             realStorageMedium = createTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                    tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
+                tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
             if (realStorageMedium != null && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
                 dataProperty.setStorageMedium(realStorageMedium);
                 LOG.info("real medium not eq default "
-                                + "tableName={} tableId={} partitionName={} partitionId={} readMedium {}",
+                        + "tableName={} tableId={} partitionName={} partitionId={} readMedium {}",
                         tbl.getName(), tbl.getId(), partitionName, partitionId, realStorageMedium);
             }
 
@@ -2184,8 +2184,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         DistributionInfo defaultDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
 
         if (defaultDistributionInfo instanceof HashDistributionInfo
-                && ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns()
-                .stream().anyMatch(column -> column.getType().isVariantType())) {
+                    && ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns()
+                        .stream().anyMatch(column -> column.getType().isVariantType())) {
             throw new DdlException("Hash distribution info should not contain variant columns");
         }
 
@@ -2262,20 +2262,20 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                 || properties
-                .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
+                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
                 || properties
-                .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
+                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
                 || properties
-                .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD))) {
+                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD))) {
             throw new DdlException("only time series compaction policy support for time series config");
         }
 
         // set time series compaction goal size
         long timeSeriesCompactionGoalSizeMbytes
-                = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
         try {
             timeSeriesCompactionGoalSizeMbytes = PropertyAnalyzer
-                    .analyzeTimeSeriesCompactionGoalSizeMbytes(properties);
+                                        .analyzeTimeSeriesCompactionGoalSizeMbytes(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2283,10 +2283,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set time series compaction file count threshold
         long timeSeriesCompactionFileCountThreshold
-                = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
         try {
             timeSeriesCompactionFileCountThreshold = PropertyAnalyzer
-                    .analyzeTimeSeriesCompactionFileCountThreshold(properties);
+                                    .analyzeTimeSeriesCompactionFileCountThreshold(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2294,10 +2294,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set time series compaction time threshold
         long timeSeriesCompactionTimeThresholdSeconds
-                = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
         try {
             timeSeriesCompactionTimeThresholdSeconds = PropertyAnalyzer
-                    .analyzeTimeSeriesCompactionTimeThresholdSeconds(properties);
+                                    .analyzeTimeSeriesCompactionTimeThresholdSeconds(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2305,10 +2305,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set time series compaction empty rowsets threshold
         long timeSeriesCompactionEmptyRowsetsThreshold
-                = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
         try {
             timeSeriesCompactionEmptyRowsetsThreshold = PropertyAnalyzer
-                    .analyzeTimeSeriesCompactionEmptyRowsetsThreshold(properties);
+                                    .analyzeTimeSeriesCompactionEmptyRowsetsThreshold(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2316,10 +2316,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // set time series compaction level threshold
         long timeSeriesCompactionLevelThreshold
-                = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
         try {
             timeSeriesCompactionLevelThreshold = PropertyAnalyzer
-                    .analyzeTimeSeriesCompactionLevelThreshold(properties);
+                                    .analyzeTimeSeriesCompactionLevelThreshold(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2492,7 +2492,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
-                            + " with storage policy(" + storagePolicy + ")");
+                     + " with storage policy(" + storagePolicy + ")");
         }
         // Consider one situation: if the table has no storage policy but some partitions
         // have their own storage policy then it might be erased by the following function.
@@ -2968,7 +2968,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private boolean checkCreateTableResult(String tableName, long tableId, Pair<Boolean, Boolean> result)
-            throws DdlException {
+                throws DdlException {
         if (Boolean.FALSE.equals(result.first)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
@@ -2981,10 +2981,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @VisibleForTesting
     public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
-                                        DistributionInfo distributionInfo, long version,
-                                        ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
-                                        Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer,
-                                        boolean isStorageMediumSpecified)
+            DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
+            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
@@ -3476,13 +3474,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 String errMsg;
                 if (dbPrev instanceof MysqlCompatibleDatabase || db instanceof MysqlCompatibleDatabase) {
                     errMsg = String.format(
-                            "Mysql compatibility problem, previous checkpoint already has a database with full name "
-                                    + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in "
-                                    + "fe.conf.",
-                            db.getFullName());
+                        "Mysql compatibility problem, previous checkpoint already has a database with full name "
+                        + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
+                        db.getFullName());
                 } else {
                     errMsg = String.format("Logical error, duplicated database fullname: %s, id: %d %d.",
-                            db.getFullName(), db.getId(), fullNameToDb.get(db.getFullName()).getId());
+                                    db.getFullName(), db.getId(), fullNameToDb.get(db.getFullName()).getId());
                 }
                 throw new IOException(errMsg);
             }

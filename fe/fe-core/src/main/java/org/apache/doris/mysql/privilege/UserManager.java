@@ -79,18 +79,17 @@ public class UserManager implements Writable, GsonPostProcessable {
     }
 
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-                              List<UserIdentity> currentUser) throws AuthenticationException {
+            List<UserIdentity> currentUser) throws AuthenticationException {
         checkPasswordInternal(remoteUser, remoteHost, remotePasswd, randomString, null, currentUser, false);
     }
 
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-                                   List<UserIdentity> currentUser) throws AuthenticationException {
+            List<UserIdentity> currentUser) throws AuthenticationException {
         checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
     }
 
     private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-                                       String remotePasswdStr, List<UserIdentity> currentUser, boolean plain)
-            throws AuthenticationException {
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         List<User> users = nameToUsers.get(remoteUser);
         if (CollectionUtils.isEmpty(users)) {
@@ -148,7 +147,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     }
 
     private boolean comparePassword(Password curUserPassword, byte[] remotePasswd,
-                                    byte[] randomString, String remotePasswdStr, boolean plain) {
+            byte[] randomString, String remotePasswdStr, boolean plain) {
         // check password
         if (plain) {
             return MysqlPassword.checkPlainPass(curUserPassword.getPassword(), remotePasswdStr);
@@ -183,7 +182,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     }
 
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver,
-                           String comment)
+            String comment)
             throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
