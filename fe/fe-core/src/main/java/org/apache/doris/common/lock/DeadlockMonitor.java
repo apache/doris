@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.lock;
 
-import com.google.gson.Gson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
