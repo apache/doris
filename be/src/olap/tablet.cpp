@@ -3345,7 +3345,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                                     const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                     vectorized::Block& block,
                                     std::map<uint32_t, uint32_t>* read_index,
-                                    const signed char* __restrict skip_map = nullptr) {
+                                    const signed char* __restrict skip_map) {
     bool has_row_column = tablet_schema->store_row_column();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
