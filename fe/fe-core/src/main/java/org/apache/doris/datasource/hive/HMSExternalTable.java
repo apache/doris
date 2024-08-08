@@ -320,7 +320,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private long getRowCountFromExternalSource() {
-        long rowCount;
+        long rowCount = -1;
         switch (dlaType) {
             case HIVE:
                 rowCount = StatisticsUtil.getHiveRowCount(this);
@@ -332,7 +332,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
                 }
-                rowCount = -1;
         }
         return rowCount;
     }
