@@ -382,9 +382,8 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         for (auto* child : struct_batch->fields) {
             const IColumn& child_column = struct_col.get_column(idx);
             child->resize(child_column.size());
-            auto child_type =
-                    assert_cast<const vectorized::DataTypeStruct*>(real_type.get())
-                            ->get_element(idx);
+            auto child_type = assert_cast<const vectorized::DataTypeStruct*>(real_type.get())
+                                      ->get_element(idx);
             ++idx;
             RETURN_IF_ERROR(_resize_row_batch(child_type, child_column, child));
         }
