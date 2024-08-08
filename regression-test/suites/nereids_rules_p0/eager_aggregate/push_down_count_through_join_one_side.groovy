@@ -48,7 +48,7 @@ suite("push_down_count_through_join_one_side") {
     sql "insert into count_t_one_side values (8, null, 'c')"
     sql "insert into count_t_one_side values (9, 3, null)"
     sql "insert into count_t_one_side values (10, null, null)"
-    sql "analyze table max_t with sync;"
+    sql "analyze table count_t_one_side with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select count(t1.score) from count_t_one_side t1, count_t_one_side t2 where t1.id = t2.id group by t1.name;
     """

@@ -47,7 +47,7 @@ suite("push_down_sum_through_join") {
     sql "insert into sum_t values (8, null, 'c')"
     sql "insert into sum_t values (9, 3, null)"
     sql "insert into sum_t values (10, null, null)"
-    sql "analyze table max_t with sync;"
+    sql "analyze table sum_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select sum(t1.score) from sum_t t1, sum_t t2 where t1.id = t2.id group by t1.name;
     """

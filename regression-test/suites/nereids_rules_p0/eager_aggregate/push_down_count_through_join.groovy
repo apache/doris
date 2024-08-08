@@ -47,7 +47,7 @@ suite("push_down_count_through_join") {
     sql "insert into count_t values (8, null, 'c')"
     sql "insert into count_t values (9, 3, null)"
     sql "insert into count_t values (10, null, null)"
-    sql "analyze table max_t with sync;"
+    sql "analyze table count_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select count(t1.score) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name;
     """
