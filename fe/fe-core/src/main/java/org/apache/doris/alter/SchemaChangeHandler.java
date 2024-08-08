@@ -2870,6 +2870,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                // Drop table column stats after light schema change finished.
+                try {
+                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
+                } catch (Exception e) {
+                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
+                }
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2896,6 +2902,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
+                // Drop table column stats after light schema change finished.
+                try {
+                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
+                } catch (Exception e) {
+                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
+                }
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
