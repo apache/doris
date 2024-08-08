@@ -382,7 +382,7 @@ void ColumnArray::insert(const Field& x) {
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     DCHECK_LT(n, src_.size());
-    const ColumnArray& src = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(src_);
+    const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
@@ -451,8 +451,7 @@ bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
 void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
-    const ColumnArray& src_concrete =
-            assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(src);
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -485,8 +484,7 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
 
 void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                                     size_t length) {
-    const ColumnArray& src_concrete =
-            assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(src);
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
 
     if (start + length > src_concrete.get_offsets().size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -582,8 +580,7 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
 
     auto res = ColumnArray::create(data->clone_empty());
 
-    auto& res_elems =
-            assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(res->get_data()).get_data();
+    auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
     filter_arrays_impl<T, Offset64>(
@@ -805,8 +802,7 @@ ColumnPtr ColumnArray::filter_nullable(const Filter& filt, ssize_t result_size_h
     auto array_of_nested = ColumnArray::create(nullable_elems.get_nested_column_ptr(), offsets);
     auto filtered_array_of_nested_owner = array_of_nested->filter(filt, result_size_hint);
     const auto& filtered_array_of_nested =
-            assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                    *filtered_array_of_nested_owner);
+            assert_cast<const ColumnArray&>(*filtered_array_of_nested_owner);
     const auto& filtered_offsets = filtered_array_of_nested.get_offsets_ptr();
 
     auto res_null_map = ColumnUInt8::create();
