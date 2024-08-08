@@ -287,12 +287,14 @@ public:
                         .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         const auto& timestamp =
-                assert_cast<const ColumnVector<NativeType>&, TypeCheckOnRelease::DISABLE>(*columns[2])
+                assert_cast<const ColumnVector<NativeType>&, TypeCheckOnRelease::DISABLE>(
+                        *columns[2])
                         .get_data()[row_num];
         const int NON_EVENT_NUM = 3;
         for (int i = NON_EVENT_NUM; i < IAggregateFunction::get_argument_types().size(); i++) {
             const auto& is_set =
-                    assert_cast<const ColumnVector<UInt8>&, TypeCheckOnRelease::DISABLE>(*columns[i])
+                    assert_cast<const ColumnVector<UInt8>&, TypeCheckOnRelease::DISABLE>(
+                            *columns[i])
                             .get_data()[row_num];
             if (is_set) {
                 this->data(place).add(

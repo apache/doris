@@ -1541,8 +1541,9 @@ struct StringParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*, TypeCheckOnRelease::DISABLE>(
-                        block.get_by_position(result).type.get());
+                const auto* type =
+                        assert_cast<const DataTypeDateTimeV2*, TypeCheckOnRelease::DISABLE>(
+                                block.get_by_position(result).type.get());
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
                                                     type->get_scale());
             } else {

@@ -136,7 +136,8 @@ public:
 
         if (left_const) {
             left_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(col_left.column.get())
+                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
+                            col_left.column.get())
                             ->get_data_column_ptr());
         } else {
             left_column = check_and_get_column<const ColumnNullable>(col_left.column);
@@ -144,7 +145,8 @@ public:
 
         if (right_const) {
             right_column = check_and_get_column<const ColumnNullable>(
-                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(col_right.column.get())
+                    assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
+                            col_right.column.get())
                             ->get_data_column_ptr());
         } else {
             right_column = check_and_get_column<const ColumnNullable>(col_right.column);

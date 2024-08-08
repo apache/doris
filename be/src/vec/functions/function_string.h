@@ -3157,10 +3157,12 @@ public:
             StringRef origin_str =
                     assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_origin.get())
                             ->get_data_at(i);
-            StringRef old_str = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_old.get())
-                                        ->get_data_at(i);
-            StringRef new_str = assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_new.get())
-                                        ->get_data_at(i);
+            StringRef old_str =
+                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_old.get())
+                            ->get_data_at(i);
+            StringRef new_str =
+                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_new.get())
+                            ->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());

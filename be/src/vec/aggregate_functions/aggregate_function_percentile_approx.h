@@ -158,7 +158,8 @@ public:
              Arena*) const override {
         const auto& sources =
                 assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& quantile = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        const auto& quantile =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentileOld::data(place).add(sources.get_int(row_num),
                                                         quantile.get_data(), 1);
     }
@@ -209,9 +210,9 @@ public:
         const auto& quantile_array =
                 assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& offset_column_data = quantile_array.get_offsets();
-        const auto& nested_column =
-                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(quantile_array.get_data())
-                        .get_nested_column();
+        const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                            quantile_array.get_data())
+                                            .get_nested_column();
         const auto& nested_column_data =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 

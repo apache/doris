@@ -99,7 +99,8 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
-            auto column = assert_cast<const ColumnDataType*, TypeCheckOnRelease::Disable>(columns[0]);
+            auto column =
+                    assert_cast<const ColumnDataType*, TypeCheckOnRelease::Disable>(columns[0]);
             auto value = column->get_element(row_num);
             this->data(place).add(
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));

@@ -228,8 +228,8 @@ public:
         std::vector<const IColumn*> nested(num_arguments);
 
         for (size_t i = 0; i < num_arguments; ++i) {
-            nested[i] =
-                    &assert_cast<const ColumnArray&, TypeCheckOnRelease::Disable>(*columns[i]).get_data();
+            nested[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::Disable>(*columns[i])
+                                 .get_data();
         }
 
         const auto& first_array_column =

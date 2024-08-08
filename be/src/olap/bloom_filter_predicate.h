@@ -71,7 +71,8 @@ private:
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
             const auto* dict_col =
-                    assert_cast<const vectorized::ColumnDictI32*, TypeCheckOnRelease::DISABLE>(&column);
+                    assert_cast<const vectorized::ColumnDictI32*, TypeCheckOnRelease::DISABLE>(
+                            &column);
             new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
                     dict_col, null_map, sel, size);
         } else {

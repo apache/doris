@@ -92,7 +92,8 @@ public:
         return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map).size();
     }
     PURE bool is_null_at(size_t n) const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map).get_data()[n] != 0;
+        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map)
+                       .get_data()[n] != 0;
     }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
@@ -101,10 +102,10 @@ public:
     }
     // column must be nullable(uint8)
     bool get_bool_inline(size_t n) const {
-        return is_null_at(n)
-                       ? false
-                       : assert_cast<const ColumnUInt8*, TypeCheckOnRelease::Disable>(nested_column.get())
-                                 ->get_bool(n);
+        return is_null_at(n) ? false
+                             : assert_cast<const ColumnUInt8*, TypeCheckOnRelease::Disable>(
+                                       nested_column.get())
+                                       ->get_bool(n);
     }
     StringRef get_data_at(size_t n) const override;
 
@@ -349,7 +350,8 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        const auto& nullable_rhs = assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(rhs);
+        const auto& nullable_rhs =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(rhs);
         null_map->replace_column_data(*nullable_rhs.null_map, row, self_row);
 
         if (!nullable_rhs.is_null_at(row)) {

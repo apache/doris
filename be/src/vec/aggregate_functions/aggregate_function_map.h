@@ -146,9 +146,9 @@ struct AggregateFunctionMapAggData {
         const size_t size = _key_column->size();
         write_binary(size, buf);
         for (size_t i = 0; i < size; i++) {
-            write_binary(
-                    assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column).get_data_at(i),
-                    buf);
+            write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
+                                 .get_data_at(i),
+                         buf);
         }
         for (size_t i = 0; i < size; i++) {
             write_binary(_value_column->get_data_at(i), buf);
@@ -223,9 +223,10 @@ public:
         } else {
             Field value;
             columns[1]->get(row_num, value);
-            this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                                          .get_data_at(row_num),
-                                  value);
+            this->data(place).add(
+                    assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data_at(row_num),
+                    value);
         }
     }
 

@@ -122,7 +122,8 @@ public:
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(*columns[0]);
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }

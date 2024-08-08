@@ -167,9 +167,11 @@ public:
             auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
                 assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->create(place);
-                DEFER({ assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->destroy(place); });
-                assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->add(place, columns, i,
-                                                                           arena);
+                DEFER({
+                    assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->destroy(place);
+                });
+                assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->add(place, columns,
+                                                                                    i, arena);
                 data[i] = std::move(this->data(place).value);
             }
         } else {
@@ -305,7 +307,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
@@ -373,7 +376,8 @@ public:
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }

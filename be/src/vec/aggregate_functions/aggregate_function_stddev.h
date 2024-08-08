@@ -105,7 +105,8 @@ struct BaseData {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
+        const auto& sources =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
         double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;

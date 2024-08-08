@@ -43,8 +43,8 @@ public:
             return true;
         }
         if constexpr (arg_is_nullable) {
-            return assert_cast<const ColumnNullable*, TypeCheckOnRelease::Disable>(_ptr)->is_null_at(
-                    _offset);
+            return assert_cast<const ColumnNullable*, TypeCheckOnRelease::Disable>(_ptr)
+                    ->is_null_at(_offset);
         }
         return false;
     }
@@ -52,8 +52,8 @@ public:
     void insert_into(IColumn& to) const {
         if constexpr (arg_is_nullable) {
             auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::Disable>(_ptr);
-            assert_cast<ColVecType&, TypeCheckOnRelease::Disable>(to).insert_from(col->get_nested_column(),
-                                                                         _offset);
+            assert_cast<ColVecType&, TypeCheckOnRelease::Disable>(to).insert_from(
+                    col->get_nested_column(), _offset);
         } else {
             assert_cast<ColVecType&, TypeCheckOnRelease::Disable>(to).insert_from(*_ptr, _offset);
         }

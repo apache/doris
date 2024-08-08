@@ -626,14 +626,18 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
 
 ColumnPtr remove_nullable(const ColumnPtr& column) {
     if (is_column_nullable(*column)) {
-        return assert_cast<const ColumnNullable*, TypeCheckOnRelease::Disable>(column.get())->get_nested_column_ptr();
+        return assert_cast<const ColumnNullable*, TypeCheckOnRelease::Disable>(column.get())
+                ->get_nested_column_ptr();
     }
 
     if (is_column_const(*column)) {
-        const auto& column_nested = assert_cast<const ColumnConst&, TypeCheckOnRelease::Disable>(*column).get_data_column_ptr();
+        const auto& column_nested =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::Disable>(*column)
+                        .get_data_column_ptr();
         if (is_column_nullable(*column_nested)) {
             return ColumnConst::create(
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(*column_nested).get_nested_column_ptr(),
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(*column_nested)
+                            .get_nested_column_ptr(),
                     column->size());
         }
     }

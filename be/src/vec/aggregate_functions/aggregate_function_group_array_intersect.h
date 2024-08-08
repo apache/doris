@@ -173,11 +173,12 @@ public:
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                          assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                                  *columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
@@ -366,11 +367,12 @@ public:
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                          assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                                  *columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto nested_column_data = column.get_data_ptr();
         const auto& offsets = column.get_offsets();

@@ -53,7 +53,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
+    const ColumnStruct& struct_column =
+            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
     bw.write('{');
     for (int i = 0; i < struct_column.get_columns().size(); i++) {
         if (i != 0) {
@@ -279,7 +280,8 @@ void DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
+    const ColumnStruct& struct_column =
+            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);

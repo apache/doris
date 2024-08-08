@@ -247,8 +247,8 @@ void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t le
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         columns[i]->insert_range_from(
-                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i], start,
-                length);
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i],
+                start, length);
     }
 }
 
@@ -257,8 +257,8 @@ void ColumnStruct::insert_range_from_ignore_overflow(const IColumn& src, size_t 
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         columns[i]->insert_range_from_ignore_overflow(
-                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i], start,
-                length);
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i],
+                start, length);
     }
 }
 

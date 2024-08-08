@@ -310,7 +310,8 @@ public:
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
                 const auto& nullable_col =
-                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[i]);
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.

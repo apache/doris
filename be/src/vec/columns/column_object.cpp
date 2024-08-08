@@ -1333,7 +1333,8 @@ Status ColumnObject::merge_sparse_to_root_column() {
         Arena mem_pool;
         for (const auto& subcolumn : sparse_columns) {
             auto& column = subcolumn->data.get_finalized_column_ptr();
-            if (assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column).is_null_at(i)) {
+            if (assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column).is_null_at(
+                        i)) {
                 ++null_count;
                 continue;
             }
