@@ -166,8 +166,10 @@ suite("partition_prune") {
     AS
     ${mv1}
     """)
-
+    // wait partition row count report
+    sleep(10000)
     sql "analyze table test_duplicate with sync;"
+
 
     explain {
         sql("""${query1}""")
@@ -203,7 +205,8 @@ suite("partition_prune") {
     AS
     ${mv2}
     """)
-
+    // wait partition row count report
+    sleep(10000)
     sql "analyze table test_unique with sync;"
 
     explain {
@@ -252,7 +255,8 @@ suite("partition_prune") {
     AS
     ${mv3}
     """)
-
+    // wait partition row count report
+    sleep(10000)
     sql "analyze table test_aggregate with sync;"
 
     explain {
