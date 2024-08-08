@@ -61,7 +61,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
             String expectedRangeExpr,
             String expectedResidualExpr) {
 
-        Map<String, Slot> mem = Maps.newHashMap();
+        Map<String, Slot> mem = Maps.newLinkedHashMap();
         Expression targetExpr = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         SplitPredicate splitPredicate = Predicates.splitPredicates(targetExpr);
 
