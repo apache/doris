@@ -338,7 +338,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                 timeout = Config.stream_load_default_timeout_second;
                 break;
             case INGESTION:
-                timeout = Config.bucket_load_default_timeout_second;
+                timeout = Config.ingestion_load_default_timeout_second;
                 break;
             default:
                 break;

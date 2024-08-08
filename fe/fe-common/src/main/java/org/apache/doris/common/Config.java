@@ -606,9 +606,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Bucket load 的默认超时时间，单位是秒。",
-            "Default timeout for bucket load job, in seconds."})
-    public static int bucket_load_default_timeout_second = 86400; // 1 day
+    @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
+            "Default timeout for ingestion load job, in seconds."})
+    public static int ingestion_load_default_timeout_second = 86400; // 1 day
 
     @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交间隔，单位是秒。",
             "Maximal intervals between two sync job's commits."})
