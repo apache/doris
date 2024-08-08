@@ -360,8 +360,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             // not nullable to nullable
             if (new_col_nullable) {
                 auto* new_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                new_col->assume_mutable().get());
+                        assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
@@ -372,8 +371,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
                 auto* ref_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                ref_col->assume_mutable().get());
+                        assert_cast<vectorized::ColumnNullable*>(ref_col->assume_mutable().get());
 
                 new_col = ref_nullable_col->get_nested_column_ptr();
             }
