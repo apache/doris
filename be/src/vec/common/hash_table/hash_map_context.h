@@ -408,10 +408,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
                 if (!nullmap_columns.empty() && nullmap_columns[j]) {
                     const auto& nullmap =
-                            assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
-                                    *nullmap_columns[j])
-                                    .get_data()
-                                    .data();
+                            assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     for (size_t i = 0; i < row_numbers; ++i) {
                         // make sure null cell is filled by 0x0
                         memcpy_fixed<Fixed, true>(

@@ -28,8 +28,8 @@
 
 enum class TypeCheckOnRelease : bool { ENABLE = true, DISABLE = false };
 
-/** Perform static_cast in release build.
-  * Checks type by comparing typeid and throw an exception in debug build.
+/** Perform static_cast in release build when TypeCheckOnRelease is set to DISABLE.
+  * Checks type by comparing typeid and throw an exception in all the other situations.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
 template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
