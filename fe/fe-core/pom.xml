@@ -623,10 +623,6 @@ under the License.
                     <groupId>org.postgresql</groupId>
                     <artifactId>postgresql</artifactId>
                 </exclusion>
-                <exclusion>
-                    <groupId>org.antlr</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -639,12 +635,6 @@ under the License.
             <artifactId>scala-library</artifactId>
             <version>${scala.version}</version>
             <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.antlr</groupId>
-            <artifactId>antlr4</artifactId>
-            <version>${antlr4.version}</version>
-            <scope>runtime</scope>
         </dependency>
 
         <dependency>
