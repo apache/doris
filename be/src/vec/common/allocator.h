@@ -226,7 +226,7 @@ class MemTrackerLimiter;
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 class Allocator {
 public:
-    Allocator();
+    Allocator(const std::shared_ptr<doris::MemTrackerLimiter>& tracker = nullptr);
 
     void sys_memory_check(size_t size) const;
     void memory_tracker_check(size_t size) const;
@@ -401,7 +401,7 @@ public:
         return buf;
     }
 
-    std::shared_ptr<doris::MemTrackerLimiter> tracker {nullptr};
+    std::shared_ptr<doris::MemTrackerLimiter> mem_tracker {nullptr};
 
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
