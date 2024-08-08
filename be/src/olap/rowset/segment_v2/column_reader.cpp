@@ -1686,6 +1686,11 @@ static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
     auto new_array = make_nullable(vectorized::ColumnArray::create(
             new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
     dst->insert_range_from(*new_array, 0, new_array->size());
+#ifndef NDEBUG
+    if (!dst_array->has_equal_offsets(*sibling_array)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Expected same array offsets");
+    }
+#endif
 }
 
 Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,

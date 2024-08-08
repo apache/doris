@@ -291,6 +291,22 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
         return;
     }
 
+    // If there are Nothing types, skip them
+    {
+        TypeIndexSet non_nothing_types;
+        non_nothing_types.reserve(types.size());
+
+        for (const auto& type : types) {
+            if (type != TypeIndex::Nothing) {
+                non_nothing_types.emplace(type);
+            }
+        }
+
+        if (non_nothing_types.size() < types.size()) {
+            return get_least_supertype_jsonb(non_nothing_types, type);
+        }
+    }
+
     /// For numeric types, the most complicated part.
     DataTypePtr numeric_type = nullptr;
     get_numeric_type(types, &numeric_type);
