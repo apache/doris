@@ -26,7 +26,7 @@ namespace doris {
 void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_update,
                              const std::set<string>& partial_update_cols, bool is_strict_mode,
                              int64_t timestamp_ms, const std::string& timezone,
-                             const std::string& auto_increment_column, int64_t cur_max_version) {
+                             int64_t cur_max_version) {
     is_partial_update = partial_update;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
@@ -50,8 +50,6 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
         }
     }
     this->is_strict_mode = is_strict_mode;
-    is_input_columns_contains_auto_inc_column =
-            is_partial_update && partial_update_input_columns.contains(auto_increment_column);
     _generate_default_values_for_missing_cids(tablet_schema);
 }
 
@@ -72,10 +70,6 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
     partial_update_info_pb->set_timezone(timezone);
-    partial_update_info_pb->set_is_input_columns_contains_auto_inc_column(
-            is_input_columns_contains_auto_inc_column);
-    partial_update_info_pb->set_is_schema_contains_auto_inc_column(
-            is_schema_contains_auto_inc_column);
     for (const auto& value : default_values) {
         partial_update_info_pb->add_default_values(value);
     }
@@ -103,10 +97,6 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     is_strict_mode = partial_update_info_pb->is_strict_mode();
     timestamp_ms = partial_update_info_pb->timestamp_ms();
     timezone = partial_update_info_pb->timezone();
-    is_input_columns_contains_auto_inc_column =
-            partial_update_info_pb->is_input_columns_contains_auto_inc_column();
-    is_schema_contains_auto_inc_column =
-            partial_update_info_pb->is_schema_contains_auto_inc_column();
     default_values.clear();
     for (const auto& value : partial_update_info_pb->default_values()) {
         default_values.push_back(value);

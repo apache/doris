@@ -39,6 +39,7 @@
 namespace doris {
 namespace {
 const std::string ROWSET_PREFIX = "rst_";
+const std::string PARTIAL_UPDATE_INFO_PREFIX = "pui_";
 } // namespace
 
 using namespace ErrorCode;

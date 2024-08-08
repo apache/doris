@@ -38,15 +38,6 @@ class PartialUpdateInfoPB;
 } // namespace doris
 
 namespace doris {
-<<<<<<< HEAD
-=======
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-
-const std::string PARTIAL_UPDATE_INFO_PREFIX = "pui_";
-
-} // namespace
->>>>>>> 74576e73df (update)
 
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
