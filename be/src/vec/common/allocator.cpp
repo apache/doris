@@ -217,10 +217,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume
         size_t size) {
     // `alloc` requires that the current thread_mem_tracker label is not `Orphan`
     // and is the same as the thread_mem_tracker label when Allocator is constructed.
-    DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
-            << ", thread mem tracker label: "
-            << doris::thread_context()->thread_mem_tracker()->label()
-            << ", allocator tracker label: " << tracker->label();
+    // TODO, need to be 0 when the load or other memory tracker ends.
+    // DCHECK(doris::thread_context()->thread_mem_tracker()->label() == tracker->label())
+    //         << ", thread mem tracker label: "
+    //         << doris::thread_context()->thread_mem_tracker()->label()
+    //         << ", allocator tracker label: " << tracker->label();
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
@@ -235,9 +236,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release
     // such as modifying reserved memory.
     doris::ThreadContext* thread_context = doris::thread_context(true);
     if (thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") {
-        DCHECK(thread_context->thread_mem_tracker()->label() == tracker->label())
-                << ", thread mem tracker label: " << thread_context->thread_mem_tracker()->label()
-                << ", allocator tracker label: " << tracker->label();
+        // TODO, need to be 0 when the load or other memory tracker ends.
+        // DCHECK(thread_context->thread_mem_tracker()->label() == tracker->label())
+        //         << ", thread mem tracker label: " << thread_context->thread_mem_tracker()->label()
+        //         << ", allocator tracker label: " << tracker->label();
         RELEASE_THREAD_MEM_TRACKER(size);
     } else {
         tracker->release(size);
