@@ -159,7 +159,8 @@ Status LRUFileCache::initialize() {
     _is_initialized = true;
     _cache_background_thread = std::thread(&LRUFileCache::run_background_operation, this);
     int64_t cost = watch.elapsed_time() / 1000 / 1000;
-    LOG(INFO) << fmt::format("After initialize file cache path={}, init cost(ms)={}", cost);
+    LOG(INFO) << fmt::format("After initialize file cache path={}, init cost(ms)={}",
+                             _cache_base_path, cost);
     return Status::OK();
 }
 
