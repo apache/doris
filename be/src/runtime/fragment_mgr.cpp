@@ -124,7 +124,8 @@ std::string to_load_error_http_path(const std::string& file_name) {
         return file_name;
     }
     std::stringstream url;
-    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
+    std::string protocol = config::enable_https ? "https://" : "http://";
+    url << protocol << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_load_error_log?"
         << "file=" << file_name;
     return url.str();
@@ -187,7 +188,8 @@ void FragmentMgr::stop() {
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+    std::string protocol = config::enable_https ? "https://" : "http://";
+    url << protocol << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
