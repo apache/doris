@@ -1029,6 +1029,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
@@ -1049,20 +1050,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-
-        double rowCount = catalogRelation.getTable().getRowCountForNereids();
-        for (SlotReference slot : slotSet) {
-            ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-            if (cache.isUnKnown) {
-                colStatsBuilder.setCount(rowCount);
+        if (tableRowCount <= 0) {
+            // try to get row count from col stats
+            for (SlotReference slot : slotSet) {
+                ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
+                tableRowCount = Math.max(cache.count, tableRowCount);
             }
-            adjustColStats(catalogRelation, slot, colStatsBuilder);
-            rowCount = Math.max(rowCount, colStatsBuilder.getCount());
+        }
+        for (SlotReference slot : slotSet) {
+            ColumnStatistic cache;
+            if (ConnectContext.get() != null && ! ConnectContext.get().getSessionVariable().enableStats) {
+                cache = ColumnStatistic.UNKNOWN;
+            } else {
+                cache = getColumnStatsFromTableCache(catalogRelation, slot);
+            }
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
+            colStatsBuilder.setCount(tableRowCount);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
-        return builder.setRowCount(rowCount).build();
+        return builder.setRowCount(tableRowCount).build();
     }
 
     private Statistics computeTopN(TopN topN) {
