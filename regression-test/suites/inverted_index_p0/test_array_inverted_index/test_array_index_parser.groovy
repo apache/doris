@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_index_parser"){
+suite("test_array_index_parser", "nonConcurrent"){
 
     def create_array_index_table = {testTablex, parser ->
         sql "DROP TABLE IF EXISTS " + testTablex + ";"
