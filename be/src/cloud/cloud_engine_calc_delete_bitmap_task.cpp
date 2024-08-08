@@ -120,7 +120,7 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
                                                            int64_t ms_cumulative_compaction_cnt,
                                                            int64_t ms_cumulative_point) {
     _ms_base_compaction_cnt = ms_base_compaction_cnt;
-    _ms_cumulative_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_compaction_cnt = ms_cumulative_compaction_cnt;
     _ms_cumulative_point = ms_cumulative_point;
 }
 

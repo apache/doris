@@ -652,11 +652,13 @@ public class LoadStmt extends DdlStmt {
     private void checkAkSk() throws UserException {
         RemoteBase remote = null;
         ObjectInfo objectInfo = null;
+        String curFile = null;
         try {
             Map<String, String> brokerDescProperties = brokerDesc.getProperties();
             String provider = getProviderFromEndpoint();
             for (DataDescription dataDescription : dataDescriptions) {
                 for (String filePath : dataDescription.getFilePaths()) {
+                    curFile = filePath;
                     String bucket = getBucketFromFilePath(filePath);
                     objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
                             brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
@@ -671,7 +673,7 @@ public class LoadStmt extends DdlStmt {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to access object storage, proto={}, err={}", objectInfo, e.toString());
+            LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                     "Failed to access object storage", e);
         } finally {

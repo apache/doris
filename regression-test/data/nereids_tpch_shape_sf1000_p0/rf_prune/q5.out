@@ -8,7 +8,9 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=() build RFs:RF4 s_nationkey->[c_nationkey];RF5 o_custkey->[c_custkey]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
 ----------------------PhysicalProject
@@ -29,6 +31,4 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------filter((region.r_name = 'ASIA'))
 ----------------------------------PhysicalOlapScan[region]
-------------------PhysicalProject
---------------------PhysicalOlapScan[customer]
 

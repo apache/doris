@@ -107,6 +107,16 @@ public class BrokerUtil {
         }
     }
 
+    public static void deleteDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
+        RemoteFileSystem fileSystem = FileSystemFactory.get(
+                brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+        Status st = fileSystem.deleteDirectory(path);
+        if (!st.ok()) {
+            throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
+                    + path + ", err: " + st.getErrMsg());
+        }
+    }
+
     public static String printBroker(String brokerName, TNetworkAddress address) {
         return brokerName + "[" + address.toString() + "]";
     }
@@ -358,7 +368,7 @@ public class BrokerUtil {
      * @param brokerDesc
      * @throws UserException if broker op failed
      */
-    public static void deletePath(String path, BrokerDesc brokerDesc) throws UserException {
+    public static void deletePathWithBroker(String path, BrokerDesc brokerDesc) throws UserException {
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         boolean failed = true;

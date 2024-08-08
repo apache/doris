@@ -87,7 +87,7 @@ public:
 
 private:
     static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
-                                    vectorized::ColumnPtr new_column, AlterTabletType type);
+                                    vectorized::ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;

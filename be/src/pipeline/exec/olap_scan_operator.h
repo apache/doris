@@ -71,7 +71,7 @@ private:
 
     PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) override;
 
     bool _storage_no_merge() override;
 

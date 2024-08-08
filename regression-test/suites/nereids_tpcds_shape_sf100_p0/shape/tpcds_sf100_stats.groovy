@@ -18,6 +18,9 @@
  */
 suite('tpcds_sf100_stats') {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
+    if (isCloudMode()) {
+        return
+    }
     sql "use ${db}"
     def stats
     stats = sql """ show column stats call_center            ;"""

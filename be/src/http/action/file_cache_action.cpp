@@ -63,7 +63,6 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         const std::string& sync = req->param(SYNC.data());
         auto ret = io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
     } else if (operation == RESET) {
-        Status st;
         std::string capacity = req->param(CAPACITY.data());
         int64_t new_capacity = 0;
         bool parse = true;

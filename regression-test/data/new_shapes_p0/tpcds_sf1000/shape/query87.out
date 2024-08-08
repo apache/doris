@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------PhysicalExcept
 ------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[ss_customer_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[ss_customer_sk]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
@@ -20,7 +20,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalOlapScan[customer]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
