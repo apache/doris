@@ -69,6 +69,7 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
             'type'='iceberg',
             'iceberg.catalog.type'='hms',
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'warehouse' = 'hdfs://${externalEnvIp}:${hdfs_port}/user/iceberg_test/',
             'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
         );""" 
     }
@@ -133,8 +134,8 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String bucket = getS3BucketName()
-        // String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_url = "mysql-connector-java-8.0.25.jar"
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+        // String driver_url = "mysql-connector-java-8.0.25.jar"
         String catalog_name = "test_catalog_upgrade_jdbc_mysql"
         sql """drop catalog if exists ${catalog_name} """
         sql """create catalog if not exists ${catalog_name} properties(
