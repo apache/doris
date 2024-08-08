@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -39,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Base class for Policy.
@@ -60,7 +60,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "version")
     protected long version = -1;
 
-    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public void writeLock() {
         lock.writeLock().lock();

@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
+import java.util.Arrays;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,14 +39,12 @@ import java.util.concurrent.TimeUnit;
  */
 public class DeadlockMonitor {
     private static final Logger LOG = LoggerFactory.getLogger(DeadlockMonitor.class);
-    private final Gson gson;
     private final ThreadMXBean threadMXBean;
     private final ScheduledExecutorService scheduler;
 
     public DeadlockMonitor() {
         this.threadMXBean = ManagementFactory.getThreadMXBean();
         this.scheduler = Executors.newScheduledThreadPool(1);
-        this.gson = new Gson();
     }
 
     /**
@@ -75,22 +74,9 @@ public class DeadlockMonitor {
 
         // Get information about deadlocked threads
         ThreadInfo[] threadInfos = threadMXBean.getThreadInfo(deadlockedThreadIds, true, true);
-
-        // Build a deadlock report
-
+        String deadlockReportString = Arrays.toString(threadInfos).replace("\n", "\\n");
         // Log the deadlock report
-        DeadlockThreadsInfo deadlockThreadsInfo = new DeadlockThreadsInfo(threadInfos);
-        LOG.warn("Deadlocks detected {}", gson.toJson(deadlockThreadsInfo));
+        LOG.warn("Deadlocks detected {}", deadlockReportString);
     }
 
-    private static class DeadlockThreadsInfo {
-        private String[] threadInfos;
-
-        private DeadlockThreadsInfo(ThreadInfo[] threadInfos) {
-            this.threadInfos = new String[threadInfos.length];
-            for (int i = 0; i < threadInfos.length; i++) {
-                this.threadInfos[i] = threadInfos[i].toString();
-            }
-        }
-    }
 }

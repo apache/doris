@@ -19,7 +19,6 @@ package org.apache.doris.resource;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.HashMultimap;
@@ -32,6 +31,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /*
  * TagManager maintains 2 indexes:
@@ -47,7 +47,7 @@ public class TagManager implements Writable {
     // resource id -> tag set
     private Map<Long, TagSet> resourceIndex = Maps.newHashMap();
 
-    private MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public TagManager() {
         // TODO Auto-generated constructor stub

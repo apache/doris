@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterLightSchChangeHelper;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 
@@ -31,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 
 /**
@@ -52,7 +52,7 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
     public ColumnIdFlushDaemon() {
         super("colum-id-flusher", TimeUnit.HOURS.toMillis(1));
         resultCollector = Maps.newHashMap();
-        rwLock = new MonitoredReentrantReadWriteLock();
+        rwLock = new ReentrantReadWriteLock();
         if (Config.enable_convert_light_weight_schema_change) {
             flushFunc = this::doFlush;
         } else {

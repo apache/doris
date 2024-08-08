@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -38,6 +37,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class TableBinlog {
     private static final Logger LOG = LogManager.getLogger(TableBinlog.class);
@@ -45,7 +45,7 @@ public class TableBinlog {
     private long dbId;
     private long tableId;
     private long binlogSize;
-    private MonitoredReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock;
     private TreeSet<TBinlog> binlogs;
 
     // Pair(commitSeq, timestamp), used for gc
@@ -58,7 +58,7 @@ public class TableBinlog {
         this.dbId = dbId;
         this.tableId = tableId;
         this.binlogSize = 0;
-        lock = new MonitoredReentrantReadWriteLock();
+        lock = new ReentrantReadWriteLock();
         binlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
         timestamps = Lists.newArrayList();
 

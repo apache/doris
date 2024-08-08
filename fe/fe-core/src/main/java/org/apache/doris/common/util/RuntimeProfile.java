@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
@@ -46,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -67,19 +67,19 @@ public class RuntimeProfile {
     private Map<String, String> infoStrings = Maps.newHashMap();
     @SerializedName(value = "infoStringsDisplayOrder")
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
-    private transient MonitoredReentrantReadWriteLock infoStringsLock = new MonitoredReentrantReadWriteLock();
+    private transient ReentrantReadWriteLock infoStringsLock = new ReentrantReadWriteLock();
 
     @SerializedName(value = "counterMap")
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
     @SerializedName(value = "childCounterMap")
     private Map<String, TreeSet<String>> childCounterMap = Maps.newConcurrentMap();
     // protect TreeSet in ChildCounterMap
-    private transient MonitoredReentrantReadWriteLock counterLock = new MonitoredReentrantReadWriteLock();
+    private transient ReentrantReadWriteLock counterLock = new ReentrantReadWriteLock();
     @SerializedName(value = "childMap")
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
     @SerializedName(value = "childList")
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
-    private transient MonitoredReentrantReadWriteLock childLock = new MonitoredReentrantReadWriteLock();
+    private transient ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
     @SerializedName(value = "planNodeInfos")
     private List<String> planNodeInfos = Lists.newArrayList();
 
@@ -126,9 +126,9 @@ public class RuntimeProfile {
     }
 
     private void init() {
-        this.infoStringsLock = new MonitoredReentrantReadWriteLock();
-        this.childLock = new MonitoredReentrantReadWriteLock();
-        this.counterLock = new MonitoredReentrantReadWriteLock();
+        this.infoStringsLock = new ReentrantReadWriteLock();
+        this.childLock = new ReentrantReadWriteLock();
+        this.counterLock = new ReentrantReadWriteLock();
     }
 
     public static RuntimeProfile read(DataInput input) throws IOException {

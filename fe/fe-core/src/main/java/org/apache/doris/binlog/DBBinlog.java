@@ -21,7 +21,6 @@ import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.thrift.TBinlog;
@@ -41,6 +40,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class DBBinlog {
@@ -50,7 +50,7 @@ public class DBBinlog {
     // The size of all binlogs.
     private long binlogSize;
     // guard for allBinlogs && tableBinlogMap
-    private MonitoredReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock;
     // all binlogs contain table binlogs && create table binlog etc ...
     private TreeSet<TBinlog> allBinlogs;
     // table binlogs
@@ -70,7 +70,7 @@ public class DBBinlog {
     private BinlogConfigCache binlogConfigCache;
 
     public DBBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog) {
-        lock = new MonitoredReentrantReadWriteLock();
+        lock = new ReentrantReadWriteLock();
         this.dbId = binlog.getDbId();
         this.binlogConfigCache = binlogConfigCache;
         this.binlogSize = 0;

@@ -20,7 +20,6 @@ package org.apache.doris.resource.workloadgroup;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 
@@ -30,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.LinkedList;
 import java.util.PriorityQueue;
 import java.util.Queue;
+import java.util.concurrent.locks.ReentrantLock;
 
 // note(wb) refer java BlockingQueue, but support altering capacity
 // todo(wb) add wait time to profile
@@ -37,7 +37,7 @@ public class QueryQueue {
 
     private static final Logger LOG = LogManager.getLogger(QueryQueue.class);
     // note(wb) used unfair by default, need more test later
-    private final MonitoredReentrantLock queueLock = new MonitoredReentrantLock();
+    private final ReentrantLock queueLock = new ReentrantLock();
     // resource group property
     private int maxConcurrency;
     private int maxQueueSize;

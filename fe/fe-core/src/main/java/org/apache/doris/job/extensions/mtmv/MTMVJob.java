@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -52,10 +51,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
-    private MonitoredReentrantReadWriteLock jobRwLock;
+    private ReentrantReadWriteLock jobRwLock;
 
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
@@ -108,14 +108,14 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private long mtmvId;
 
     public MTMVJob() {
-        jobRwLock = new MonitoredReentrantReadWriteLock(true);
+        jobRwLock = new ReentrantReadWriteLock(true);
     }
 
     public MTMVJob(long dbId, long mtmvId) {
         this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());
-        jobRwLock = new MonitoredReentrantReadWriteLock(true);
+        jobRwLock = new ReentrantReadWriteLock(true);
     }
 
     @Override

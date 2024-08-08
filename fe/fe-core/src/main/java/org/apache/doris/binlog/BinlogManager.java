@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -55,6 +54,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BinlogManager {
     private static final int BUFFER_SIZE = 16 * 1024;
@@ -67,12 +67,12 @@ public class BinlogManager {
 
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
 
-    private MonitoredReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock;
     private Map<Long, DBBinlog> dbBinlogMap;
     private BinlogConfigCache binlogConfigCache;
 
     public BinlogManager() {
-        lock = new MonitoredReentrantReadWriteLock();
+        lock = new ReentrantReadWriteLock();
         dbBinlogMap = Maps.newHashMap();
         binlogConfigCache = new BinlogConfigCache();
     }

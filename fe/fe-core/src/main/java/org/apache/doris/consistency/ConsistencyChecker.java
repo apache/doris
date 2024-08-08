@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.consistency.CheckConsistencyJob.JobState;
@@ -48,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ConsistencyChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ConsistencyChecker.class);
@@ -69,7 +69,7 @@ public class ConsistencyChecker extends MasterDaemon {
      *
      * if reversal is inevitable. use db.tryLock() instead to avoid dead lock
      */
-    private MonitoredReentrantReadWriteLock jobsLock;
+    private ReentrantReadWriteLock jobsLock;
 
     private int startTime;
     private int endTime;
@@ -78,7 +78,7 @@ public class ConsistencyChecker extends MasterDaemon {
         super("consistency checker");
 
         jobs = Maps.newHashMap();
-        jobsLock = new MonitoredReentrantReadWriteLock();
+        jobsLock = new ReentrantReadWriteLock();
 
         if (!initWorkTime()) {
             LOG.error("failed to init time in ConsistencyChecker. exit");

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
@@ -53,12 +52,13 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
     // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
     // use concurrent map to allow access serviceMap in multi thread.
-    private MonitoredReentrantLock lock = new MonitoredReentrantLock();
+    private ReentrantLock lock = new ReentrantLock();
 
     private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);

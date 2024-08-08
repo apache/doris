@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.sync.canal;
 
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.load.sync.SyncDataReceiver;
 
 import com.alibaba.otter.canal.client.CanalConnector;
@@ -26,20 +25,21 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class CanalSyncDataReceiver extends SyncDataReceiver {
     private static Logger LOG = LogManager.getLogger(CanalSyncDataReceiver.class);
 
     private CanalSyncJob syncJob;
     private CanalConnector connector;
-    private MonitoredReentrantLock getLock;
+    private ReentrantLock getLock;
     private CanalSyncDataConsumer consumer;
     private String destination;
     private String filter;
     private long sleepTimeMs;
 
     public CanalSyncDataReceiver(CanalSyncJob syncJob, CanalConnector connector, String destination, String filter,
-                                 CanalSyncDataConsumer consumer, int readBatchSize, MonitoredReentrantLock getLock) {
+                                 CanalSyncDataConsumer consumer, int readBatchSize, ReentrantLock getLock) {
         super(readBatchSize);
         this.syncJob = syncJob;
         this.connector = connector;

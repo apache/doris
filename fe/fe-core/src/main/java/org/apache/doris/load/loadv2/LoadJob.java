@@ -39,7 +39,6 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -82,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback
                 implements LoadTaskCallback, Writable, GsonPostProcessable {
@@ -134,7 +134,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     // During committing, the load job could not be cancelled.
     protected boolean isCommitting = false;
 
-    protected MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
+    protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     // this request id is only used for checking if a load begin request is a duplicate request.
     protected TUniqueId requestId;

@@ -32,7 +32,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.MasterDaemon;
@@ -64,6 +63,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPostProcessable {
 
@@ -90,7 +90,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     private final Map<String, WorkloadGroup> nameToWorkloadGroup = Maps.newHashMap();
     private final Map<Long, QueryQueue> idToQueryQueue = Maps.newHashMap();
     private final ResourceProcNode procNode = new ResourceProcNode();
-    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     @Override
     protected void runAfterCatalogReady() {

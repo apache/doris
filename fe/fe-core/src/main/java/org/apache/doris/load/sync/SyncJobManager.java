@@ -27,7 +27,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.sync.canal.CanalDestination;
@@ -50,6 +49,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -60,12 +60,12 @@ public class SyncJobManager implements Writable {
 
     private Map<Long, Map<String, List<SyncJob>>> dbIdToJobNameToSyncJobs;
 
-    private MonitoredReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock;
 
     public SyncJobManager() {
         idToSyncJob = Maps.newConcurrentMap();
         dbIdToJobNameToSyncJobs = Collections.synchronizedMap(Maps.newLinkedHashMap());
-        lock = new MonitoredReentrantReadWriteLock(true);
+        lock = new ReentrantReadWriteLock(true);
     }
 
     public void addDataSyncJob(CreateDataSyncJobStmt stmt) throws DdlException {

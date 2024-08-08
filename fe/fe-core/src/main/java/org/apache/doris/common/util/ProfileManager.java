@@ -24,7 +24,6 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.Profile;
@@ -61,6 +60,9 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 /*
  * if you want to visit the attribute(such as queryID,defaultDb)
@@ -129,9 +131,9 @@ public class ProfileManager extends MasterDaemon {
     boolean isProfileLoaded = false;
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
-    private MonitoredReentrantReadWriteLock lock;
-    private MonitoredReentrantReadWriteLock.ReadLock readLock;
-    private MonitoredReentrantReadWriteLock.WriteLock writeLock;
+    private ReentrantReadWriteLock lock;
+    private ReadLock readLock;
+    private WriteLock writeLock;
 
     // profile id is long string for brocker load
     // is TUniqueId for others.
@@ -157,7 +159,7 @@ public class ProfileManager extends MasterDaemon {
 
     // The visiablity of ProfileManager() is package level, so that we can write ut for it.
     ProfileManager() {
-        lock = new MonitoredReentrantReadWriteLock(true);
+        lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
         writeLock = lock.writeLock();
         queryIdToProfileMap = Maps.newHashMap();

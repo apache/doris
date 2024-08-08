@@ -25,7 +25,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -43,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Encapsulates LDAP service interfaces and caches user LDAP information.
@@ -56,7 +56,7 @@ public class LdapManager {
 
     private final Map<String, LdapUserInfo> ldapUserInfoCache = Maps.newHashMap();
 
-    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private void readLock() {
         lock.readLock().lock();

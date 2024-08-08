@@ -42,7 +42,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -96,6 +95,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Routine load job is a function which stream load data from streaming medium to doris.
@@ -276,7 +276,7 @@ public abstract class RoutineLoadJob
     @SerializedName("cm")
     protected String comment = "";
 
-    protected MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
+    protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     protected Expr deleteCondition;
     // TODO(ml): error sample

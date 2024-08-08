@@ -31,7 +31,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
@@ -64,6 +63,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
 
 /**
@@ -137,7 +138,7 @@ public class VariableMgr {
     private static ImmutableMap<String, VarContext> ctxByVarNameForCkpt;
 
     // Global read/write lock to protect access of globalSessionVariable.
-    private static final MonitoredReentrantReadWriteLock rwlock = new MonitoredReentrantReadWriteLock();
+    private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
     private static final Lock rlock = rwlock.readLock();
     private static final Lock wlock = rwlock.writeLock();
 

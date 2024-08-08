@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -63,11 +62,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 public class MTMV extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
-    private MonitoredReentrantReadWriteLock mvRwLock;
+    private ReentrantReadWriteLock mvRwLock;
 
     @SerializedName("ri")
     private MTMVRefreshInfo refreshInfo;
@@ -93,7 +93,7 @@ public class MTMV extends OlapTable {
     // For deserialization
     public MTMV() {
         type = TableType.MATERIALIZED_VIEW;
-        mvRwLock = new MonitoredReentrantReadWriteLock(true);
+        mvRwLock = new ReentrantReadWriteLock(true);
     }
 
     MTMV(MTMVParams params) {
@@ -115,7 +115,7 @@ public class MTMV extends OlapTable {
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
-        mvRwLock = new MonitoredReentrantReadWriteLock(true);
+        mvRwLock = new ReentrantReadWriteLock(true);
     }
 
     public MTMVRefreshInfo getRefreshInfo() {

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -53,6 +52,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Data
@@ -145,7 +146,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     private CopyOnWriteArrayList<T> runningTasks = new CopyOnWriteArrayList<>();
 
-    private MonitoredReentrantLock createTaskLock = new MonitoredReentrantLock();
+    private Lock createTaskLock = new ReentrantLock();
 
     @Override
     public void cancelAllTasks() throws JobException {
@@ -287,7 +288,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.runningTasks = new CopyOnWriteArrayList();
-        job.createTaskLock = new MonitoredReentrantLock();
+        job.createTaskLock = new ReentrantLock();
         return job;
     }
 

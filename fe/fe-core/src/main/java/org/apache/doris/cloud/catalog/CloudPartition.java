@@ -25,7 +25,6 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
@@ -40,6 +39,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -54,7 +54,7 @@ public class CloudPartition extends Partition {
     @SerializedName(value = "tableId")
     private long tableId;
 
-    private MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
+    private ReentrantLock lock = new ReentrantLock(true);
 
     public CloudPartition(long id, String name, MaterializedIndex baseIndex,
                           DistributionInfo distributionInfo, long dbId, long tableId) {

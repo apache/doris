@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
@@ -63,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class CanalSyncDataTest {
     private static final Logger LOG = LogManager.getLogger(CanalSyncDataTest.class);
@@ -73,7 +73,7 @@ public class CanalSyncDataTest {
     private int batchSize = 8192;
     private long channelId = 100001L;
 
-    MonitoredReentrantLock getLock;
+    ReentrantLock getLock;
 
     CanalConnector connector;
 
