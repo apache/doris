@@ -62,14 +62,24 @@ public:
         switch (_op) {
         case TExprOpcode::COMPOUND_OR: {
             for (const auto& child : _children) {
+                LOG(ERROR) << "expr " << child->expr_name() << " " << child
+                           << " try to evaluate_inverted_index result";
                 if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
                     !st.ok()) {
+                    LOG(ERROR) << "expr:" << child->expr_name()
+                               << " evaluate_inverted_index error:" << st.to_string();
                     all_pass = false;
                     continue;
                 }
                 if (context->has_inverted_index_result_for_expr(child.get())) {
-                    res |= context->get_inverted_index_result_for_expr(child.get());
+                    auto index_result = context->get_inverted_index_result_for_expr(child.get());
+                    if (res.is_empty()) {
+                        res = std::move(index_result);
+                    } else {
+                        res |= index_result;
+                    }
                 } else {
+                    LOG(ERROR) << "expr:" << child->expr_name() << " does not have result";
                     all_pass = false;
                 }
             }
@@ -79,6 +89,8 @@ public:
             for (const auto& child : _children) {
                 if (Status st = child->evaluate_inverted_index(context, segment_num_rows);
                     !st.ok()) {
+                    LOG(ERROR) << "expr:" << child->expr_name()
+                               << " evaluate_inverted_index error:" << st.to_string();
                     all_pass = false;
                     continue;
                 }
@@ -103,6 +115,8 @@ public:
             const auto& child = _children[0];
             Status st = child->evaluate_inverted_index(context, segment_num_rows);
             if (!st.ok()) {
+                LOG(ERROR) << "expr:" << child->expr_name()
+                           << " evaluate_inverted_index error:" << st.to_string();
                 return st;
             }
 
@@ -122,6 +136,8 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
+            LOG(ERROR) << "expr:" << this->expr_name() << " all evaluate index, pointer is "
+                       << this;
             context->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
@@ -200,10 +216,8 @@ public:
             size_t num_columns_without_result = block->columns();
             // prepare a column to save result
             auto result_column = context->get_inverted_index_result_column()[this];
-            for (int i = 0; i < result_column->size(); i++) {
-                LOG(ERROR) << "expr name:" << _expr_name
-                           << " result:" << result_column->get_data_at(i).debug_string();
-            }
+            LOG(ERROR) << "expr name:" << _expr_name
+                       << " result:" << result_column->dump_structure();
             block->insert({result_column, _data_type, _expr_name});
             *result_column_id = num_columns_without_result;
             return Status::OK();

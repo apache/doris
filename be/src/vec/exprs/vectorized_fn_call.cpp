@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <ostream>
-#include <string_view>
 #include <utility>
 
 #include "common/config.h"
@@ -30,11 +29,8 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -177,6 +173,8 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
                                                            segment_num_rows, result_bitmap));
         result_bitmap.mask_out_null();
         context->set_inverted_index_result_for_expr(this, result_bitmap);
+        LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
+                   << result_bitmap.get_data_bitmap()->cardinality();
     } else {
         return Status::NotSupported(
                 "child 0 in evaluate_inverted_index for VectorizedFnCall must be slot ref, but we "
@@ -221,10 +219,8 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
         size_t num_columns_without_result = block->columns();
         // prepare a column to save result
         auto result_column = context->get_inverted_index_result_column()[this];
-        for (int i = 0; i < result_column->size(); i++) {
-            LOG(INFO) << "expr name:" << _expr_name
-                      << " result:" << result_column->get_data_at(i).debug_string();
-        }
+        LOG(WARNING) << "hit result expr name:" << _expr_name
+                     << " result:" << result_column->dump_structure() << " pointer is" << this;
         if (_data_type->is_nullable()) {
             block->insert(
                     {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
@@ -254,10 +250,8 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     auto result_column = block->get_by_position(num_columns_without_result).column;
-    for (int i = 0; i < result_column->size(); i++) {
-        LOG(INFO) << "expr name:" << _expr_name
-                  << " result:" << result_column->get_data_at(i).debug_string();
-    }
+    LOG(WARNING) << "no hit result expr name:" << _expr_name
+                 << " result:" << result_column->dump_structure() << " pointer is" << this;
     return Status::OK();
 }
 
