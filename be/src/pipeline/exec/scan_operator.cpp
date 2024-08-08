@@ -1100,18 +1100,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            if (hybrid_set->size() <=
-                _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
-                iter = hybrid_set->begin();
-            } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
-            }
+            *pdt = PushDownType::UNACCEPTABLE;
+            return Status::OK();
         } else {
-            vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
+            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
 
-            vectorized::InState* state = reinterpret_cast<vectorized::InState*>(
+            auto* state = reinterpret_cast<vectorized::InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
@@ -1120,6 +1114,11 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
             }
 
             iter = state->hybrid_set->begin();
+
+            if (state->hybrid_set->contain_null()) {
+                *pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
         }
 
         while (iter->has_next()) {

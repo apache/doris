@@ -66,9 +66,7 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    if (Base::_shared_state->enable_spill) {
-        dec_running_big_mem_op_num(state);
-    }
+    dec_running_big_mem_op_num(state);
     return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
@@ -274,13 +272,11 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
             local_state._current_merging_streams.clear();
         }
     }};
-    if (local_state.Base::_shared_state->enable_spill) {
-        local_state.inc_running_big_mem_op_num(state);
-    }
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._status);
 
-    if (local_state.Base::_shared_state->enable_spill && local_state._shared_state->is_spilled) {
+    if (local_state._shared_state->is_spilled) {
         if (!local_state._merger) {
             local_state._status = local_state.initiate_merge_sort_spill_streams(state);
             return local_state._status;

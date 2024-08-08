@@ -26,7 +26,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/s3_common.h"

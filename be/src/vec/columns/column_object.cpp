@@ -21,6 +21,7 @@
 #include "vec/columns/column_object.h"
 
 #include <assert.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
@@ -34,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -414,7 +416,12 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
 }
 
 void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start, size_t length) {
-    assert(start + length <= src.size());
+    if (start + length > src.size()) {
+        throw doris::Exception(
+                ErrorCode::OUT_OF_BOUND,
+                "Invalid range for insertRangeFrom: start={}, length={}, src.size={}", start,
+                length, src.size());
+    }
     size_t end = start + length;
     // num_rows += length;
     if (data.empty()) {
@@ -436,7 +443,12 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
     }
     auto insert_from_part = [&](const auto& column, const auto& column_type, size_t from,
                                 size_t n) {
-        assert(from + n <= column->size());
+        if (from + n > column->size()) {
+            throw doris::Exception(
+                    ErrorCode::OUT_OF_BOUND,
+                    "Invalid range for insertRangeFrom: from={}, n={}, column.size={}", from, n,
+                    column->size());
+        }
         if (column_type->equals(*least_common_type.get())) {
             data.back()->insert_range_from(*column, from, n);
             return;
@@ -507,7 +519,22 @@ MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
         res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
                             subcolumn->data.get_least_common_type());
     }
+    check_consistency();
     return res;
+}
+
+void ColumnObject::resize(size_t n) {
+    if (n == num_rows) {
+        return;
+    }
+    if (n > num_rows) {
+        insert_many_defaults(n - num_rows);
+    } else {
+        for (auto& subcolumn : subcolumns) {
+            subcolumn->data.pop_back(num_rows - n);
+        }
+    }
+    num_rows = n;
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
@@ -579,7 +606,10 @@ void ColumnObject::Subcolumn::insertManyDefaults(size_t length) {
 }
 
 void ColumnObject::Subcolumn::pop_back(size_t n) {
-    assert(n <= size());
+    if (n > size()) {
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Invalid number of elements to pop: {}, size: {}", n, size());
+    }
     size_t num_removed = 0;
     for (auto it = data.rbegin(); it != data.rend(); ++it) {
         if (n == 0) {
@@ -600,37 +630,38 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     num_of_defaults_in_prefix -= n;
 }
 
-Field ColumnObject::Subcolumn::get_last_field() const {
-    if (data.empty()) {
-        return Field();
-    }
-    const auto& last_part = data.back();
-    assert(!last_part->empty());
-    return (*last_part)[last_part->size() - 1];
-}
-
 IColumn& ColumnObject::Subcolumn::get_finalized_column() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return *data[0];
 }
 
 const IColumn& ColumnObject::Subcolumn::get_finalized_column() const {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return *data[0];
 }
 
 const ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() const {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return data[0];
 }
 
 ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     return data[0];
 }
 
 void ColumnObject::Subcolumn::remove_nullable() {
-    assert(is_finalized());
+    if (!is_finalized()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+    }
     data[0] = doris::vectorized::remove_nullable(data[0]);
     least_common_type.remove_nullable();
 }
@@ -677,8 +708,6 @@ void ColumnObject::check_consistency() const {
     }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
-            // LOG(FATAL) << "unmatched column:" << leaf->path.get_path()
-            //            << ", expeted rows:" << num_rows << ", but meet:" << leaf->data.size();
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "unmatched column: {}, expeted rows: {}, but meet: {}",
                                    leaf->path.get_path(), num_rows, leaf->data.size());
@@ -697,8 +726,16 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     if (new_size == 0) {
         return ColumnObject::create(is_nullable);
     }
-    return apply_for_subcolumns(
+    // If subcolumns are empty, then res will be empty but new_size > 0
+    if (subcolumns.empty()) {
+        // Add an emtpy column with new_size rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(new_size);
+        return res;
+    }
+    auto res = apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.clone_resized(new_size); });
+    return res;
 }
 
 size_t ColumnObject::byte_size() const {
@@ -791,39 +828,64 @@ void ColumnObject::insert_default() {
     ++num_rows;
 }
 
-Field ColumnObject::operator[](size_t n) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    VariantMap map;
-    for (const auto& entry : subcolumns) {
-        if (WhichDataType(remove_nullable(entry->data.data_types.back())).is_json()) {
+void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
+    if (is_finalized()) {
+        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
             // JsonbFiled is special case
-            Field f = JsonbField();
-            (*entry->data.data.back()).get(n, f);
-            map[entry->path.get_path()] = std::move(f);
-            continue;
+            res = JsonbField();
         }
-        map[entry->path.get_path()] = (*entry->data.data.back())[n];
+        get_finalized_column().get(n, res);
+        return;
     }
-    return map;
+
+    size_t ind = n;
+    if (ind < num_of_defaults_in_prefix) {
+        if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+            res = Null();
+            return;
+        }
+        res = least_common_type.get()->get_default();
+        return;
+    }
+
+    ind -= num_of_defaults_in_prefix;
+    for (size_t i = 0; i < data.size(); ++i) {
+        const auto& part = data[i];
+        const auto& part_type = data_types[i];
+        if (ind < part->size()) {
+            res = vectorized::remove_nullable(part_type)->get_default();
+            part->get(ind, res);
+            Field new_field;
+            convert_field_to_type(res, *least_common_type.get(), &new_field);
+            res = new_field;
+            return;
+        }
+
+        ind -= part->size();
+    }
+
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
+                           n);
+}
+
+Field ColumnObject::operator[](size_t n) const {
+    Field object;
+    get(n, object);
+    return object;
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    res = (*this)[n];
-}
-
-Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,
-                                             const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnObject::insert_default();
-        } else {
-            ColumnObject::insert_from(src, *x);
-        }
+    if (UNLIKELY(n >= size())) {
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Index ({}) for getting field is out of range", n);
     }
-    finalize();
-    return Status::OK();
+    res = VariantMap();
+    auto& object = res.get<VariantMap&>();
+
+    for (const auto& entry : subcolumns) {
+        auto it = object.try_emplace(entry->path.get_path()).first;
+        entry->data.get(n, it->second);
+    }
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -851,11 +913,32 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
+    if (subcolumns.empty()) {
+        // Add an emtpy column with offsets.back rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(offsets.back());
+    }
     return apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
+    if (subcolumns.empty()) {
+        if (limit == 0) {
+            limit = num_rows;
+        } else {
+            limit = std::min(num_rows, limit);
+        }
+
+        if (perm.size() < limit) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of permutation is less than required.");
+        }
+        // Add an emtpy column with limit rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(limit);
+        return res;
+    }
     return apply_for_subcolumns(
             [&](const auto& subcolumn) { return subcolumn.permute(perm, limit); });
 }
@@ -1367,20 +1450,18 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
-void ColumnObject::strip_outer_array() {
-    assert(is_finalized());
-    Subcolumns new_subcolumns;
-    for (auto&& entry : subcolumns) {
-        auto base_column = get_base_column_of_array(entry->data.get_finalized_column_ptr());
-        new_subcolumns.add(entry->path, Subcolumn {base_column->assume_mutable(), is_nullable});
-        num_rows = base_column->size();
-    }
-    std::swap(subcolumns, new_subcolumns);
-}
-
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
+        return finalized_object.apply_for_subcolumns(
+                [&](const auto& subcolumn) { return subcolumn.filter(filter, count); });
+    }
+    if (subcolumns.empty()) {
+        // Add an emtpy column with filtered rows
+        auto res = ColumnObject::create(true, false);
+        res->set_num_rows(count_bytes_in_filter(filter));
+        return res;
     }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
@@ -1394,6 +1475,10 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     if (!is_finalized()) {
         finalize();
+    }
+    if (subcolumns.empty()) {
+        assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
+        return Status::OK();
     }
     auto* res = assert_cast<ColumnObject*>(col_ptr);
     for (const auto& subcolumn : subcolumns) {
@@ -1456,15 +1541,6 @@ void ColumnObject::clear() {
     _prev_positions.clear();
 }
 
-void ColumnObject::revise_to(int target_num_rows) {
-    for (auto&& entry : subcolumns) {
-        if (entry->data.size() > target_num_rows) {
-            entry->data.pop_back(entry->data.size() - target_num_rows);
-        }
-    }
-    num_rows = target_num_rows;
-}
-
 void ColumnObject::create_root() {
     auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
                             : std::make_shared<MostCommonType>();
@@ -1511,17 +1587,6 @@ DataTypePtr ColumnObject::get_root_type() const {
                 subcolumns.get_root()->data.get_least_common_type()->get_name(), path.get_path()); \
     }
 
-Status ColumnObject::extract_root(const PathInData& path) {
-    SANITIZE_ROOT();
-    if (!path.empty()) {
-        MutableColumnPtr extracted;
-        RETURN_IF_ERROR(schema_util::extract(subcolumns.get_root()->data.get_finalized_column_ptr(),
-                                             path, extracted));
-        subcolumns.get_mutable_root()->data.data[0] = extracted->get_ptr();
-    }
-    return Status::OK();
-}
-
 Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst) const {
     SANITIZE_ROOT();
     if (!path.empty()) {
@@ -1545,27 +1610,52 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
-void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    if (!is_finalized()) {
-        // finalize has no side effect and can be safely used in const functions
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        if (n >= subcolumn.size()) {
-            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
-                       << " sub_column_info:" << subcolumn.dump_structure()
-                       << " total lines of this column " << num_rows;
-        }
-        return subcolumn.update_hash_with_value(n, hash);
-    });
-}
-
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+    if (!is_finalized()) {
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
+        finalized_object.for_each_imutable_subcolumn(callback);
+        return;
+    }
     for (const auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             callback(*part);
         }
     }
+}
+
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    for_each_imutable_subcolumn(
+            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+}
+
+void ColumnObject::update_hashes_with_value(uint64_t* __restrict hashes,
+                                            const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_hashes_with_value(hashes, nullptr);
+    });
+}
+
+void ColumnObject::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_xxHash_with_value(start, end, hash, nullptr);
+    });
+}
+
+void ColumnObject::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
+                                          const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crcs_with_value(hash, type, rows, offset, nullptr);
+    });
+}
+
+void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crc_with_value(start, end, hash, nullptr);
+    });
 }
 
 std::string ColumnObject::debug_string() const {
@@ -1598,10 +1688,6 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
-}
-
-void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

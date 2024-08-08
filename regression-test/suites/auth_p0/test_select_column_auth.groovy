@@ -39,8 +39,8 @@ suite("test_select_column_auth","p0,auth") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
-
     sql """create database ${dbName}"""
+    sql("""use ${dbName}""")
     sql """
         CREATE TABLE IF NOT EXISTS ${dbName}.`${tableName}` (
             id BIGINT,
@@ -55,7 +55,7 @@ suite("test_select_column_auth","p0,auth") {
     sql """create view ${dbName}.${mv_name} as select * from ${dbName}.${tableName};"""
     sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
     sleep(5 * 1000)
-    sql """create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}"""
+    createMV("""create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}""")
     sleep(5 * 1000)
     sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
@@ -69,6 +69,8 @@ suite("test_select_column_auth","p0,auth") {
         (3, "333");
         """
     sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
+    waitingMTMVTaskFinishedByMvName(mtmv_name)
+
     sql """grant select_priv on regression_test to ${user}"""
 
     // table column
@@ -77,7 +79,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
@@ -91,7 +93,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${mv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mv_name} to ${user}"""
@@ -105,7 +107,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username from ${dbName}.${mtmv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
@@ -121,7 +123,7 @@ suite("test_select_column_auth","p0,auth") {
             sql "select username, sum(id) from ${dbName}.${tableName} group by username"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""

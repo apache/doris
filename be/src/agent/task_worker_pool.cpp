@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -540,26 +541,20 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_count,
+        const std::string& name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
-                      .set_min_threads(normal_worker_count)
-                      .set_max_threads(normal_worker_count)
-                      .build(&_normal_pool);
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < normal_worker_count; ++i) {
+        auto st = Thread::create(
+                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 
-    st = _normal_pool->submit_func([this] { normal_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_count)
-                 .set_max_threads(high_prior_worker_count)
-                 .build(&_high_prior_pool);
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = _high_prior_pool->submit_func([this] { high_prior_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < high_prior_worker_count; ++i) {
+        auto st = Thread::create(
+                "HighPrior", name, [this] { high_prior_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 }
 
 PriorTaskWorkerPool::~PriorTaskWorkerPool() {
@@ -578,12 +573,10 @@ void PriorTaskWorkerPool::stop() {
     _normal_condv.notify_all();
     _high_prior_condv.notify_all();
 
-    if (_normal_pool) {
-        _normal_pool->shutdown();
-    }
-
-    if (_high_prior_pool) {
-        _high_prior_pool->shutdown();
+    for (auto&& w : _workers) {
+        if (w) {
+            w->join();
+        }
     }
 }
 
@@ -1392,9 +1385,12 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
         auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
         S3ClientConf conf {
+                .endpoint {},
+                .region {},
                 .ak = std::move(new_s3_conf.client_conf.ak),
                 .sk = std::move(new_s3_conf.client_conf.sk),
                 .token = std::move(new_s3_conf.client_conf.token),
+                .bucket {},
                 .provider = new_s3_conf.client_conf.provider,
         };
         st = client->reset(conf);
@@ -1522,7 +1518,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
             profile->pretty_print(&ss);
-            LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
+            LOG(WARNING) << "create tablet " << create_tablet_req.tablet_id << " cost(s) "
+                         << elapsed_time / 1e9 << std::endl
+                         << ss.str();
         }
     });
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
@@ -1797,7 +1795,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                         if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;

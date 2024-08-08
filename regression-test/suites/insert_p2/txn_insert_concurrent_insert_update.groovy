@@ -128,14 +128,17 @@ suite("txn_insert_concurrent_insert_update") {
                     "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
             "update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;",
             "update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);",
-            "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-            "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
+            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
+            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
     ]
     def txn_insert = { ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement stmt = conn.createStatement()) {
             // set session variable and begin
-            def pre_sqls = ["set enable_unique_key_partial_update = true", "begin"]
+            def pre_sqls = ["set enable_unique_key_partial_update = true", "begin",
+                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
+                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);"
+            ]
             for (def pre_sql : pre_sqls) {
                 logger.info("execute sql: " + pre_sql)
                 stmt.execute(pre_sql)
@@ -175,7 +178,7 @@ suite("txn_insert_concurrent_insert_update") {
 
     logger.info("error num: " + errors.size() + ", errors: " + errors)
 
-    def t0_row_count = 2000495 // 5000226 or 6001215
+    def t0_row_count = 6001215 // 2000495 or 5000226
     def result = sql """ select count() from ${tableName}_0 """
     logger.info("${tableName}_0 row count: ${result}, expected >= ${t0_row_count}")
 
@@ -195,4 +198,8 @@ suite("txn_insert_concurrent_insert_update") {
     assertTrue(result[0][0] >= t0_row_count)
     assertEquals(t1_row_count, result2[0][0])
     assertEquals(0, errors.size())
+    result = sql """ select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER,count(*) a from ${tableName}_0 group by L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER having a > 1; """
+    assertEquals(0, result.size())
+    result = sql """ select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER,count(*) a from ${tableName}_1 group by L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER having a > 1; """
+    assertEquals(0, result.size())
 }

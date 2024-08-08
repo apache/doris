@@ -30,12 +30,12 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
-#include "http/action/clear_file_cache_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
@@ -175,6 +175,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
 
+    // Dump all be process thread num
+    BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
+                                      be_proc_thread_action);
+
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
@@ -201,9 +206,6 @@ Status HttpService::start() {
     MetaAction* meta_action =
             _pool.add(new MetaAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
-
-    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
 
     ConfigAction* update_config_action =
             _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
@@ -297,9 +299,8 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/file_cache", file_cache_action);
 
     TabletsDistributionAction* tablets_distribution_action =
             _pool.add(new TabletsDistributionAction(_env, engine, TPrivilegeHier::GLOBAL,
@@ -391,14 +392,17 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       run_status_compaction_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
+
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
 }
 // NOLINTEND(readability-function-size)
 

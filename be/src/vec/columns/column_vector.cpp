@@ -236,7 +236,8 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 
     if (s == 0) return;
 
-    if (limit >= s) limit = 0;
+    // std::partial_sort need limit << s can get performance benefit
+    if (limit > (s / 8.0)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;
@@ -480,7 +481,9 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
         limit = std::min(size, limit);
 
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
         __builtin_unreachable();
     }
 

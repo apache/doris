@@ -27,7 +27,7 @@
 #include <ostream>
 #include <string>
 
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 #include "txn_kv.h"
 

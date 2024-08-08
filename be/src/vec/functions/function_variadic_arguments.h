@@ -18,6 +18,7 @@
 #pragma once
 #include <utility>
 
+#include "common/status.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
@@ -42,11 +43,14 @@ public:
         if constexpr (IsDataTypeDecimalV2<ToDataType>) {
             res = create_decimal(27, 9, true);
             if (!res) {
-                LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Something wrong with create_decimal in function {}",
+                                       get_name());
                 __builtin_unreachable();
             }
-        } else
+        } else {
             res = std::make_shared<ToDataType>();
+        }
         return res;
     }
 

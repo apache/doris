@@ -102,6 +102,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private boolean skipWriteIndexOnLoad = false;
 
+    private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -265,6 +267,17 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildRowStorePageSize() {
+        rowStorePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowStorePageSize() {
+        return rowStorePageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -568,14 +581,14 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
-    public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE, Boolean.toString(enable));
+    public void setEnableMowLightDelete(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE, Boolean.toString(enable));
     }
 
-    public boolean getEnableDelteOnDeletePredicate() {
+    public boolean getEnableMowLightDelete() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
-                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE)));
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -657,6 +670,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildEnableLightSchemaChange();
         buildStoreRowColumn();
         buildRowStoreColumns();
+        buildRowStorePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();

@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
  * used is in materializeRequiredSlots() because that is called before plan generation
  * and we need to mark the slots of resolved exprs as materialized.
  */
+@Deprecated
 public class SetOperationStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SetOperationStmt.class);
 
@@ -980,5 +981,12 @@ public class SetOperationStmt extends QueryStmt {
         public SetOperand clone() {
             return new SetOperand(this);
         }
+
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
+    }
+
 }

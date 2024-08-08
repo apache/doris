@@ -75,6 +75,7 @@
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -260,7 +261,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
-    for (const auto& projections : _intermediate_projections) {
+    for (const auto& projections : local_state->_intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
@@ -310,19 +311,28 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 
 Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                                bool* eos) {
-    auto local_state = state->get_local_state(operator_id());
+    DBUG_EXECUTE_IF("Pipeline::return_empty_block", {
+        if (this->_op_name == "AGGREGATION_OPERATOR" || this->_op_name == "HASH_JOIN_OPERATOR" ||
+            this->_op_name == "PARTITIONED_AGGREGATION_OPERATOR" ||
+            this->_op_name == "PARTITIONED_HASH_JOIN_OPERATOR" ||
+            this->_op_name == "CROSS_JOIN_OPERATOR" || this->_op_name == "SORT_OPERATOR") {
+            if (_debug_point_count++ % 2 == 0) {
+                return Status::OK();
+            }
+        }
+    });
+
+    auto* local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
         auto status = get_block(state, &local_state->_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        if (UNLIKELY(!status.ok())) {
+            return status;
+        }
         return do_projections(state, &local_state->_origin_block, block);
     }
     local_state->_peak_memory_usage_counter->set(local_state->_mem_tracker->peak_consumption());
     return get_block(state, block, eos);
-}
-
-bool PipelineXLocalStateBase::reached_limit() const {
-    return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
@@ -330,6 +340,16 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
     }
+
+    DBUG_EXECUTE_IF("Pipeline::reached_limit_early", {
+        auto op_name = to_lower(_parent->_op_name);
+        auto arg_op_name = dp->param<std::string>("op_name");
+        arg_op_name = to_lower(arg_op_name);
+
+        if (op_name == arg_op_name) {
+            *eos = true;
+        }
+    });
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
@@ -498,6 +518,11 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     _closed = true;
+    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
+    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
+    if (_shared_state && _shared_state->sink_deps.size() == 1) {
+        _shared_state->sink_deps.front()->set_always_ready();
+    }
     return Status::OK();
 }
 

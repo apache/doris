@@ -33,6 +33,7 @@
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/common/schema_util.h"
@@ -829,29 +830,27 @@ Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& ou
     vectorized::MutableBlock mutable_output_block =
             vectorized::MutableBlock::build_mutable_block(&output_block);
 
-    std::vector<RowInBlock*> _row_in_blocks;
-    _row_in_blocks.reserve(in_block.rows());
-
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
+            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_in_blocks.reserve(in_block.rows());
     for (size_t i = 0; i < in_block.rows(); ++i) {
-        row_in_blocks.emplace_back(new RowInBlock {i});
+        row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
-              [&](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*vec_row_comparator)(l, r);
+              [&](const std::unique_ptr<RowInBlock>& l,
+                  const std::unique_ptr<RowInBlock>& r) -> bool {
+                  auto value = (*vec_row_comparator)(l.get(), r.get());
                   DCHECK(value != 0) << "value equel when sort block, l_pos: " << l->_row_pos
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
-    for (auto* block : row_in_blocks) {
+    for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
     return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
@@ -1202,7 +1201,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
     std::unique_ptr<RowsetWriter> transient_rs_writer;
     DeleteBitmapPtr delete_bitmap = txn_info->delete_bitmap;
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+    bool is_partial_update =
+            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update;
+    if (is_partial_update) {
         transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
                 *rowset, txn_info->partial_update_info, txn_expiration));
         // Partial update might generate new segments when there is conflicts while publish, and mark
@@ -1242,6 +1243,37 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         specified_rowsets = self->get_rowset_by_ids(&rowset_ids_to_add);
     }
     auto t3 = watch.get_elapse_time_us();
+
+    // If a rowset is produced by compaction before the commit phase of the partial update load
+    // and is not included in txn_info->rowset_ids, we can skip the alignment process of that rowset
+    // because data remains the same before and after compaction. But we still need to calculate the
+    // the delete bitmap for that rowset.
+    std::vector<RowsetSharedPtr> rowsets_skip_alignment;
+    if (is_partial_update) {
+        int64_t max_version_in_flush_phase =
+                txn_info->partial_update_info->max_version_in_flush_phase;
+        DCHECK(max_version_in_flush_phase != -1);
+        std::vector<RowsetSharedPtr> remained_rowsets;
+        for (const auto& rowset : specified_rowsets) {
+            if (rowset->end_version() <= max_version_in_flush_phase &&
+                rowset->produced_by_compaction()) {
+                rowsets_skip_alignment.emplace_back(rowset);
+            } else {
+                remained_rowsets.emplace_back(rowset);
+            }
+        }
+        if (!rowsets_skip_alignment.empty()) {
+            specified_rowsets = std::move(remained_rowsets);
+        }
+    }
+
+    if (!rowsets_skip_alignment.empty()) {
+        auto token = self->calc_delete_bitmap_executor()->create_token();
+        // set rowset_writer to nullptr to skip the alignment process
+        RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
+                                           delete_bitmap, cur_version - 1, token.get(), nullptr));
+        RETURN_IF_ERROR(token->wait());
+    }
 
     // When there is only one segment, it will be calculated in the current thread.
     // Otherwise, it will be submitted to the thread pool for calculation.
@@ -1434,7 +1466,8 @@ Status BaseTablet::update_delete_bitmap_without_lock(
             return Status::InternalError(
                     "debug tablet update delete bitmap without lock random failed");
         } else {
-            LOG(INFO) << "BaseTablet.update_delete_bitmap_without_lock.random_failed not triggered"
+            LOG(INFO) << "BaseTablet.update_delete_bitmap_without_lock.random_failed not "
+                         "triggered"
                       << ", rnd:" << rnd << ", percent: " << percent;
         }
     });
@@ -1555,6 +1588,37 @@ void BaseTablet::calc_consecutive_empty_rowsets(
             }
         }
     }
+}
+
+Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                                 int32_t* rowset_count, int64_t* file_count) {
+    Version v(start_version, end_version);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get all rowsets
+        if (v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    *rowset_count = rowsets.size();
+
+    *crc_value = 0;
+    *file_count = 0;
+    for (const auto& rs : rowsets) {
+        uint32_t rs_crc_value = 0;
+        int64_t rs_file_count = 0;
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        auto st = rowset->calc_file_crc(&rs_crc_value, &rs_file_count);
+        if (!st.ok()) {
+            return st;
+        }
+        // crc_value is calculated based on the crc_value of each rowset.
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+                                    sizeof(rs_crc_value));
+        *file_count += rs_file_count;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

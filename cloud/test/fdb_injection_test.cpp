@@ -31,7 +31,7 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/txn_kv.h"
 
@@ -71,22 +71,26 @@ int main(int argc, char** argv) {
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
 
-    auto sp = cloud::SyncPoint::get_instance();
+    auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->set_call_back("MetaServiceProxy::call_impl_duration_ms",
-                      [](void* raw) { *reinterpret_cast<uint64_t*>(raw) = 0; });
-    sp->set_call_back("put_schema_kv:schema_key_exists_return::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
+                      [](auto&& args) { *try_any_cast<uint64_t*>(args[0]) = 0; });
+    sp->set_call_back("put_schema_kv:schema_key_exists_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
 
     meta_service = create_meta_service();
 
@@ -139,18 +143,18 @@ int main(int argc, char** argv) {
 
             auto count = std::make_shared<std::atomic<uint64_t>>(0);
             auto inject_at = std::make_shared<std::atomic<uint64_t>>(0);
-            sp->set_call_back(name, [=](void* raw) mutable {
+            sp->set_call_back(name, [=](auto&& args) mutable {
                 size_t n = count->fetch_add(1);
                 if (n == *inject_at) {
-                    *reinterpret_cast<fdb_error_t*>(raw) = err;
+                    *try_any_cast<fdb_error_t*>(args[0]) = err;
                 }
             });
-            sp->set_call_back("MetaServiceProxy::call_impl:1", [=](void*) {
+            sp->set_call_back("MetaServiceProxy::call_impl:1", [=](auto&&) {
                 // For each RPC invoking, inject every fdb txn kv call.
                 count->store(0);
                 inject_at->store(0);
             });
-            sp->set_call_back("MetaServiceProxy::call_impl:2", [=](void*) {
+            sp->set_call_back("MetaServiceProxy::call_impl:2", [=](auto&&) {
                 count->store(0);
                 inject_at->fetch_add(1);
             });

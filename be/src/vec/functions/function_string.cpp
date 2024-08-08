@@ -598,8 +598,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
         return arguments[0];
     }
@@ -716,12 +717,13 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        fmt::memory_buffer buffer;
+        std::vector<char, Allocator_<char>> buffer;
         for (size_t i = 0; i < input_size; ++i) {
             buffer.clear();
             if (data[i] > 0) {
+                buffer.resize(data[i]);
                 for (size_t j = 0; j < data[i]; ++j) {
-                    buffer.push_back(' ');
+                    buffer[i] = ' ';
                 }
                 StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                             res_data, res_offsets);

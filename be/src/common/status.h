@@ -17,11 +17,9 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#ifdef ENABLE_STACKTRACE
-#include "util/stack_util.h"
-#endif
-
+#include "common/config.h"
 #include "common/expected.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -363,9 +361,9 @@ public:
     Status(int code, std::string msg, std::string stack = "") : _code(code) {
         _err_msg = std::make_unique<ErrMsg>();
         _err_msg->_msg = std::move(msg);
-#ifdef ENABLE_STACKTRACE
-        _err_msg->_stack = std::move(stack);
-#endif
+        if (config::enable_stacktrace) {
+            _err_msg->_stack = std::move(stack);
+        }
     }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
@@ -416,13 +414,12 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-#ifdef ENABLE_STACKTRACE
-        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
+            config::enable_stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
-#endif
         return status;
     }
 
@@ -436,12 +433,11 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-#ifdef ENABLE_STACKTRACE
-        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
+            config::enable_stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
-#endif
         return status;
     }
 
@@ -545,9 +541,7 @@ private:
     int _code;
     struct ErrMsg {
         std::string _msg;
-#ifdef ENABLE_STACKTRACE
         std::string _stack;
-#endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
 
@@ -604,11 +598,9 @@ private:
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << status.msg();
-#ifdef ENABLE_STACKTRACE
-    if (status._err_msg && !status._err_msg->_stack.empty()) {
+    if (status._err_msg && !status._err_msg->_stack.empty() && config::enable_stacktrace) {
         ostr << '\n' << status._err_msg->_stack;
     }
-#endif
     return ostr;
 }
 

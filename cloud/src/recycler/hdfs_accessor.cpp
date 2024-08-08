@@ -25,7 +25,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
@@ -285,8 +285,9 @@ public:
     }
 
 private:
+    // Return null if error occured, return emtpy DirEntries if dir is empty or doesn't exist.
     std::optional<DirEntries> list_directory(const char* dir_path) {
-        int num_entries;
+        int num_entries = 0;
         auto* file_infos = hdfsListDirectory(hdfs_.get(), dir_path, &num_entries);
         if (errno != 0 && errno != ENOENT) {
             LOG_WARNING("failed to list hdfs directory")

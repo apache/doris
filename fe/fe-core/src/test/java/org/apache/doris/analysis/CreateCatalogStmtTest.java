@@ -43,9 +43,9 @@ public class CreateCatalogStmtTest {
 
     @Before()
     public void setUp() throws DdlException {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "%");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test

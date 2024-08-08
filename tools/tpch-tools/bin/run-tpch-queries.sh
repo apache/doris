@@ -78,21 +78,18 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
+TPCH_QUERIES_DIR="${CURDIR}/../queries"
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpch sf 1 queries"
-    TPCH_QUERIES_DIR="${CURDIR}/../queries/sf1"
     TPCH_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Running tpch sf 100 queries"
-    TPCH_QUERIES_DIR="${CURDIR}/../queries/sf100"
     TPCH_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
 elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Running tpch sf 1000 queries"
-    TPCH_QUERIES_DIR="${CURDIR}/../queries/sf1000"
     TPCH_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
 elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
     echo "Running tpch sf 10000 queries"
-    TPCH_QUERIES_DIR="${CURDIR}/../queries/sf10000"
     TPCH_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT support currently."

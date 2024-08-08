@@ -19,15 +19,16 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -47,9 +48,9 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
@@ -57,9 +58,7 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -74,10 +73,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.cache.CacheAnalyzer;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,7 +85,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Planner to do query plan in Nereids.
@@ -110,7 +106,6 @@ public class NereidsPlanner extends Planner {
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
-    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -137,7 +132,7 @@ public class NereidsPlanner extends Planner {
         setParsedPlan(parsedPlan);
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
-        statementContext.getStopwatch().start();
+        statementContext.getStopwatch().reset().start();
         Plan resultPlan = null;
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
@@ -185,7 +180,8 @@ public class NereidsPlanner extends Planner {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
                 physicalPlan = new PhysicalSqlCache(
-                        logicalSqlCache.getQueryId(), logicalSqlCache.getColumnLabels(),
+                        logicalSqlCache.getQueryId(),
+                        logicalSqlCache.getColumnLabels(), logicalSqlCache.getFieldInfos(),
                         logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
                         logicalSqlCache.getCacheValues(), logicalSqlCache.getBackendAddress(),
                         logicalSqlCache.getPlanBody()
@@ -292,7 +288,7 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start analyze plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
-        getHooks().forEach(hook -> hook.afterAnalyze(this));
+        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -353,13 +349,35 @@ public class NereidsPlanner extends Planner {
         }
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
-                .collect(Collectors.toCollection(ArrayList::new));
-        logicalPlanAdapter.setColLabels(columnLabelList);
+        ArrayList<String> columnLabels = Lists.newArrayListWithExpectedSize(physicalPlan.getOutput().size());
+        List<FieldInfo> fieldInfos = Lists.newArrayListWithExpectedSize(physicalPlan.getOutput().size());
+        for (NamedExpression output : physicalPlan.getOutput()) {
+            Optional<Column> column = Optional.empty();
+            Optional<TableIf> table = Optional.empty();
+            if (output instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) output;
+                column = slotReference.getColumn();
+                table = slotReference.getTable();
+            }
+            columnLabels.add(output.getName());
+            FieldInfo fieldInfo = new FieldInfo(
+                    table.isPresent() ? (table.get().getDatabase() != null
+                            ? table.get().getDatabase().getFullName() : "") : "",
+                    !output.getQualifier().isEmpty() ? output.getQualifier().get(output.getQualifier().size() - 1)
+                            : (table.isPresent() ? table.get().getName() : ""),
+                    table.isPresent() ? table.get().getName() : "",
+                    output.getName(),
+                    column.isPresent() ? column.get().getName() : ""
+            );
+            fieldInfos.add(fieldInfo);
+        }
+        logicalPlanAdapter.setColLabels(columnLabels);
+        logicalPlanAdapter.setFieldInfos(fieldInfos);
         logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         if (statementContext.getSqlCacheContext().isPresent()) {
             SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-            sqlCacheContext.setColLabels(columnLabelList);
+            sqlCacheContext.setColLabels(columnLabels);
+            sqlCacheContext.setFieldInfos(fieldInfos);
             sqlCacheContext.setResultExprs(root.getOutputExprs());
             sqlCacheContext.setPhysicalPlan(resultPlan.treeString());
         }
@@ -604,63 +622,19 @@ public class NereidsPlanner extends Planner {
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return Optional.empty();
         }
-        if (physicalPlan instanceof PhysicalSqlCache
-                && ((PhysicalSqlCache) physicalPlan).getResultSet().isPresent()) {
-            return Optional.of(((PhysicalSqlCache) physicalPlan).getResultSet().get());
+
+        setFormatOptions();
+        if (physicalPlan instanceof ComputeResultSet) {
+            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
+                    .computeResultInFe(cascadesContext, sqlCacheContext);
+            if (resultSet.isPresent()) {
+                return resultSet;
+            }
         }
-        if (!(physicalPlan instanceof PhysicalResultSink)) {
-            return Optional.empty();
-        }
 
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        boolean enableSqlCache
-                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
-        Plan child = physicalPlan.child(0);
-        if (child instanceof PhysicalOneRowRelation) {
-            PhysicalOneRowRelation physicalOneRowRelation = (PhysicalOneRowRelation) physicalPlan.child(0);
-            List<Column> columns = Lists.newArrayList();
-            List<String> data = Lists.newArrayList();
-            for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
-                NamedExpression item = physicalOneRowRelation.getProjects().get(i);
-                NamedExpression output = physicalPlan.getOutput().get(i);
-                Expression expr = item.child(0);
-                if (expr instanceof Literal) {
-                    LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                    columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                    data.add(legacyExpr.getStringValueInFe());
-                } else {
-                    return Optional.empty();
-                }
-            }
-
-            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-            if (sqlCacheContext.isPresent() && enableSqlCache) {
-                sqlCacheContext.get().setResultSetInFe(resultSet);
-                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                        statementContext.getConnectContext(),
-                        statementContext.getOriginStatement().originStmt
-                );
-            }
-            return Optional.of(resultSet);
-        } else if (child instanceof PhysicalEmptyRelation) {
-            List<Column> columns = Lists.newArrayList();
-            for (int i = 0; i < physicalPlan.getOutput().size(); i++) {
-                NamedExpression output = physicalPlan.getOutput().get(i);
-                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-            }
-
-            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-            ResultSet resultSet = new CommonResultSet(metadata, ImmutableList.of());
-            if (sqlCacheContext.isPresent() && enableSqlCache) {
-                sqlCacheContext.get().setResultSetInFe(resultSet);
-                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                        statementContext.getConnectContext(),
-                        statementContext.getOriginStatement().originStmt
-                );
-            }
-            return Optional.of(resultSet);
-        } else if (child instanceof PhysicalHashAggregate && getScanNodes().size() > 0
+        if (physicalPlan instanceof PhysicalResultSink
+                && physicalPlan.child(0) instanceof PhysicalHashAggregate && !getScanNodes().isEmpty()
                 && getScanNodes().get(0) instanceof IcebergScanNode) {
             List<Column> columns = Lists.newArrayList();
             NamedExpression output = physicalPlan.getOutput().get(0);
@@ -675,6 +649,22 @@ public class NereidsPlanner extends Planner {
             return Optional.empty();
         } else {
             return Optional.empty();
+        }
+    }
+
+    private void setFormatOptions() {
+        ConnectContext ctx = statementContext.getConnectContext();
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        switch (sessionVariable.serdeDialect) {
+            case "presto":
+            case "trino":
+                statementContext.setFormatOptions(FormatOptions.getForPresto());
+                break;
+            case "doris":
+                statementContext.setFormatOptions(FormatOptions.getDefault());
+                break;
+            default:
+                throw new AnalysisException("Unsupported serde dialect: " + sessionVariable.serdeDialect);
         }
     }
 
@@ -735,14 +725,6 @@ public class NereidsPlanner extends Planner {
 
     public LogicalPlanAdapter getLogicalPlanAdapter() {
         return logicalPlanAdapter;
-    }
-
-    public List<PlannerHook> getHooks() {
-        return hooks;
-    }
-
-    public void addHook(PlannerHook hook) {
-        this.hooks.add(hook);
     }
 
     private String getTimeMetricString(Function<SummaryProfile, String> profileSupplier) {

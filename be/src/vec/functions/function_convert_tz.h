@@ -18,19 +18,15 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 #include "common/status.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/datetype_cast.hpp"
@@ -54,7 +50,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
-#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 
@@ -93,12 +88,6 @@ public:
                 std::make_shared<DataTypeString>()};
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -114,10 +103,6 @@ public:
                                            : block.get_by_position(arguments[0]).column;
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
-
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
 
         if (col_const[1] && col_const[2]) {
             auto result_column = ColumnType::create();
@@ -187,7 +172,6 @@ private:
             result_column->insert_default();
             return;
         }
-
         if (!TimezoneUtils::find_cctz_time_zone(to_tz_name, to_tz)) {
             result_null_map[index_now] = true;
             result_column->insert_default();
@@ -211,6 +195,12 @@ private:
             }
 
             ts_value2.from_unixtime(timestamp, to_tz);
+        }
+
+        if (!ts_value2.is_valid_date()) [[unlikely]] {
+            result_null_map[index_now] = true;
+            result_column->insert_default();
+            return;
         }
 
         result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));

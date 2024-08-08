@@ -41,6 +41,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -195,7 +196,7 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, end > needRefreshPartitions.size() ? needRefreshPartitions.size() : end));
                 // need get names before exec
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
-                        .generatePartitionSnapshots(mtmv, relation.getBaseTables(), execPartitionNames,
+                        .generatePartitionSnapshots(mtmv, relation.getBaseTablesOneLevel(), execPartitionNames,
                                 partitionMappings);
                 exec(ctx, execPartitionNames, tableWithPartKey);
                 completedPartitions.addAll(execPartitionNames);
@@ -222,6 +223,9 @@ public class MTMVTask extends AbstractTask {
     private void exec(ConnectContext ctx, Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
+        Objects.requireNonNull(ctx, "ctx should not be null");
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
@@ -284,7 +288,7 @@ public class MTMVTask extends AbstractTask {
      * @throws DdlException
      */
     private void refreshHmsTable() throws AnalysisException, DdlException {
-        for (BaseTableInfo tableInfo : relation.getBaseTables()) {
+        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
@@ -446,7 +450,8 @@ public class MTMVTask extends AbstractTask {
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVPartitionUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables(),
+        boolean fresh = MTMVPartitionUtil.isMTMVSync(mtmv, relation.getBaseTablesOneLevel(),
+                mtmv.getExcludedTriggerTables(),
                 partitionMappings);
         if (fresh) {
             return Lists.newArrayList();
@@ -457,7 +462,8 @@ public class MTMVTask extends AbstractTask {
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables(), partitionMappings);
+        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTablesOneLevel(),
+                partitionMappings);
     }
 
     public MTMVTaskContext getTaskContext() {

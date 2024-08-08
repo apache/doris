@@ -24,20 +24,11 @@ suite("test_schema_change") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        while (true) {
-            sleep(2000)
-            def state = sql "show alter table column where tablename = '${tableName}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            if (state.size()> 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 10) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

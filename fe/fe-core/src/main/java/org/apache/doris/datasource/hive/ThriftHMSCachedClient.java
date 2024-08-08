@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -92,6 +93,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
+    private HadoopAuthenticator hadoopAuthenticator;
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
@@ -102,6 +104,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
+    }
+
+    public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        this.hadoopAuthenticator = hadoopAuthenticator;
     }
 
     @Override
@@ -678,7 +684,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     private <T> T ugiDoAs(PrivilegedExceptionAction<T> action) {
-        return HiveMetaStoreClientHelper.ugiDoAs(hiveConf, action);
+        try {
+            return hadoopAuthenticator.doAs(action);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -699,7 +709,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             newTable.setParameters(newParams);
             client.client.alter_table(dbName, tableName, newTable);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -727,7 +737,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             modifiedPartition.setParameters(newParams);
             client.client.alter_partition(dbName, tableName, modifiedPartition);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -748,7 +758,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         try (ThriftHMSClient client = getClient()) {
             client.client.dropPartition(dbName, tableName, partitionValues, deleteData);
         } catch (Exception e) {
-            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName, e);
         }
     }
 }

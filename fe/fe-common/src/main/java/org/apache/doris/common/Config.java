@@ -70,14 +70,14 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
 
-    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 为默认的输出模式，日志同步输出且包含位置信息，"
-            + "BRIEF 模式是日志同步输出但不包含位置信息，ASYNC 模式是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
-            "The output mode of FE log, and NORMAL mode is the default output mode, which means the logs are "
-                    + "synchronized and contain location information. BRIEF mode is synchronized and does not contain"
-                    + " location information. ASYNC mode is asynchronous and does not contain location information."
-                    + " The performance of the three log output modes increases in sequence"},
+    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 模式是日志同步输出且包含位置信息，BRIEF 模式是日志同步输出"
+                    + "但不包含位置信息，ASYNC 模式为默认的输出模式，是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
+            "The output mode of FE log, and NORMAL mode means the logs are synchronized and contain location "
+                    + "information. BRIEF mode is synchronized and does not contain location information. "
+                    + "ASYNC mode is the default output mode, which is asynchronous and does not contain "
+                    + "location information. The performance of the three log output modes increases in sequence"},
             options = {"NORMAL", "BRIEF", "ASYNC"})
-    public static String sys_log_mode = "NORMAL";
+    public static String sys_log_mode = "ASYNC";
 
     @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
             "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
@@ -1466,6 +1466,14 @@ public class Config extends ConfigBase {
     public static int grpc_threadmgr_threads_nums = 4096;
 
     /**
+     * sets the time without read activity before sending a keepalive ping
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     */
+    @ConfField(description = { "设置grpc连接发送 keepalive ping 之前没有数据传输的时间。",
+            "The time without grpc read activity before sending a keepalive ping" })
+    public static int grpc_keep_alive_second = 10;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1759,6 +1767,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
 
+    @ConfField(mutable = true, description = {
+            "当BE内存用量大于该值时，查询会进入排队逻辑，默认值为-1，代表该值不生效。取值范围0~1的小数",
+            "When be memory usage bigger than this value, query could queue, "
+                    + "default value is -1, means this value not work. Decimal value range from 0 to 1"})
+    public static double query_queue_by_be_used_memory = -1;
+
+    @ConfField(mutable = true, description = {"基于内存反压场景FE定时拉取BE内存用量的时间间隔",
+            "In the scenario of memory backpressure, "
+                    + "the time interval for obtaining BE memory usage at regular intervals"})
+    public static long get_be_resource_usage_interval_ms = 10000;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1806,7 +1825,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 5;
+    public static int max_be_exec_version = 6;
 
     /**
      * Min data version of backends serialize block.
@@ -2247,6 +2266,12 @@ public class Config extends ConfigBase {
     public static long stats_cache_size = 50_0000;
 
     /**
+     * This config used for ranger cache data mask/row policy
+     */
+    @ConfField
+    public static long ranger_cache_size = 10000;
+
+    /**
      * This configuration is used to enable the statistics of query information, which will record
      * the access status of databases, tables, and columns, and can be used to guide the
      * optimization of table structures
@@ -2280,7 +2305,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
-    public static int hive_stats_partition_sample_size = 3000;
+    public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
@@ -2506,6 +2531,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int query_audit_log_timeout_ms = 5000;
 
+    @ConfField(description = {
+            "在这个列表中的用户的操作，不会被记录到审计日志中。多个用户之间用逗号分隔。",
+            "The operations of the users in this list will not be recorded in the audit log. "
+                    + "Multiple users are separated by commas."
+    })
+    public static String skip_audit_user_list = "";
+
     @ConfField(mutable = true)
     public static int be_report_query_statistics_timeout_ms = 60000;
 
@@ -2635,7 +2667,7 @@ public class Config extends ConfigBase {
                     + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
                     + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
     })
-    public static boolean enable_mow_delete_on_predicate = false;
+    public static boolean enable_mow_light_delete = false;
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
@@ -2671,6 +2703,9 @@ public class Config extends ConfigBase {
             "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                    begin of cloud config
@@ -2757,7 +2792,7 @@ public class Config extends ConfigBase {
     public static boolean enable_light_index_change = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
     @ConfField(mutable = true)
     public static boolean enable_create_inverted_index_for_array = false;
@@ -2896,10 +2931,29 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
 
+    //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
+    @ConfField(mutable = true)
+    public static int audit_event_log_queue_size = 250000;
+
     @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
 
+    @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
+        "create table in cloud mode, check recycler key remained, default true"})
+    public static boolean check_create_table_recycle_key_remained = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认10s"})
+    public static int delete_bitmap_lock_expiration_seconds = 10;
+
+    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
+    public static int calculate_delete_bitmap_task_timeout_seconds = 15;
+
+    @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
+    public static int try_commit_lock_timeout_seconds = 5;
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

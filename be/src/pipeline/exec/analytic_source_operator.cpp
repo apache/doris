@@ -279,8 +279,6 @@ void AnalyticLocalState::_destroy_agg_status() {
     }
 }
 
-//now is execute for lead/lag row_number/rank/dense_rank/ntile functions
-//sum min max count avg first_value last_value functions
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -292,7 +290,7 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), nullptr);
+                agg_columns.data(), _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         _current_window_empty =
@@ -559,11 +557,6 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
-    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
-    if (_shared_state && _shared_state->sink_deps.size() == 1) {
-        _shared_state->sink_deps.front()->set_always_ready();
-    }
     return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
@@ -577,6 +570,7 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
     }

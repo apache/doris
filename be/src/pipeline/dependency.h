@@ -88,20 +88,11 @@ class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(false),
-              _ready(false) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(false) {}
     Dependency(int id, int node_id, std::string name, bool ready)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(true),
-              _ready(ready) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(ready) {}
     virtual ~Dependency() = default;
 
-    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     BasicSharedState* shared_state() { return _shared_state; }
@@ -118,12 +109,10 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
@@ -166,7 +155,6 @@ protected:
     const int _id;
     const int _node_id;
     const std::string _name;
-    const bool _is_write_dependency;
     std::atomic<bool> _ready;
 
     BasicSharedState* _shared_state = nullptr;
@@ -761,8 +749,9 @@ public:
         // (select 0) intersect (select null) the build side hash table should not
         // ignore null value.
         std::vector<DataTypePtr> data_types;
-        for (const auto& ctx : child_exprs_lists[0]) {
-            data_types.emplace_back(build_not_ignore_null[0]
+        for (int i = 0; i < child_exprs_lists[0].size(); i++) {
+            const auto& ctx = child_exprs_lists[0][i];
+            data_types.emplace_back(build_not_ignore_null[i]
                                             ? make_nullable(ctx->root()->data_type())
                                             : ctx->root()->data_type());
         }
@@ -879,13 +868,13 @@ public:
     }
 
     void add_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
     void sub_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_sub(delta) - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }

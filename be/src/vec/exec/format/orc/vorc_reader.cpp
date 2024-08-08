@@ -71,6 +71,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -252,6 +253,7 @@ Status OrcReader::_create_file_reader() {
     // create orc reader
     try {
         orc::ReaderOptions options;
+        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -261,7 +263,9 @@ Status OrcReader::_create_file_reader() {
         if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
             return Status::EndOfFile("stop");
         }
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
+        // one for fs, the other is for oss.
+        if (_err_msg.find("No such file or directory") != std::string::npos ||
+            _err_msg.find("NoSuchKey") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
@@ -935,13 +939,10 @@ Status OrcReader::_fill_partition_columns(
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -1586,7 +1587,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
@@ -1656,7 +1657,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();

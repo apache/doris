@@ -119,8 +119,7 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
-    // Use pointer to avoid allocing memory during construction
-    std::unique_ptr<Arena> _arena;
+    Arena _arena;
 };
 
 } // namespace vectorized

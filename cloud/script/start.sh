@@ -40,6 +40,20 @@ for arg; do
 done
 # echo "$@" "daemonized=${daemonized}"}
 
+# export env variables from selectdb_cloud.conf
+# read from selectdb_cloud.conf
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
+    fi
+done <"${DORIS_HOME}/conf/selectdb_cloud.conf"
+
 process=selectdb_cloud
 
 if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then

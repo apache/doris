@@ -59,8 +59,8 @@ PipelineTask::PipelineTask(
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
           _operators(pipeline->operator_xs()),
-          _source(_operators.front()),
-          _root(_operators.back()),
+          _source(_operators.front().get()),
+          _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
@@ -120,6 +120,9 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         std::unique_lock<std::mutex> lc(_dependency_lock);
         filter_dependencies.swap(_filter_dependencies);
     }
+    if (query_context()->is_cancelled()) {
+        clear_blocking_state();
+    }
     return Status::OK();
 }
 
@@ -150,8 +153,6 @@ Status PipelineTask::_extract_dependencies() {
     {
         auto* local_state = _state->get_sink_local_state();
         write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
-                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
@@ -254,6 +255,11 @@ bool PipelineTask::_is_blocked() {
             }
             // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
             if (!_operators[i]->need_more_input_data(_state)) {
+                if (VLOG_DEBUG_IS_ON) {
+                    VLOG_DEBUG << "query: " << print_id(_state->query_id())
+                               << ", task id: " << _index << ", operator " << i
+                               << " not need_more_input_data";
+                }
                 break;
             }
         }
@@ -401,15 +407,15 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
     } else if (is_wg_mem_low_water_mark) {
         int64_t query_weighted_limit = 0;
         int64_t query_weighted_consumption = 0;
-        query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
-        if (query_weighted_consumption < query_weighted_limit) {
+        query_ctx->get_weighted_memory(query_weighted_limit, query_weighted_consumption);
+        if (query_weighted_limit == 0 || query_weighted_consumption < query_weighted_limit) {
             return false;
         }
         auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
         DCHECK(big_memory_operator_num >= 0);
         int64_t mem_limit_of_op;
         if (0 == big_memory_operator_num) {
-            mem_limit_of_op = int64_t(query_weighted_limit * 0.8);
+            return false;
         } else {
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
@@ -419,7 +425,12 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
                              << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
                              << ", min_revocable_mem_bytes: "
-                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes)
+                             << ", query_weighted_consumption: "
+                             << PrettyPrinter::print_bytes(query_weighted_consumption)
+                             << ", query_weighted_limit: "
+                             << PrettyPrinter::print_bytes(query_weighted_limit)
+                             << ", big_memory_operator_num: " << big_memory_operator_num;
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
@@ -471,13 +482,13 @@ std::string PipelineTask::debug_string() {
 
     auto* cur_blocked_dep = _blocked_dep;
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
-            "= {}s], block dependency = {}, is running = {}\noperators: ",
-            (void*)this, _opened, _eos, _finalized, _dry_run, elapsed,
-            cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
-            is_running());
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
+                   "{}, elapse time "
+                   "= {}s], block dependency = {}, is running = {}\noperators: ",
+                   (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
+                   cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
+                   is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)

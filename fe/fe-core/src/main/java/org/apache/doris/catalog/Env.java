@@ -242,6 +242,7 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
@@ -519,6 +520,8 @@ public class Env {
 
     private WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr;
 
+    private AdmissionControl admissionControl;
+
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -784,6 +787,7 @@ public class Env {
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
+        this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -897,6 +901,10 @@ public class Env {
 
     public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
         return workloadRuntimeStatusMgr;
+    }
+
+    public AdmissionControl getAdmissionControl() {
+        return admissionControl;
     }
 
     public ExternalMetaIdMgr getExternalMetaIdMgr() {
@@ -1819,6 +1827,7 @@ public class Env {
         workloadGroupMgr.start();
         workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
+        admissionControl.start();
         splitSourceManager.start();
     }
 
@@ -3247,8 +3256,23 @@ public class Env {
         getInternalCatalog().createTableAsSelect(stmt);
     }
 
-    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        getInternalCatalog().addPartition(db, tableName, addPartitionClause);
+    /**
+     * Adds a partition to a table
+     *
+     * @param db
+     * @param tableName
+     * @param addPartitionClause clause in the CreateTableStmt
+     * @param isCreateTable this call is for creating table
+     * @param generatedPartitionId the preset partition id for the partition to add
+     * @param writeEditLog whether to write an edit log for this addition
+     * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
+     * @throws DdlException
+     */
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog) throws DdlException {
+        return getInternalCatalog().addPartition(db, tableName, addPartitionClause,
+            isCreateTable, generatedPartitionId, writeEditLog);
     }
 
     public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
@@ -3431,11 +3455,6 @@ public class Env {
             sb.append(olapTable.getDataSortInfo().toSql());
         }
 
-        if (olapTable.getTTLSeconds() != 0) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
-            sb.append(olapTable.getTTLSeconds()).append("\"");
-        }
-
         // in memory
         if (olapTable.isInMemory()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
@@ -3510,6 +3529,10 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
+
+            // row store page size
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
         // skip inverted index on load
@@ -3596,9 +3619,9 @@ public class Env {
 
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                     .append("\" = \"");
-            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
         }
 
         // enable duplicate without keys by default
@@ -5354,7 +5377,7 @@ public class Env {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
-    // Switch catalog of this sesseion.
+    // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
         if (catalogIf == null) {
@@ -5366,11 +5389,11 @@ public class Env {
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.
             if (ctx.getCurrentCatalog() != null) {
-                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+                ctx.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
             }
         }
         ctx.changeDefaultCatalog(catalogName);
-        String lastDb = catalogMgr.getLastDB(catalogName);
+        String lastDb = ctx.getLastDBOfCatalog(catalogName);
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
@@ -5560,6 +5583,7 @@ public class Env {
                 saveImage(dumpFile, journalId);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
+                return null;
             }
         } finally {
             // unlock all
@@ -5816,6 +5840,7 @@ public class Env {
         List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
+        boolean isForceDropOld = clause.isForceDropOldPartition();
         // check partition exist
         for (String partName : partitionNames) {
             if (!olapTable.checkPartitionNameExist(partName, false)) {
@@ -5827,7 +5852,8 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
-        olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
+                useTempPartitionName, isForceDropOld);
         long version;
         long versionTime = System.currentTimeMillis();
         if (Config.isNotCloudMode()) {
@@ -5851,7 +5877,8 @@ public class Env {
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime);
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime,
+                        isForceDropOld);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -5866,9 +5893,9 @@ public class Env {
                 .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
-            olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
+            olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
-                    replaceTempPartitionLog.useTempPartitionName());
+                    replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
             olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
                     replaceTempPartitionLog.getVersionTime());
         } catch (DdlException e) {
@@ -6279,6 +6306,12 @@ public class Env {
 
             OlapTable olapTable = (OlapTable) table;
             getTableMeta(olapTable, dbMeta);
+        }
+
+        if (Config.enable_feature_binlog) {
+            BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
+            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
+            dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

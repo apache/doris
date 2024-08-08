@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -121,5 +122,10 @@ public class PrepareCommand extends Command {
 
     public PrepareCommand withPlaceholders(List<Placeholder> placeholders) {
         return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.PREPARE;
     }
 }

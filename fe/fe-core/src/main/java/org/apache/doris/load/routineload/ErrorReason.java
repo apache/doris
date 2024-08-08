@@ -18,9 +18,19 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-public class ErrorReason {
+import com.google.gson.annotations.SerializedName;
+
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class ErrorReason implements Writable {
+    @SerializedName(value = "code")
     private InternalErrorCode code;
+    @SerializedName(value = "msg")
     private String msg;
 
     public ErrorReason(InternalErrorCode errCode, String msg) {
@@ -42,6 +52,12 @@ public class ErrorReason {
 
     public void setMsg(String msg) {
         this.msg = msg;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     @Override

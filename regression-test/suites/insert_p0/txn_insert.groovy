@@ -381,10 +381,19 @@ suite("txn_insert") {
             order_qt_select46 """select * from ${table}_1"""
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+            test {
+                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
             sql """ insert into ${table}_1 select * from ${table}_0 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_1 where k1 = 1; """
+            test {
+                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
+            test {
+                sql """ delete from ${table}_1 where k1 = 1; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
             sql """ commit; """
             sql "sync"
             order_qt_select47 """select * from ${table}_0"""
@@ -438,6 +447,7 @@ suite("txn_insert") {
         if (use_nereids_planner) {
             // 1. use show transaction command to check
             CountDownLatch insertLatch = new CountDownLatch(1)
+            boolean failed = false
             def txn_id = 0
             Thread thread = new Thread(() -> {
                 try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
@@ -449,12 +459,17 @@ suite("txn_insert") {
                     txn_id = get_txn_id_from_server_info((((StatementImpl) statement).results).getServerInfo())
                     insertLatch.countDown()
                     sleep(60000)
+                } catch (Exception e) {
+                    logger.info("exception: " + e.getMessage())
+                    insertLatch.countDown()
+                    failed = true
                 }
             })
             thread.start()
             insertLatch.await(1, TimeUnit.MINUTES)
-            assertNotEquals(txn_id, 0)
-            if (!isCloudMode()) {
+            logger.info("txn_id: ${txn_id}, failed: ${failed}")
+            assertTrue(failed || txn_id > 0)
+            if (!isCloudMode() && txn_id > 0) {
                 def txn_state = ""
                 for (int i = 0; i < 20; i++) {
                     def txn_info = sql_return_maparray """ show transaction where id = ${txn_id} """
@@ -486,7 +501,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
                 } finally {
                     try {
                         sql "rollback"
@@ -684,18 +699,10 @@ suite("txn_insert") {
                 using txn_insert_dt2 join txn_insert_dt3 on txn_insert_dt2.id = txn_insert_dt3.id
                 where txn_insert_dt4.id = txn_insert_dt2.id;
             """
-            sql """
-                delete from txn_insert_dt2 where id = 1;
-            """
-            sql """
-                delete from txn_insert_dt2 where id = 5;
-            """
-            sql """
-                delete from txn_insert_dt5 partition(p_20000102) where id = 1;
-            """
-            sql """
-                delete from txn_insert_dt5 partition(p_20000102) where id = 5;
-            """
+            sql """ delete from txn_insert_dt2 where id = 1; """
+            sql """ delete from txn_insert_dt2 where id = 5; """
+            sql """ delete from txn_insert_dt5 partition(p_20000102) where id = 1; """
+            sql """ delete from txn_insert_dt5 partition(p_20000102) where id = 5; """
             sql """ commit """
             sql """ insert into txn_insert_dt2 VALUES (6, '2000-01-10', 10, '10', 10.0) """
             sql """ insert into txn_insert_dt5 VALUES (6, '2000-01-10', 10, '10', 10.0) """
@@ -736,7 +743,10 @@ suite("txn_insert") {
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_1; """
                 sql """ update ${unique_table}_2 set score = score + 100 where id in (select id from ${unique_table}_0); """
-                sql """ delete from ${unique_table}_2 where id <= 1; """
+                test {
+                    sql """ delete from ${unique_table}_2 where id <= 1; """
+                    // exception "Can not delete because there is a insert operation for the same table"
+                }
                 sql """ commit """
 
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_0; """

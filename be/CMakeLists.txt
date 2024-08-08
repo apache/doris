@@ -118,6 +118,7 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -160,6 +161,14 @@ else()
     find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
     find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
+
+# Set if use libazure or not
+option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
+message(STATUS "build azure: ${BUILD_AZURE}")
+if(BUILD_AZURE STREQUAL "ON")
+    add_definitions(-DUSE_AZURE)
+endif()
+
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -357,10 +366,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-if (ENABLE_STACKTRACE)
-    add_definitions(-DENABLE_STACKTRACE)
-endif()
-
 if (USE_DWARF)
     add_compile_options(-gdwarf-5)
 endif()
@@ -436,6 +441,7 @@ include_directories(
 
 include_directories(
     SYSTEM
+    ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
@@ -500,6 +506,7 @@ set(DORIS_LINK_LIBS
     Pipeline
     Cloud
     ${WL_END_GROUP}
+    CommonCPP
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -764,6 +771,8 @@ add_subdirectory(${SRC_DIR}/pipeline)
 if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 # Install be
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

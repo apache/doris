@@ -39,6 +39,7 @@
 #include <thrift/transport/TTransportException.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 
 #include "common/status.h"
@@ -338,6 +339,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     params.__set_tracking_url(
                             to_load_error_http_path(rs->get_error_log_file_path()));
                 }
+                if (rs->wal_id() > 0) {
+                    params.__set_txn_id(rs->wal_id());
+                    params.__set_label(rs->import_label());
+                }
             }
         }
         if (!req.runtime_state->export_output_files().empty()) {
@@ -636,9 +641,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
@@ -707,7 +710,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, params.query_id);
+    SCOPED_ATTACH_TASK(query_ctx.get());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -869,10 +872,11 @@ void FragmentMgr::cancel_worker() {
             // 1. If query's process uuid is zero, do not cancel
             // 2. If same process uuid, do not cancel
             // 3. If fe has zero process uuid, do not cancel
-            if (running_fes.empty()) {
+            if (running_fes.empty() && !_query_ctx_map.empty()) {
                 LOG_EVERY_N(WARNING, 10)
-                        << "Could not find any running frontends, maybe we are upgrading? "
-                        << "We will not cancel any running queries in this situation.";
+                        << "Could not find any running frontends, maybe we are upgrading or "
+                           "starting? "
+                        << "We will not cancel any outdated queries in this situation.";
             } else {
                 for (const auto& it : _query_ctx_map) {
                     if (auto q_ctx = it.second.lock()) {
@@ -893,11 +897,32 @@ void FragmentMgr::cancel_worker() {
                                         print_id(q_ctx->query_id()));
                             }
                         } else {
-                            LOG_WARNING(
-                                    "Could not find target coordinator {}:{} of query {}, going to "
-                                    "cancel it.",
-                                    q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
-                                    print_id(q_ctx->query_id()));
+                            // In some rear cases, the rpc port of follower is not updated in time,
+                            // then the port of this follower will be zero, but acutally it is still running,
+                            // and be has already received the query from follower.
+                            // So we need to check if host is in running_fes.
+                            bool fe_host_is_standing = std::any_of(
+                                    running_fes.begin(), running_fes.end(),
+                                    [&q_ctx](const auto& fe) {
+                                        return fe.first.hostname == q_ctx->coord_addr.hostname &&
+                                               fe.first.port == 0;
+                                    });
+                            if (fe_host_is_standing) {
+                                LOG_WARNING(
+                                        "Coordinator {}:{} is not found, but its host is still "
+                                        "running with an unstable brpc port, not going to cancel "
+                                        "it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Could not find target coordinator {}:{} of query {}, "
+                                        "going to "
+                                        "cancel it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                            }
                         }
                     }
                     // Coordinator of this query has already dead or query context has been released.
@@ -1048,7 +1073,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
                 pool = &pip_context->get_query_ctx()->obj_pool;
                 query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker};
+                                        pip_context->get_query_ctx()->query_mem_tracker,
+                                        pip_context->get_query_ctx()->workload_group()};
             } else {
                 return Status::InternalError("Non-pipeline is disabled!");
             }
@@ -1140,7 +1166,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                            queryid.to_string());
         }
     }
-    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
+    SCOPED_ATTACH_TASK(query_ctx.get());
     auto merge_status = filter_controller->merge(request, attach_data);
     return merge_status;
 }

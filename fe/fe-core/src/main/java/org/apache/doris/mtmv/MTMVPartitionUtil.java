@@ -201,7 +201,8 @@ public class MTMVPartitionUtil {
             return false;
         }
         try {
-            return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), Sets.newHashSet(), mtmv.calculatePartitionMappings());
+            return isMTMVSync(mtmv, mtmvRelation.getBaseTablesOneLevel(), Sets.newHashSet(),
+                    mtmv.calculatePartitionMappings());
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);
             return false;
@@ -254,7 +255,7 @@ public class MTMVPartitionUtil {
             Set<String> relatedPartitionNames)
             throws AnalysisException {
         List<String> res = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
             TableIf table = MTMVUtil.getTable(baseTableInfo);
             if (!(table instanceof MTMVRelatedTableIf)) {
                 continue;
@@ -394,7 +395,8 @@ public class MTMVPartitionUtil {
 
         AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc,
                 mtmv.getDefaultDistributionInfo().toDistributionDesc(), partitionProperties, false);
-        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause);
+        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause,
+                false, 0, true);
     }
 
     /**

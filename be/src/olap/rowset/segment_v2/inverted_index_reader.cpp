@@ -201,8 +201,6 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
-
         if (!dir) {
             // TODO: ugly code here, try to refact.
             auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
@@ -252,7 +250,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
+
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -286,13 +284,23 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     return Status::OK();
 };
 
-Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
-    bool exists = false;
-    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", index_file_key);
+Status InvertedIndexReader::match_index_search(
+        OlapReaderStatistics* stats, RuntimeState* runtime_state, InvertedIndexQueryType query_type,
+        const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
+        const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
+    TQueryOptions queryOptions = runtime_state->query_options();
+    try {
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+        auto query = QueryFactory::create(query_type, index_searcher, queryOptions);
+        if (!query) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                    "query type " + query_type_to_string(query_type) + ", query is nullptr");
+        }
+        query->add(query_info);
+        query->search(*term_match_bitmap);
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
     }
     return Status::OK();
 }
@@ -323,7 +331,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             query_info.terms.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                RETURN_IF_ERROR(PhraseQuery::parser_slop(search_str, query_info));
+                PhraseQuery::parser_slop(search_str, query_info);
             }
 
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
@@ -364,6 +372,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             std::string str_tokens = join(query_info.terms, " ");
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
                 str_tokens += " " + std::to_string(query_info.slop);
+                str_tokens += " " + std::to_string(query_info.ordered);
             }
             cache_key = {index_file_key, column_name, query_type, str_tokens};
         }
@@ -394,27 +403,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occured, error msg: {}", e.what());
     }
-}
-
-Status FullTextIndexReader::match_index_search(
-        OlapReaderStatistics* stats, RuntimeState* runtime_state, InvertedIndexQueryType query_type,
-        const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
-        const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
-    TQueryOptions queryOptions = runtime_state->query_options();
-    try {
-        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        auto query = QueryFactory::create(query_type, index_searcher, queryOptions);
-        if (!query) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                    "query type " + query_type_to_string(query_type) + ", query is nullptr");
-        }
-        query->add(query_info);
-        query->search(*term_match_bitmap);
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
-                                                                      e.what());
-    }
-    return Status::OK();
 }
 
 InvertedIndexReaderType FullTextIndexReader::type() {
@@ -459,32 +447,39 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
     auto act_len = strnlen(search_query->data, search_query->size);
+
+    // If the written value exceeds ignore_above, it will be written as null.
+    // The queried value exceeds ignore_above means the written value cannot be found.
+    // The query needs to be downgraded to read from the segment file.
+    if (int ignore_above =
+                std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
+        act_len > ignore_above) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "query value is too long, evaluate skipped.");
+    }
+
     std::string search_str(search_query->data, act_len);
-    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
-    std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
-    // unique_ptr with custom deleter
-    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
-            _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
-            [](lucene::index::Term* term) { _CLDECDELETE(term); }};
-    std::unique_ptr<lucene::search::Query> query;
 
     auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
-
     // try to get query bitmap result from cache and return immediately on cache hit
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                  search_str};
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
-
     auto cache_status = handle_query_cache(cache, cache_key, &cache_handler, stats, bit_map);
     if (cache_status.ok()) {
         return Status::OK();
     }
 
-    roaring::Roaring result;
+    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = column_name_ws;
+    query_info.terms.emplace_back(search_str);
+
+    auto result = std::make_shared<roaring::Roaring>();
     FulltextIndexSearcherPtr* searcher_ptr = nullptr;
     InvertedIndexCacheHandle inverted_index_cache_handle;
     RETURN_IF_ERROR(handle_searcher_cache(&inverted_index_cache_handle, stats));
@@ -496,33 +491,29 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
             case InvertedIndexQueryType::MATCH_ANY_QUERY:
             case InvertedIndexQueryType::MATCH_ALL_QUERY:
             case InvertedIndexQueryType::EQUAL_QUERY: {
-                query = std::make_unique<lucene::search::TermQuery>(term.get());
-                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-                (*searcher_ptr)->_search(query.get(), [&result](DocRange* doc_range) {
-                    if (doc_range->type_ == DocRangeType::kMany) {
-                        result.addMany(doc_range->doc_many_size_, doc_range->doc_many->data());
-                    } else {
-                        result.addRange(doc_range->doc_range.first, doc_range->doc_range.second);
-                    }
-                });
+                RETURN_IF_ERROR(match_index_search(stats, runtime_state,
+                                                   InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                   query_info, *searcher_ptr, result));
                 break;
             }
-            case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-                query = std::make_unique<lucene::search::TermQuery>(term.get());
-                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-                (*searcher_ptr)
-                        ->_search(query.get(),
-                                  [&result](const int32_t docid, const float_t /*score*/) {
-                                      // docid equal to rowid in segment
-                                      result.add(docid);
-                                  });
+            case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+            case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+            case InvertedIndexQueryType::MATCH_REGEXP_QUERY: {
+                RETURN_IF_ERROR(match_index_search(stats, runtime_state, query_type, query_info,
+                                                   *searcher_ptr, result));
                 break;
             }
-
             case InvertedIndexQueryType::LESS_THAN_QUERY:
             case InvertedIndexQueryType::LESS_EQUAL_QUERY:
             case InvertedIndexQueryType::GREATER_THAN_QUERY:
             case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
+                std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
+                // unique_ptr with custom deleter
+                std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
+                        _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
+                        [](lucene::index::Term* term) { _CLDECDELETE(term); }};
+                std::unique_ptr<lucene::search::Query> query;
+
                 bool include_upper = query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY;
                 bool include_lower = query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY;
 
@@ -539,7 +530,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                 (*searcher_ptr)
                         ->_search(query.get(),
                                   [&result](const int32_t docid, const float_t /*score*/) {
-                                      result.add(docid);
+                                      result->add(docid);
                                   });
                 break;
             }
@@ -562,12 +553,10 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         }
 
         // add to cache
-        std::shared_ptr<roaring::Roaring> term_match_bitmap =
-                std::make_shared<roaring::Roaring>(result);
-        term_match_bitmap->runOptimize();
-        cache->insert(cache_key, term_match_bitmap, &cache_handler);
+        result->runOptimize();
+        cache->insert(cache_key, result, &cache_handler);
 
-        bit_map = term_match_bitmap;
+        bit_map = result;
     }
     return Status::OK();
 }

@@ -23,8 +23,8 @@
 #include <sstream>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_kv_error.h"
@@ -643,10 +643,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     std::shared_ptr<Transaction> txn(txn0.release());
     InstanceInfoPB instance;
     auto [c0, m0] = get_instance(txn, instance_id, &instance);
-    {
-        TEST_SYNC_POINT_CALLBACK("modify_nodes:get_instance", &c0);
-        TEST_SYNC_POINT_CALLBACK("modify_nodes:get_instance_ret", &instance);
-    }
+    TEST_SYNC_POINT_CALLBACK("modify_nodes:get_instance", &c0, &instance);
     if (c0 != TxnErrorCode::TXN_OK) {
         msg = m0;
         return msg;

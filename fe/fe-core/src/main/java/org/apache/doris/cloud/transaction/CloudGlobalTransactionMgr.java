@@ -145,8 +145,6 @@ import java.util.stream.Collectors;
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private static final Logger LOG = LogManager.getLogger(CloudGlobalTransactionMgr.class);
     private static final String NOT_SUPPORTED_MSG = "Not supported in cloud mode";
-    private static final int DELETE_BITMAP_LOCK_EXPIRATION_SECONDS = 10;
-    private static final int CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS = 15;
 
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
@@ -529,6 +527,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
         }
 
+        if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
+                || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
+            throw new UserException(commitTxnResponse.getStatus().getMsg());
+        }
         if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.OK
                 && commitTxnResponse.getStatus().getCode() != MetaServiceCode.TXN_ALREADY_VISIBLE) {
             LOG.warn("commitTxn failed, transactionId:{}, retryTime:{}, commitTxnResponse:{}",
@@ -544,9 +546,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             internalMsgBuilder.append(" code:");
             internalMsgBuilder.append(commitTxnResponse.getStatus().getCode());
             throw new UserException("internal error, " + internalMsgBuilder.toString());
-        }
-        if (is2PC && commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE) {
-            throw new UserException(commitTxnResponse.getStatus().getMsg());
         }
 
         TransactionState txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
@@ -712,14 +711,35 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("error ", e);
             }
         }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+            String token = debugPoint.param("token", "invalid_token");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")) {
+                DebugPoint blockDebugPoint = DebugPointUtil.getDebugPoint(
+                        "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block");
+                String passToken = blockDebugPoint.param("pass_token", "");
+                if (token.equals(passToken)) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait");
+        }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey())
                     .setLockId(transactionId)
                     .setInitiator(-1)
-                    .setExpiration(DELETE_BITMAP_LOCK_EXPIRATION_SECONDS)
+                    .setExpiration(Config.delete_bitmap_lock_expiration_seconds)
                     .setRequireCompactionStats(true);
             List<Long> tabletList = tableToTabletList.get(entry.getKey());
             for (Long tabletId : tabletList) {
@@ -790,10 +810,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     cumulativePoints.put(tabletId, respCumulativePoints.get(i));
                 }
             }
+            totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        LOG.info("get delete bitmap lock successfully. txns: {}. time cost: {} ms.",
-                 transactionId, stopWatch.getTime());
+        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
+            LOG.info(
+                    "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                            + "partitionSize: {}. time cost: {} ms.",
+                    transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
@@ -824,7 +849,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         boolean ok;
         try {
-            ok = countDownLatch.await(CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            ok = countDownLatch.await(Config.calculate_delete_bitmap_task_timeout_seconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             LOG.warn("InterruptedException: ", e);
             ok = false;

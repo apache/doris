@@ -70,7 +70,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-public class CreateTableStmt extends DdlStmt {
+@Deprecated
+public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
@@ -486,7 +487,8 @@ public class CreateTableStmt extends DdlStmt {
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
@@ -872,5 +874,10 @@ public class CreateTableStmt extends DdlStmt {
                         "Tables can only have generated columns if the olap engine is used");
             }
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

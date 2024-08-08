@@ -469,7 +469,7 @@ suite("test_multi_partition") {
     // create one table without datetime partition, but with date string
     sql """set enable_fallback_to_original_planner=false"""
     sql """
-        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime ( 
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_multi_partition ( 
             id int,
             name string,
             pdate DATETIME ) 
@@ -478,18 +478,18 @@ suite("test_multi_partition") {
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
         """
-    result1  = sql "show tables like 'range_date_cast_to_datetime'"
+    result1  = sql "show tables like 'range_date_cast_to_datetime_multi_partition'"
     logger.info("${result1}")
     assertEquals(result1.size(), 1)
-    result2  = sql "show partitions from range_date_cast_to_datetime"
+    result2  = sql "show partitions from range_date_cast_to_datetime_multi_partition"
     logger.info("${result2}")
     assertEquals(result2.size(), 4)
     assertTrue(result2[1][1].startsWith("p_"))
-    sql "drop table range_date_cast_to_datetime"
+    sql "drop table range_date_cast_to_datetime_multi_partition"
 
     sql """set enable_fallback_to_original_planner=true"""
     sql """
-        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime ( 
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_multi_partition ( 
             id int,
             name string,
             pdate DATETIME ) 
@@ -498,12 +498,12 @@ suite("test_multi_partition") {
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
         """
-    result1  = sql "show tables like 'range_date_cast_to_datetime'"
+    result1  = sql "show tables like 'range_date_cast_to_datetime_multi_partition'"
     logger.info("${result1}")
     assertEquals(result1.size(), 1)
-    result2  = sql "show partitions from range_date_cast_to_datetime"
+    result2  = sql "show partitions from range_date_cast_to_datetime_multi_partition"
     logger.info("${result2}")
     assertEquals(result2.size(), 4)
     assertTrue(result2[1][1].startsWith("p_"))
-    sql "drop table range_date_cast_to_datetime"
+    sql "drop table range_date_cast_to_datetime_multi_partition"
 }

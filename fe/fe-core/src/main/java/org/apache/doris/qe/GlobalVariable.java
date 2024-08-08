@@ -149,7 +149,7 @@ public final class GlobalVariable {
                             + "Getting file list may be a time-consuming operation. "
                             + "If you don't need to estimate the number of rows in the table "
                             + "or it affects performance, you can disable this feature."})
-    public static boolean enable_get_row_count_from_file_list = false;
+    public static boolean enable_get_row_count_from_file_list = true;
 
     @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
             description = {"仅用于兼容MySQL生态，暂无实际意义",

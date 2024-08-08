@@ -377,6 +377,7 @@ Status ThriftServer::start() {
         server_socket = new apache::thrift::transport::TServerSocket(
                 BackendOptions::get_service_bind_address_without_bracket(), _port);
         fe_server_transport.reset(server_socket);
+        server_socket->setKeepAlive(true);
 
         if (transport_factory == nullptr) {
             transport_factory.reset(new apache::thrift::transport::TBufferedTransportFactory());

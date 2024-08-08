@@ -289,7 +289,7 @@ public class ColumnDefinition {
         }
 
         if (isOlap) {
-            if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
                 aggTypeImplicit = true;
             }
 
@@ -394,13 +394,15 @@ public class ColumnDefinition {
                 } else {
                     if (aggType != AggregateType.GENERIC
                             && aggType != AggregateType.NONE
-                            && aggType != AggregateType.REPLACE) {
+                            && aggType != AggregateType.REPLACE
+                            && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
                         throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
                                 + " column can't support aggregation " + aggType);
                     }
                 }
             } else {
-                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE) {
+                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE
+                        && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
                             + " column can't support aggregation " + aggType);
                 }
