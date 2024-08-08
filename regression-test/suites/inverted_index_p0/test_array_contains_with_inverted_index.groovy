@@ -37,7 +37,7 @@ suite("test_array_contains_with_inverted_index"){
     ) ENGINE=OLAP
     DUPLICATE KEY(`apply_date`, `id`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    DISTRIBUTED BY HASH(`id`) BUCKETS 4
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "is_being_synced" = "false",
@@ -76,4 +76,8 @@ suite("test_array_contains_with_inverted_index"){
     order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
     order_qt_sql """ select * from tai where !array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
     order_qt_sql """ select * from tai where (array_contains(inventors, 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+
+    // new planner will replace multi-or array_contains to array_overlap, so we need to fallback to old planner
+    sql """ set enable_nereids_planner = false; """
+    order_qt_sql """ select * from tai where array_contains(inventors, 's') or array_contains(inventors, 'f') or array_contains(inventors, 'x')  order by id; """
 }
