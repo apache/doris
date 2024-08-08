@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/tablet_schema.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -38,15 +39,11 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
         auto tablet_column = tablet_schema.column(i);
         if (!partial_update_input_columns.contains(tablet_column.name())) {
             missing_cids.emplace_back(i);
-            if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
-                tablet_schema.auto_increment_column() != tablet_column.name()) {
+            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
                 can_insert_new_rows_in_partial_update = false;
             }
         } else {
             update_cids.emplace_back(i);
-        }
-        if (auto_increment_column == tablet_column.name()) {
-            is_schema_contains_auto_inc_column = true;
         }
     }
     this->is_strict_mode = is_strict_mode;
@@ -120,7 +117,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                          to_lower(tablet_schema.column(cur_cid).default_value())
                                          .find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                DateV2Value<DateTimeV2ValueType> dtv;
+                vectorized::DateV2Value<vectorized::DateTimeV2ValueType> dtv;
                 dtv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dtv.debug_string();
             } else if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
@@ -128,7 +125,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                                 to_lower(tablet_schema.column(cur_cid).default_value())
                                                 .find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
-                DateV2Value<DateV2ValueType> dv;
+                vectorized::DateV2Value<vectorized::DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
             } else {

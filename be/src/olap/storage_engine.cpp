@@ -58,7 +58,6 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
@@ -987,8 +986,8 @@ void StorageEngine::_clean_unused_partial_update_info() {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);
             return true;
         }
-        TxnState txn_state =
-                _txn_manager->get_txn_state(partition_id, txn_id, tablet_id, tablet->tablet_uid());
+        TxnState txn_state = _txn_manager->get_txn_state(
+                partition_id, txn_id, tablet_id, tablet->schema_hash(), tablet->tablet_uid());
         if (txn_state == TxnState::NOT_FOUND || txn_state == TxnState::ABORTED ||
             txn_state == TxnState::DELETED) {
             remove_infos.emplace_back(tablet_id, partition_id, txn_id);

@@ -38,7 +38,6 @@
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
-#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -178,9 +177,9 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& 
                               TTransactionId transaction_id, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, bool is_recovery,
                               std::shared_ptr<PartialUpdateInfo> partial_update_info) {
-    return commit_txn(tablet.data_dir()->get_meta(), partition_id, transaction_id,
-                      tablet.tablet_id(), tablet.tablet_uid(), load_id, rowset_ptr, is_recovery,
-                      partial_update_info);
+    return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
+                      tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), load_id,
+                      rowset_ptr, is_recovery, partial_update_info);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -414,15 +413,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         TabletTxnInfo load_info(load_id, rowset_ptr);
         if (is_recovery) {
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
-                load_info->unique_key_merge_on_write = true;
-                load_info->delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
+                load_info.unique_key_merge_on_write = true;
+                load_info.delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
                 if (decoded_partial_update_info) {
                     LOG_INFO(
                             "get partial update info from RocksDB during recovery. txn_id={}, "
                             "partition_id={}, tablet_id={}, partial_update_info=[{}]",
                             transaction_id, partition_id, tablet_id,
                             decoded_partial_update_info->summary());
-                    load_info->partial_update_info = decoded_partial_update_info;
+                    load_info.partial_update_info = decoded_partial_update_info;
                 }
             }
         }
@@ -558,8 +557,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 rowset->rowset_id().to_string(), tablet_id, transaction_id);
     }
 
-    if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
-        tablet_txn_info->partial_update_info->is_partial_update) {
+    if (tablet_txn_info.unique_key_merge_on_write && tablet_txn_info.partial_update_info &&
+        tablet_txn_info.partial_update_info->is_partial_update) {
         status = RowsetMetaManager::remove_partial_update_info(meta, tablet_id, partition_id,
                                                                transaction_id);
         if (!status) {
