@@ -36,4 +36,18 @@ suite("test_json_type_cast", "p0") {
     qt_sql16 """select cast("-" as int);"""
     qt_sql17 """select cast("a" as int);"""
     qt_sql18 """select cast("/" as int);"""
+
+    qt_sql19 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as INT)"
+    qt_sql19 "SELECT CAST(CAST(CAST(0 AS BOOLEAN) AS JSON) as INT)"
+    qt_sql20 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as DOUBLE)"
+    qt_sql20 "SELECT CAST(CAST(CAST(0 AS BOOLEAN) AS JSON) as DOUBLE)"
+    qt_sql21 "SELECT CAST(CAST(CAST(1 AS BOOLEAN) AS JSON) as BOOLEAN)"
+
+    qt_sql22 "SELECT CAST(CAST(CAST(1024 AS INT) AS JSON) as DOUBLE)"
+    qt_sql23 "SELECT CAST(CAST(CAST(1024 AS INT) AS JSON) as FLOAT)"
+    qt_sql24 "SELECT CAST(CAST(CAST(1024.0 AS DOUBLE) AS JSON) as DOUBLE)"
+
+    qt_sql24 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
+    qt_sql25 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
+    qt_sql26 """SELECT CAST(CAST(CAST('["2020-01-01"]' AS TEXT) AS JSON) as TEXT)"""
 }
