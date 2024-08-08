@@ -57,6 +57,7 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPA
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
+    DATA_CACHE_DIR,
 };
 
 struct DataDirInfo {
