@@ -7,8 +7,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalProject
-----------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]

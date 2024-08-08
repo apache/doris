@@ -19,9 +19,6 @@
 
 suite("query10") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
-    if (isCloudMode()) {
-        return
-    }
     sql "use ${db}"
     multi_sql """
       set enable_nereids_planner=true;
