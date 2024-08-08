@@ -27,6 +27,19 @@ class LocalExchangeSinkLocalState;
 struct BlockWrapper;
 class SortSourceOperatorX;
 
+/**
+ * One exchanger is hold by one `LocalExchangeSharedState`. And one `LocalExchangeSharedState` is
+ * shared by all local exchange sink operators and source operators with the same id.
+ *
+ * In exchanger, two block queues is maintained, one is data block queue and another is free block queue.
+ *
+ * In details, data block queue has queues as many as source operators. Each source operator will get
+ * data block from the corresponding queue. Data blocks is push into the queue by sink operators. One
+ * sink operator will push blocks into one or more queues.
+ *
+ * Free block is used to reuse the allocated memory. To reduce the memory limit, we also use a conf
+ * to limit the size of free block queue.
+ */
 class ExchangerBase {
 public:
     ExchangerBase(int running_sink_operators, int num_partitions, int free_block_limit)
@@ -50,7 +63,10 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
+    // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(LocalExchangeSourceLocalState& local_state) = 0;
+    // Called if all local exchanger source operators are closed. We free the memory in
+    // `_free_blocks` here.
     virtual void finalize(LocalExchangeSourceLocalState& local_state);
 
     virtual std::string data_queue_debug_string(int i) = 0;
@@ -138,6 +154,16 @@ private:
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
+/**
+ * `BlockWrapper` is used to wrap a data block with a reference count.
+ *
+ * In function `unref()`, if `ref_count` decremented to 0, which means this block is not needed by
+ * operators, so we put it into `_free_blocks` to reuse its memory if needed and refresh memory usage
+ * in current queue.
+ *
+ * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues in
+ * shuffle exchanger.
+ */
 struct BlockWrapper {
     ENABLE_FACTORY_CREATOR(BlockWrapper);
     BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
