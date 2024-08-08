@@ -619,7 +619,7 @@ Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* me
                                                                     int64_t tablet_id) {
     std::string prefix = fmt::format("{}{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id);
     std::vector<std::string> remove_keys;
-    auto get_remove_keys_func = [&](std::string_view key, std::string_view val) -> bool {
+    auto get_remove_keys_func = [&](const std::string& key, const std::string& value) -> bool {
         remove_keys.emplace_back(key);
         return true;
     };

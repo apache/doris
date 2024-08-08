@@ -41,7 +41,7 @@ namespace doris {
 namespace {
 const std::string ROWSET_PREFIX = "rst_";
 
-constexpr std::string_view PARTIAL_UPDATE_INFO_PREFIX = "pui_";
+const std::string PARTIAL_UPDATE_INFO_PREFIX = "pui_";
 
 } // namespace
 
