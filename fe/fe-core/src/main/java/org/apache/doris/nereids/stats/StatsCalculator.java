@@ -1045,8 +1045,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
-
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
@@ -1067,7 +1065,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         if (tableRowCount <= 0) {
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
@@ -1075,7 +1073,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 tableRowCount = Math.max(cache.count, tableRowCount);
             }
         }
-
         for (SlotReference slot : slotSet) {
             ColumnStatistic cache;
             if (ConnectContext.get() != null && ! ConnectContext.get().getSessionVariable().enableStats) {
