@@ -746,8 +746,13 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             }
         }
     }
-    static_cast<void>(
-            RowsetMetaManager::remove_tablet_related_partial_update_info(meta, tablet_id));
+    if (meta != nullptr) {
+        Status st = RowsetMetaManager::remove_tablet_related_partial_update_info(meta, tablet_id);
+        if (!st.ok()) {
+            LOG_WARNING("failed to partial update info, tablet_id={}, err={}", tablet_id,
+                        st.to_string());
+        }
+    }
 }
 
 void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,

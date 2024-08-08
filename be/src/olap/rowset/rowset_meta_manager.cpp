@@ -576,8 +576,8 @@ Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t ta
 Status RowsetMetaManager::traverse_partial_update_info(
         OlapMeta* meta,
         std::function<bool(int64_t, int64_t, int64_t, std::string_view)> const& func) {
-    auto traverse_partial_update_info_func = [&func](std::string_view key,
-                                                     std::string_view value) -> bool {
+    auto traverse_partial_update_info_func = [&func](const std::string& key,
+                                                     const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: pui_{tablet_id}_{partition_id}_{txn_id}
         RETURN_IF_ERROR(split_string(key, '_', &parts));
