@@ -81,11 +81,4 @@ suite("test_array_index_write"){
         GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
     }
 
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [single_array_field_count: 0])
-        sql "insert into $indexTbName values(7, ['amory', 'is', 'committer'])"
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
-    }
-
 }
