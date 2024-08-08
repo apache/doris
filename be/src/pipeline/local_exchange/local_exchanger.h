@@ -171,10 +171,12 @@ class LocalExchangeSinkLocalState;
 struct BlockWrapper {
     ENABLE_FACTORY_CREATOR(BlockWrapper);
     BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
+    ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
     void ref(int delta) { ref_count += delta; }
-    void unref(LocalExchangeSharedState* shared_state) {
+    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes = 0) {
         if (ref_count.fetch_sub(1) == 1) {
-            shared_state->sub_total_mem_usage(data_block.allocated_bytes());
+            shared_state->sub_total_mem_usage(allocated_bytes == 0 ? data_block.allocated_bytes()
+                                                                   : allocated_bytes);
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
                         shared_state->exchanger->_free_block_limit *

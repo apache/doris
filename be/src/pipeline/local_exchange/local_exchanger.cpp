@@ -78,7 +78,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
             local_state._shared_state->sub_mem_usage(channel_id,
                                                      block->data_block.allocated_bytes());
             data_block->swap(block->data_block);
-            block->unref(local_state._shared_state);
+            block->unref(local_state._shared_state, data_block->allocated_bytes());
         }
         return true;
     } else if (all_finished) {
@@ -93,7 +93,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
                 local_state._shared_state->sub_mem_usage(channel_id,
                                                          block->data_block.allocated_bytes());
                 data_block->swap(block->data_block);
-                block->unref(local_state._shared_state);
+                block->unref(local_state._shared_state, data_block->allocated_bytes());
             }
             return true;
         }
