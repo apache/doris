@@ -173,10 +173,6 @@ Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* par
     return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
 }
 
-Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
-}
-
 logger.info("Added 'be_get_compaction_status' function to Suite")
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
@@ -259,7 +255,8 @@ logger.info("Added 'be_report_task' function to Suite")
 Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format -> 
     def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
     logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    if (code == 500) {
+    // only when the expected_indices_count is 0, the tablet may not have the index file.
+    if (code == 500 && expected_indices_count == 0) {
         assertEquals("E-6003", parseJson(out.trim()).status)
         assertTrue(parseJson(out.trim()).msg.contains("not found"))
         return

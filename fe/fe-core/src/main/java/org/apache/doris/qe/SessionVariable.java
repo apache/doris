@@ -303,7 +303,7 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
-
+    public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
@@ -1100,6 +1100,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
 
+    @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
+            description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
+                    "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type"})
+    public int sortPhaseNum = 0;
+
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
                     "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
@@ -1546,6 +1551,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
 
+    @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
+    public int dphyperLimit = 1000;
+
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
@@ -1682,7 +1690,7 @@ public class SessionVariable implements Serializable, Writable {
     public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
-    public boolean enablePreparedStmtAuditLog = true;
+    public boolean enablePreparedStmtAuditLog = false;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -1943,6 +1951,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
+
     public Set<String> getIgnoreShapePlanNodes() {
         return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
     }
@@ -2059,6 +2069,11 @@ public class SessionVariable implements Serializable, Writable {
                     + " whether to set the length of such a column to MAX, which is 65533. The default is true."
     })
     public boolean useMaxLengthOfVarcharInCtas = true;
+
+    // Whether enable segment cache. Segment cache only works when FE's query options sets enableSegmentCache true
+    // along with BE's config `disable_segment_cache` false
+    @VariableMgr.VarAttr(name = ENABLE_SEGMENT_CACHE, needForward = true)
+    public boolean enableSegmentCache = true;
 
     /**
      * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
@@ -3523,6 +3538,14 @@ public class SessionVariable implements Serializable, Writable {
         this.loadStreamPerNode = loadStreamPerNode;
     }
 
+    public void setEnableSegmentCache(boolean value) {
+        this.enableSegmentCache = value;
+    }
+
+    public boolean isEnableSegmentCache() {
+        return this.enableSegmentCache;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -3573,6 +3596,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
+        tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -3657,6 +3681,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
+
+        tResult.setEnableSegmentCache(enableSegmentCache);
         return tResult;
     }
 

@@ -57,6 +57,7 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPA
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
+    DATA_CACHE_DIR,
 };
 
 struct DataDirInfo {
@@ -367,10 +368,13 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_cache_hit = 0;
+    int64_t inverted_index_searcher_cache_miss = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

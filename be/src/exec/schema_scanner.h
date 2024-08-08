@@ -69,6 +69,7 @@ struct SchemaScannerCommonParam {
     int32_t port;                                      // frontend thrift port
     int64_t thread_id;
     const std::string* catalog = nullptr;
+    std::set<TNetworkAddress> fe_addr_list;
 };
 
 // scanner parameter from frontend

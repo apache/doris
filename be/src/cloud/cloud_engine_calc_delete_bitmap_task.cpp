@@ -120,7 +120,7 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
                                                            int64_t ms_cumulative_compaction_cnt,
                                                            int64_t ms_cumulative_point) {
     _ms_base_compaction_cnt = ms_base_compaction_cnt;
-    _ms_cumulative_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_compaction_cnt = ms_cumulative_compaction_cnt;
     _ms_cumulative_point = ms_cumulative_point;
 }
 
@@ -154,21 +154,19 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     };
     if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
         auto sync_st = tablet->sync_rowsets();
-        if (!sync_st.ok()) {
-            LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
-                         << ", txn_id=" << _transaction_id << ", status=" << sync_st;
-            _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, sync_st);
-            return sync_st;
-        }
-        if (tablet->tablet_state() != TABLET_RUNNING) [[unlikely]] {
+        if (sync_st.is<ErrorCode::INVALID_TABLET_STATE>()) [[unlikely]] {
             _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                          "tablet_id: "
                       << _tablet_id << " txn_id: " << _transaction_id
                       << ", request_version=" << _version;
-            return Status::Error<ErrorCode::INVALID_TABLET_STATE>(
-                    "invalid tablet state {}. tablet_id={}", tablet->tablet_state(),
-                    tablet->tablet_id());
+            return sync_st;
+        }
+        if (!sync_st.ok()) {
+            LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
+                         << ", txn_id=" << _transaction_id << ", status=" << sync_st;
+            _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, sync_st);
+            return sync_st;
         }
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;

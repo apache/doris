@@ -649,15 +649,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-class AsyncWriterDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id)
-            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
-    ~AsyncWriterDependency() override = default;
-};
-
 using SetHashTableVariants =
         std::variant<std::monostate,
                      vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
@@ -868,13 +859,13 @@ public:
     }
 
     void add_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
     void sub_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
+        if (mem_usage.fetch_sub(delta) - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
