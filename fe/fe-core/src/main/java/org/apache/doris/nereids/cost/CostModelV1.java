@@ -271,14 +271,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics childStatistics = context.getChildStatistics(0);
         double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
-
+        int beNumForDist = Math.max(3, beNumber);
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(context.getSessionVariable(),
-                    intputRowCount / beNumber,
+                    intputRowCount / beNumForDist,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber
+                            distribute.child().getOutput()) / beNumForDist
                     );
         }
 
@@ -301,7 +301,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0,
                     0,
                     intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber);
+                            distribute.child().getOutput()) / beNumForDist);
         }
 
         // any
@@ -310,7 +310,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 0,
                 0,
                 intputRowCount * childStatistics.dataSizeFactor(distribute.child().getOutput())
-                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
+                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
     private double expressionTreeCost(List<? extends Expression> expressions) {
