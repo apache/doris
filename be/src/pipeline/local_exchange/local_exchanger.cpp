@@ -32,9 +32,14 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                        BlockType&& block,
                                                        bool update_total_mem_usage) {
     size_t allocated_bytes = 0;
+    // PartitionedBlock is used by shuffle exchanger.
+    // PartitionedBlock will be push into multiple queues with different row ranges, so it will be
+    // referenced multiple times. Otherwise, we only ref the block once because it is only push into
+    // one queue.
     if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
         allocated_bytes = block.first->data_block.allocated_bytes();
     } else {
+        block->ref(1);
         allocated_bytes = block->data_block.allocated_bytes();
     }
     std::unique_lock l(_m);
@@ -43,6 +48,8 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                  update_total_mem_usage);
         local_state._shared_state->set_ready_to_read(channel_id);
     } else {
+        // `enqueue(block)` return false iff this queue's source operator is already closed so we
+        // just unref the block.
         if constexpr (std::is_same_v<PartitionedBlock, BlockType>) {
             block.first->unref(local_state._shared_state);
         } else {

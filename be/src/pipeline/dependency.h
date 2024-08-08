@@ -876,10 +876,10 @@ public:
 struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     LocalMergeExchangeSharedState(int num_instances)
             : LocalExchangeSharedState(num_instances),
-              _queues_mem_usege(num_instances),
+              _queues_mem_usage(num_instances),
               _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {
         for (size_t i = 0; i < num_instances; i++) {
-            _queues_mem_usege[i] = 0;
+            _queues_mem_usage[i] = 0;
         }
     }
 
@@ -896,15 +896,15 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
     void sub_total_mem_usage(size_t delta, int channel_id) override {
-        if (_queues_mem_usege[channel_id].fetch_sub(delta) - delta <= _each_queue_limit) {
+        if (_queues_mem_usage[channel_id].fetch_sub(delta) - delta <= _each_queue_limit) {
             sink_deps[channel_id]->set_ready();
         }
-        if (_queues_mem_usege[channel_id] == 0) {
+        if (_queues_mem_usage[channel_id] == 0) {
             source_deps[channel_id]->block();
         }
     }
     void add_total_mem_usage(size_t delta, int channel_id) override {
-        if (_queues_mem_usege[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
+        if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
             sink_deps[channel_id]->block();
         }
         source_deps[channel_id]->set_ready();
@@ -915,7 +915,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
 private:
-    std::vector<std::atomic_int64_t> _queues_mem_usege;
+    std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
 
