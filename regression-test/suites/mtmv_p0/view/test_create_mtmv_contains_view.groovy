@@ -82,7 +82,7 @@ suite("test_create_mtmv_contains_view","mtmv") {
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
-    )
+    );
     """
 
     sql """
@@ -101,7 +101,7 @@ suite("test_create_mtmv_contains_view","mtmv") {
     DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
-    )
+    );
     """
 
     sql """ insert into lineitem values
@@ -149,7 +149,7 @@ suite("test_create_mtmv_contains_view","mtmv") {
             where o_orderdate = '2023-12-09'
             group by
             o_shippriority,
-            o_comment;;
+            o_comment;
         """
 
     sql """
@@ -234,6 +234,46 @@ suite("test_create_mtmv_contains_view","mtmv") {
     order_qt_mv3 "SELECT * FROM ${mv3_name}"
     sql """drop view if exists `${view3_name}`"""
     sql """drop materialized view if exists ${mv3_name};"""
+
+
+    def mv4_name = 'mv1';
+    def view4_name = 'view1';
+    sql """drop view if exists `${view4_name}`"""
+    // basic test for mv contain view for rewrite
+    sql"""
+        create view ${view4_name} as
+            select * 
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey;
+        """
+
+    def mv4 = """
+    SELECT * from ${view4_name};
+    """
+    def query4 = """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey,
+              count(*)
+            from
+              orders left
+              join lineitem on l_orderkey = o_orderkey
+              left join partsupp on ps_partkey = l_orderkey
+              group by
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey;
+    """
+    order_qt_query4_before "${query4}"
+    check_mv_rewrite_success(db, mv4, query4, mv4_name)
+    order_qt_query4_after "${query4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS ${mv4_name}"""
 
     sql """ drop table if exists orders;"""
     sql """ drop table if exists lineitem;"""
