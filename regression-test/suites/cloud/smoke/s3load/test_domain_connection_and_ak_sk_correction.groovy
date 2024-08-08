@@ -85,7 +85,7 @@ suite("test_domain_connection_and_ak_sk_correction") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Incorrect object storage info"), e.getMessage())
+        assertTrue(e.getMessage().contains("Failed to access object storage"), e.getMessage())
     }
 
 // the following is not implemented, uncomment if implemented
