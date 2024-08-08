@@ -14451,3 +14451,6 @@ true
 -- !array_empty_be --
 []
 
+-- !sql_array_map --
+[1, 1, 1, 1]
+
