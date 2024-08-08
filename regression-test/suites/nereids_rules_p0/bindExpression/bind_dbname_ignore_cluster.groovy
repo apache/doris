@@ -20,7 +20,8 @@ suite("test_db_name_ignore_cluster") {
     sql 'set enable_nereids_distribute_planner=false'
     sql "use ${db}"
     sql "drop table if exists ${db}.test_db_name_ignore_cluster"
-    sql "create table ${db}.test_db_name_ignore_cluster(a int, b int) unique key(a) distributed by hash(a);"
+    sql """create table ${db}.test_db_name_ignore_cluster(a int, b int) unique key(a) distributed by hash(a)
+        properties("replication_num"="1");"""
     sql "select ${db}.test_db_name_ignore_cluster.a from `default_cluster:${db}`.test_db_name_ignore_cluster;"
     sql "select ${db}.test_db_name_ignore_cluster.* from `default_cluster:${db}`.test_db_name_ignore_cluster;"
 
