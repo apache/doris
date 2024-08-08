@@ -47,7 +47,7 @@ RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler
         : txn_kv_(std::move(txn_kv)),
           recycler_(recycler),
           checker_(checker),
-          txn_lazy_committer_(txn_lazy_committer) {}
+          txn_lazy_committer_(std::move(txn_lazy_committer)) {}
 
 RecyclerServiceImpl::~RecyclerServiceImpl() = default;
 

@@ -1979,6 +1979,7 @@ int InstanceRecycler::advance_pending_txn() {
     int num_scanned = 0;
     int num_timeout = 0;
     int num_abort = 0;
+    int num_advance = 0;
 
     TxnRunningKeyInfo txn_running_key_info0 {instance_id_, 0, 0};
     TxnRunningKeyInfo txn_running_key_info1 {instance_id_, INT64_MAX, INT64_MAX};
@@ -2000,25 +2001,17 @@ int InstanceRecycler::advance_pending_txn() {
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_timeout", num_timeout)
-                .tag("num_abort", num_abort);
+                .tag("num_abort", num_abort)
+                .tag("num_advance", num_advance);
     });
 
     int64_t current_time =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    auto handle_txn_running_kv = [&num_scanned, &num_timeout, &num_abort, &current_time, this](
-                                         std::string_view k, std::string_view v) -> int {
+    auto handle_txn_running_kv = [&num_scanned, &num_timeout, &num_abort, &num_advance,
+                                  &current_time,
+                                  this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
-        TxnRunningPB txn_running_pb;
-        if (!txn_running_pb.ParseFromArray(v.data(), v.size())) {
-            LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
-            return -1;
-        }
-        if (txn_running_pb.timeout_time() > current_time) {
-            return 0;
-        }
-        ++num_timeout;
-
         do {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -2062,8 +2055,19 @@ int InstanceRecycler::advance_pending_txn() {
                                  << " code=" << ret.first << "msg=" << ret.second;
                     return -1;
                 }
-                continue;
+                ++num_advance;
+                return 0;
             } else {
+                TxnRunningPB txn_running_pb;
+                if (!txn_running_pb.ParseFromArray(v.data(), v.size())) {
+                    LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
+                    return -1;
+                }
+                if (txn_running_pb.timeout_time() > current_time) {
+                    return 0;
+                }
+                ++num_timeout;
+
                 DCHECK(txn_info.status() != TxnStatusPB::TXN_STATUS_VISIBLE);
                 txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
                 txn_info.set_finish_time(current_time);

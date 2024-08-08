@@ -845,164 +845,6 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
     }
 }
 
-void convert_tmp_rowsets(
-        const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
-        MetaServiceCode& code, std::string& msg, int64_t db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
-        std::unordered_map<int64_t, TabletIndexPB>& tablet_ids) {
-    std::stringstream ss;
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
-        msg = ss.str();
-        LOG(WARNING) << msg;
-        return;
-    }
-
-    // partition_id -> VersionPB
-    std::unordered_map<int64_t, VersionPB> partition_versions;
-    // tablet_id -> stats
-    std::unordered_map<int64_t, TabletStats> tablet_stats;
-
-    for (auto& [tmp_rowset_key, tmp_rowset_pb] : tmp_rowsets_meta) {
-        std::string tmp_rowst_data;
-        err = txn->get(tmp_rowset_key, &tmp_rowst_data);
-        if (TxnErrorCode::TXN_KEY_NOT_FOUND == err) {
-            // the tmp rowset has been converted
-            VLOG_DEBUG << "tmp rowset has been converted, key=" << hex(tmp_rowset_key);
-            continue;
-        }
-
-        if (TxnErrorCode::TXN_OK != err) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get tmp_rowset_key, txn_id=" << txn_id
-               << " key=" << hex(tmp_rowset_key) << " err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return;
-        }
-
-        if (!tablet_ids.contains(tmp_rowset_pb.tablet_id())) {
-            std::string tablet_idx_key =
-                    meta_tablet_idx_key({instance_id, tmp_rowset_pb.tablet_id()});
-            std::string tablet_idx_val;
-            err = txn->get(tablet_idx_key, &tablet_idx_val, true);
-            if (TxnErrorCode::TXN_OK != err) {
-                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
-                                                              : cast_as<ErrCategory::READ>(err);
-                ss << "failed to get tablet idx, txn_id=" << txn_id
-                   << " key=" << hex(tablet_idx_key) << " err=" << err;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-
-            TabletIndexPB tablet_idx_pb;
-            if (!tablet_idx_pb.ParseFromString(tablet_idx_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "failed to parse tablet idx pb txn_id=" << txn_id
-                   << " key=" << hex(tablet_idx_key);
-                msg = ss.str();
-                return;
-            }
-            tablet_ids.emplace(tmp_rowset_pb.tablet_id(), tablet_idx_pb);
-        }
-        const TabletIndexPB& tablet_idx_pb = tablet_ids[tmp_rowset_pb.tablet_id()];
-
-        if (!partition_versions.contains(tmp_rowset_pb.partition_id())) {
-            std::string ver_val;
-            std::string ver_key = partition_version_key(
-                    {instance_id, db_id, tablet_idx_pb.table_id(), tmp_rowset_pb.partition_id()});
-            err = txn->get(ver_key, &ver_val);
-            if (TxnErrorCode::TXN_OK != err) {
-                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
-                                                              : cast_as<ErrCategory::READ>(err);
-                ss << "failed to get partiton version, txn_id=" << txn_id << " key=" << hex(ver_key)
-                   << " err=" << err;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-            VersionPB version_pb;
-            if (!version_pb.ParseFromString(ver_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "failed to parse version pb txn_id=" << txn_id << " key=" << hex(ver_key);
-                msg = ss.str();
-                return;
-            }
-            LOG(INFO) << "txn_id=" << txn_id << " key=" << hex(ver_key)
-                      << " version_pb:" << version_pb.ShortDebugString();
-            DCHECK(version_pb.has_txn_id());
-            DCHECK(version_pb.txn_id() == txn_id);
-            partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
-        }
-
-        const VersionPB& version_pb = partition_versions[tmp_rowset_pb.partition_id()];
-
-        std::string rowset_key =
-                meta_rowset_key({instance_id, tmp_rowset_pb.tablet_id(), version_pb.version()});
-        std::string rowset_val;
-        err = txn->get(rowset_key, &rowset_val);
-        if (TxnErrorCode::TXN_OK == err) {
-            continue;
-        }
-
-        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get rowset_key, txn_id=" << txn_id << " key=" << hex(rowset_key)
-               << " err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return;
-        }
-        DCHECK(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
-
-        tmp_rowset_pb.set_start_version(version_pb.version());
-        tmp_rowset_pb.set_end_version(version_pb.version());
-
-        rowset_val.clear();
-        if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            ss << "failed to serialize rowset_meta, txn_id=" << txn_id
-               << " key=" << hex(rowset_key);
-            msg = ss.str();
-            return;
-        }
-
-        txn->put(rowset_key, rowset_val);
-        LOG(INFO) << "xxx put rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id
-                  << " rowset_size=" << rowset_key.size() + rowset_val.size();
-
-        // Accumulate affected rows
-        auto& stats = tablet_stats[tmp_rowset_pb.tablet_id()];
-        stats.data_size += tmp_rowset_pb.data_disk_size();
-        stats.num_rows += tmp_rowset_pb.num_rows();
-        ++stats.num_rowsets;
-        stats.num_segs += tmp_rowset_pb.num_segments();
-    }
-
-    DCHECK(partition_versions.size() == 1);
-
-    for (auto& [tablet_id, stats] : tablet_stats) {
-        DCHECK(tablet_ids.count(tablet_id));
-        auto& tablet_idx = tablet_ids[tablet_id];
-        StatsTabletKeyInfo info {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
-                                 tablet_idx.partition_id(), tablet_id};
-        update_tablet_stats(info, stats, txn, code, msg);
-        if (code != MetaServiceCode::OK) return;
-    }
-
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
-        msg = ss.str();
-        return;
-    }
-}
-
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -1595,14 +1437,14 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
             return;
         }
         txn->put(recycle_key, recycle_val);
-    }
 
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
-        msg = ss.str();
-        return;
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
     }
 }
 
@@ -1702,6 +1544,9 @@ void commit_txn_eventually(
                              << " code=" << code << "msg=" << msg;
                 return;
             }
+
+            // there maybe concurrent commit_txn_eventually, so we need continue to make sure 
+            // partition versionPB has no txn_id 
             continue;
         }
 
