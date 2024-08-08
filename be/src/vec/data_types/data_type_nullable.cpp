@@ -239,7 +239,7 @@ DataTypes make_nullable(const DataTypes& types) {
 
 DataTypePtr remove_nullable(const DataTypePtr& type) {
     if (type->is_nullable()) {
-        return assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+        return assert_cast<const DataTypeNullable*, TypeCheck::Disable>(type.get())->get_nested_type();
     }
     return type;
 }
