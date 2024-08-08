@@ -133,6 +133,7 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
         // String driver_url = "mysql-connector-java-8.0.25.jar"
