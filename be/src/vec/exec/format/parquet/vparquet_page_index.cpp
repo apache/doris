@@ -68,7 +68,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
     const int num_of_pages = column_index->null_pages.size();
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
         bool is_all_null = column_index->null_pages[page_id];
-        if (ParquetPredicate::filter_by_stats(col_val_range, col_schema, !is_all_null,
+        if (ParquetPredicate::filter_by_stats(col_val_range, col_schema, false,
                                               encoded_min_vals[page_id], encoded_max_vals[page_id],
                                               is_all_null, ctz)) {
             skipped_ranges.emplace_back(page_id);

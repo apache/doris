@@ -220,6 +220,8 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
+    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
+
 private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -283,5 +285,6 @@ private:
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     bool _hive_use_column_names = false;
+    std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 };
 } // namespace doris::vectorized
