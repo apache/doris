@@ -101,16 +101,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int rawFileSplitNum = 0;
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
-    private final String defaultFS;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
-        this.defaultFS = source.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
-    }
-
-    @Override
-    public String getDefaultFS() {
-        return defaultFS;
     }
 
     @Override

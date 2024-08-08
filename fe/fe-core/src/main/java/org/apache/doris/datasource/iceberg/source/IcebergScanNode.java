@@ -87,7 +87,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
-    private final String defaultFS;
 
     /**
      * External file scan node for Query iceberg table
@@ -117,12 +116,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         Preconditions.checkNotNull(source);
-        defaultFS = source.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
-    }
-
-    @Override
-    public String getDefaultFS() {
-        return defaultFS;
     }
 
     @Override

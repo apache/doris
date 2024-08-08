@@ -64,12 +64,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected String getDefaultFS() {
-        // MC does not have defaultFS
-        return "";
-    }
-
-    @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof MaxComputeSplit) {
             setScanParams(rangeDesc, (MaxComputeSplit) split);

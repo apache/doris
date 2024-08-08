@@ -94,7 +94,6 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
 
     protected final HMSExternalTable hmsTable;
-    protected final String defaultFS;
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
@@ -117,7 +116,6 @@ public class HiveScanNode extends FileQueryScanNode {
         super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
-        defaultFS = hmsTable.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
@@ -125,12 +123,6 @@ public class HiveScanNode extends FileQueryScanNode {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
-        defaultFS = hmsTable.getCatalog().getCatalogProperty().getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
-    }
-
-    @Override
-    public String getDefaultFS() {
-        return defaultFS;
     }
 
     @Override

@@ -809,17 +809,17 @@ public class HiveMetaStoreCache {
                     if (status.ok()) {
                         if (delta.isDeleteDelta()) {
                             List<String> deleteDeltaFileNames = remoteFiles.stream().map(f -> f.getName()).filter(
-                                    name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                            name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                                     .collect(Collectors.toList());
                             deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
                             continue;
                         }
                         remoteFiles.stream().filter(
                                 f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)).forEach(file -> {
-                                LocationPath path = new LocationPath(file.getPath().toString(),
-                                        catalog.getProperties());
-                                fileCacheValue.addFile(file, path);
-                            });
+                            LocationPath path = new LocationPath(file.getPath().toString(),
+                                    catalog.getProperties());
+                            fileCacheValue.addFile(file, path);
+                        });
                     } else {
                         throw new RuntimeException(status.getErrMsg());
                     }
@@ -836,7 +836,7 @@ public class HiveMetaStoreCache {
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
                         remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                        f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                                 .forEach(file -> {
                                     LocationPath path = new LocationPath(file.getPath().toString(),
                                             catalog.getProperties());

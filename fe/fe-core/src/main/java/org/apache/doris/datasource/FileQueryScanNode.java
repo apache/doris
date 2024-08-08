@@ -314,14 +314,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             selectedSplitNum = numApproximateSplits();
 
-            TFileType locationType;
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
-            if (fileSplit instanceof IcebergSplit
-                    && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-                locationType = TFileType.FILE_BROKER;
-            } else {
-                locationType = fileSplit.getLocationType();
-            }
+            TFileType locationType = fileSplit.getLocationType();
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
             long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
@@ -379,14 +373,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Split split,
             List<String> pathPartitionKeys) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
-        TFileType locationType;
-        if (fileSplit instanceof IcebergSplit
-                && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            locationType = TFileType.FILE_BROKER;
-        } else {
-            locationType = fileSplit.getLocationType();
-        }
-
+        TFileType locationType = fileSplit.getLocationType();
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
         // Otherwise, use the values in file path.
@@ -559,8 +546,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected boolean isFileStreamType() throws UserException {
         return false;
     }
-
-    protected abstract String getDefaultFS();
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 

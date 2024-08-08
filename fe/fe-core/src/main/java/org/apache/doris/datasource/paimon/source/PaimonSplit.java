@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Optional;
 
 public class PaimonSplit extends FileSplit {
-    private final static LocationPath DUMMY_PATH = new LocationPath("hdfs://dummyPath", Maps.newHashMap());
+    private static final LocationPath DUMMY_PATH = new LocationPath("hdfs://dummyPath", Maps.newHashMap());
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;

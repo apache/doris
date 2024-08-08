@@ -70,12 +70,6 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected String getDefaultFS() {
-        // TVF always has default fs in uri, no need to use defaultFS.
-        return "";
-    }
-
-    @Override
     protected void initBackendPolicy() throws UserException {
         List<String> preferLocations = new ArrayList<>();
         if (tableValuedFunction instanceof LocalTableValuedFunction) {
