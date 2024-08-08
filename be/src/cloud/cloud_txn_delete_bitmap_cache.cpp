@@ -102,7 +102,9 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
             handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
         *delete_bitmap = val->delete_bitmap;
-        *rowset_ids = val->rowset_ids;
+        if (rowset_ids) {
+            *rowset_ids = val->rowset_ids;
+        }
         // must call release handle to reduce the reference count,
         // otherwise there will be memory leak
         release(handle);

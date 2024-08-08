@@ -63,6 +63,8 @@ public:
 
     void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
 
+    // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
+    // when using delete bitmap from this cache, the caller should remove them manually if don't need it
     Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
                              std::shared_ptr<PublishStatus>* publish_status);
