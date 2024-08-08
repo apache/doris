@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <ostream>
-#include <string_view>
 #include <utility>
 
 #include "common/config.h"
@@ -30,11 +29,8 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -143,6 +139,51 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
+                                                 uint32_t segment_num_rows) const {
+    DCHECK_GE(get_num_children(), 1);
+    if (get_child(0)->is_slot_ref()) {
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto* iter =
+                context->get_inverted_index_iterators_by_column_name(column_slot_ref->expr_name());
+        //column does not have inverted index
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+        auto storage_name_type =
+                context->get_storage_name_and_type_by_column_name(column_slot_ref->expr_name());
+        vectorized::ColumnsWithTypeAndName arguments;
+        for (int right_children_size = get_num_children() - 1; right_children_size > 0;
+             --right_children_size) {
+            if (get_child(right_children_size)->is_literal()) {
+                auto* column_literal = assert_cast<VLiteral*>(get_child(right_children_size).get());
+                arguments.emplace_back(column_literal->get_column_ptr(),
+                                       column_literal->get_data_type(),
+                                       column_literal->expr_name());
+
+            } else {
+                return Status::NotSupported(
+                        "arguments in evaluate_inverted_index for VectorizedFnCall must be "
+                        "literal, but we got {}",
+                        get_child(right_children_size)->expr_name());
+            }
+        }
+        RETURN_IF_ERROR(_function->evaluate_inverted_index(arguments, storage_name_type, iter,
+                                                           segment_num_rows, result_bitmap));
+        result_bitmap.mask_out_null();
+        context->set_inverted_index_result_for_expr(this, result_bitmap);
+        LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
+                   << result_bitmap.get_data_bitmap()->cardinality();
+    } else {
+        return Status::NotSupported(
+                "child 0 in evaluate_inverted_index for VectorizedFnCall must be slot ref, but we "
+                "got {}",
+                get_child(0)->expr_name());
+    }
+    return Status::OK();
+}
+
 Status VectorizedFnCall::eval_inverted_index(
         VExprContext* context,
         const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
@@ -171,8 +212,24 @@ Status VectorizedFnCall::eval_inverted_index(
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
                                      std::vector<size_t>& args) {
-    if (is_const_and_have_executed()) { // const have execute in open function
+    if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
+    }
+    if (context->get_inverted_index_result_column().contains(this)) {
+        size_t num_columns_without_result = block->columns();
+        // prepare a column to save result
+        auto result_column = context->get_inverted_index_result_column()[this];
+        LOG(WARNING) << "hit result expr name:" << _expr_name
+                     << " result:" << result_column->dump_structure() << " pointer is" << this;
+        if (_data_type->is_nullable()) {
+            block->insert(
+                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
+                     _data_type, _expr_name});
+        } else {
+            block->insert({result_column, _data_type, _expr_name});
+        }
+        *result_column_id = num_columns_without_result;
+        return Status::OK();
     }
 
     DCHECK(_open_finished || _getting_const_col) << debug_string();
@@ -189,17 +246,12 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_can_fast_execute) {
-        auto can_fast_execute = fast_execute(*block, args, num_columns_without_result,
-                                             block->rows(), _function->get_name());
-        if (can_fast_execute) {
-            *result_column_id = num_columns_without_result;
-            return Status::OK();
-        }
-    }
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    auto result_column = block->get_by_position(num_columns_without_result).column;
+    LOG(WARNING) << "no hit result expr name:" << _expr_name
+                 << " result:" << result_column->dump_structure() << " pointer is" << this;
     return Status::OK();
 }
 

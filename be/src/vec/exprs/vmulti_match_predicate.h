@@ -21,10 +21,16 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace lucene {
+namespace analysis {
+class Analyzer;
+}
+} // namespace lucene
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
@@ -36,32 +42,34 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
-class VInPredicate final : public VExpr {
-    ENABLE_FACTORY_CREATOR(VInPredicate);
+
+class VMultiMatchPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VMultiMatchPredicate);
 
 public:
-    VInPredicate(const TExprNode& node);
-    ~VInPredicate() override = default;
+    VMultiMatchPredicate(const TExprNode& node);
+    ~VMultiMatchPredicate() override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
+    Result<segment_v2::InvertedIndexResultBitmap> _evaluate_inverted_index_by_field(
+            VExprContext* context, vectorized::ColumnsWithTypeAndName& arguments,
+            uint32_t segment_num_rows, std::string field) const;
     const std::string& expr_name() const override;
+    const std::string& function_name() const;
 
     std::string debug_string() const override;
 
     const FunctionBasePtr function() { return _function; }
 
-    bool is_not_in() const { return _is_not_in; };
-    bool can_fast_execute() const override { return true; }
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
-
 private:
     FunctionBasePtr _function;
     std::string _expr_name;
-
-    const bool _is_not_in;
-    static const constexpr char* function_name = "in";
+    std::string _function_name;
+    InvertedIndexCtxSPtr _inverted_index_ctx;
+    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/vmatch_predicate.h"
+#include "vec/exprs/vmulti_match_predicate.h"
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -41,7 +41,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
@@ -55,7 +54,7 @@ class RuntimeState;
 namespace doris::vectorized {
 using namespace doris::segment_v2;
 
-VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
+VMultiMatchPredicate::VMultiMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     _inverted_index_ctx->parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
@@ -71,10 +70,10 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx->analyzer = _analyzer.get();
 }
 
-VMatchPredicate::~VMatchPredicate() = default;
+VMultiMatchPredicate::~VMultiMatchPredicate() = default;
 
-Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
-                                VExprContext* context) {
+Status VMultiMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
+                                     VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
@@ -105,13 +104,13 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
-    _function_name = _fn.name.function_name;
+    _function_name = "match_phrase_prefix";
     _prepare_finished = true;
     return Status::OK();
 }
 
-Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
+Status VMultiMatchPredicate::open(RuntimeState* state, VExprContext* context,
+                                  FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
@@ -127,105 +126,122 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VMultiMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
 }
 
-Status VMatchPredicate::evaluate_inverted_index(VExprContext* context,
-                                                uint32_t segment_num_rows) const {
-    DCHECK_EQ(get_num_children(), 2);
+Result<segment_v2::InvertedIndexResultBitmap>
+VMultiMatchPredicate::_evaluate_inverted_index_by_field(
+        VExprContext* context, vectorized::ColumnsWithTypeAndName& arguments,
+        uint32_t segment_num_rows, std::string field) const {
+    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    auto* iter = context->get_inverted_index_iterators_by_column_name(field);
+    //column does not have inverted index
+    if (iter == nullptr) {
+        return result_bitmap;
+    }
+    auto storage_name_type = context->get_storage_name_and_type_by_column_name(field);
+
+    auto st = _function->evaluate_inverted_index(arguments, storage_name_type, iter,
+                                                 segment_num_rows, result_bitmap);
+    if (!st.ok()) {
+        return ResultError(st);
+    }
+    result_bitmap.mask_out_null();
+    context->set_inverted_index_result_for_expr(this, result_bitmap);
+    LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
+               << result_bitmap.get_data_bitmap()->cardinality();
+    return result_bitmap;
+}
+
+Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
+                                                     uint32_t segment_num_rows) const {
+    DCHECK_EQ(get_num_children(), 4);
+    std::set<std::string> columns_names;
     if (get_child(0)->is_slot_ref()) {
         auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        auto* iter =
-                context->get_inverted_index_iterators_by_column_name(column_slot_ref->expr_name());
-        //column does not have inverted index
-        if (iter == nullptr) {
-            return Status::OK();
-        }
-        auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-        auto storage_name_type =
-                context->get_storage_name_and_type_by_column_name(column_slot_ref->expr_name());
-        vectorized::ColumnsWithTypeAndName arguments;
-
-        if (get_child(1)->is_literal()) {
-            auto* column_literal = assert_cast<VLiteral*>(get_child(1).get());
-            arguments.emplace_back(column_literal->get_column_ptr(),
-                                   column_literal->get_data_type(), column_literal->expr_name());
-
-        } else {
-            return Status::NotSupported(
-                    "arguments in evaluate_inverted_index for VectorizedFnCall must be "
-                    "literal, but we got {}",
-                    get_child(1)->expr_name());
-        }
-
-        RETURN_IF_ERROR(_function->evaluate_inverted_index(arguments, storage_name_type, iter,
-                                                           segment_num_rows, result_bitmap));
-        result_bitmap.mask_out_null();
-        context->set_inverted_index_result_for_expr(this, result_bitmap);
-        LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
-                   << result_bitmap.get_data_bitmap()->cardinality();
+        columns_names.insert(column_slot_ref->expr_name());
     } else {
         return Status::NotSupported(
-                "child 0 in evaluate_inverted_index for VMatchPredicate must be slot ref, but we "
+                "child 0 in evaluate_inverted_index for VMultiMatchPredicate must be slot ref, but "
+                "we "
                 "got {}",
                 get_child(0)->expr_name());
     }
-    return Status::OK();
-}
-
-Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
-    DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
-    if (context->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
-        // prepare a column to save result
-        auto result_column = context->get_inverted_index_result_column()[this];
-        LOG(WARNING) << "hit result expr name:" << _expr_name
-                     << " result:" << result_column->dump_structure();
-        if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, _expr_name});
-        } else {
-            block->insert({result_column, _data_type, _expr_name});
+    if (get_child(1)->is_literal()) {
+        auto* column_literal = assert_cast<VLiteral*>(get_child(1).get());
+        auto field_names_str = column_literal->value();
+        field_names_str.erase(std::remove_if(field_names_str.begin(), field_names_str.end(),
+                                             [](unsigned char c) { return std::isspace(c); }),
+                              field_names_str.end());
+        std::vector<std::string> field_names;
+        boost::split(field_names, field_names_str, boost::algorithm::is_any_of(","));
+        for (const auto& field_name : field_names) {
+            if (!field_name.empty()) {
+                columns_names.insert(field_name);
+            }
         }
-        *result_column_id = num_columns_without_result;
-        return Status::OK();
+    } else {
+        return Status::NotSupported(
+                "child 1 in evaluate_inverted_index for VMultiMatchPredicate must be "
+                "literal, but we got {}",
+                get_child(1)->expr_name());
     }
-    doris::vectorized::ColumnNumbers arguments(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+    if (get_child(2)->is_literal()) {
+        auto* column_literal = assert_cast<VLiteral*>(get_child(2).get());
+        auto match_type = column_literal->value();
+        if (match_type != "phrase_prefix") {
+            return Status::NotSupported("query type is incorrect, only support phrase_prefix");
+        }
+    } else {
+        return Status::NotSupported(
+                "child 2 in evaluate_inverted_index for VMultiMatchPredicate must be "
+                "literal, but we got {}",
+                get_child(2)->expr_name());
     }
-    // call function
-    size_t num_columns_without_result = block->columns();
-    // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows(), false));
-    *result_column_id = num_columns_without_result;
-    if (_data_type->is_nullable()) {
-        auto nested = block->get_by_position(num_columns_without_result).column;
-        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create(block->rows(), 0));
-        block->replace_by_position(num_columns_without_result, nullable);
+    vectorized::ColumnsWithTypeAndName arguments;
+    segment_v2::InvertedIndexResultBitmap ret;
+    if (get_child(3)->is_literal()) {
+        auto* column_literal = assert_cast<VLiteral*>(get_child(3).get());
+        arguments.emplace_back(column_literal->get_column_ptr(), column_literal->get_data_type(),
+                               column_literal->expr_name());
+    } else {
+        return Status::NotSupported(
+                "child 3 in evaluate_inverted_index for VMultiMatchPredicate must be "
+                "literal, but we got {}",
+                get_child(3)->expr_name());
+    }
+    for (auto& col_name : columns_names) {
+        auto result = DORIS_TRY(
+                _evaluate_inverted_index_by_field(context, arguments, segment_num_rows, col_name));
+        if (ret.is_empty()) {
+            ret = std::move(result);
+        } else {
+            ret |= result;
+        }
+    }
+    if (!ret.is_empty()) {
+        context->set_inverted_index_result_for_expr(this, ret);
     }
     return Status::OK();
 }
 
-const std::string& VMatchPredicate::expr_name() const {
+Status VMultiMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    return Status::NotSupported("not support for VMultiMatchPredicate::execute");
+}
+
+const std::string& VMultiMatchPredicate::expr_name() const {
     return _expr_name;
 }
 
-const std::string& VMatchPredicate::function_name() const {
+const std::string& VMultiMatchPredicate::function_name() const {
     return _function_name;
 }
 
-std::string VMatchPredicate::debug_string() const {
+std::string VMultiMatchPredicate::debug_string() const {
     std::stringstream out;
-    out << "MatchPredicate(" << children()[0]->debug_string() << ",[";
+    out << "MultiMatchPredicate(" << children()[0]->debug_string() << ",[";
     int num_children = children().size();
 
     for (int i = 1; i < num_children; ++i) {

@@ -359,11 +359,13 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 }
             }
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
+            _storage_name_and_type_by_col_name[col->name()] =
+                    std::make_pair(field_name, storage_type);
         }
     }
 
     _initialize_predicate_results();
-
+    RETURN_IF_ERROR(_construct_compound_expr_context());
     return Status::OK();
 }
 
@@ -536,7 +538,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
-    if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
+    /*if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
         size_t input_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
@@ -571,10 +573,11 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             }
         }
         _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
-    }
+    }*/
 
     RETURN_IF_ERROR(_apply_bitmap_index());
     RETURN_IF_ERROR(_apply_inverted_index());
+    RETURN_IF_ERROR(_apply_index_expr_except_leafnode_of_andnode());
     for (auto cid : _schema->column_ids()) {
         bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid);
 
@@ -1036,6 +1039,13 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     return Status::OK();
 }
 
+Status SegmentIterator::_apply_index_expr_except_leafnode_of_andnode() {
+    for (const auto& expr_ctx : _compound_expr_ctxs) {
+        RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows()));
+    }
+    return Status::OK();
+}
+
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
     bool is_fallback =
             _opts.runtime_state->query_options().enable_fallback_on_missing_inverted_index;
@@ -1471,6 +1481,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
                     _opts, &_inverted_index_iterators[cid]));
         }
+        _inverted_index_iterators_by_col_name[_schema->column(cid)->name()] =
+                _inverted_index_iterators[cid].get();
     }
     return Status::OK();
 }
@@ -2571,13 +2583,15 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         auto col_const = vectorized::ColumnConst::create(std::move(res_column),
                                                                          selected_size);
                         block->replace_by_position(0, std::move(col_const));
-                        _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
+                        _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
+                                                             block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                         block->replace_by_position(0, std::move(col0));
                     } else {
-                        _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
+                        _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
+                                                             block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
@@ -2610,12 +2624,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
-                _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
+                _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                 block->replace_by_position(0, std::move(col0));
             } else {
-                _output_index_result_column(_sel_rowid_idx.data(), selected_size, block);
+                _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
             }
@@ -2678,7 +2692,7 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
 
     vectorized::IColumn::Filter filter;
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
-            _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
+            _compound_expr_ctxs, block, _columns_to_filter, prev_columns, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
     return Status::OK();
@@ -2723,6 +2737,45 @@ uint16_t SegmentIterator::_evaluate_common_expr_filter(uint16_t* sel_rowid_idx,
             }
         }
         return new_size;
+    }
+}
+
+void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_idx,
+                                                           uint16_t select_size,
+                                                           vectorized::Block* block) {
+    SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
+    if (block->rows() == 0) {
+        return;
+    }
+    for (auto& expr_ctx : _compound_expr_ctxs) {
+        auto inverted_index_result_bitmap_for_exprs = expr_ctx->get_inverted_index_result_bitmap();
+        auto inverted_index_result_column_for_exprs = expr_ctx->get_inverted_index_result_column();
+        for (auto& inverted_index_result_bitmap_for_expr : inverted_index_result_bitmap_for_exprs) {
+            const auto* expr = inverted_index_result_bitmap_for_expr.first;
+            auto index_result_bitmap =
+                    inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
+            auto index_result_column = vectorized::ColumnUInt8::create();
+            vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
+            vec_match_pred.resize(block->rows());
+            size_t idx_in_selected = 0;
+            roaring::BulkContext bulk_context;
+
+            for (uint32_t i = 0; i < _current_batch_rows_read; i++) {
+                auto rowid = _block_rowids[i];
+                if (sel_rowid_idx == nullptr ||
+                    (idx_in_selected < select_size && i == sel_rowid_idx[idx_in_selected])) {
+                    if (index_result_bitmap->containsBulk(bulk_context, rowid)) {
+                        vec_match_pred[idx_in_selected] = true;
+                    } else {
+                        vec_match_pred[idx_in_selected] = false;
+                    }
+                    idx_in_selected++;
+                }
+            }
+            DCHECK(block->rows() == vec_match_pred.size());
+            expr_ctx->set_inverted_index_result_column_for_expr(expr,
+                                                                std::move(index_result_column));
+        }
     }
 }
 
@@ -2917,6 +2970,17 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
+}
+
+Status SegmentIterator::_construct_compound_expr_context() {
+    for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        vectorized::VExprContextSPtr context;
+        RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
+        context->set_inverted_index_iterators(_inverted_index_iterators_by_col_name);
+        context->set_storage_name_and_type(_storage_name_and_type_by_col_name);
+        _compound_expr_ctxs.emplace_back(context);
+    }
+    return Status::OK();
 }
 
 void SegmentIterator::_calculate_func_in_remaining_conjunct_root() {
