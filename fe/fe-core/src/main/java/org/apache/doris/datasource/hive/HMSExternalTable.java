@@ -320,7 +320,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private long getRowCountFromExternalSource() {
-        long rowCount;
+        long rowCount = -1;
         switch (dlaType) {
             case HIVE:
                 rowCount = StatisticsUtil.getHiveRowCount(this);
@@ -332,7 +332,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
                 }
-                rowCount = -1;
         }
         return rowCount;
     }
@@ -610,21 +609,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 continue;
             }
             ColumnStatisticsData data = tableStat.getStatsData();
-            try {
-                setStatData(column, data, columnStatisticBuilder, count);
-            } catch (AnalysisException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-                return Optional.empty();
-            }
+            setStatData(column, data, columnStatisticBuilder, count);
         }
 
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
-            throws AnalysisException {
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count) {
         long ndv = 0;
         long nulls = 0;
         double colSize = 0;

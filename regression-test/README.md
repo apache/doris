@@ -71,6 +71,7 @@ under the License.
 
     [示例](https://github.com/apache/doris/blob/master/regression-test/suites/javaudf_p0/test_javaudf_case.groovy#L27)
 
+7. 同一个目录下不同case间不要创建相同的表，避免互相冲突
 
 ## 兼容性 case
 指重启 FE 测试或升级测试中，在初始集群上创建的资源或规则，在集群重启或升级后也能正常使用，比如权限、UDF等。
