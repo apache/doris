@@ -408,7 +408,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
                 if (!nullmap_columns.empty() && nullmap_columns[j]) {
                     const auto& nullmap =
-                            assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(
+                            assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
                                     *nullmap_columns[j])
                                     .get_data()
                                     .data();

@@ -89,10 +89,10 @@ public:
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map).size();
+        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map).size();
     }
     PURE bool is_null_at(size_t n) const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map)
+        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map)
                        .get_data()[n] != 0;
     }
     Field operator[](size_t n) const override;
@@ -103,7 +103,7 @@ public:
     // column must be nullable(uint8)
     bool get_bool_inline(size_t n) const {
         return is_null_at(n) ? false
-                             : assert_cast<const ColumnUInt8*, TypeCheckOnRelease::Disable>(
+                             : assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
                                        nested_column.get())
                                        ->get_bool(n);
     }
@@ -311,10 +311,10 @@ public:
 
     ColumnUInt8& get_null_map_column() {
         _need_update_has_null = true;
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map);
+        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map);
     }
     const ColumnUInt8& get_null_map_column() const {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map);
+        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map);
     }
 
     void clear() override {
@@ -351,7 +351,7 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         const auto& nullable_rhs =
-                assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(rhs);
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(rhs);
         null_map->replace_column_data(*nullable_rhs.null_map, row, self_row);
 
         if (!nullable_rhs.is_null_at(row)) {
@@ -415,7 +415,7 @@ public:
 private:
     // the two functions will not update `_need_update_has_null`
     ColumnUInt8& _get_null_map_column() {
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::Disable>(*null_map);
+        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*null_map);
     }
     NullMap& _get_null_map_data() { return _get_null_map_column().get_data(); }
 

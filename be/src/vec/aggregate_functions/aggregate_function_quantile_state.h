@@ -115,15 +115,15 @@ public:
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(*columns[0]);
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
-                const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(
+                const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                         nullable_column.get_nested_column());
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
             const auto& column =
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(*columns[0]);
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }

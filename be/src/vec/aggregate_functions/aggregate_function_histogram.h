@@ -208,11 +208,11 @@ public:
 
         if constexpr (std::is_same_v<T, std::string>) {
             this->data(place).add(
-                    assert_cast<const ColumnString&, TypeCheckOnRelease::Disable>(*columns[0])
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data_at(row_num));
         } else {
             this->data(place).add(
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(*columns[0])
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num]);
         }
     }

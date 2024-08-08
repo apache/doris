@@ -100,12 +100,12 @@ public:
              Arena*) const override {
         if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
             auto column =
-                    assert_cast<const ColumnDataType*, TypeCheckOnRelease::Disable>(columns[0]);
+                    assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);
             this->data(place).add(
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
         } else {
-            auto value = assert_cast<const ColumnDataType*, TypeCheckOnRelease::Disable>(columns[0])
+            auto value = assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0])
                                  ->get_data_at(row_num);
             uint64_t hash_value =
                     HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);

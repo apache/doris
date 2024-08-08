@@ -335,7 +335,7 @@ private:
         ColumnPtr nested_column = nullptr;
         if (is_column_nullable(array_column.get_data())) {
             const auto& nested_null_column =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                             array_column.get_data());
             nested_null_map = nested_null_column.get_null_map_column().get_data().data();
             nested_column = nested_null_column.get_nested_column_ptr();

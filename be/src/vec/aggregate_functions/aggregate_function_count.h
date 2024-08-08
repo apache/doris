@@ -197,7 +197,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         data(place).count +=
-                !assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(*columns[0])
+                !assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0])
                          .is_null_at(row_num);
     }
 

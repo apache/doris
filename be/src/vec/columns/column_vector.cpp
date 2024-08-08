@@ -162,7 +162,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        uint8* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::Disable>(rhs)
+    const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
                                    .get_data()[rhs_row_id];
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {

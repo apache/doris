@@ -69,7 +69,7 @@ struct AggregateFunctionCollectSetData {
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        data_set.insert(assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(column)
+        data_set.insert(assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column)
                                 .get_data()[row_num]);
     }
 
@@ -193,7 +193,7 @@ struct AggregateFunctionCollectListData {
 
     void add(const IColumn& column, size_t row_num) {
         const auto& vec =
-                assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(column).get_data();
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column).get_data();
         data.push_back(vec[row_num]);
     }
 
@@ -260,7 +260,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
             data->insert_range_from(
                     *rhs.data, 0,
-                    std::min(assert_cast<size_t, TypeCheckOnRelease::Disable>(max_size - size()),
+                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(max_size - size()),
                              rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
@@ -330,9 +330,9 @@ struct AggregateFunctionArrayAggData {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(column);
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
         const auto& vec =
-                assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(col.get_nested_column())
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(col.get_nested_column())
                         .get_data();
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->get_data().push_back(vec[row_num]);
@@ -432,8 +432,8 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::Disable>(column);
-        const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                 col.get_nested_column());
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->insert_from(vec, row_num);
@@ -568,7 +568,7 @@ public:
         if constexpr (HasLimit::value) {
             if (data.max_size == -1) {
                 data.max_size =
-                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::Disable>(
+                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(
                                 columns[1])
                                 ->get_element(row_num);
             }
@@ -720,18 +720,18 @@ public:
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
                 if constexpr (std::is_same_v<StringRef, typename Data::ElementType>) {
-                    auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::Disable>(
+                    auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
                             col_null->get_nested_column());
                     const auto& vec_src =
-                            assert_cast<const ColumnString&, TypeCheckOnRelease::Disable>(
+                            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
-                    auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::Disable>(
+                    auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
                                         col_null->get_nested_column())
                                         .get_data();
-                    auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::Disable>(
+                    auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                                             col_src.get_nested_column())
                                             .get_data();
                     vec.push_back(vec_src[i]);
