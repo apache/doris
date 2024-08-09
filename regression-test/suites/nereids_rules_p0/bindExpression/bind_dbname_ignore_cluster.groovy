@@ -17,7 +17,7 @@
 suite("test_db_name_ignore_cluster") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'SET enable_fallback_to_original_planner=false'
     sql "use ${db}"
     sql "drop table if exists ${db}.test_db_name_ignore_cluster"
     sql """create table ${db}.test_db_name_ignore_cluster(a int, b int) unique key(a) distributed by hash(a)
