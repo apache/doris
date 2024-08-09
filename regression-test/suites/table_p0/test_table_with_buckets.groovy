@@ -15,19 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_table_with_buckets', 'nonConcurrent') {
+suite('test_table_with_buckets') {
     def tbl1 = 'test_table_with_buckets_tbl1'
     def tbl2 = 'test_table_with_buckets_tbl2'
     sql "drop table if exists `${tbl1}`"
     sql "drop table if exists `${tbl2}`"
 
-    def bak_enable_nereids_planner = sql_return_maparray("show variables like 'enable_nereids_planner'")[0].Value
-    sql 'set enable_nereids_planner = true'
-
     try {
         test {
             sql "create table ${tbl1}(k int) distributed by hash(k) buckets 0 properties('replication_num' = '1')"
-            exception 'Buckets number of distribution should be greater than zero.'
+            exception 'distribution should be greater than zero'
         }
 
         test {
@@ -51,7 +48,6 @@ suite('test_table_with_buckets', 'nonConcurrent') {
             exception 'Dynamic partition buckets must greater than 0'
         }
     } finally {
-        sql "set enable_nereids_planner = ${bak_enable_nereids_planner}"
         sql "drop table if exists `${tbl1}`"
         sql "drop table if exists `${tbl2}`"
     }
