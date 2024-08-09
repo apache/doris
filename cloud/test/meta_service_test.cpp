@@ -459,8 +459,9 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     obj_info.set_ak("ak");
     obj_info.set_sk("sk");
     StorageVaultPB vault;
+    constexpr char vault_name[] = "test_alter_s3_vault";
     vault.mutable_obj_info()->MergeFrom(obj_info);
-    vault.set_name("test_alter_s3_vault");
+    vault.set_name(vault_name);
     vault.set_id("2");
     InstanceInfoPB instance;
     instance.add_storage_vault_names(vault.name());
@@ -489,7 +490,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         StorageVaultPB vault;
         vault.mutable_obj_info()->set_ak("new_ak");
-        vault.set_name("test_alter_s3_vault");
+        vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
 
         brpc::Controller cntl;
@@ -526,6 +527,215 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "@!#vault_name";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj_info.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("invalid storage vault name") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj_info.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ak();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    std::pair<std::string, std::string> pair;
+    sp->set_call_back("extract_object_storage_info:get_aksk_pair", [&](auto&& args) {
+        auto* ret = try_any_cast<std::pair<std::string, std::string>*>(args[0]);
+        pair = *ret;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    HdfsBuildConf hdfs_build_conf;
+    hdfs_build_conf.set_fs_name("fs_name");
+    hdfs_build_conf.set_user("root");
+    HdfsVaultInfo hdfs_info;
+    hdfs_info.set_prefix("root_path");
+    hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+    StorageVaultPB vault;
+    constexpr char vault_name[] = "test_alter_hdfs_vault";
+    vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+    vault.set_name(vault_name);
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->mutable_build_conf()->set_user("hadoop");
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.hdfs_info().build_conf().user(), "hadoop")
+                << get_obj.hdfs_info().build_conf().fs_name();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+        StorageVaultPB vault;
+        auto* hdfs = vault.mutable_hdfs_info();
+        hdfs->set_prefix("fake_one");
+        vault.set_name("test_alter_hdfs_vault_non_exist");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "Thi213***@fakeVault";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->mutable_build_conf()->set_user("hadoop");
+        vault.set_name(vault_name);
+        vault.set_alter_name(new_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("invalid storage vault name") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_hdfs_vault";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->mutable_build_conf()->set_user("hadoop");
+        vault.set_name(vault_name);
+        vault.set_alter_name(new_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB get_obj;
+        get_obj.ParseFromString(val);
+        ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ak();
     }
 
     SyncPoint::get_instance()->disable_processing();
