@@ -332,7 +332,8 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-  127: optional i32 partition_topn_partition_threshold = 1024;
+  127: optional i32 partition_topn_max_partitions = 1024;
+  128: optional i32 partition_topn_pre_partition_rows = 10000;
 
   127: optional i32 in_list_value_count_threshold = 10;
 

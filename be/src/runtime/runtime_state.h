@@ -490,10 +490,16 @@ public:
                        : 0;
     }
 
-    int partition_topn_partition_threshold() const {
-        return _query_options.__isset.partition_topn_partition_threshold
-                       ? _query_options.partition_topn_partition_threshold
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
                        : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 10000;
     }
 
     int64_t parallel_scan_min_rows_per_scanner() const {
