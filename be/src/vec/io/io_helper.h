@@ -418,7 +418,10 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
 
 template <typename T>
 bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
+    // Prevent uint8_t type from causing incorrect results due to overflow
+    Int128 xx = 0;
+    if (read_int_text_impl<Int128>(xx, buf)) {
+        x = xx != 0;
         return x == 0 || x == 1;
     }
 
