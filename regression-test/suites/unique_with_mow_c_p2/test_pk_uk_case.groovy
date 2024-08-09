@@ -60,7 +60,8 @@ suite("test_pk_uk_case") {
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
         "replication_num" = "1",
-        "enable_unique_key_merge_on_write" = "true"
+        "enable_unique_key_merge_on_write" = "true",
+        "enable_mow_light_delete" = "true"
         )
     """
 
