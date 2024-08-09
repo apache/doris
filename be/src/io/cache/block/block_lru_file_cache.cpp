@@ -914,9 +914,9 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                     need_to_check_if_empty_dir.push_back(key_it->path());
                 }
                 scan_file_num += 1;
-                if (scan_file_num % config::scan_file_num_to_sleep == 0) {
-                    std::this_thread::sleep_for(
-                            std::chrono::milliseconds(config::sleep_time_per_scan_file));
+                if (scan_file_num % config::async_file_cache_init_file_num_interval == 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(
+                            config::async_file_cache_init_sleep_interval_ms));
                 }
             }
         }
