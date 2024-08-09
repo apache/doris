@@ -65,7 +65,7 @@ public class SemiJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSup
                                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
                                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
                                         ).when(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)),
-                                        logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                                 ).when(join -> join.getJoinType() == JoinType.LEFT_ANTI_JOIN)
                         )
                 );
@@ -74,10 +74,10 @@ public class SemiJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSup
     @Test
     public void testSemiProjectSemiCommuteMarkJoin() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .markJoinWithMarkConjuncts(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 2))
-                .markJoin(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
-                .projectAll()
+                .markJoinWithMarkConjuncts(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
+                .project(ImmutableList.of(0))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .applyExploration(SemiJoinSemiJoinTransposeProject.INSTANCE.build())
@@ -90,7 +90,7 @@ public class SemiJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSup
                                                         logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
                                                 ).when(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
                                         ).when(project -> project.getProjects().size() == 2),
-                                        logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                                 ).when(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
                         )
                 );

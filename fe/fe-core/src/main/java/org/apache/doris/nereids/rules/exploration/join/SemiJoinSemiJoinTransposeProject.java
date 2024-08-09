@@ -20,19 +20,17 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -100,15 +98,8 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
-                    Set<ExprId> topUsedExprIds = new HashSet<>();
-                    topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    bottomSemi.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                    bottomSemi.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-
-                    Plan left = CBOUtils.newProject(topUsedExprIds, newBottomSemi);
-                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
-
-                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(left, right, null);
+                    LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
+                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b, null);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return topProject.withChildren(newTopSemi);
