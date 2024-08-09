@@ -226,7 +226,7 @@ protected:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
-    virtual Status _check_segment_number_limit();
+    virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
@@ -298,7 +298,7 @@ private:
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;
-    Status _check_segment_number_limit() override;
+    Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
     Status _create_segment_writer_for_segcompaction(
