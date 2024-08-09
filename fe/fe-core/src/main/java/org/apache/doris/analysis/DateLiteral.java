@@ -349,7 +349,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.microsecond = microsecond;
-        Preconditions.checkArgument(type.isDatetimeV2());
+        Preconditions.checkArgument(type.isDatetimeV2() || type.isTimestamp());
         this.type = type;
         analysisDone();
     }
