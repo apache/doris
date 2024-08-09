@@ -62,4 +62,9 @@ public class AlterRoleStmt extends DdlStmt {
         sb.append(" COMMENT \"").append(comment).append("\"");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

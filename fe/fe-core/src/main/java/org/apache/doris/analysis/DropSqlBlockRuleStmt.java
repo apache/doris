@@ -56,4 +56,9 @@ public class DropSqlBlockRuleStmt extends DdlStmt {
         sb.append("DROP SQL_BLOCK_RULE ").append(Joiner.on(",").join(ruleNames));
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

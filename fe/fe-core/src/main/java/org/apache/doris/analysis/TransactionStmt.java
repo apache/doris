@@ -31,4 +31,9 @@ public class TransactionStmt extends StatementBase {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.TRANSACTION;
+    }
 }

@@ -56,4 +56,9 @@ public class AlterCatalogNameStmt extends AlterCatalogStmt {
     public String toSql() {
         return "ALTER CATALOG " + catalogName + " RENAME " + newCatalogName;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

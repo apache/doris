@@ -88,6 +88,11 @@ public class SetStmt extends StatementBase {
     }
 
     @Override
+    public StmtType stmtType() {
+        return StmtType.SET;
+    }
+
+    @Override
     public RedirectStatus getRedirectStatus() {
         if (setVars != null) {
             for (SetVar var : setVars) {

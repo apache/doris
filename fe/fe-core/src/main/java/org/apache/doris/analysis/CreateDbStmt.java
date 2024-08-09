@@ -93,4 +93,9 @@ public class CreateDbStmt extends DdlStmt {
         }
         return stringBuilder.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

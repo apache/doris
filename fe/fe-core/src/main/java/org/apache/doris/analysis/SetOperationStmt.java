@@ -980,5 +980,12 @@ public class SetOperationStmt extends QueryStmt {
         public SetOperand clone() {
             return new SetOperand(this);
         }
+
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
+    }
+
 }

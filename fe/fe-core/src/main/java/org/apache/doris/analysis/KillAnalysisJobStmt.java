@@ -24,4 +24,9 @@ public class KillAnalysisJobStmt extends DdlStmt {
     public KillAnalysisJobStmt(long jobId) {
         this.jobId = jobId;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.KILL;
+    }
 }

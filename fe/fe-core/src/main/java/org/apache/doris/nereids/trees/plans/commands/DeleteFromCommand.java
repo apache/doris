@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -433,5 +434,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("delete command on aggregate/duplicate table is not explainable");
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

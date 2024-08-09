@@ -42,7 +42,7 @@ public class SparkSql3LogicalPlanBuilder extends LogicalPlanBuilder {
     private final ParserContext parserContext;
 
     public SparkSql3LogicalPlanBuilder() {
-        this.parserContext = new ParserContext(Dialect.SPARK_SQL);
+        this.parserContext = new ParserContext(Dialect.SPARK);
     }
 
     @Override

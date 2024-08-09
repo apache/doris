@@ -247,4 +247,9 @@ public class RestoreStmt extends AbstractBackupStmt {
         sb.append("\n)");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RESTORE;
+    }
 }

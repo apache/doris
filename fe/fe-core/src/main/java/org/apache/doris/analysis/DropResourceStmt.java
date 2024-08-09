@@ -62,4 +62,9 @@ public class DropResourceStmt extends DdlStmt {
         sb.append("RESOURCE `").append(resourceName).append("`");
         return sb.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
 }

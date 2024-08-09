@@ -143,6 +143,10 @@ public abstract class StatementBase implements ParseNode {
         return "";
     }
 
+    public StmtType stmtType() {
+        return StmtType.OTHER;
+    }
+
     public abstract RedirectStatus getRedirectStatus();
 
     /**

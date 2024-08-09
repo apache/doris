@@ -125,4 +125,9 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         super.reset();
         queryStmt.reset();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

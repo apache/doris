@@ -53,4 +53,9 @@ public class StopSyncJobStmt extends DdlStmt {
         stringBuilder.append(jobName.toSql());
         return stringBuilder.toString();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.STOP;
+    }
 }

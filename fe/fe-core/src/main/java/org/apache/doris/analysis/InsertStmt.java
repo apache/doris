@@ -332,4 +332,9 @@ public abstract class InsertStmt extends DdlStmt {
         String toSql();
 
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
+    }
 }
