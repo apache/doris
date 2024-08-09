@@ -169,9 +169,15 @@ Status FunctionMultiMatch::eval_inverted_index(FunctionContext* context,
 
         auto single_result = std::make_shared<roaring::Roaring>();
         StringRef query_value(match_param->query.data());
-        RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state,
-                                            std::to_string(column.unique_id()), &query_value,
-                                            query_type, single_result));
+        auto index_version = tablet_schema->get_inverted_index_storage_format();
+        if (index_version == InvertedIndexStorageFormatPB::V1) {
+            RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state, column_name,
+                                                &query_value, query_type, single_result));
+        } else if (index_version == InvertedIndexStorageFormatPB::V2) {
+            RETURN_IF_ERROR(index_reader->query(opts.stats, opts.runtime_state,
+                                                std::to_string(column.unique_id()), &query_value,
+                                                query_type, single_result));
+        }
         (*result) |= (*single_result);
     }
 
