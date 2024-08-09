@@ -110,6 +110,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
@@ -317,6 +318,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushProjectThroughUnion(), new MergeProjects()),
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
+                        topDown(new PushCountIntoUnionAll()),
                         topDown(new MergeOneRowRelationIntoUnion()),
                         topDown(new PushProjectIntoUnion()),
                         costBased(topDown(new InferSetOperatorDistinct())),
