@@ -1080,6 +1080,16 @@ bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row
     return false;
 }
 
+void DeleteBitmap::remove_sentinel_marks() {
+    for (auto it = delete_bitmap.begin(), end = delete_bitmap.end(); it != end;) {
+        if (std::get<1>(it->first) == DeleteBitmap::INVALID_SEGMENT_ID) {
+            it = delete_bitmap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
     std::lock_guard l(lock);
     auto [_, inserted] = delete_bitmap.insert_or_assign(bmk, segment_delete_bitmap);

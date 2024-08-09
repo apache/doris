@@ -27,6 +27,7 @@
 #include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
+#include "olap/txn_manager.h"
 
 namespace doris {
 
@@ -54,7 +55,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-        std::shared_ptr<PublishStatus>* publish_status) {
+        std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -68,6 +69,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *txn_expiration = iter->second.txn_expiration;
         *partial_update_info = iter->second.partial_update_info;
         *publish_status = iter->second.publish_status;
+        *previous_publish_info = iter->second.publish_info;
     }
     RETURN_IF_ERROR(
             get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr));
@@ -96,7 +98,9 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
             handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
     if (val) {
         *delete_bitmap = val->delete_bitmap;
-        *rowset_ids = val->rowset_ids;
+        if (rowset_ids) {
+            *rowset_ids = val->rowset_ids;
+        }
         // must call release handle to reduce the reference count,
         // otherwise there will be memory leak
         release(handle);
@@ -153,12 +157,17 @@ void CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transactio
                                                        int64_t tablet_id,
                                                        DeleteBitmapPtr delete_bitmap,
                                                        const RowsetIdUnorderedSet& rowset_ids,
-                                                       PublishStatus publish_status) {
+                                                       PublishStatus publish_status,
+                                                       TxnPublishInfo publish_info) {
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
-        CHECK(_txn_map.count(txn_key) > 0);
-        *(_txn_map[txn_key].publish_status.get()) = publish_status;
+        CHECK(_txn_map.contains(txn_key));
+        TxnVal& txn_val = _txn_map[txn_key];
+        *(txn_val.publish_status) = publish_status;
+        if (publish_status == PublishStatus::SUCCEED) {
+            txn_val.publish_info = publish_info;
+        }
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);

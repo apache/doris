@@ -42,7 +42,8 @@ public:
                                RowsetSharedPtr* rowset, DeleteBitmapPtr* delete_bitmap,
                                RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
                                std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-                               std::shared_ptr<PublishStatus>* publish_status);
+                               std::shared_ptr<PublishStatus>* publish_status,
+                               TxnPublishInfo* previous_publish_info);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
@@ -52,12 +53,16 @@ public:
     void update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                 DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& rowset_ids,
-                                PublishStatus publish_status);
+                                PublishStatus publish_status, TxnPublishInfo publish_info = {});
 
     void remove_expired_tablet_txn_info();
 
     void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
 
+    // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
+    // and the version in BitmapKey is DeleteBitmap::TEMP_VERSION_COMMON.
+    // when using delete bitmap from this cache, the caller should manually remove these marks if don't need it
+    // and should replace versions in BitmapKey by the correct version
     Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
                              std::shared_ptr<PublishStatus>* publish_status);
@@ -88,6 +93,8 @@ private:
         int64_t txn_expiration;
         std::shared_ptr<PartialUpdateInfo> partial_update_info;
         std::shared_ptr<PublishStatus> publish_status = nullptr;
+        // used to determine if the retry needs to re-calculate the delete bitmap
+        TxnPublishInfo publish_info;
         TxnVal() : txn_expiration(0) {};
         TxnVal(RowsetSharedPtr rowset_, int64_t txn_expiration_,
                std::shared_ptr<PartialUpdateInfo> partial_update_info_,

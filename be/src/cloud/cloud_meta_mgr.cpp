@@ -559,14 +559,29 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
         }
         txn_processed.insert(txn_id);
         DeleteBitmapPtr tmp_delete_bitmap;
-        RowsetIdUnorderedSet tmp_rowset_ids;
         std::shared_ptr<PublishStatus> publish_status =
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
         Status status = engine.txn_delete_bitmap_cache().get_delete_bitmap(
-                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, &tmp_rowset_ids, &publish_status);
-        if (status.ok() && *(publish_status.get()) == PublishStatus::SUCCEED) {
-            delete_bitmap->merge(*tmp_delete_bitmap);
+                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, nullptr, &publish_status);
+        // CloudMetaMgr::sync_tablet_delete_bitmap_by_cache() is called after we sync rowsets from meta services.
+        // If the control flows reaches here, it's gauranteed that the rowsets is commited in meta services, so we can
+        // use the delete bitmap from cache directly if *publish_status == PublishStatus::SUCCEED without checking other
+        // stats(version or compaction stats)
+        if (status.ok() && *publish_status == PublishStatus::SUCCEED) {
+            // tmp_delete_bitmap contains sentinel marks, we should remove it before merge it to delete bitmap.
+            // Also, the version of delete bitmap key in tmp_delete_bitmap is DeleteBitmap::TEMP_VERSION_COMMON,
+            // we should replace it with the rowset's real version
+            DCHECK(rs_meta.start_version() == rs_meta.end_version());
+            int64_t rowset_version = rs_meta.start_version();
+            for (const auto& [delete_bitmap_key, bitmap_value] : tmp_delete_bitmap->delete_bitmap) {
+                // skip sentinel mark, which is used for delete bitmap correctness check
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    delete_bitmap->merge({std::get<0>(delete_bitmap_key),
+                                          std::get<1>(delete_bitmap_key), rowset_version},
+                                         bitmap_value);
+                }
+            }
             engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
                                                                            tablet->tablet_id());
         } else {
