@@ -79,7 +79,7 @@ private:
         return vectorized::VScanNode::PushDownType::ACCEPTABLE;
     }
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) override;
 
     bool _storage_no_merge() override;
 
