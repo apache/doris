@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
@@ -419,7 +420,11 @@ public class MasterImpl {
                             olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
-                        ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        }
                     }
                 }
             }
