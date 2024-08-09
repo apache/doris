@@ -468,9 +468,7 @@ int main(int argc, char** argv) {
 
     // init s3 write buffer pool
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
-                         doris::config::s3_write_buffer_size,
-                         exec_env->buffered_reader_prefetch_thread_pool());
+    s3_buffer_pool->init(exec_env->buffered_reader_prefetch_thread_pool());
 
     // init and open storage engine
     doris::EngineOptions options;

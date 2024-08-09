@@ -38,17 +38,8 @@ namespace io {
 struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     using Callback = std::function<void()>;
 
-    S3FileBuffer(ThreadPool* pool) { _thread_pool = pool; }
-    ~S3FileBuffer() = default;
-
-    void rob_buffer(std::shared_ptr<S3FileBuffer>& other) {
-        _buf = other->_buf;
-        // we should clear other's memory buffer in case it woule be reclaimed twice
-        // when calling on_finished
-        other->_buf.clear();
-    }
-
-    void reserve_buffer(Slice s) { _buf = s; }
+    S3FileBuffer(ThreadPool* pool);
+    ~S3FileBuffer();
 
     // append data into the memory buffer inside
     // or into the file cache if the buffer has no memory buffer
@@ -109,7 +100,8 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     size_t _size {0};
     std::shared_ptr<std::iostream> _stream_ptr;
     // only served as one reserved buffer
-    Slice _buf;
+    struct PartData;
+    std::unique_ptr<PartData> _inner_data;
     size_t _append_offset {0};
     // not owned
     ThreadPool* _thread_pool = nullptr;
@@ -122,27 +114,16 @@ public:
 
     // should be called one and only once
     // at startup
-    void init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
-              doris::ThreadPool* thread_pool);
+    void init(doris::ThreadPool* thread_pool);
 
     static S3FileBufferPool* GetInstance() {
         static S3FileBufferPool _pool;
         return &_pool;
     }
 
-    void reclaim(Slice buf) {
-        std::unique_lock<std::mutex> lck {_lock};
-        _free_raw_buffers.emplace_front(buf);
-        _cv.notify_all();
-    }
-
-    std::shared_ptr<S3FileBuffer> allocate(bool reserve = false);
+    Status allocate(std::shared_ptr<S3FileBuffer>* buf);
 
 private:
-    std::mutex _lock;
-    std::condition_variable _cv;
-    std::unique_ptr<char[]> _whole_mem_buffer;
-    std::list<Slice> _free_raw_buffers;
     // not owned
     ThreadPool* _thread_pool = nullptr;
 };
