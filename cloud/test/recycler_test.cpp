@@ -631,7 +631,8 @@ TEST(RecyclerTest, recycle_empty) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_empty");
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
@@ -664,7 +665,8 @@ TEST(RecyclerTest, recycle_rowsets) {
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -729,7 +731,8 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
 
     config::instance_recycler_worker_pool_size = 10;
     config::recycle_task_threshold_seconds = 0;
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     auto sp = SyncPoint::get_instance();
@@ -812,7 +815,8 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -874,7 +878,8 @@ TEST(RecyclerTest, recycle_tablet) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_tablet");
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -949,7 +954,8 @@ TEST(RecyclerTest, recycle_indexes) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_indexes");
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -1061,7 +1067,8 @@ TEST(RecyclerTest, recycle_partitions) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_partitions");
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -1172,7 +1179,8 @@ TEST(RecyclerTest, recycle_versions) {
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     // Recycle all partitions in table except 30006
     ASSERT_EQ(recycler.recycle_partitions(), 0);
@@ -1210,7 +1218,7 @@ TEST(RecyclerTest, recycle_versions) {
     ASSERT_EQ(iter->size(), 0);
 }
 
-TEST(RecyclerTest, abort_timeout_txn) {
+TEST(RecyclerTest, advance_pending_txn) {
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
@@ -1228,7 +1236,7 @@ TEST(RecyclerTest, abort_timeout_txn) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         TxnInfoPB txn_info_pb;
         txn_info_pb.set_db_id(db_id);
-        txn_info_pb.set_label("abort_timeout_txn");
+        txn_info_pb.set_label("advance_pending_txn");
         txn_info_pb.add_table_ids(table_id);
         txn_info_pb.set_timeout_ms(1);
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
@@ -1241,16 +1249,17 @@ TEST(RecyclerTest, abort_timeout_txn) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    ASSERT_EQ(recycler.advance_pending_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
 }
 
-TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
+TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
     config::label_keep_max_second = 0;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
@@ -1263,7 +1272,7 @@ TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
     int64_t table_id = 1234;
     int64_t txn_id = -1;
     std::string cloud_unique_id = "test_cloud_unique_id22131";
-    std::string label = "abort_timeout_txn_and_rebegin";
+    std::string label = "advance_pending_txn_and_rebegin";
     {
         brpc::Controller cntl;
         BeginTxnRequest req;
@@ -1284,10 +1293,11 @@ TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    ASSERT_EQ(recycler.advance_pending_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
@@ -1351,9 +1361,10 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), 0);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1402,10 +1413,11 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1454,10 +1466,11 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1513,10 +1526,11 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1650,7 +1664,8 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1809,7 +1824,8 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     const auto& internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1923,7 +1939,8 @@ TEST(RecyclerTest, recycle_stage) {
     instance.set_instance_id(mock_instance);
     instance.add_obj_info()->CopyFrom(object_info);
 
-    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
     for (int i = 0; i < 10; ++i) {
@@ -1983,7 +2000,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     // create txn key
     for (size_t i = 0; i < 100; i++) {
@@ -2568,7 +2586,8 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 
     {
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         int64_t txn_id_base = 114115;
@@ -2602,7 +2621,8 @@ TEST(RecyclerTest, delete_rowset_data) {
         tmp_obj_info->set_bucket(config::test_s3_bucket);
         tmp_obj_info->set_prefix(resource_id);
 
-        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group);
+        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
@@ -2622,7 +2642,8 @@ TEST(RecyclerTest, delete_rowset_data) {
         ASSERT_FALSE(list_iter->has_next());
     }
     {
-        InstanceRecycler recycler(txn_kv, instance, thread_group);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB

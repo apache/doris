@@ -75,6 +75,7 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     resource_mgr_ = resource_mgr;
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -237,6 +238,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
     }
 
+    code = MetaServiceCode::OK;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -265,6 +267,20 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "malformed version value";
                 return;
             }
+
+            if (version_pb.has_txn_id()) {
+                txn.reset();
+                std::shared_ptr<TxnLazyCommitTask> task =
+                        txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
+
+                std::tie(code, msg) = task->wait();
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "wait txn lazy commit failed, txn_id=" << version_pb.txn_id()
+                                 << " code=" << code << " msg=" << msg;
+                    return;
+                }
+            }
+
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
@@ -326,6 +342,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     std::vector<std::optional<std::string>> version_values;
     version_keys.reserve(BATCH_SIZE);
     version_values.reserve(BATCH_SIZE);
+
     while ((code == MetaServiceCode::OK || code == MetaServiceCode::KV_TXN_TOO_OLD) &&
            response->versions_size() < response->partition_ids_size()) {
         std::unique_ptr<Transaction> txn;
@@ -386,6 +403,20 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                         msg = "malformed version value";
                         break;
+                    }
+                    if (version_pb.has_txn_id()) {
+                        txn.reset();
+                        std::shared_ptr<TxnLazyCommitTask> task =
+                                txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
+                        std::tie(code, msg) = task->wait();
+                        if (code != MetaServiceCode::OK) {
+                            LOG(WARNING) << "wait txn lazy commit failed, txn_id="
+                                         << version_pb.txn_id();
+                            response->clear_partition_ids();
+                            response->clear_table_ids();
+                            response->clear_versions();
+                            return;
+                        }
                     }
                     response->add_versions(version_pb.version());
                     response->add_version_update_time_ms(version_pb.update_time_ms());
