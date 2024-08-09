@@ -110,7 +110,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_mixed_set_operators """
-        explain shape plan select * from t1 union select * from t2 except select * from t3 intersect select * from t4;
+        explain shape plan (select * from t1 union select * from t2 except select * from t3) intersect select * from t4;
     """
 
     qt_join_with_union """
