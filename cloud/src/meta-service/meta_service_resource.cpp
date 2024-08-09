@@ -43,7 +43,7 @@ using namespace std::chrono;
 
 namespace {
 constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
-bool isValidStorageVaultName(const std::string& str) {
+bool is_valid_storage_vault_name(const std::string& str) {
     const std::regex pattern(pattern_str);
     return std::regex_match(str, pattern);
 }
@@ -566,11 +566,11 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
         msg = ss.str();
         return -1;
     }
-    std::stringstream log_msg;
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
-        if (!isValidStorageVaultName(vault.alter_name())) {
+        if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             std::stringstream ss;
             ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
@@ -578,38 +578,27 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
             msg = ss.str();
             return -1;
         }
-        log_msg << " set user from" << new_vault.name() << " to " << vault.alter_name();
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
     auto* alter_hdfs_info = new_vault.mutable_hdfs_info();
     if (hdfs_info.build_conf().has_hdfs_kerberos_keytab()) {
-        log_msg << " set kerberos key tab from "
-                << alter_hdfs_info->build_conf().hdfs_kerberos_keytab() << " to "
-                << hdfs_info.build_conf().hdfs_kerberos_keytab();
         alter_hdfs_info->mutable_build_conf()->set_hdfs_kerberos_keytab(
                 hdfs_info.build_conf().hdfs_kerberos_keytab());
     }
     if (hdfs_info.build_conf().has_hdfs_kerberos_principal()) {
-        log_msg << " set kerberos principal from "
-                << alter_hdfs_info->build_conf().hdfs_kerberos_principal() << " to "
-                << hdfs_info.build_conf().hdfs_kerberos_principal();
         alter_hdfs_info->mutable_build_conf()->set_hdfs_kerberos_principal(
                 hdfs_info.build_conf().hdfs_kerberos_principal());
     }
     if (hdfs_info.build_conf().has_user()) {
-        log_msg << " set user from " << alter_hdfs_info->build_conf().user() << " to "
-                << hdfs_info.build_conf().user();
         alter_hdfs_info->mutable_build_conf()->set_user(hdfs_info.build_conf().user());
     }
     if (0 != hdfs_info.build_conf().hdfs_confs_size()) {
-        for (const auto& conf : hdfs_info.build_conf().hdfs_confs()) {
-            log_msg << " add hdfs conf key " << conf.key() << " value " << conf.value();
-        }
         alter_hdfs_info->mutable_build_conf()->mutable_hdfs_confs()->Add(
                 hdfs_info.build_conf().hdfs_confs().begin(),
                 hdfs_info.build_conf().hdfs_confs().end());
     }
+    auto new_vault_info = new_vault.DebugString();
 
     val = new_vault.SerializeAsString();
     if (val.empty()) {
@@ -619,7 +608,8 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
 
     txn->put(vault_key, val);
-    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key) << log_msg.str();
+    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
+              << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -667,7 +657,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     std::string val;
 
     auto err = txn->get(vault_key, &val);
-    LOG(INFO) << "get instance_key=" << hex(vault_key);
+    LOG(INFO) << "get vault_key=" << hex(vault_key);
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -679,18 +669,22 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    if (vault.has_alter_name()) {
+        if (!is_valid_storage_vault_name(vault.alter_name())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            std::stringstream ss;
+            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
+               << pattern_str;
+            msg = ss.str();
+            return -1;
+        }
+        new_vault.set_name(vault.alter_name());
+        *name_itr = vault.alter_name();
+    }
+    auto origin_vault_info = new_vault.DebugString();
     AkSkPair pre {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
     const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : new_vault.obj_info().ak();
     const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : new_vault.obj_info().sk();
-    auto obfuscating_sk = [](const auto& sk) -> std::string {
-        if (sk.empty()) {
-            return "";
-        }
-        std::string result(sk.length(), '*');
-        result.replace(0, 2, sk, 0, 2);
-        result.replace(result.length() - 2, 2, sk, sk.length() - 2, 2);
-        return result;
-    };
     AkSkPair plain_ak_sk_pair {plain_ak, plain_sk};
     AkSkPair cipher_ak_sk_pair;
     EncryptionInfoPB encryption_info;
@@ -702,24 +696,11 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         LOG(WARNING) << msg;
         return -1;
     }
-    std::stringstream ss;
-    if (vault.has_alter_name()) {
-        if (!isValidStorageVaultName(vault.alter_name())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            std::stringstream ss;
-            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
-               << pattern_str;
-            msg = ss.str();
-            return -1;
-        }
-        ss << ", previous name=" << name << ", new name=" << vault.alter_name();
-        new_vault.set_name(vault.alter_name());
-        *name_itr = vault.alter_name();
-    }
     new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
     new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
 
+    auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
     if (val.empty()) {
         msg = "failed to serialize";
@@ -728,10 +709,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
 
     txn->put(vault_key, val);
-    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key) << ss.str()
-              << ", previous ak=" << pre.first << ", previous sk=" << obfuscating_sk(pre.second)
-              << ", new ak=" << cipher_ak_sk_pair.first
-              << ", new sk=" << obfuscating_sk(cipher_ak_sk_pair.second);
+    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
+              << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);

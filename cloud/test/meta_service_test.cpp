@@ -531,6 +531,28 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
 
     {
         AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "@!#vault_name";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj_info.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("invalid storage vault name") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
         constexpr char new_vault_name[] = "new_test_alter_s3_vault";
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
@@ -665,6 +687,26 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "Thi213***@fakeVault";
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_hdfs_info()->mutable_build_conf()->set_user("hadoop");
+        vault.set_name(vault_name);
+        vault.set_alter_name(new_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("invalid storage vault name") != std::string::npos)
+                << res.status().msg();
     }
 
     {
