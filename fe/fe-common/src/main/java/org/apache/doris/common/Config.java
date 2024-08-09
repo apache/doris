@@ -409,7 +409,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
-    public static int thrift_client_timeout_ms = 0;
+    public static int thrift_client_timeout_ms = 10000;
 
     // The default value is inherited from org.apache.thrift.TConfiguration
     @ConfField(description = {"thrift server 接收请求大小的上限",
