@@ -15,7 +15,7 @@
  // specific language governing permissions and limitations
  // under the License.
 
-suite("test_push_conjunct_external_table") {
+suite("test_push_conjunct_external_table", "nonConcurrent") {
  sql """ DROP TABLE IF EXISTS dim_server; """
  sql """ admin set frontend config("enable_odbc_mysql_broker_table" = "true")"""
 
