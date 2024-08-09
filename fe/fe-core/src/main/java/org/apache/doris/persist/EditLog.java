@@ -344,7 +344,8 @@ public class EditLog {
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, 0),
+                                        batchDropInfo.getTableName(), indexId, false, 0,
+                                        batchDropInfo.getWatermarkTxnId()),
                                 env);
                     }
                     break;
@@ -1212,6 +1213,11 @@ public class EditLog {
                 case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                     UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
+                case OperationType.OP_DELETE_DECOMMISSION_TABLET: {
+                    DeleteTabletInfo deleteTabletInfo = (DeleteTabletInfo) journal.getData();
+                    Env.getCurrentInvertedIndex().deleteDecommissionTablet(deleteTabletInfo.getTabletId());
                     break;
                 }
                 default: {
@@ -2140,5 +2146,9 @@ public class EditLog {
 
     private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
         return journal.exceedMaxJournalSize(op, writable);
+    }
+
+    public void logDeleteDecommissionTablet(DeleteTabletInfo info) {
+        logEdit(OperationType.OP_DELETE_DECOMMISSION_TABLET, info);
     }
 }

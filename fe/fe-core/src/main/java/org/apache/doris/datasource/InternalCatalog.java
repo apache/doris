@@ -953,7 +953,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
 
-            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(), recycleTime);
+
+            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(),
+                    recycleTime, -1);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
 
             Env.getCurrentEnv().getMtmvService().dropTable(table);

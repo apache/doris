@@ -44,7 +44,7 @@ public class DropAndRecoverInfoTest {
         DropInfo info1 = new DropInfo();
         info1.write(dos);
 
-        DropInfo info2 = new DropInfo(1, 2, "t2", -1, true, 0);
+        DropInfo info2 = new DropInfo(1, 2, "t2", -1, true, 0, -1);
         info2.write(dos);
 
         dos.flush();
@@ -65,10 +65,10 @@ public class DropAndRecoverInfoTest {
 
         Assert.assertEquals(rInfo2, rInfo2);
         Assert.assertNotEquals(rInfo2, this);
-        Assert.assertNotEquals(info2, new DropInfo(0, 2, "t2", -1L, true, 0));
-        Assert.assertNotEquals(info2, new DropInfo(1, 0, "t0", -1L, true, 0));
-        Assert.assertNotEquals(info2, new DropInfo(1, 2, "t2", -1L, false, 0));
-        Assert.assertEquals(info2, new DropInfo(1, 2, "t2", -1L, true, 0));
+        Assert.assertNotEquals(info2, new DropInfo(0, 2, "t2", -1L, true, 0, -1));
+        Assert.assertNotEquals(info2, new DropInfo(1, 0, "t0", -1L, true, 0, -1));
+        Assert.assertNotEquals(info2, new DropInfo(1, 2, "t2", -1L, false, 0, -1));
+        Assert.assertEquals(info2, new DropInfo(1, 2, "t2", -1L, true, 0, -1));
 
         // 3. delete files
         dis.close();

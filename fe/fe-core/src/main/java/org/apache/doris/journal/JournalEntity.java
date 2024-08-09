@@ -83,6 +83,7 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
+import org.apache.doris.persist.DeleteTabletInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
@@ -952,6 +953,11 @@ public class JournalEntity implements Writable {
             // FIXME: support cloud related operation types.
             case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                 data = UpdateCloudReplicaInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_DECOMMISSION_TABLET: {
+                data = DeleteTabletInfo.read(in);
                 isRead = true;
                 break;
             }

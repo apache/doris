@@ -932,10 +932,14 @@ public class MaterializedViewHandler extends AlterHandler {
             // drop data in memory
             Set<Long> indexIdSet = new HashSet<>();
             Set<String> rollupNameSet = new HashSet<>();
+
+            // used for delete tablet, delete tablets when all transactions before watermarkTxnId are finished
+            long watermarkTxnId =
+                    Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
             for (AlterClause alterClause : dropRollupClauses) {
                 DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
                 String rollupIndexName = dropRollupClause.getRollupName();
-                long rollupIndexId = dropMaterializedView(rollupIndexName, olapTable);
+                long rollupIndexId = dropMaterializedView(rollupIndexName, olapTable, watermarkTxnId);
                 indexIdSet.add(rollupIndexId);
                 rollupNameSet.add(rollupIndexName);
             }
@@ -945,10 +949,12 @@ public class MaterializedViewHandler extends AlterHandler {
             long dbId = db.getId();
             long tableId = olapTable.getId();
             String tableName = olapTable.getName();
-            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, indexIdSet));
+            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, indexIdSet, watermarkTxnId));
             deleteIndexList = indexIdSet.stream().collect(Collectors.toList());
             LOG.info("finished drop rollup index[{}] in table[{}]",
                     String.join("", rollupNameSet), olapTable.getName());
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
         } finally {
             olapTable.writeUnlock();
         }
@@ -965,11 +971,13 @@ public class MaterializedViewHandler extends AlterHandler {
             // Step1: check drop mv index operation
             checkDropMaterializedView(mvName, olapTable);
             // Step2; drop data in memory
-            long mvIndexId = dropMaterializedView(mvName, olapTable);
+            long watermarkTxnId =
+                    Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+            long mvIndexId = dropMaterializedView(mvName, olapTable, watermarkTxnId);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(
-                    new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(), mvIndexId, false, 0));
+            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(), mvIndexId,
+                    false, 0, watermarkTxnId));
             deleteIndexList.add(mvIndexId);
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
@@ -978,6 +986,8 @@ public class MaterializedViewHandler extends AlterHandler {
             } else {
                 throw e;
             }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
         } finally {
             olapTable.writeUnlock();
         }
@@ -1019,17 +1029,17 @@ public class MaterializedViewHandler extends AlterHandler {
      * @param olapTable
      * @return
      */
-    private long dropMaterializedView(String mvName, OlapTable olapTable) {
+    private long dropMaterializedView(String mvName, OlapTable olapTable, long watermarkTxnId) {
         long mvIndexId = olapTable.getIndexIdByName(mvName);
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex rollupIndex = partition.getIndex(mvIndexId);
             // delete rollup index
             partition.deleteRollupIndex(mvIndexId);
-            // remove tablets from inverted index
+            // set watermarkTxnId for each tablet
             for (Tablet tablet : rollupIndex.getTablets()) {
                 long tabletId = tablet.getId();
-                invertedIndex.deleteTablet(tabletId);
+                invertedIndex.addDecommissionTablet(tabletId, watermarkTxnId);
             }
         }
         olapTable.deleteIndexInfo(mvName);
@@ -1056,9 +1066,9 @@ public class MaterializedViewHandler extends AlterHandler {
             for (Partition partition : olapTable.getPartitions()) {
                 MaterializedIndex rollupIndex = partition.deleteRollupIndex(rollupIndexId);
 
-                // remove from inverted index
+                // set watermarkTxnId for each tablet
                 for (Tablet tablet : rollupIndex.getTablets()) {
-                    invertedIndex.deleteTablet(tablet.getId());
+                    invertedIndex.addDecommissionTablet(tablet.getId(), dropInfo.getWatermarkTxnId());
                 }
             }
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);

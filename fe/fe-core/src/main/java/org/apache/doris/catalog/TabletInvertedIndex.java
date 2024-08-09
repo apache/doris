@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.master.PartitionInfoCollector.PartitionCollectInfo;
+import org.apache.doris.persist.DeleteTabletInfo;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -107,6 +108,9 @@ public class TabletInvertedIndex {
 
     private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
 
+    // tablet id -> watermark id
+    private Map<Long, Long> decommissionTabletMap = Maps.newHashMap();
+
     public TabletInvertedIndex() {
     }
 
@@ -141,9 +145,29 @@ public class TabletInvertedIndex {
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
         List<Pair<TabletMeta, TTabletInfo>> cooldownTablets = new ArrayList<>();
+
+        long start = System.currentTimeMillis();
+        // delete decommission tablet when all transactions finished
+        try {
+            List<Long> decommissionTabletIds = getDecommissionTabletIds();
+            for (long tabletId : decommissionTabletIds) {
+                long watermarkId = getWatermarkByTabletId(tabletId);
+                Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+                TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+
+                if (Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                        watermarkId, tabletMeta.getDbId(), tabletMeta.getTableId(),
+                        tabletMeta.getPartitionId())) {
+                    deleteDecommissionTablet(tabletId);
+                    Env.getCurrentEnv().getEditLog().logDeleteDecommissionTablet(new DeleteTabletInfo(tabletId));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
         long feTabletNum = 0;
         long stamp = readLock();
-        long start = System.currentTimeMillis();
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
@@ -597,30 +621,73 @@ public class TabletInvertedIndex {
     public void deleteTablet(long tabletId) {
         long stamp = writeLock();
         try {
-            Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
-            if (replicas != null) {
-                for (Replica replica : replicas.values()) {
-                    replicaToTabletMap.remove(replica.getId());
-                }
-
-                for (long backendId : replicas.keySet()) {
-                    backingReplicaMetaTable.remove(backendId, tabletId);
-                }
-            }
-            TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
-            if (tabletMeta != null) {
-                tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("delete tablet meta: {}", tabletId);
-                }
-            }
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("delete tablet: {}", tabletId);
-            }
+            internalDeleteTablet(tabletId);
         } finally {
             writeUnlock(stamp);
         }
+    }
+
+    public void internalDeleteTablet(long tabletId) {
+        Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
+        if (replicas != null) {
+            for (Replica replica : replicas.values()) {
+                replicaToTabletMap.remove(replica.getId());
+            }
+
+            for (long backendId : replicas.keySet()) {
+                backingReplicaMetaTable.remove(backendId, tabletId);
+            }
+        }
+        TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
+        if (tabletMeta != null) {
+            tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+            LOG.debug("delete tablet meta: {}", tabletId);
+        }
+        LOG.debug("delete tablet: {}", tabletId);
+    }
+
+    public void addDecommissionTablet(long tabletId, long watermark) {
+        long stamp = writeLock();
+        try {
+            decommissionTabletMap.put(tabletId, watermark);
+            LOG.debug("decommission tablet: {}, watermark: {}", tabletId, watermark);
+        } finally {
+            writeUnlock(stamp);
+        }
+    }
+
+    public void deleteDecommissionTablet(long tabletId) {
+        long stamp = writeLock();
+        try {
+            internalDeleteTablet(tabletId);
+            decommissionTabletMap.remove(tabletId);
+            LOG.debug("delete decommission tablet: {}", tabletId);
+        } finally {
+            writeUnlock(stamp);
+        }
+    }
+
+    public long getWatermarkByTabletId(long tabletId) {
+        long stamp = readLock();
+        try {
+            Preconditions.checkState(decommissionTabletMap.containsKey(tabletId));
+            return decommissionTabletMap.get(tabletId);
+        } finally {
+            readUnlock(stamp);
+        }
+    }
+
+    public List<Long> getDecommissionTabletIds() {
+        List<Long> tabletIds = Lists.newArrayList();
+        long stamp = readLock();
+        try {
+            if (decommissionTabletMap != null) {
+                tabletIds.addAll(decommissionTabletMap.keySet());
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return tabletIds;
     }
 
     public void addReplica(long tabletId, Replica replica) {
