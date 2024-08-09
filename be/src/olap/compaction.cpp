@@ -333,7 +333,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
         int64_t now = UnixMillis();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-            _tablet->set_last_cumu_compaction_success_time(now);
+            // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+            if (!(_tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+                  _output_rowset->num_segments() == 0)) {
+                _tablet->set_last_cumu_compaction_success_time(now);
+            }
         } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
         } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
@@ -748,7 +752,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     int64_t now = UnixMillis();
     // TODO(yingchun): do the judge in Tablet class
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-        _tablet->set_last_cumu_compaction_success_time(now);
+        // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+        if (!(_tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+              _output_rowset->num_segments() == 0)) {
+            _tablet->set_last_cumu_compaction_success_time(now);
+        }
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
     } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
