@@ -923,11 +923,15 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
-                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    expr = new NullLiteral();
+                } else {
+                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                }
             }
             if (expr instanceof Subquery) {
                 throw new AnalysisException("Insert values can not be query");
