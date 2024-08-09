@@ -73,16 +73,15 @@ ScannerContext::ScannerContext(
         limit = -1;
     }
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
-    _max_thread_num = _state->num_scanner_threads() > 0
-                              ? _state->num_scanner_threads()
-                              : config::doris_scanner_thread_pool_thread_num /
-                                        (_local_state ? num_parallel_instances
-                                                      : state->query_parallel_instance_num());
+    _max_thread_num =
+            _state->num_scanner_threads() > 0
+                    ? _state->num_scanner_threads()
+                    : config::doris_scanner_thread_pool_thread_num / num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
-    if (_local_state && _local_state->should_run_serial()) {
+    if (_local_state->should_run_serial()) {
         _max_thread_num = 1;
     }
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.

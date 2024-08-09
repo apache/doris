@@ -49,7 +49,6 @@ namespace doris {
 class RuntimeProfile;
 namespace vectorized {
 class VExprContext;
-class VScanNode;
 } // namespace vectorized
 } // namespace doris
 
