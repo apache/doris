@@ -192,7 +192,7 @@ public abstract class ColumnType {
     }
 
     public static Type read(DataInput in) throws IOException {
-        PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
+        PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in).toUpperCase());
         if (primitiveType == PrimitiveType.ARRAY) {
             Type itermType = read(in);
             boolean containsNull = in.readBoolean();
