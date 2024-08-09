@@ -33,8 +33,8 @@ suite("test_index_match_phrase_edge_arr", "array_contains_inverted_index"){
       `a` int(11) NULL COMMENT "",
       `b` array<text> NULL COMMENT "[]",
       `c` array<text> NULL COMMENT "[]",
-      INDEX b_idx (`b`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT '',
-      INDEX c_idx (`c`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true") COMMENT '',
+      INDEX b_idx (`b`) USING INVERTED PROPERTIES("parser" = "none") COMMENT '',
+      INDEX c_idx (`c`) USING INVERTED PROPERTIES("parser" = "none") COMMENT '',
       ) ENGINE=OLAP
       DUPLICATE KEY(`a`)
       COMMENT "OLAP"

@@ -28,7 +28,7 @@ suite("test_index_key_match_select", "inverted_index_select"){
                 ${varchar_colume1} varchar(500),
                 ${array_string_colume2} array<string>,
                 INDEX ${varchar_colume1}_idx(${varchar_colume1}) USING INVERTED PROPERTIES("parser"="english") COMMENT '${varchar_colume1} index',
-                INDEX ${array_string_colume2}_idx(${array_string_colume2}) USING INVERTED PROPERTIES("parser"="english") COMMENT '${array_string_colume2} index'
+                INDEX ${array_string_colume2}_idx(${array_string_colume2}) USING INVERTED PROPERTIES("parser"="none") COMMENT '${array_string_colume2} index'
             )
             DUPLICATE KEY(`user`)
             DISTRIBUTED BY HASH(`user`) BUCKETS 10

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_index_write", "nonConcurrent"){
+suite("test_array_index_write"){
 
     def create_array_index_table = {testTablex, parser ->
         def stmt = "CREATE TABLE IF NOT EXISTS " + testTablex + "(\n" +
