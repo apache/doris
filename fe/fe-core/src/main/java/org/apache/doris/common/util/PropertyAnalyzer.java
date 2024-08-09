@@ -1631,7 +1631,7 @@ public class PropertyAnalyzer {
 
     private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
             String ctl, String database, Map<String, String> properties) {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
         if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;

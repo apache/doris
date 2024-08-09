@@ -177,7 +177,9 @@ public class AuditLogHelper {
         CatalogIf catalog = ctx.getCurrentCatalog();
         String cloudCluster = "";
         try {
-            cloudCluster = ctx.getCloudCluster();
+            if (Config.isCloudMode()) {
+                cloudCluster = ctx.getCloudCluster();
+            }
         } catch (ClusterException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
@@ -212,7 +214,9 @@ public class AuditLogHelper {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
             try {
-                cloudCluster = ctx.getCloudCluster(false);
+                if (Config.isCloudMode()) {
+                    cloudCluster = ctx.getCloudCluster(false);
+                }
             } catch (ClusterException e) {
                 LOG.warn("Failed to get cloud cluster", e);
                 return;
