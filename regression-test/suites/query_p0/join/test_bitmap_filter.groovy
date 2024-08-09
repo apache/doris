@@ -86,6 +86,6 @@ suite("test_bitmap_filter", "query_p0") {
 
     test {
         sql "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
-        exception "HAVING clause dose not support in bitmap"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by."
     }
 }

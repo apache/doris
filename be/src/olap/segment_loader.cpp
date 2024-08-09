@@ -52,7 +52,7 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache,
-                                    bool need_load_pk_index_and_bf, bool disable_file_cache) {
+                                    bool need_load_pk_index_and_bf) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
@@ -62,7 +62,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
             continue;
         }
         segment_v2::SegmentSharedPtr segment;
-        RETURN_IF_ERROR(rowset->load_segment(i, &segment, disable_file_cache));
+        RETURN_IF_ERROR(rowset->load_segment(i, &segment));
         if (need_load_pk_index_and_bf) {
             RETURN_IF_ERROR(segment->load_pk_index_and_bf());
         }

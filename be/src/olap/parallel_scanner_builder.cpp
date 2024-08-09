@@ -182,9 +182,6 @@ Status ParallelScannerBuilder::_load() {
         bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                             ? _state->query_options().enable_segment_cache
                                             : true;
-        bool disable_file_cache = _state->query_options().__isset.disable_file_cache
-                                          ? _state->query_options().disable_file_cache
-                                          : false;
         for (auto& rowset : rowsets) {
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
@@ -192,7 +189,7 @@ Status ParallelScannerBuilder::_load() {
 
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
-                    enable_segment_cache, false, disable_file_cache));
+                    enable_segment_cache, false));
             _total_rows += rowset->num_rows();
         }
     }
