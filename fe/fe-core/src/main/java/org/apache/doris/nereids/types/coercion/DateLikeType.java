@@ -22,10 +22,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -72,6 +74,8 @@ public abstract class DateLikeType extends PrimitiveType implements RangeScalabl
             return new DateTimeLiteral(s);
         } else if (this instanceof DateTimeV2Type) {
             return new DateTimeV2Literal((DateTimeV2Type) this, s);
+        } else if (this instanceof TimeStampType) {
+            return new TimeStampLiteral((TimeStampType) this, s);
         } else {
             throw new AnalysisException("unknown date like type");
         }
