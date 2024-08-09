@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multiple_ssb") {
+    if (isCloudMode()) {
+        return
+    }
     sql """ DROP TABLE IF EXISTS lineorder_flat; """
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
