@@ -646,7 +646,8 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
                   TxnErrorCode::TXN_OK);
         StorageVaultPB get_obj;
         get_obj.ParseFromString(val);
-        ASSERT_EQ(get_obj.hdfs_info().build_conf().user(), "hadoop") << get_obj.hdfs_info().build_conf().fs_name();
+        ASSERT_EQ(get_obj.hdfs_info().build_conf().user(), "hadoop")
+                << get_obj.hdfs_info().build_conf().fs_name();
     }
 
     {
