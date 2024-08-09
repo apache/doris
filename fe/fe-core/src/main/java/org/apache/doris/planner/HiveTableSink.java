@@ -118,7 +118,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
         THiveLocationParams locationParams = new THiveLocationParams();
         LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());
-        String location = locationPath.toString();
+        String location = locationPath.getPath().toString();
         String storageLocation = locationPath.toStorageLocation().toString();
         TFileType fileType = locationPath.getTFileTypeForBE();
         if (fileType == TFileType.FILE_S3) {

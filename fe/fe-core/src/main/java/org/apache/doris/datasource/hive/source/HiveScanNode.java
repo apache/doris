@@ -27,10 +27,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -52,7 +50,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -338,7 +335,7 @@ public class HiveScanNode extends FileQueryScanNode {
             allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
-                new HiveSplitCreator(status.getAcidInfo())));
+                    new HiveSplitCreator(status.getAcidInfo())));
         }
     }
 
@@ -402,21 +399,6 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public TableIf getTargetTable() {
         return hmsTable;
-    }
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-        if (bindBrokerName != null) {
-            return TFileType.FILE_BROKER;
-        }
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 
     @Override
