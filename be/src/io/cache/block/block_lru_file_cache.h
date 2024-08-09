@@ -53,6 +53,9 @@ public:
     LRUFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
     ~LRUFileCache() override {
         _close = true;
+        if (_cache_background_load_thread.joinable()) {
+            _cache_background_thread.join();
+        }
         if (_cache_background_thread.joinable()) {
             _cache_background_thread.join();
         }
@@ -201,6 +204,8 @@ public:
 private:
     std::atomic_bool _close {false};
     std::thread _cache_background_thread;
+    std::atomic_bool _lazy_open_done {true};
+    std::thread _cache_background_load_thread;
     size_t _num_read_segments = 0;
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
