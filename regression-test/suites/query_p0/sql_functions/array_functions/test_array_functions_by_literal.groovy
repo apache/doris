@@ -410,4 +410,13 @@ suite("test_array_functions_by_literal") {
     } catch (Exception ex) {
         assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
     }
+
+    // array_map with string is can be succeed
+    qt_sql_array_map """ select array_map(x->x!='', split_by_string('amory,is,better,committing', ',')) """
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("No matching function")
+    }
 }
