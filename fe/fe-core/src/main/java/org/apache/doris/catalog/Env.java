@@ -318,6 +318,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -3922,11 +3923,16 @@ public class Env {
             addTableComment(table, sb);
             org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
             sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
-            sb.append("\nPROPERTIES (\n");
-            for (Entry<String, String> prop : icebergTable.properties().entrySet()) {
-                sb.append("  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"\n");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = icebergTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
             }
-            sb.append(")");
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");
