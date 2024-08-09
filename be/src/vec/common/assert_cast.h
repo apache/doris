@@ -34,8 +34,9 @@ enum class TypeCheckOnRelease : bool { ENABLE = true, DISABLE = false };
   */
 template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
 PURE To assert_cast(From&& from) {
-#ifndef NDEBUG
-    try {
+    // https://godbolt.org/z/nrsx7nYhs
+    // perform_cast will not be compiled to asm in release build with TypeCheckOnRelease::DISABLE
+    auto perform_cast = [](auto&& from) -> To {
         if constexpr (std::is_pointer_v<To>) {
             if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
                 return static_cast<To>(from);
@@ -53,39 +54,25 @@ PURE To assert_cast(From&& from) {
                 return static_cast<To>(from);
             }
         }
+        LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
+                                  demangle(typeid(To).name()));
+        __builtin_unreachable();
+    };
+
+#ifndef NDEBUG
+    try {
+        return perform_cast(std::forward<From>(from));
     } catch (const std::exception& e) {
         LOG(FATAL) << "assert cast err:" << e.what();
     }
-
-    LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                              demangle(typeid(To).name()));
     __builtin_unreachable();
 #else
     if constexpr (check == TypeCheckOnRelease::ENABLE) {
         try {
-            if constexpr (std::is_pointer_v<To>) {
-                if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
-                    return static_cast<To>(from);
-                }
-                if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
-                    if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
-                        return ptr;
-                    }
-                    LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
-                                              demangle(typeid(*from).name()),
-                                              demangle(typeid(To).name()));
-                }
-            } else {
-                if (typeid(from) == typeid(To)) {
-                    return static_cast<To>(from);
-                }
-            }
+            return perform_cast(std::forward<From>(from));
         } catch (const std::exception& e) {
             LOG(FATAL) << "assert cast err:" << e.what();
         }
-
-        LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                                  demangle(typeid(To).name()));
         __builtin_unreachable();
     } else {
         return static_cast<To>(from);

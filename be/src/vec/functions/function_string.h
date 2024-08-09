@@ -3145,24 +3145,23 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto col_origin =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[0])
+                                                         .column->convert_to_full_column_if_const()
+                                                         .get());
         auto col_old =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[1])
+                                                         .column->convert_to_full_column_if_const()
+                                                         .get());
         auto col_new =
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[2])
+                                                         .column->convert_to_full_column_if_const()
+                                                         .get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
-
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str =
-                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_origin.get())
-                            ->get_data_at(i);
-            StringRef old_str =
-                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_old.get())
-                            ->get_data_at(i);
-            StringRef new_str =
-                    assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(col_new.get())
-                            ->get_data_at(i);
+            StringRef origin_str = col_origin->get_data_at(i);
+            StringRef old_str = col_old->get_data_at(i);
+            StringRef new_str = col_new->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());

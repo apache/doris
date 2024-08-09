@@ -232,8 +232,7 @@ public:
                     }
                 } else {
                     const auto* __restrict cond_raw_data =
-                            assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                    when_column_ptr.get())
+                            assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
 
@@ -336,7 +335,7 @@ public:
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
+                    assert_cast<ColumnType*>(
                             column_holder.then_ptrs[i].value()->assume_mutable().get())
                             ->get_data()
                             .data();

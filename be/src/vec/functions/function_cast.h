@@ -1524,8 +1524,11 @@ struct StringParsing {
 
         const ColumnString::Chars* chars = &col_from_string->get_chars();
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
-
+        const auto* type =
+                assert_cast<const DataTypeDateTimeV2*>(block.get_by_position(result).type.get());
+        const UInt32 scale = type->get_scale();
         size_t current_offset = 0;
+
         for (size_t i = 0; i < row; ++i) {
             size_t next_offset = (*offsets)[i];
             size_t string_size = next_offset - current_offset;
@@ -1541,11 +1544,7 @@ struct StringParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type =
-                        assert_cast<const DataTypeDateTimeV2*, TypeCheckOnRelease::DISABLE>(
-                                block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
-                                                    type->get_scale());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
             } else {
                 parsed =
                         try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
