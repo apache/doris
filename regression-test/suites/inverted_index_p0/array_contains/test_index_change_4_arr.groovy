@@ -80,7 +80,7 @@ suite("test_index_change_4_arr", "array_contains_inverted_index") {
             `city` array<VARCHAR(20)> COMMENT "用户所在城市",
             `note` array<TEXT> COMMENT "备注",
             INDEX idx_user_id (`user_id`) USING INVERTED COMMENT '',
-            INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+            INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
         PROPERTIES ( "replication_num" = "1" );
@@ -124,7 +124,7 @@ suite("test_index_change_4_arr", "array_contains_inverted_index") {
     sql """ DROP INDEX idx_note ON ${tableName} """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // create inverted index idx_city
-    sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="english") """
+    sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="none") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
     if (!isCloudMode()) {
