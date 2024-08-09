@@ -851,6 +851,7 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
     std::vector<std::pair<Key, size_t>> queue_entries;
     std::vector<std::string> need_to_check_if_empty_dir;
     Status st = Status::OK();
+    size_t scan_file_num = 0;
     auto scan_file_cache = [&](fs::directory_iterator& key_it) {
         for (; key_it != fs::directory_iterator(); ++key_it) {
             key = Key(
@@ -911,6 +912,11 @@ Status LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& ca
                         st = Status::IOError(ec.message());
                     }
                     need_to_check_if_empty_dir.push_back(key_it->path());
+                }
+                scan_file_num += 1;
+                if (scan_file_num % config::scan_file_num_to_sleep == 0) {
+                    std::this_thread::sleep_for(
+                            std::chrono::milliseconds(config::sleep_time_per_scan_file));
                 }
             }
         }

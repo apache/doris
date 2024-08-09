@@ -996,6 +996,9 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
+// thread will sleep 10ms per scan file num to limit IO
+DEFINE_Int64(scan_file_num_to_sleep, "1000");
+DEFINE_Int64(sleep_time_per_scan_file, "10");
 DEFINE_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
 // 4KB <= file_cache_max_file_segment_size <= 256MB
 DEFINE_Validator(file_cache_max_file_segment_size, [](const int64_t config) -> bool {
