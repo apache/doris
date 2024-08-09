@@ -44,19 +44,19 @@ suite ("unique") {
 
     test {
         sql """create materialized view kadj as select k4 from u_table"""
-        exception "The materialized view need key column"
+        exception "The materialized view of uniq table must contain all key columns. column:k1"
     }
 
     test {
-        sql """create materialized view kadj as select k4,k1 from u_table"""
+        sql """create materialized view kadj as select k4,k1,k2,k3 from u_table"""
         exception "The materialized view not support value column before key column"
     }
 
     createMV("create materialized view kadj as select k3,k2,k1,k4 from u_table;")
 
-    createMV("create materialized view kadj2 as select k3,k2,length(k4) from u_table;")
+    createMV("create materialized view kadj2 as select k1,k3,k2,length(k4) from u_table;")
 
-    createMV("create materialized view k31l42 as select k3,length(k1),k2 from u_table;")
+    createMV("create materialized view k31l42 as select k1,k3,length(k1),k2 from u_table;")
     sql "insert into u_table select 300,-3,null,'c';"
 
     sql """analyze table u_table with sync;"""

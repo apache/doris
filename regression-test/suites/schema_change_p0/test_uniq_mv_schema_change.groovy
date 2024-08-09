@@ -80,7 +80,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
+    sql "create materialized view ${mvName} as select user_id, date, city, age, sex from ${tableName};"
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
@@ -90,7 +90,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
+    sql "create materialized view ${mvName2} as select user_id, date, city, age, sex, cost from ${tableName};"
     waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
