@@ -215,7 +215,6 @@ public class OdbcScanNode extends ExternalScanNode {
             if (shouldPushDownConjunct(odbcType, p)) {
                 String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
-                conjuncts.remove(p);
             }
         }
     }

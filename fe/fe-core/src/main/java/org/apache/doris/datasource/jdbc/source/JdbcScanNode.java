@@ -131,7 +131,6 @@ public class JdbcScanNode extends ExternalScanNode {
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
             filters.add(filter);
-            conjuncts.remove(individualConjunct);
         }
     }
 
