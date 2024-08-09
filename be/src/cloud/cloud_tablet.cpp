@@ -246,6 +246,38 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             },
                                     .download_done {},
                             });
+
+                    auto download_idx_file = [&](const io::Path& idx_path) {
+                        io::DownloadFileMeta meta {
+                                .path = idx_path,
+                                .file_size = -1,
+                                .file_system = storage_resource.value()->fs,
+                                .ctx =
+                                        {
+                                                .expiration_time = expiration_time,
+                                        },
+                                .download_done {},
+                        };
+                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                    };
+                    auto schema_ptr = rowset_meta->tablet_schema();
+                    auto idx_version = schema_ptr->get_inverted_index_storage_format();
+                    if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        for (const auto& index : schema_ptr->indexes()) {
+                            if (index.index_type() == IndexType::INVERTED) {
+                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                        *rowset_meta, seg_id, index.index_id(),
+                                        index.get_index_suffix());
+                                download_idx_file(idx_path);
+                            }
+                        }
+                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
+                        if (schema_ptr->has_inverted_index()) {
+                            auto idx_path = storage_resource.value()->remote_idx_v2_path(
+                                    *rowset_meta, seg_id);
+                            download_idx_file(idx_path);
+                        }
+                    }
                 }
 #endif
             }
