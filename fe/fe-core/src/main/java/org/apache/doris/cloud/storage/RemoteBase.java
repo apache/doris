@@ -143,6 +143,7 @@ public abstract class RemoteBase {
             case OSS:
                 return new OssRemote(obj);
             case GCP:
+                return new GcsRemote(obj);
             case S3:
                 return new S3Remote(obj);
             case COS:
