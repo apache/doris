@@ -361,14 +361,14 @@ public class MetaServiceClient {
         return blockingStub.getRlTaskCommitAttach(request);
     }
 
-    public Cloud. ResetRLProgressResponse resetRLProgress(Cloud. ResetRLProgressRequest request) {
+    public Cloud.UpdateRLProgressResponse updateRLProgress(Cloud. UpdateRLProgressRequest request) {
         if (!request.hasCloudUniqueId()) {
-            Cloud. ResetRLProgressRequest.Builder builder =
-                    Cloud. ResetRLProgressRequest.newBuilder();
+            Cloud. UpdateRLProgressRequest.Builder builder =
+                    Cloud. UpdateRLProgressRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.updateRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.resetRlProgress(request);
+        return blockingStub.updateRlProgress(request);
     }
 
     public Cloud.GetObjStoreInfoResponse

@@ -648,11 +648,11 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     }
 }
 
-void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* controller,
-                                        const ResetRLProgressRequest* request,
-                                        ResetRLProgressResponse* response,
-                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(reset_rl_progress);
+void MetaServiceImpl::update_rl_progress(::google::protobuf::RpcController* controller,
+                                         const UpdateRLProgressRequest* request,
+                                         UpdateRLProgressResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_rl_progress);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -660,7 +660,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
-    RPC_RATE_LIMIT(reset_rl_progress)
+    RPC_RATE_LIMIT(update_rl_progress)
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -680,11 +680,65 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 
     int64_t db_id = request->db_id();
     int64_t job_id = request->job_id();
+    bool is_reset = request->is_reset();
     std::string rl_progress_key;
     std::string rl_progress_val;
     RLJobProgressKeyInfo rl_progress_key_info {instance_id, db_id, job_id};
     rl_job_progress_key_info(rl_progress_key_info, &rl_progress_key);
-    txn->remove(rl_progress_key);
+
+    if (is_reset && request->partition_to_offset().size() == 0) {
+        txn->remove(rl_progress_key);
+    }
+
+    if (request->partition_to_offset().size() > 0) {
+        bool prev_progress_existed = true;
+        RoutineLoadProgressPB prev_progress_info;
+        TxnErrorCode err = txn->get(rl_progress_key, &rl_progress_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                prev_progress_existed = false;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get routine load progress, db_id=" << db_id << "job_id=" << job_id
+                   << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+        if (prev_progress_existed) {
+            if (!prev_progress_info.ParseFromString(rl_progress_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "failed to parse routine load progress, db_id=" << db_id
+                   << "job_id=" << job_id;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        std::string new_progress_val;
+        RoutineLoadProgressPB new_progress_info;
+        if (!is_reset) {
+            for (auto const& elem : prev_progress_info.partition_to_offset()) {
+                auto it = new_progress_info.partition_to_offset().find(elem.first);
+                if (it == new_progress_info.partition_to_offset().end()) {
+                    new_progress_info.mutable_partition_to_offset()->insert(elem);
+                }
+            }
+        }
+        for (auto const& elem : request->partition_to_offset()) {
+            new_progress_info.mutable_partition_to_offset()->insert(elem);
+        }
+
+        if (!new_progress_info.SerializeToString(&new_progress_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize new progress val"
+               << "db_id=" << db_id << "job_id=" << job_id;
+            msg = ss.str();
+            return;
+        }
+        txn->put(rl_progress_key, new_progress_val);
+    }
+
     err = txn->commit();
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = MetaServiceCode::ROUTINE_LOAD_PROGRESS_NOT_FOUND;

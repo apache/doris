@@ -1436,13 +1436,15 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
-message ResetRLProgressRequest {
+message UpdateRLProgressRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 job_id = 3;
+    map<int32, int64> partition_to_offset = 4;
+    optional bool is_reset = 5;
 }
 
-message ResetRLProgressResponse {
+message UpdateRLProgressResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1538,7 +1540,7 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
-    rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
+    rpc update_rl_progress(UpdateRLProgressRequest) returns (UpdateRLProgressResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);

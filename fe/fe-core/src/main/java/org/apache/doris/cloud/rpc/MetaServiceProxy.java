@@ -508,11 +508,11 @@ public class MetaServiceProxy {
         }
     }
 
-    public Cloud.ResetRLProgressResponse resetRLProgress(Cloud.ResetRLProgressRequest request)
+    public Cloud.UpdateRLProgressResponse updateRLProgress(Cloud.UpdateRLProgressRequest request)
             throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
-            return client.resetRLProgress(request);
+            return client.updateRLProgress(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

@@ -105,13 +105,49 @@ suite("test_routine_load_alter","p0") {
                 sleep(5000)
                 count++
             }
-            qt_sql_alter "select * from ${tableName} order by k1"
+            qt_sql_before "select * from ${tableName} order by k1"
 
             // test alter offset
-            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"kafka_partitions\" = \"0\", \"kafka_offsets\" = \"1\");"
+            sql "pause routine load for ${jobName}"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} FROM KAFKA(\"kafka_partitions\" = \"0\", \"kafka_offsets\" = \"1\");"
             sql "resume routine load for ${jobName}"
 
-            
+            def props = new Properties()
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+            props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+            props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+            // Create kafka producer
+            def producer = new KafkaProducer<>(props)
+
+            for (String kafkaCsvTopic in kafkaCsvTpoics) {
+                def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+                def lines = txt.readLines()
+                lines.each { line ->
+                    logger.info("=====${line}========")
+                    def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
+                    producer.send(record)
+                }
+            }
+
+            count = 0
+            while (true) {
+                res = sql "select count(*) from ${tableName}"
+                def state = sql "show routine load for ${jobName}"
+                log.info("routine load state: ${state[0][8].toString()}".toString())
+                log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                if (res[0][0] >= 6) {
+                    break
+                }
+                if (count >= 120) {
+                    log.error("routine load can not visible for long time")
+                    assertEquals(20, res[0][0])
+                    break
+                }
+                sleep(5000)
+                count++
+            }
+            qt_sql_alter_after "select * from ${tableName} order by k1" 
         } finally {
             sql "stop routine load for ${jobName}"
         }

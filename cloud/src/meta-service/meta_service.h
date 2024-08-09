@@ -275,9 +275,10 @@ public:
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
 
-    void reset_rl_progress(::google::protobuf::RpcController* controller,
-                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
-                           ::google::protobuf::Closure* done) override;
+    void update_rl_progress(::google::protobuf::RpcController* controller,
+                            const UpdateRLProgressRequest* request,
+                            UpdateRLProgressResponse* response,
+                            ::google::protobuf::Closure* done) override;
 
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
@@ -645,10 +646,11 @@ public:
                   done);
     }
 
-    void reset_rl_progress(::google::protobuf::RpcController* controller,
-                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
-                           ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::reset_rl_progress, controller, request, response, done);
+    void update_rl_progress(::google::protobuf::RpcController* controller,
+                            const UpdateRLProgressRequest* request,
+                            UpdateRLProgressResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_rl_progress, controller, request, response, done);
     }
 
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
