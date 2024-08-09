@@ -733,7 +733,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger = BroadcastExchanger::create_unique(
+        shared_state->exchanger = PassToOneExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
