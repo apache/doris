@@ -101,6 +101,21 @@ suite("test_build_mtmv") {
     logger.info("showDataResult: " + showDataResult.toString())
     assertTrue(showDataResult.toString().contains("${mvName}"))
 
+    // show full tables
+    def showFullTablesResult = sql """SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"""
+    logger.info("showFullTablesResult: " + showFullTablesResult.toString())
+    assertTrue(showFullTablesResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectViewsResult = sql """ SELECT * from INFORMATION_SCHEMA.VIEWS;"""
+    logger.info("selectViewsResult: " + selectViewsResult.toString())
+    assertFalse(selectViewsResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectTablesResult = sql """ SELECT * from INFORMATION_SCHEMA.TABLES;"""
+    logger.info("selectTablesResult: " + selectTablesResult.toString())
+    assertTrue(selectTablesResult.toString().contains("${mvName}"))
+
     // if not exist
     try {
         sql """
