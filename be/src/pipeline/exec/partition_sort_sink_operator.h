@@ -224,7 +224,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-    int64_t child_input_rows = 0;
+    int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
@@ -238,6 +238,7 @@ private:
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
+    RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;
     Status _init_hash_method();
 };
 
