@@ -196,6 +196,19 @@ suite("test_decimalv2_calc", "nonConcurrent") {
     """
 
     sql """
+        drop table if exists decimalv2_div_round;
+    """
+    sql """
+        create table decimalv2_div_round(k1 decimalv2(27,9), k2 decimalv2(27,9)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into decimalv2_div_round values (2, 3), (2, -3), (-2, 3), (-2, -3), (2, 0), (-2, 0), (null, 3), (2, null);
+    """
+    qt_div_round """
+        select k1, k2, k1 / k2 from decimalv2_div_round order by 1, 2;
+    """
+
+    sql """
         admin set frontend config("enable_decimal_conversion" = "true");
     """
 }
