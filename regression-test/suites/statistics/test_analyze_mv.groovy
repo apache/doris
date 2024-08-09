@@ -395,7 +395,7 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key1 from mvTestUni;")
+    createMV("create materialized view mv1 as select key1, key2 from mvTestUni;")
     createMV("create materialized view mv6 as select key2, value2, value3 from mvTestUni;")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
