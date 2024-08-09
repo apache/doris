@@ -49,6 +49,10 @@ import java.util.TreeMap;
 public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
     private Optional<String> querySql;
 
+    public LogicalPlanBuilderForSyncMv() {
+        super(null);
+    }
+
     @Override
     public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         Expression expression = super.visitFunctionCallExpression(ctx);
