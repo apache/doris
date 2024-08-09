@@ -326,13 +326,14 @@ public class IndexChangeJob implements Writable {
                 long originTabletId = originTablet.getId();
                 List<Replica> originReplicas = originTablet.getReplicas();
                 for (Replica originReplica : originReplicas) {
-                    if (originReplica.getBackendId() < 0) {
-                        LOG.warn("replica:{}, backendId: {}", originReplica, originReplica.getBackendId());
+                    if (originReplica.getBackendIdWithoutException() < 0) {
+                        LOG.warn("replica:{}, backendId: {}", originReplica,
+                                originReplica.getBackendIdWithoutException());
                         throw new AlterCancelException("originReplica:" + originReplica.getId()
                                 + " backendId < 0");
                     }
                     AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
-                            originReplica.getBackendId(), db.getId(), olapTable.getId(),
+                            originReplica.getBackendIdWithoutException(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
                             originSchemaHash, olapTable.getIndexes(),
                             alterInvertedIndexes, originSchemaColumns,

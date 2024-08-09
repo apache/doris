@@ -190,18 +190,26 @@ public class GroupCommitManager {
             throws LoadException, DdlException {
         // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
         // can select a BE and return this BE id to follower FE.
+        String clusterName = "";
+        if (isCloud) {
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cluster name", e);
+                throw new LoadException(e.getMessage());
+            }
+        }
         if (!Env.getCurrentEnv().isMaster()) {
             try {
                 long backendId = new MasterOpExecutor(context)
-                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster(), isCloud);
+                        .getGroupCommitLoadBeId(tableId, clusterName, isCloud);
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
         } else {
-            // Master FE will select BE by itself.
             return Env.getCurrentSystemInfo()
-                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster(), isCloud));
+                .getBackend(selectBackendForGroupCommitInternal(tableId, clusterName, isCloud));
         }
     }
 

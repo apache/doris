@@ -315,10 +315,10 @@ public class DiskRebalancer extends Rebalancer {
         }
 
         // check src slot
-        PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+        PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
         if (slot == null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("BE does not have slot: {}", replica.getBackendId());
+                LOG.debug("BE does not have slot: {}", replica.getBackendIdWithoutException());
             }
             throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
         }
@@ -329,7 +329,7 @@ public class DiskRebalancer extends Rebalancer {
         // after take src slot, we can set src replica now
         tabletCtx.setSrc(replica);
 
-        BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(replica.getBackendId());
+        BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(replica.getBackendIdWithoutException());
         if (!beStat.isAvailable()) {
             throw new SchedException(Status.UNRECOVERABLE, "the backend is not available");
         }

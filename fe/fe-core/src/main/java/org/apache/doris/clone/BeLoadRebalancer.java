@@ -311,7 +311,7 @@ public class BeLoadRebalancer extends Rebalancer {
         Set<String> hosts = Sets.newHashSet();
         List<BackendLoadStatistic> replicaHighBEs = Lists.newArrayList();
         for (BackendLoadStatistic beStat : highBEs) {
-            if (replicas.stream().anyMatch(replica -> beStat.getBeId() == replica.getBackendId())) {
+            if (replicas.stream().anyMatch(replica -> beStat.getBeId() == replica.getBackendIdWithoutException())) {
                 replicaHighBEs.add(beStat);
             }
             Backend be = infoService.getBackend(beStat.getBeId());
@@ -329,7 +329,7 @@ public class BeLoadRebalancer extends Rebalancer {
         // select a replica as source
         boolean setSource = false;
         for (Replica replica : replicas) {
-            PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+            PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
             if (slot == null) {
                 continue;
             }
@@ -347,7 +347,8 @@ public class BeLoadRebalancer extends Rebalancer {
         // Select a low load backend as destination.
         List<BackendLoadStatistic> candidates = Lists.newArrayList();
         for (BackendLoadStatistic beStat : lowBEs) {
-            if (beStat.isAvailable() && replicas.stream().noneMatch(r -> r.getBackendId() == beStat.getBeId())) {
+            if (beStat.isAvailable() && replicas.stream()
+                    .noneMatch(r -> r.getBackendIdWithoutException() == beStat.getBeId())) {
                 // check if on same host.
                 Backend lowBackend = infoService.getBackend(beStat.getBeId());
                 if (lowBackend == null) {
