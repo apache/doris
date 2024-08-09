@@ -268,6 +268,10 @@ struct StringRef {
 
     // ==
     bool eq(const StringRef& other) const {
+        if (size == other.size) {
+            DCHECK(data != nullptr);
+            DCHECK(other.data != nullptr);
+        }
         return (size == other.size) && (memcmp(data, other.data, size) == 0);
     }
 
