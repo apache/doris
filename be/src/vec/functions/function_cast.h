@@ -1524,9 +1524,13 @@ struct StringParsing {
 
         const ColumnString::Chars* chars = &col_from_string->get_chars();
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
-        const auto* type =
-                assert_cast<const DataTypeDateTimeV2*>(block.get_by_position(result).type.get());
-        const UInt32 scale = type->get_scale();
+
+        if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+            const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                    block.get_by_position(result).type.get());
+            const UInt32 scale = type->get_scale();
+        }
+
         size_t current_offset = 0;
 
         for (size_t i = 0; i < row; ++i) {
