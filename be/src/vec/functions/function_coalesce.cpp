@@ -154,9 +154,6 @@ public:
                 ColumnsWithTypeAndName {block.get_by_position(filtered_args[0]),
                                         {nullptr, std::make_shared<DataTypeUInt8>(), ""}}};
 
-        auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
-        auto* __restrict res = res_map.data();
-
         for (size_t i = 0; i < argument_size && remaining_rows; ++i) {
             temporary_block.get_by_position(0).column =
                     block.get_by_position(filtered_args[i]).column;
@@ -166,6 +163,10 @@ public:
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
+            auto& res_map =
+                    assert_cast<ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                            ->get_data();
+            auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically
             // true: res[j]==1 && null_map_data[j]==1, false: others
