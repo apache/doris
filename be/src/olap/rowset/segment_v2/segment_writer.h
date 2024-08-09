@@ -195,7 +195,9 @@ private:
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
     SegmentFooterPB _footer;
-    size_t _num_key_columns;
+    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
+    // for other tables, the sort key is the keys
+    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
     size_t _inverted_index_file_size;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
