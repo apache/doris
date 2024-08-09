@@ -69,7 +69,7 @@ protected:
 
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    Status construct_skip_inverted_index(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
