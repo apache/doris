@@ -3921,12 +3921,12 @@ public class Env {
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             org.apache.iceberg.Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
-            sb.append("\nLOCATION '").append(icebergTable.location()).append("'\n");
+            sb.append("\nLOCATION '").append(icebergTable.location()).append("'");
             sb.append("\nPROPERTIES (\n");
             for (Entry<String, String> prop : icebergTable.properties().entrySet()) {
-                sb.append("\"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                sb.append("  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"\n");
             }
-            sb.append("\n)");
+            sb.append(")");
         }
 
         createTableStmt.add(sb + ";");
