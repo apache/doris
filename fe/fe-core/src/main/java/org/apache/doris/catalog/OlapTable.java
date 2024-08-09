@@ -2918,6 +2918,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @Override
     public MTMVSnapshotIf getTableSnapshot() {
         long visibleVersion = getVisibleVersion();
+        return getTableSnapshot(visibleVersion);
+    }
+
+    public MTMVSnapshotIf getTableSnapshot(long visibleVersion) {
         return new MTMVVersionSnapshot(visibleVersion);
     }
 

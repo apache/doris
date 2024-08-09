@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -33,6 +34,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -255,7 +257,9 @@ public class MTMVPartitionUtil {
             Set<String> relatedPartitionNames)
             throws AnalysisException {
         List<String> res = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        Map<BaseTableInfo, MTMVSnapshotIf> tablesCurrentSnapshot = getTablesCurrentSnapshot(baseTables);
+        for (BaseTableInfo baseTableInfo : baseTables) {
             TableIf table = MTMVUtil.getTable(baseTableInfo);
             if (!(table instanceof MTMVRelatedTableIf)) {
                 continue;
@@ -277,7 +281,8 @@ public class MTMVPartitionUtil {
                     res.add(mtmvRelatedTableIf.getName());
                 }
             } else {
-                if (!isSyncWithBaseTable(mtmv, partitionName, baseTableInfo)) {
+                if (!isSyncWithBaseTable(mtmv, partitionName, baseTableInfo,
+                        tablesCurrentSnapshot.get(baseTableInfo))) {
                     res.add(table.getName());
                 }
             }
@@ -409,6 +414,7 @@ public class MTMVPartitionUtil {
      */
     private static boolean isSyncWithAllBaseTables(MTMV mtmv, String mtmvPartitionName, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
+        Map<BaseTableInfo, MTMVSnapshotIf> tablesCurrentSnapshot = getTablesCurrentSnapshot(tables);
         for (BaseTableInfo baseTableInfo : tables) {
             TableIf table = null;
             try {
@@ -420,7 +426,8 @@ public class MTMVPartitionUtil {
             if (excludedTriggerTables.contains(table.getName())) {
                 continue;
             }
-            boolean syncWithBaseTable = isSyncWithBaseTable(mtmv, mtmvPartitionName, baseTableInfo);
+            boolean syncWithBaseTable = isSyncWithBaseTable(mtmv, mtmvPartitionName, baseTableInfo,
+                    tablesCurrentSnapshot.get(baseTableInfo));
             if (!syncWithBaseTable) {
                 return false;
             }
@@ -428,28 +435,62 @@ public class MTMVPartitionUtil {
         return true;
     }
 
-    private static boolean isSyncWithBaseTable(MTMV mtmv, String mtmvPartitionName, BaseTableInfo baseTableInfo)
+    private static Map<BaseTableInfo, MTMVSnapshotIf> getTablesCurrentSnapshot(Set<BaseTableInfo> tables)
             throws AnalysisException {
-        TableIf table = null;
-        try {
-            table = MTMVUtil.getTable(baseTableInfo);
-        } catch (AnalysisException e) {
-            LOG.warn("get table failed, {}", baseTableInfo, e);
-            return false;
+        Map<BaseTableInfo, MTMVSnapshotIf> res = Maps.newHashMap();
+        List<OlapTable> olapTables = Lists.newArrayList();
+        for (BaseTableInfo baseTableInfo : tables) {
+            TableIf table = MTMVUtil.getTable(baseTableInfo);
+            if (table instanceof OlapTable) {
+                olapTables.add((OlapTable) table);
+            } else {
+                if (!(table instanceof MTMVRelatedTableIf)) {
+                    // if not MTMVRelatedTableIf, we can not get snapshot from it,
+                    // Currently, it is believed to be synchronous
+                    continue;
+                }
+                MTMVRelatedTableIf mtmvRelatedTableIf = (MTMVRelatedTableIf) table;
+                if (!mtmvRelatedTableIf.needAutoRefresh()) {
+                    continue;
+                }
+                res.put(baseTableInfo, mtmvRelatedTableIf.getTableSnapshot());
+            }
         }
+        List<Long> olapTableVersions = Lists.newArrayList();
+        // OlapTable.getVisibleVersionInBatch(olapTables);
+        Preconditions.checkState(olapTables.size() == olapTableVersions.size());
+        for (int i = 0; i < olapTables.size(); i++) {
+            res.put(new BaseTableInfo(olapTables.get(i)),olapTables.get(i).getTableSnapshot(olapTableVersions.get(i))) ;
+        }
+        return res;
+    }
 
-        if (!(table instanceof MTMVRelatedTableIf)) {
-            // if not MTMVRelatedTableIf, we can not get snapshot from it,
-            // Currently, it is believed to be synchronous
+    private static boolean isSyncWithBaseTable(MTMV mtmv, String mtmvPartitionName, BaseTableInfo baseTableInfo,
+            MTMVSnapshotIf baseTableCurrentSnapshot)
+            throws AnalysisException {
+        // TableIf table = null;
+        // try {
+        //     table = MTMVUtil.getTable(baseTableInfo);
+        // } catch (AnalysisException e) {
+        //     LOG.warn("get table failed, {}", baseTableInfo, e);
+        //     return false;
+        // }
+
+        // if (!(table instanceof MTMVRelatedTableIf)) {
+        //     // if not MTMVRelatedTableIf, we can not get snapshot from it,
+        //     // Currently, it is believed to be synchronous
+        //     return true;
+        // }
+        // MTMVRelatedTableIf baseTable = (MTMVRelatedTableIf) table;
+        // if (!baseTable.needAutoRefresh()) {
+        //     return true;
+        // }
+        // MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot();
+        if (baseTableCurrentSnapshot == null) {
             return true;
         }
-        MTMVRelatedTableIf baseTable = (MTMVRelatedTableIf) table;
-        if (!baseTable.needAutoRefresh()) {
-            return true;
-        }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot();
         return mtmv.getRefreshSnapshot()
-                .equalsWithBaseTable(mtmvPartitionName, baseTable.getId(), baseTableCurrentSnapshot);
+                .equalsWithBaseTable(mtmvPartitionName, baseTableInfo.getTableId(), baseTableCurrentSnapshot);
     }
 
     /**
