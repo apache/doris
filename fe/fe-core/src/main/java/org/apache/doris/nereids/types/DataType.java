@@ -286,10 +286,10 @@ public abstract class DataType {
             case "timestamp":
                 switch (types.size()) {
                     case 1:
-                        dataType = DateTimeV2Type.SYSTEM_DEFAULT;
+                        dataType = TimeStampType.SYSTEM_DEFAULT;
                         break;
                     case 2:
-                        dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                        dataType = TimeStampType.of(Integer.parseInt(types.get(1)));
                         break;
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
@@ -352,7 +352,7 @@ public abstract class DataType {
             case DOUBLE: return DoubleType.INSTANCE;
             case NULL_TYPE: return NullType.INSTANCE;
             case DATETIMEV2: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
-            case TIMESTAMP: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
+            case TIMESTAMP: return TimeStampType.of(((ScalarType) type).getScalarScale());
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
@@ -526,11 +526,12 @@ public abstract class DataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
+        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type()
+            || isTimeStampType();
     }
 
     public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
+        return isDateV2Type() || isDateTimeV2Type() || isTimeStampType();
     }
 
     public boolean isTimeType() {
@@ -587,6 +588,10 @@ public abstract class DataType {
 
     public boolean isDateTimeV2Type() {
         return this instanceof DateTimeV2Type;
+    }
+
+    public boolean isTimeStampType() {
+        return this instanceof TimeStampType;
     }
 
     public boolean isIPv4Type() {

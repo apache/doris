@@ -1,0 +1,136 @@
+package org.apache.doris.nereids.types;
+
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+
+import com.google.common.base.Preconditions;
+
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Objects;
+
+/**
+ * timestamp type in Nereids.
+ */
+public class  TimeStampType extends DateLikeType {
+    public static final int MAX_SCALE = 6;
+    public static final TimeStampType SYSTEM_DEFAULT = new TimeStampType(0);
+    public static final TimeStampType MAX = new TimeStampType(MAX_SCALE);
+
+    private static final int WIDTH = 8;
+
+    private final int scale;
+
+    private TimeStampType(int scale) {
+        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
+        this.scale = scale;
+    }
+
+    /**
+     * create TimeStampType from scale
+     */
+    public static TimeStampType of(int scale) {
+        if (scale == SYSTEM_DEFAULT.scale) {
+            return SYSTEM_DEFAULT;
+        } else if (scale > MAX_SCALE || scale < 0) {
+            throw new AnalysisException("Scale of Datetime/Time must between 0 and 6. Scale was set to: " + scale);
+        } else {
+            return new TimeStampType(scale);
+        }
+    }
+
+    public static TimeStampType getWiderTimeStampType(TimeStampType t1, TimeStampType t2) {
+        if (t1.scale > t2.scale) {
+            return t1;
+        }
+        return t2;
+    }
+
+    /**
+     * return proper type of timestamp for other type
+     */
+    public static TimeStampType forType(DataType dataType) {
+        if (dataType instanceof TimeStampType) {
+            return (TimeStampType) dataType;
+        }
+        if (dataType instanceof IntegralType || dataType instanceof BooleanType
+            || dataType instanceof NullType || dataType instanceof DateTimeType) {
+            return SYSTEM_DEFAULT;
+        }
+        return MAX;
+    }
+
+    /**
+     * return proper type of timestamp for String
+     * maybe we need to check for validity?
+     */
+    public static TimeStampType forTypeFromString(String s) {
+        int scale = DateTimeLiteral.determineScale(s);
+        if (scale > MAX_SCALE) {
+            scale = MAX_SCALE;
+        }
+        return TimeStampType.of(scale);
+    }
+
+    @Override
+    public String toSql() {
+        return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        return ScalarType.createTimestampType(scale);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        TimeStampType that = (TimeStampType) o;
+        return Objects.equals(scale, that.scale);
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof TimeStampType;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
+    }
+
+    public int getScale() {
+        return scale;
+    }
+
+    @Override
+    public double rangeLength(double high, double low) {
+        if (high == low) {
+            return 0;
+        }
+        if (Double.isInfinite(high) || Double.isInfinite(low)) {
+            return Double.POSITIVE_INFINITY;
+        }
+        try {
+            LocalDateTime to = toLocalDateTime(high);
+            LocalDateTime from = toLocalDateTime(low);
+            return ChronoUnit.SECONDS.between(from, to);
+        } catch (DateTimeException e) {
+            return Double.POSITIVE_INFINITY;
+        }
+    }
+}
