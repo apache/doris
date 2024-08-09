@@ -733,11 +733,20 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger = PassToOneExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
-                        : 0);
+        if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
+            // If shared hash table is enabled for BJ, hash table will be built by only one task
+            shared_state->exchanger = PassToOneExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            : 0);
+        } else {
+            shared_state->exchanger = BroadcastExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            : 0);
+        }
         break;
     case ExchangeType::LOCAL_MERGE_SORT: {
         auto child_op = cur_pipe->sink_x()->child_x();
