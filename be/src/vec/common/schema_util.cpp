@@ -534,21 +534,6 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
     return Status::OK();
 }
 
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse) {
-    for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
-        auto& column =
-                column_ref.is_nullable()
-                        ? assert_cast<ColumnObject&>(
-                                  assert_cast<ColumnNullable&>(column_ref).get_nested_column())
-                        : assert_cast<ColumnObject&>(column_ref);
-        // Record information about columns merged into a sparse column within a variant
-        std::vector<TabletColumn> sparse_subcolumns_schema;
-        column.finalize(ignore_sparse);
-    }
-}
-
 Status encode_variant_sparse_subcolumns(ColumnObject& column) {
     // Make sure the root node is jsonb storage type
     auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());

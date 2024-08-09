@@ -153,7 +153,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant not null
+            v variant 
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
@@ -216,11 +216,21 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     }
 
     
-    // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
-    sql """select * from github_events order by"""
+    sql """
+     CREATE TABLE IF NOT EXISTS github_events2 (
+            k bigint,
+            v variant not null
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        """
+    sql """insert into github_events2 select * from github_events order by k"""
+    sql """select v['payload']['commits'] from github_events order by k ;"""
+    sql """select v['payload']['commits'] from github_events2 order by k ;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
     set_be_config.call("variant_enable_flatten_nested", "false")
 }
