@@ -98,3 +98,9 @@
 -- !test --
 a
 
+-- !cast_string_to_int --
+3	3	0	0	3	\N	3
+
+-- !cast_string_to_int --
+3	3	0	0	3	\N	3
+
