@@ -34,7 +34,7 @@ import java.util.Map;
 
 public class TrinoConnectorSplit extends FileSplit {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorSplit.class);
-    private static final LocationPath DUMMY_PATH = new LocationPath("dummyPath", Maps.newHashMap());
+    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
     private ConnectorSplit connectorSplit;
     private TableFormatType tableFormatType;
     private final ConnectorName connectorName;

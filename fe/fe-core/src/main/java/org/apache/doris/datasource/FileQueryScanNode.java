@@ -380,34 +380,36 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isACID = hiveSplit.isACID();
         }
         List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys,
+                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        if (isACID) {
-            HiveSplit hiveSplit = (HiveSplit) fileSplit;
-            hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-            tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-            AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-            TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-            transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-            List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-            for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                deleteDeltaDescs.add(deleteDeltaDesc);
+        if (fileSplit instanceof  HiveSplit) {
+            if (isACID) {
+                HiveSplit hiveSplit = (HiveSplit) fileSplit;
+                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
+                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
+                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
+                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
+                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
+                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
+                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
+                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
+                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
+                    deleteDeltaDescs.add(deleteDeltaDesc);
+                }
+                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
+                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            } else {
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
-            transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-            tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-            rangeDesc.setTableFormatParams(tableFormatFileDesc);
-        } else if (fileSplit instanceof HiveSplit) {
-            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-            tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
-            rangeDesc.setTableFormatParams(tableFormatFileDesc);
         }
 
         setScanParams(rangeDesc, fileSplit);

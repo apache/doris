@@ -51,7 +51,8 @@ import java.util.Map;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    public static final int MIN_SPLIT_SIZE = 4096;
+    private static final int MIN_SPLIT_SIZE = 4096;
+    private static final LocationPath VIRTUAL_SLICE_PART = new LocationPath("/virtual_slice_part", Maps.newHashMap());
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -70,7 +71,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    private void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
@@ -130,7 +131,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private static void addPartitionSplits(List<Split> result, Table odpsTable, String partitionSpec) {
         long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
         // use '-1' to read whole partition, avoid expending too much time on calling table.getTotalRows()
-        result.add(new MaxComputeSplit(new LocationPath("/virtual_slice_part", Maps.newHashMap()),
+        result.add(new MaxComputeSplit(VIRTUAL_SLICE_PART,
                 0, -1L, -1, modificationTime, null, Collections.emptyList(), null));
     }
 

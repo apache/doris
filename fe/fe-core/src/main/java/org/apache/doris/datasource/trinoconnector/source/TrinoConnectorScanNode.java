@@ -232,7 +232,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
+    private void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
         // mock ObjectMapperProvider
         objectMapperProvider = createObjectMapperProvider();
 

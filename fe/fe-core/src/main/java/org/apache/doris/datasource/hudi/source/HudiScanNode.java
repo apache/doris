@@ -240,7 +240,7 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    public void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
+    private void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
@@ -361,7 +361,7 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    private void getPartitionSplits(List<HivePartition> partitions, List<Split> splits) {
+    private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         CountDownLatch countDownLatch = new CountDownLatch(partitions.size());
         AtomicReference<Throwable> throwable = new AtomicReference<>();
@@ -396,7 +396,7 @@ public class HudiScanNode extends HiveScanNode {
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-        getPartitionSplits(prunedPartitions, splits);
+        getPartitionsSplits(prunedPartitions, splits);
         return splits;
     }
 

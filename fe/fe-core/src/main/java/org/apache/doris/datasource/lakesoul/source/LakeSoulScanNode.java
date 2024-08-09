@@ -155,7 +155,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
+    private void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
         TLakeSoulFileDesc fileDesc = new TLakeSoulFileDesc();

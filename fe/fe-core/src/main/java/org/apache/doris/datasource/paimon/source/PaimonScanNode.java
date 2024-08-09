@@ -134,7 +134,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
+    private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
