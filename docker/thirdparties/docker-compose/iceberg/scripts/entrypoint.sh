@@ -16,10 +16,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-export SPARK_MASTER_HOST=doris--spark-iceberg
+export SPARK_MASTER_HOST=doris--ccspark-iceberg
 
 start-master.sh -p 7077
-start-worker.sh spark://doris--spark-iceberg:7077
+start-worker.sh spark://doris--ccspark-iceberg:7077
 start-history-server.sh
 start-thriftserver.sh --driver-java-options "-Dderby.system.home=/tmp/derby"
 
@@ -27,7 +27,7 @@ start-thriftserver.sh --driver-java-options "-Dderby.system.home=/tmp/derby"
 
 ls /mnt/scripts/create_preinstalled_scripts/*.sql | xargs -n 1 -I {} bash -c '
     START_TIME=$(date +%s)
-    spark-sql --master  spark://doris--spark-iceberg:7077   -f {} 
+    spark-sql --master  spark://doris--ccspark-iceberg:7077   -f {} 
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
