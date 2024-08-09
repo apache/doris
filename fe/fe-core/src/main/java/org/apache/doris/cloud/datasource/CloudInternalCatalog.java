@@ -44,8 +44,14 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
+import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
+import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.storage.ObjectFile;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -54,8 +60,10 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.Types;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -67,10 +75,12 @@ import doris.segment_v2.SegmentV2;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class CloudInternalCatalog extends InternalCatalog {
     private static final Logger LOG = LogManager.getLogger(CloudInternalCatalog.class);
@@ -91,7 +101,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified,
+                                                   List<Integer> clusterKeyIndexes)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -116,14 +127,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             indexMap.put(indexId, rollup);
         }
 
-        // version and version hash
-        if (versionInfo != null) {
-            partition.updateVisibleVersion(versionInfo);
-        }
         long version = partition.getVisibleVersion();
 
         final String storageVaultName = tbl.getStorageVaultName();
-        boolean storageVaultIdSet = false;
+        boolean storageVaultIdSet = tbl.getStorageVaultId().isEmpty();
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -150,6 +157,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 indexes = Lists.newArrayList();
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+            List<String> rowStoreColumns =
+                    tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
@@ -160,7 +169,12 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                        tbl.getTimeSeriesCompactionLevelThreshold());
+                        tbl.getTimeSeriesCompactionLevelThreshold(),
+                        tbl.disableAutoCompaction(),
+                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                        tbl.getEnableMowLightDelete(),
+                        tbl.getInvertedIndexFileStorageFormat(),
+                        tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -206,7 +220,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-            Long timeSeriesCompactionLevelThreshold) throws DdlException {
+            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+            List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -319,6 +335,21 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.addIndex(index.toPb(schemaColumns));
             }
         }
+        if (rowStoreColumnUniqueIds != null) {
+            schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
+        }
+        schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
+        schemaBuilder.setEnableMowLightDelete(enableMowLightDelete);
+
+        if (invertedIndexFileStorageFormat != null) {
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+            } else {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+            }
+        }
+        schemaBuilder.setRowStorePageSize(pageSize);
+
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
         // rowset
@@ -376,7 +407,8 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+    public void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                          boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
             prepareMaterializedIndex(tableId, indexIds, 0);
@@ -386,7 +418,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+    public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                          boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
@@ -394,10 +426,28 @@ public class CloudInternalCatalog extends InternalCatalog {
         } else {
             commitPartition(dbId, tableId, partitionIds, indexIds);
         }
+        if (!Config.check_create_table_recycle_key_remained) {
+            return;
+        }
+        checkCreatePartitions(dbId, tableId, partitionIds, indexIds);
+    }
+
+    private void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
+        if (partitionIds == null) {
+            checkMaterializedIndex(dbId, tableId, indexIds);
+        } else {
+            checkPartition(dbId, tableId, partitionIds);
+        }
     }
 
     private void preparePartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip prepare partition in checking compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
@@ -411,7 +461,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().preparePartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -419,7 +469,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, preparePartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -434,6 +484,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     private void commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip committing partitions in check compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
@@ -444,7 +499,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().commitPartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -452,7 +507,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, commitPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -467,6 +522,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     // if `expiration` = 0, recycler will delete uncommitted indexes in `retention_seconds`
     public void prepareMaterializedIndex(Long tableId, List<Long> indexIds, long expiration) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip prepare materialized index in checking compatibility mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -476,7 +536,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().prepareIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -484,7 +544,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, prepareIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -499,6 +559,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public void commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean isCreateTable)
             throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip committing materialized index in checking compatibility mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -509,7 +574,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().commitIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -517,7 +582,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, commitIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -526,6 +591,86 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("commitIndex response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    private void checkPartition(long dbId, long tableId, List<Long> partitionIds)
+            throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip checking partitions in checking compatibility mode");
+            return;
+        }
+
+        Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
+        checkKeyInfosBuilder.addAllPartitionIds(partitionIds);
+        // for ms log
+        checkKeyInfosBuilder.addDbIds(dbId);
+        checkKeyInfosBuilder.addTableIds(tableId);
+
+        Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
+        checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_PARTITION_AFTER_FE_COMMIT);
+        final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
+
+        Cloud.CheckKVResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
+                break;
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, checkPartition RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("checkPartition response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    public void checkMaterializedIndex(long dbId, long tableId, List<Long> indexIds)
+            throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip checking materialized index in checking compatibility mode");
+            return;
+        }
+
+        Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
+        checkKeyInfosBuilder.addAllIndexIds(indexIds);
+        // for ms log
+        checkKeyInfosBuilder.addDbIds(dbId);
+        checkKeyInfosBuilder.addTableIds(tableId);
+
+        Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
+        checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_INDEX_AFTER_FE_COMMIT);
+        final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
+
+        Cloud.CheckKVResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
+                break;
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, checkIndex RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("checkIndex response: {} ", response);
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -540,7 +685,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         Cloud.CreateTabletsResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -548,7 +693,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, create tablets RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -616,7 +761,8 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         long tableId = -1;
         List<Long> partitionIds = Lists.newArrayList();
-        List<Long> indexIds = Lists.newArrayList();
+        Set<Long> indexIds = new HashSet<>();
+        boolean needUpdateTableVersion = false;
         for (Partition partition : partitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
@@ -625,6 +771,10 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             }
             partitionIds.add(partition.getId());
+            if (partition.hasData()) {
+                // Update table version only when deleting non-empty partitions
+                needUpdateTableVersion = true;
+            }
         }
 
         CloudPartition partition0 = (CloudPartition) partitions.get(0);
@@ -637,7 +787,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
             }
             try {
-                dropCloudPartition(partition0.getDbId(), tableId, partitionIds, indexIds);
+                dropCloudPartition(partition0.getDbId(), tableId, partitionIds,
+                        indexIds.stream().collect(Collectors.toList()), needUpdateTableVersion);
             } catch (Exception e) {
                 LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
                         partitionIds, tableId, tryCnt, e);
@@ -652,14 +803,20 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
-            throws DdlException {
+    private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                    boolean needUpdateTableVersion) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping cloud partitions in checking compatibility mode");
+            return;
+        }
+
         Cloud.PartitionRequest.Builder partitionRequestBuilder =
                 Cloud.PartitionRequest.newBuilder();
         partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.setNeedUpdateTableVersion(needUpdateTableVersion);
         if (dbId > 0) {
             partitionRequestBuilder.setDbId(dbId);
         }
@@ -667,7 +824,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().dropPartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -675,7 +832,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, dropPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -689,6 +846,11 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping materialized index in compatibility checking mode");
+            return;
+        }
+
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
@@ -697,7 +859,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().dropIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -705,7 +867,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -768,65 +930,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,
-                          String stageName, String reason, boolean ifExists)
-            throws DdlException {
-        Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
-                .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
-        if (userName != null) {
-            builder.setMysqlUserName(userName);
-        }
-        if (userId != null) {
-            builder.setMysqlUserId(userId);
-        }
-        if (stageName != null) {
-            builder.setStageName(stageName);
-        }
-        if (reason != null) {
-            builder.setReason(reason);
-        }
-        Cloud.DropStageResponse response = null;
-        int retryTime = 0;
-        while (retryTime++ < 3) {
-            try {
-                response = MetaServiceProxy.getInstance().dropStage(builder.build());
-                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, reason:{}, "
-                        + "retry:{}, response: {}", stageType, userName, userId, stageName, reason, retryTime,
-                        response);
-                // just retry kv conflict
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("dropStage response: {} ", response);
-            }
-            // sleep random millis [20, 200] ms, avoid txn conflict
-            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
-            LOG.debug("randomMillis:{}", randomMillis);
-            try {
-                Thread.sleep(randomMillis);
-            } catch (InterruptedException e) {
-                LOG.info("InterruptedException: ", e);
-            }
-        }
-
-        if (response == null || !response.hasStatus()) {
-            throw new DdlException("metaService exception");
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropStage response: {} ", response);
-            if (response.getStatus().getCode() == Cloud.MetaServiceCode.STAGE_NOT_FOUND) {
-                if (ifExists) {
-                    return;
-                } else {
-                    throw new DdlException("Stage does not exists: " + stageName);
-                }
-            }
-            throw new DdlException("internal error, try later");
-        }
-    }
-
     public void replayUpdateCloudReplica(UpdateCloudReplicaInfo info) throws MetaNotFoundException {
         Database db = getDbNullable(info.getDbId());
         if (db == null) {
@@ -876,7 +979,12 @@ public class CloudInternalCatalog extends InternalCatalog {
                 List<Long> tabletIds = info.getTabletIds();
                 for (int i = 0; i < tabletIds.size(); ++i) {
                     Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
-                    Replica replica = tablet.getReplicas().get(0);
+                    Replica replica;
+                    if (info.getReplicaIds().isEmpty()) {
+                        replica = tablet.getReplicas().get(0);
+                    } else {
+                        replica = tablet.getReplicaById(info.getReplicaIds().get(i));
+                    }
                     Preconditions.checkNotNull(replica, info);
 
                     String clusterId = info.getClusterId();
@@ -894,6 +1002,349 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         } catch (Exception e) {
             LOG.warn("unexpected exception", e);
+        }
+    }
+
+    public void createStage(Cloud.StagePB stagePB, boolean ifNotExists) throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip creating stage in checking compatibility mode");
+            return;
+        }
+
+        Cloud.CreateStageRequest createStageRequest = Cloud.CreateStageRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStage(stagePB).build();
+        Cloud.CreateStageResponse response = null;
+        int retryTime = 0;
+        while (retryTime++ < 3) {
+            try {
+                response = MetaServiceProxy.getInstance().createStage(createStageRequest);
+                LOG.debug("create stage, stage: {}, {}, response: {}", stagePB, ifNotExists, response);
+                if (ifNotExists && response.getStatus().getCode() == MetaServiceCode.ALREADY_EXISTED) {
+                    LOG.info("stage already exists, stage_name: {}", stagePB.getName());
+                    return;
+                }
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT
+                        && response.getStatus().getCode() != MetaServiceCode.KV_TXN_COMMIT_ERR) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("createStage response: {} ", response);
+            }
+            // sleep random millis [20, 200] ms, avoid txn conflict
+            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+            LOG.debug("randomMillis:{}", randomMillis);
+            try {
+                Thread.sleep(randomMillis);
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+
+        if (response == null) {
+            LOG.warn("createStage failed.");
+            throw new DdlException("createStage failed");
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("createStage response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    public List<Cloud.StagePB> getStage(Cloud.StagePB.StageType stageType, String userName,
+                                  String stageName, String userId) throws DdlException {
+        Cloud.GetStageResponse response = getStageRpc(stageType, userName, stageName, userId);
+        if (response.getStatus().getCode() == MetaServiceCode.OK) {
+            return response.getStageList();
+        }
+
+        if (stageType == Cloud.StagePB.StageType.EXTERNAL) {
+            if (response.getStatus().getCode() == MetaServiceCode.STAGE_NOT_FOUND) {
+                LOG.info("Stage does not exist: {}", stageName);
+                throw new DdlException("Stage does not exist: " + stageName);
+            }
+            LOG.warn("internal error, try later");
+            throw new DdlException("internal error, try later");
+        }
+
+        if (response.getStatus().getCode() == MetaServiceCode.STATE_ALREADY_EXISTED_FOR_USER
+                || response.getStatus().getCode() == MetaServiceCode.STAGE_NOT_FOUND) {
+            Cloud.StagePB.Builder createStageBuilder = Cloud.StagePB.newBuilder();
+            createStageBuilder.addMysqlUserName(ClusterNamespace
+                    .getNameFromFullName(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser()))
+                .setStageId(UUID.randomUUID().toString())
+                .setType(Cloud.StagePB.StageType.INTERNAL).addMysqlUserId(userId);
+
+            boolean isAba = false;
+            if (response.getStatus().getCode() == MetaServiceCode.STATE_ALREADY_EXISTED_FOR_USER) {
+                List<Cloud.StagePB> stages = response.getStageList();
+                if (stages.isEmpty() || stages.get(0).getMysqlUserIdCount() == 0) {
+                    LOG.warn("impossible here, internal stage this err code must have one stage.");
+                    throw new DdlException("internal error, try later");
+                }
+                String toDropMysqlUserId = stages.get(0).getMysqlUserId(0);
+                // ABA user
+                // 1. drop user
+                isAba = true;
+                String reason = String.format("get stage deal with err user [%s:%s] %s, step %s msg %s now userid [%s]",
+                        userName, userId, "aba user", "1", "drop old stage", toDropMysqlUserId);
+                LOG.info(reason);
+                dropStage(Cloud.StagePB.StageType.INTERNAL, userName, toDropMysqlUserId, null, reason, true);
+            }
+            // stage not found just create and get
+            // 2. create a new internal stage
+            LOG.info("get stage deal with err user [{}:{}] {}, step {} msg {}", userName, userId,
+                    isAba ? "aba user" : "not found", isAba ? "2" : "1",  "create a new internal stage");
+            createStage(createStageBuilder.build(), true);
+            // 3. get again
+            // sleep random millis [20, 200] ms, avoid multiple call get stage.
+            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+            LOG.debug("randomMillis:{}", randomMillis);
+            try {
+                Thread.sleep(randomMillis);
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+            LOG.info("get stage deal with err user [{}:{}] {}, step {} msg {}", userName, userId,
+                    isAba ? "aba user" : "not found", isAba ? "3" : "2",  "get stage");
+            response = getStageRpc(stageType, userName, stageName, userId);
+            if (response.getStatus().getCode() == MetaServiceCode.OK) {
+                return response.getStageList();
+            }
+        }
+        return null;
+    }
+
+    private Cloud.GetStageResponse getStageRpc(Cloud.StagePB.StageType stageType, String userName,
+                                                      String stageName, String userId) throws DdlException {
+        Cloud.GetStageRequest.Builder builder = Cloud.GetStageRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
+        if (userName != null) {
+            builder.setMysqlUserName(userName);
+        }
+        if (stageName != null) {
+            builder.setStageName(stageName);
+        }
+        if (userId != null) {
+            builder.setMysqlUserId(userId);
+        }
+        Cloud.GetStageResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().getStage(builder.build());
+            LOG.debug("get stage, stageType={}, userName={}, userId= {}, stageName:{}, response: {}",
+                    stageType, userName, userId, stageName, response);
+        } catch (RpcException e) {
+            LOG.warn("getStage rpc exception: {} ", e.getMessage(), e);
+            throw new DdlException("internal error, try later");
+        }
+
+        return response;
+    }
+
+    public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,
+                          String stageName, String reason, boolean ifExists)
+            throws DdlException {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip dropping stage in checking compatibility mode");
+            return;
+        }
+
+        Cloud.DropStageRequest.Builder builder = Cloud.DropStageRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setType(stageType);
+        if (userName != null) {
+            builder.setMysqlUserName(userName);
+        }
+        if (userId != null) {
+            builder.setMysqlUserId(userId);
+        }
+        if (stageName != null) {
+            builder.setStageName(stageName);
+        }
+        if (reason != null) {
+            builder.setReason(reason);
+        }
+        Cloud.DropStageResponse response = null;
+        int retryTime = 0;
+        while (retryTime++ < 3) {
+            try {
+                response = MetaServiceProxy.getInstance().dropStage(builder.build());
+                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, reason:{}, "
+                        + "retry:{}, response: {}", stageType, userName, userId, stageName, reason, retryTime,
+                        response);
+                // just retry kv conflict
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("dropStage response: {} ", response);
+            }
+            // sleep random millis [20, 200] ms, avoid txn conflict
+            int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+            LOG.debug("randomMillis:{}", randomMillis);
+            try {
+                Thread.sleep(randomMillis);
+            } catch (InterruptedException e) {
+                LOG.info("InterruptedException: ", e);
+            }
+        }
+
+        if (response == null || !response.hasStatus()) {
+            throw new DdlException("metaService exception");
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("dropStage response: {} ", response);
+            if (response.getStatus().getCode() == MetaServiceCode.STAGE_NOT_FOUND) {
+                if (ifExists) {
+                    return;
+                } else {
+                    throw new DdlException("Stage does not exists: " + stageName);
+                }
+            }
+            throw new DdlException("internal error, try later");
+        }
+    }
+
+    public List<ObjectFilePB> beginCopy(String stageId, Cloud.StagePB.StageType stageType, long tableId,
+                                        String copyJobId, int groupId, long startTime, long timeoutTime,
+                                        List<ObjectFilePB> objectFiles,
+                                        long sizeLimit, int fileNumLimit, int fileMetaSizeLimit) throws DdlException {
+        Cloud.BeginCopyRequest request = Cloud.BeginCopyRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setStageType(stageType)
+                .setTableId(tableId).setCopyId(copyJobId).setGroupId(groupId).setStartTimeMs(startTime)
+                .setTimeoutTimeMs(timeoutTime).addAllObjectFiles(objectFiles).setFileNumLimit(fileNumLimit)
+                .setFileSizeLimit(sizeLimit).setFileMetaSizeLimit(fileMetaSizeLimit).build();
+        Cloud.BeginCopyResponse response = null;
+        try {
+            int retry = 0;
+            while (true) {
+                response = MetaServiceProxy.getInstance().beginCopy(request);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                    return response.getFilteredObjectFilesList();
+                }
+                if (retry < Config.cloud_copy_txn_conflict_error_retry_num
+                        && response.getStatus().getCode() == Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    LOG.warn("begin copy error with kv txn conflict, tableId={}, stageId={}, queryId={}, retry={}",
+                            tableId, stageId, copyJobId, retry);
+                    retry++;
+                    continue;
+                }
+                LOG.warn("beginCopy response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("beginCopy response: {} ", response);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public Cloud.GetIamResponse getIam() throws DdlException {
+        Cloud.GetIamRequest.Builder builder = Cloud.GetIamRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id);
+        Cloud.GetIamResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().getIam(builder.build());
+        } catch (RpcException e) {
+            LOG.warn("getStage rpc exception: {} ", e.getMessage(), e);
+            throw new DdlException("internal error, try later");
+        }
+        return response;
+    }
+
+    public void finishCopy(String stageId, Cloud.StagePB.StageType stageType, long tableId, String copyJobId,
+                           int groupId, Action action) throws DdlException {
+        Cloud.FinishCopyRequest request = Cloud.FinishCopyRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setStageType(stageType)
+                .setTableId(tableId).setCopyId(copyJobId).setGroupId(groupId)
+                .setAction(action).setFinishTimeMs(System.currentTimeMillis()).build();
+        Cloud.FinishCopyResponse response = null;
+        try {
+            int retry = 0;
+            while (true) {
+                response = MetaServiceProxy.getInstance().finishCopy(request);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                    return;
+                }
+                if (response.getStatus().getCode() == MetaServiceCode.COPY_JOB_NOT_FOUND) {
+                    if (action == Action.COMMIT) {
+                        LOG.warn("finish copy error with copy job not found, tableId={}, stageId={}, queryId={}",
+                                tableId, stageId, copyJobId);
+                        throw new DdlException(response.getStatus().getMsg());
+                    } else {
+                        return;
+                    }
+                }
+                if (retry < Config.cloud_copy_txn_conflict_error_retry_num
+                        && response.getStatus().getCode() == Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    LOG.warn("finish copy error with kv txn conflict, tableId={}, stageId={}, queryId={}, retry={}",
+                            tableId, stageId, copyJobId, retry);
+                    retry++;
+                    continue;
+                }
+                LOG.warn("finishCopy response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("finishCopy response: {} ", response);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public CopyJobPB getCopyJob(String stageId, long tableId, String copyJobId, int groupId) throws DdlException {
+        Cloud.GetCopyJobRequest request = Cloud.GetCopyJobRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setTableId(tableId).setCopyId(copyJobId)
+                .setGroupId(groupId).build();
+        Cloud.GetCopyJobResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().getCopyJob(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("getCopyJob response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+            return response.hasCopyJob() ? response.getCopyJob() : null;
+        } catch (RpcException e) {
+            LOG.warn("getCopyJob response: {} ", response);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public List<ObjectFilePB> getCopyFiles(String stageId, long tableId) throws DdlException {
+        Cloud.GetCopyFilesRequest.Builder builder = Cloud.GetCopyFilesRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setTableId(tableId);
+        Cloud.GetCopyFilesResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().getCopyFiles(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("getCopyFiles response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+            return response.getObjectFilesList();
+        } catch (RpcException e) {
+            LOG.warn("getCopyFiles response: {} ", response);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+            throws DdlException {
+        Cloud.FilterCopyFilesRequest.Builder builder = Cloud.FilterCopyFilesRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setStageId(stageId).setTableId(tableId);
+        for (ObjectFile objectFile : objectFiles) {
+            builder.addObjectFiles(
+                    ObjectFilePB.newBuilder().setRelativePath(objectFile.getRelativePath())
+                            .setEtag(objectFile.getEtag()).setSize(objectFile.getSize()).build());
+        }
+        Cloud.FilterCopyFilesResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().filterCopyFiles(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("filterCopyFiles response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+            return response.getObjectFilesList();
+        } catch (RpcException e) {
+            LOG.warn("filterCopyFiles response: {} ", response);
+            throw new DdlException(e.getMessage());
         }
     }
 }

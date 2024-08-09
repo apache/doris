@@ -71,7 +71,7 @@ public class HiveVersionUtil {
                     return DEFAULT_HIVE_VERSION;
                 }
             } else if (major >= 3) {
-                return HiveVersion.V2_3;
+                return HiveVersion.V3_0;
             } else {
                 LOG.warn("invalid hive version: " + version);
                 return DEFAULT_HIVE_VERSION;

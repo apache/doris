@@ -55,6 +55,7 @@ static std::unique_ptr<StorageEngine> k_engine;
 
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.json";
+const std::string rowset_meta_path_3 = "./be/test/olap/test_data/rowset_meta3.json";
 
 class TxnManagerTest : public testing::Test {
 public:
@@ -165,6 +166,22 @@ public:
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
         EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_2,
                                                              rowset_meta2, &_rowset_diff_id));
+
+        // init rowset meta 3
+        _json_rowset_meta = "";
+        std::ifstream infile3(rowset_meta_path_3);
+        char buffer3[1024];
+        while (!infile3.eof()) {
+            infile3.getline(buffer3, 1024);
+            _json_rowset_meta = _json_rowset_meta + buffer3 + "\n";
+        }
+        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        rowset_id.init(10002);
+        RowsetMetaSharedPtr rowset_meta3(new RowsetMeta());
+        rowset_meta3->init_from_json(_json_rowset_meta);
+        EXPECT_EQ(rowset_meta3->rowset_id(), rowset_id);
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_3,
+                                                             rowset_meta3, &_rowset_ingested));
         _tablet_uid = TabletUid(10, 10);
     }
 
@@ -185,6 +202,7 @@ private:
     RowsetSharedPtr _rowset;
     RowsetSharedPtr _rowset_same_id;
     RowsetSharedPtr _rowset_diff_id;
+    RowsetSharedPtr _rowset_ingested;
 };
 
 TEST_F(TxnManagerTest, PrepareNewTxn) {
@@ -380,6 +398,27 @@ TEST_F(TxnManagerTest, TabletVersionCache) {
     EXPECT_EQ(tx5, 888);
     int64_t tx6 = txn_mgr->get_txn_by_tablet_version(124, 101);
     EXPECT_EQ(tx6, 890);
+}
+
+TEST_F(TxnManagerTest, DeleteCommittedTxnForIngestingBinlog) {
+    auto guard = k_engine->pending_local_rowsets().add(_rowset_ingested->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset_ingested,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset_ingested->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset_ingested->rowset_id());
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset_ingested->rowset_id(),
+                                            rowset_meta2);
+    ASSERT_FALSE(st.ok()) << st;
+    EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset_ingested->rowset_id()));
 }
 
 } // namespace doris

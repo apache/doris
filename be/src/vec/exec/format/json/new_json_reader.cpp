@@ -420,8 +420,9 @@ Status NewJsonReader::_open_line_reader() {
     }
     _line_reader = NewPlainTextLineReader::create_unique(
             _profile, _file_reader, _decompressor.get(),
-            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
-            _current_offset);
+            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length,
+                                                     false),
+            size, _current_offset);
     return Status::OK();
 }
 
@@ -496,7 +497,9 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
                 objectValue = _json_doc;
             }
             _next_row = 0;
-            if (_fuzzy_parse) {
+            // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"}
+            // If a Json Array comes here, it maybe crashed in it->name.GetString()
+            if (_fuzzy_parse && objectValue->IsObject()) {
                 for (auto* v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
@@ -1070,7 +1073,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 
@@ -1212,7 +1215,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
         while (true) {
             cur = (*_array_iter).get_object();
             // extract root
-            if (!_parsed_json_root.empty()) {
+            if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
@@ -1344,6 +1347,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         const size_t column_index = _column_index(name_ref, key_index++);
         if (UNLIKELY(ssize_t(column_index) < 0)) {
             // This key is not exist in slot desc, just ignore
+            continue;
+        }
+        if (_seen_columns[column_index]) {
             continue;
         }
         simdjson::ondemand::value val = field.value();
@@ -1605,6 +1611,7 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
                 fmt::format_to(error_msg, "{}", st.to_string());
                 return return_quality_error(error_msg, std::string((char*)_json_str, *size));
             }
+            _parsed_from_json_root = true;
         } catch (simdjson::simdjson_error& e) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",
@@ -1651,7 +1658,19 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
+        if (i < _parsed_jsonpaths.size() && JsonFunctions::is_root_path(_parsed_jsonpaths[i])) {
+            // Indicate that the jsonpath is "$.", read the full root json object, insert the original doc directly
+            ColumnNullable* nullable_column = nullptr;
+            IColumn* target_column_ptr = nullptr;
+            if (slot_desc->is_nullable()) {
+                nullable_column = assert_cast<ColumnNullable*>(column_ptr);
+                target_column_ptr = &nullable_column->get_nested_column();
+            }
+            auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
+            column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),
+                                       _original_doc_size);
+            has_valid_value = true;
+        } else if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {

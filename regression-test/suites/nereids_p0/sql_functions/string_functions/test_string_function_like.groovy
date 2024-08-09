@@ -80,15 +80,4 @@ suite("test_string_function_like") {
                 NULL
                 END
             FROM test_string_function_like_t0;"""
-    sql "SET enable_nereids_planner=false"
-    qt_sql """select
-            CASE TRUE WHEN
-            CASE FALSE
-            WHEN ( c0 IS NULL) THEN
-            TRUE
-            END THEN
-            NULL
-            END
-        FROM test_string_function_like_t0;"""
-    // sql "DROP TABLE ${tbName};"
 }

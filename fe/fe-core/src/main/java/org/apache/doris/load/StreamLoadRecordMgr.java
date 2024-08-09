@@ -20,6 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -27,10 +28,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -147,16 +151,19 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public List<StreamLoadItem> getStreamLoadRecords() {
+        LOG.info("test log: {}", streamLoadRecordHeap);
         return new ArrayList<>(streamLoadRecordHeap);
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(
             long dbId, String label, boolean accurateMatch, StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
+        LOG.info("test log: {}", dbId);
 
         readLock();
         try {
             if (!dbIdToLabelToStreamLoadRecord.containsKey(dbId)) {
+                LOG.info("test log: {}", dbId);
                 return streamLoadRecords;
             }
 
@@ -186,12 +193,20 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     if (state != null && !String.valueOf(state).equalsIgnoreCase(streamLoadRecord.getStatus())) {
                         continue;
                     }
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    streamLoadRecord.getDb(), streamLoadRecord.getTable(),
+                                    PrivPredicate.LOAD)) {
+                        continue;
+                    }
                     streamLoadRecords.add(streamLoadRecord.getStreamLoadInfo());
                 } catch (Exception e) {
                     continue;
                 }
 
             }
+            LOG.info("test log: {}", streamLoadRecords);
             return streamLoadRecords;
         } finally {
             readUnlock();
@@ -229,7 +244,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("Failed to load backends from system info", e);
+            return;
+        }
         long start = System.currentTimeMillis();
         int pullRecordSize = 0;
         Map<Long, Long> beIdToLastStreamLoad = Maps.newHashMap();
@@ -250,22 +271,20 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("receive stream load record info from backend: {}."
-                                        + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
-                                        + " status: {}, message: {}, error_url: {},"
-                                        + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
-                                        + " load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
-                                streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
-                                streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
-                                streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
-                                streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
-                                streamLoadItem.getLoadBytes(), startTime, finishTime);
-                    }
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
+                    LOG.info("receive stream load record info from backend: {}."
+                                    + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
+                                    + " status: {}, message: {}, error_url: {},"
+                                    + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
+                                    + " load_bytes: {}, start_time: {}, finish_time: {}.",
+                            backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
+                            streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
+                            streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
+                            streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
+                            streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
+                            streamLoadItem.getLoadBytes(), startTime, finishTime);
 
                     AuditEvent auditEvent =
                             new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
@@ -342,8 +361,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         }
     }
 
-    public void replayFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
-        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
+    public void replayFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) throws AnalysisException {
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Map<Long, Long> beIdToLastStreamLoad = fetchStreamLoadRecord.getBeIdToLastStreamLoad();
         for (Backend backend : backends.values()) {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {

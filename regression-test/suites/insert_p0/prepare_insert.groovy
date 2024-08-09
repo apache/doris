@@ -34,7 +34,7 @@ suite("prepare_insert") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE ${tableName} (
-            `id` int(11) NOT NULL,
+            `id` int(11) NULL,
             `name` varchar(50) NULL,
             `score` int(11) NULL DEFAULT "-1"
         ) ENGINE=OLAP
@@ -137,6 +137,20 @@ suite("prepare_insert") {
         // Even if we write 2 rows as a batch, but the client does not add rewriteBatchedStatements=true in the url,
         // so the insert is executed in fe one by one.
         assertEquals(stmtId, getStmtId(stmt))
+
+        stmt.close()
+    }
+
+    // insert with null
+    result1 = connect(user = user, password = password, url = url) {
+        def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
+        check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
+        stmt.setNull(1, java.sql.Types.INTEGER)
+        stmt.setNull(2, java.sql.Types.VARCHAR)
+        stmt.setNull(3, java.sql.Types.INTEGER)
+        def result = stmt.execute()
+        logger.info("result: ${result}")
+        getServerInfo(stmt)
 
         stmt.close()
     }

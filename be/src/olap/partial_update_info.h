@@ -16,37 +16,30 @@
 // under the License.
 
 #pragma once
-
-#include "olap/tablet_schema.h"
+#include <cstdint>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace doris {
+class TabletSchema;
+class PartialUpdateInfoPB;
 
 struct PartialUpdateInfo {
     void init(const TabletSchema& tablet_schema, bool partial_update,
-              const std::set<string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, const std::string& timezone) {
-        is_partial_update = partial_update;
-        partial_update_input_columns = partial_update_cols;
-        this->timestamp_ms = timestamp_ms;
-        this->timezone = timezone;
-        missing_cids.clear();
-        update_cids.clear();
-        for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
-            auto tablet_column = tablet_schema.column(i);
-            if (!partial_update_input_columns.contains(tablet_column.name())) {
-                missing_cids.emplace_back(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
-                    tablet_schema.auto_increment_column() != tablet_column.name()) {
-                    can_insert_new_rows_in_partial_update = false;
-                }
-            } else {
-                update_cids.emplace_back(i);
-            }
-        }
-        this->is_strict_mode = is_strict_mode;
-    }
+              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
+              int64_t timestamp_ms, const std::string& timezone,
+              const std::string& auto_increment_column, int64_t cur_max_version = -1);
+    void to_pb(PartialUpdateInfoPB* partial_update_info) const;
+    void from_pb(PartialUpdateInfoPB* partial_update_info);
+    std::string summary() const;
 
+private:
+    void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
+
+public:
     bool is_partial_update {false};
+    int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
     std::vector<uint32_t> update_cids;
@@ -56,5 +49,10 @@ struct PartialUpdateInfo {
     bool is_strict_mode {false};
     int64_t timestamp_ms {0};
     std::string timezone;
+    bool is_input_columns_contains_auto_inc_column = false;
+    bool is_schema_contains_auto_inc_column = false;
+
+    // default values for missing cids
+    std::vector<std::string> default_values;
 };
 } // namespace doris

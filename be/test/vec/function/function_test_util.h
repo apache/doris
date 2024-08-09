@@ -17,11 +17,16 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdint.h>
-#include <time.h>
+#include <mysql/mysql.h>
 
+#include <algorithm>
+#include <concepts>
+#include <cstdint>
+#include <ctime>
 #include <memory>
+#include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -33,6 +38,7 @@
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
+#include "testutil/test_util.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
@@ -50,8 +56,8 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
-
 namespace doris::vectorized {
 
 class DataTypeJsonb;
@@ -97,6 +103,9 @@ using STRING = std::string;
 
 using DOUBLE = double;
 using FLOAT = float;
+
+using IPV4 = uint32_t;
+using IPV6 = uint128_t;
 
 inline auto DECIMAL = Decimal128V2::double_to_decimal;
 inline auto DECIMALFIELD = [](double v) {
@@ -292,6 +301,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     EXPECT_TRUE(column != nullptr);
 
     for (int i = 0; i < row_size; ++i) {
+        // update current line
+        if (row_size > 1) {
+            TestCaseInfo::cur_cast_line = i;
+        }
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
                 const auto& expect_data = any_cast<String>(data_set[i].second);
@@ -352,4 +365,39 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     return Status::OK();
 }
 
+using BaseInputTypeSet = std::vector<TypeIndex>;
+
+// Each parameter may be decorated with 'const', but each invocation of 'check_function' can only handle one state of the parameters.
+// If there are 'n' parameters, it would require manually calling 'check_function' 2^n times, whereas through this function, only one
+// invocation is needed.
+template <typename ReturnType, bool nullable = false>
+void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
+                                 const DataSet& data_set) {
+    int arg_cnt = base_set.size();
+    TestCaseInfo::arg_size = arg_cnt;
+    // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
+    for (int i = 0; i < (1 << arg_cnt); i++) {
+        InputTypeSet input_types {};
+        for (int j = 0; j < arg_cnt; j++) {
+            if ((1 << j) & i) {
+                input_types.emplace_back(Consted {static_cast<TypeIndex>(base_set[j])});
+            } else {
+                input_types.emplace_back(static_cast<TypeIndex>(base_set[j]));
+            }
+        }
+
+        TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
+        // exists parameter are const
+        if (i != 0) {
+            for (const auto& line : data_set) {
+                DataSet tmp_set {line};
+                static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
+                                                                       tmp_set, false));
+            }
+        } else {
+            static_cast<void>(
+                    check_function<ReturnType, nullable>(func_name, input_types, data_set));
+        }
+    }
+}
 } // namespace doris::vectorized

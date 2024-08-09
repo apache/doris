@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
@@ -103,6 +105,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(CountByEnum.class, "count_by_enum"),
             agg(Covar.class, "covar", "covar_pop"),
             agg(CovarSamp.class, "covar_samp"),
+            agg(GroupArrayIntersect.class, "group_array_intersect"),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
@@ -124,12 +127,13 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Ndv.class, "approx_count_distinct", "ndv"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
-            agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-            agg(Percentile.class, "percentile"),
-            agg(PercentileApprox.class, "percentile_approx"),
-            agg(PercentileArray.class, "percentile_array"),
-            agg(QuantileUnion.class, "quantile_union"),
-            agg(Retention.class, "retention"),
+                    agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
+                    agg(Percentile.class, "percentile"),
+                    agg(PercentileApprox.class, "percentile_approx"),
+                    agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
+                    agg(PercentileArray.class, "percentile_array"),
+                    agg(QuantileUnion.class, "quantile_union"),
+                    agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Stddev.class, "stddev_pop", "stddev"),

@@ -28,15 +28,17 @@
 namespace doris::io {
 
 void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t index_id,
-                                int64_t tablet_id, int32_t segment_id) {
+                                int64_t tablet_id, int32_t segment_id, FileType file_type) {
     VLOG_DEBUG << "init stream writer, load id(" << UniqueId(load_id).to_string()
                << "), partition id(" << partition_id << "), index id(" << index_id
-               << "), tablet_id(" << tablet_id << "), segment_id(" << segment_id << ")";
+               << "), tablet_id(" << tablet_id << "), segment_id(" << segment_id << ")"
+               << ", file_type(" << file_type << ")";
     _load_id = load_id;
     _partition_id = partition_id;
     _index_id = index_id;
     _tablet_id = tablet_id;
     _segment_id = segment_id;
+    _file_type = file_type;
 }
 
 Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
@@ -47,45 +49,29 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     VLOG_DEBUG << "writer appendv, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
-               << ", data_length: " << bytes_req;
+               << ", data_length: " << bytes_req << "file_type" << _file_type;
 
     std::span<const Slice> slices {data, data_cnt};
-    size_t stream_index = 0;
+    size_t fault_injection_skipped_streams = 0;
     bool ok = false;
-    bool skip_stream = false;
     Status st;
     for (auto& stream : _streams) {
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (stream_index >= 2) {
-                skip_stream = true;
+            if (fault_injection_skipped_streams < 1) {
+                fault_injection_skipped_streams++;
+                continue;
             }
         });
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (stream_index >= 1) {
-                skip_stream = true;
+            if (fault_injection_skipped_streams < 2) {
+                fault_injection_skipped_streams++;
+                continue;
             }
         });
-        if (!skip_stream) {
-            st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                     _bytes_appended, slices);
-        }
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (stream_index >= 2) {
-                st = Status::InternalError("stream sink file writer append data failed");
-            }
-            stream_index++;
-            skip_stream = false;
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (stream_index >= 1) {
-                st = Status::InternalError("stream sink file writer append data failed");
-            }
-            stream_index++;
-            skip_stream = false;
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", {
-            st = Status::InternalError("stream sink file writer append data failed");
-        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
+                        { continue; });
+        st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, _bytes_appended,
+                                 slices, false, _file_type);
         ok = ok || st.ok();
         if (!st.ok()) {
             LOG(WARNING) << "failed to send segment data to backend " << stream->dst_id()
@@ -111,14 +97,51 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status StreamSinkFileWriter::finalize() {
+Status StreamSinkFileWriter::close(bool non_block) {
+    if (_state == State::CLOSED) {
+        return Status::InternalError("StreamSinkFileWriter already closed, load id {}",
+                                     print_id(_load_id));
+    }
+    if (_state == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
+        // error status then the code would never call the second close(true)
+        _state = State::CLOSED;
+        return Status::OK();
+    }
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+    } else {
+        _state = State::CLOSED;
+    }
+    return _finalize();
+}
+
+Status StreamSinkFileWriter::_finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
+    size_t fault_injection_skipped_streams = 0;
     bool ok = false;
     for (auto& stream : _streams) {
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
+            if (fault_injection_skipped_streams < 1) {
+                fault_injection_skipped_streams++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
+            if (fault_injection_skipped_streams < 2) {
+                fault_injection_skipped_streams++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
+                        { continue; });
         auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                      _bytes_appended, {}, true);
+                                      _bytes_appended, {}, true, _file_type);
         ok = ok || st.ok();
         if (!st.ok()) {
             LOG(WARNING) << "failed to send segment eos to backend " << stream->dst_id()
@@ -141,11 +164,6 @@ Status StreamSinkFileWriter::finalize() {
                 "failed to send segment eos to any replicas, tablet_id={}, segment_id={}",
                 _tablet_id, _segment_id);
     }
-    return Status::OK();
-}
-
-Status StreamSinkFileWriter::close() {
-    _closed = true;
     return Status::OK();
 }
 

@@ -181,7 +181,7 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern != null) {
             checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
-            privileges = PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
+            PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern, privileges);
             checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
             checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
@@ -217,7 +217,7 @@ public class GrantStmt extends DdlStmt {
             Map<ColPrivilegeKey, Set<String>> colPrivileges)
             throws AnalysisException {
         // Rule 1
-        checkIncorrectPrivilege(Privilege.notBelongToTablePrivileges, privileges);
+        Privilege.checkIncorrectPrivilege(Privilege.notBelongToTablePrivileges, privileges);
         // Rule 2
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
                 || privileges.contains(Privilege.NODE_PRIV))) {
@@ -242,17 +242,6 @@ public class GrantStmt extends DdlStmt {
         // Rule 5
         if (!MapUtils.isEmpty(colPrivileges) && "*".equals(tblPattern.getTbl())) {
             throw new AnalysisException("Col auth must specify specific table");
-        }
-    }
-
-    private static void checkIncorrectPrivilege(Privilege[] incorrectPrivileges,
-            Collection<Privilege> privileges) throws AnalysisException {
-        for (int i = 0; i < incorrectPrivileges.length; i++) {
-            if (privileges.contains(incorrectPrivileges[i])) {
-                throw new AnalysisException(
-                        String.format("Can not grant/revoke %s to/from any other users or roles",
-                                incorrectPrivileges[i]));
-            }
         }
     }
 
@@ -283,7 +272,7 @@ public class GrantStmt extends DdlStmt {
 
     public static void checkResourcePrivileges(Collection<Privilege> privileges,
             ResourcePattern resourcePattern) throws AnalysisException {
-        checkIncorrectPrivilege(Privilege.notBelongToResourcePrivileges, privileges);
+        Privilege.checkIncorrectPrivilege(Privilege.notBelongToResourcePrivileges, privileges);
 
         PrivPredicate predicate = getPrivPredicate(privileges);
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
@@ -299,26 +288,26 @@ public class GrantStmt extends DdlStmt {
             PrivPredicate privPredicate) {
         if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
             return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, privPredicate);
-        } else {
-            if (resourcePattern.isGeneralResource()) {
+        }
+
+        switch (resourcePattern.getResourceType()) {
+            case GENERAL:
+            case STORAGE_VAULT:
                 return Env.getCurrentEnv().getAccessManager()
                         .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
-            } else if (resourcePattern.isClusterResource()) {
+            case CLUSTER:
+            case STAGE:
                 return Env.getCurrentEnv().getAccessManager()
                         .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
-                                ResourceTypeEnum.CLUSTER);
-            } else if (resourcePattern.isStageResource()) {
-                return Env.getCurrentEnv().getAccessManager()
-                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
-                                ResourceTypeEnum.STAGE);
-            }
+                                resourcePattern.getResourceType());
+            default:
+                return true;
         }
-        return true;
     }
 
     public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges,
             WorkloadGroupPattern workloadGroupPattern) throws AnalysisException {
-        checkIncorrectPrivilege(Privilege.notBelongToWorkloadGroupPrivileges, privileges);
+        Privilege.checkIncorrectPrivilege(Privilege.notBelongToWorkloadGroupPrivileges, privileges);
 
         PrivPredicate predicate = getPrivPredicate(privileges);
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
@@ -384,5 +373,10 @@ public class GrantStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.GRANT;
     }
 }

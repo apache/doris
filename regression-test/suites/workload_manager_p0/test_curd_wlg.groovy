@@ -92,6 +92,9 @@ suite("test_crud_wlg") {
     sql "alter workload group normal properties ( 'queue_timeout'='0' );"
     sql "alter workload group normal properties ( 'cpu_hard_limit'='1%' );"
     sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'scan_thread_num'='-1' );"
+    sql "alter workload group normal properties ( 'remote_read_bytes_per_second'='-1' );"
+    sql "alter workload group normal properties ( 'read_bytes_per_second'='-1' );"
 
     sql "set workload_group=normal;"
 
@@ -126,7 +129,13 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+
+    // test drop workload group
+    sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    sql "drop workload group test_drop_wg"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
     // test memory_limit
     test {
@@ -190,9 +199,31 @@ suite("test_crud_wlg") {
         exception "requires a positive integer"
     }
 
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='0')"
+        exception "an integer value bigger than"
+    }
+
+    test {
+        sql "alter workload group test_group properties('remote_read_bytes_per_second'='-2')"
+        exception "an integer value bigger than"
+    }
+
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
+    sql "alter workload group test_group properties('remote_read_bytes_per_second'='104857600')"
+    sql "alter workload group test_group properties('read_bytes_per_second'='104857600')"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
     // failed for cpu_share
@@ -276,6 +307,15 @@ suite("test_crud_wlg") {
     sql """drop user if exists test_wlg_user"""
     sql "CREATE USER 'test_wlg_user'@'%' IDENTIFIED BY '12345';"
     sql """grant SELECT_PRIV on *.*.* to test_wlg_user;"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+    }
+
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
             sql """ select count(1) from information_schema.backend_active_tasks; """
     }
@@ -301,21 +341,21 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
     Thread.sleep(10000)
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test insert into select will go to queue
     test {
-        sql "insert into ${table_name2} select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "insert into ${table_name2} select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
 
     // test create table as select will go to queue
     test {
-        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(workload_group=test_group)*/ * from ${table_name};"
 
         exception "query waiting queue is full"
     }
@@ -326,7 +366,7 @@ suite("test_crud_wlg") {
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
-        exception "query wait timeout"
+        exception "query queue timeout"
     }
 
     // test query queue running query/waiting num
@@ -521,12 +561,76 @@ suite("test_crud_wlg") {
     sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
     sql "set workload_group=bypass_group;"
     test {
-        sql "select count(1) from information_schema.active_queries;"
+        sql "select count(1) from ${table_name};"
         exception "query waiting queue is full"
     }
 
     sql "set bypass_workload_group = true;"
     sql "select count(1) from information_schema.active_queries;"
+
+    // test set remote scan pool
+    sql "drop workload group if exists test_remote_scan_wg;"
+    test {
+        sql "create workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='123');"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='123');"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='123');"
+        exception "must bigger or equal "
+    }
+
+    sql "create workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='20', 'min_remote_scan_thread_num'='10');"
+    qt_select_remote_scan_num "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='21')"
+    qt_select_remote_scan_num_2 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='5')"
+        exception "must bigger or equal"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='2')"
+    qt_select_remote_scan_num_3 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='30')"
+        exception "must bigger or equal"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='40', 'min_remote_scan_thread_num'='20')"
+    qt_select_remote_scan_num_4 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='5')"
+    qt_select_remote_scan_num_5 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='3', 'min_remote_scan_thread_num'='3')"
+    qt_select_remote_scan_num_6 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "drop workload group test_remote_scan_wg;"
+    sql "create workload group test_remote_scan_wg properties('cpu_share'='1024');"
+    test {
+        sql "alter workload group test_remote_scan_wg properties('min_remote_scan_thread_num'='30')"
+        exception "must be specified simultaneously"
+    }
+
+    test {
+        sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='30')"
+        exception "must be specified simultaneously"
+    }
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='10', 'min_remote_scan_thread_num'='5')"
+    qt_select_remote_scan_num_7 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+
+    sql "alter workload group test_remote_scan_wg properties('max_remote_scan_thread_num'='-1', 'min_remote_scan_thread_num'='-1')"
+    qt_select_remote_scan_num_8 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
+    sql "drop workload group test_remote_scan_wg"
 
     sql "drop workload group tag1_wg1;"
     sql "drop workload group tag1_wg2;"
@@ -536,5 +640,62 @@ suite("test_crud_wlg") {
     sql "drop workload group tag1_mem_wg2;"
     sql "drop workload group tag1_mem_wg3;"
     sql "drop workload group bypass_group;"
+
+    // test workload group privilege table
+    sql "set workload_group=normal;"
+    sql "drop user if exists test_wg_priv_user1"
+    sql "drop user if exists test_wg_priv_user2"
+    sql "drop role if exists test_wg_priv_role1"
+    sql "drop workload group if exists test_wg_priv_g1;"
+    // 1 test grant user
+    sql "create workload group test_wg_priv_g1 properties('cpu_share'='1024')"
+
+    sql "create user test_wg_priv_user1"
+    qt_select_wgp_1 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' TO test_wg_priv_user1;"
+    qt_select_wgp_2 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "revoke USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' from test_wg_priv_user1;"
+    qt_select_wgp_3 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' TO test_wg_priv_user1;"
+    qt_select_wgp_4 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+
+
+    // 2 test grant role
+    sql "create role test_wg_priv_role1;"
+    qt_select_wgp_5 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' TO role 'test_wg_priv_role1';"
+    qt_select_wgp_6 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "revoke USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' from role 'test_wg_priv_role1';"
+    qt_select_wgp_7 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'test_wg_priv_g1' TO role 'test_wg_priv_role1';"
+    qt_select_wgp_8 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    // 3 test grant %
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP '%' TO test_wg_priv_user1; "
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP '%' TO role 'test_wg_priv_role1'; "
+    qt_select_wgp_9 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+    sql "revoke USAGE_PRIV ON WORKLOAD GROUP '%' from test_wg_priv_user1; "
+    sql "revoke USAGE_PRIV ON WORKLOAD GROUP '%' from role 'test_wg_priv_role1'; "
+    qt_select_wgp_10 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+
+    //4 test row filter
+    sql "create user test_wg_priv_user2"
+    sql "grant SELECT_PRIV on *.*.* to test_wg_priv_user2"
+    connect(user = 'test_wg_priv_user2', password = '', url = context.config.jdbcUrl) {
+        qt_select_wgp_11 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+    }
+
+    sql "drop user test_wg_priv_user1"
+    sql "drop user test_wg_priv_user2"
+    sql "drop role test_wg_priv_role1"
+    qt_select_wgp_12 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
+    sql "drop workload group test_wg_priv_g1"
 
 }

@@ -54,7 +54,7 @@ export function CodeMirrorWithFullscreen(props: any) {
                 value={props.value}
                 onBeforeChange={props.onBeforeChange}
                 className={styles['codemirror']}
-                options={{...options,theme:'neo'}}
+                options={{...options,theme:'default'}}
             />
         </div>
     );

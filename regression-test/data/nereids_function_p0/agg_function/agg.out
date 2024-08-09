@@ -1410,6 +1410,148 @@
 -- !sql_count_AnyData_agg_phase_4_notnull --
 12	12
 
+-- !sql_group_array_intersect_array_bool --
+[0]
+
+-- !sql_group_array_intersect_array_tinyint --
+[1]
+
+-- !sql_group_array_intersect_array_smallint --
+[]
+
+-- !sql_group_array_intersect_array_int --
+[]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[10]
+[11]
+[12]
+
+-- !sql_group_array_intersect_array_bigint --
+[]
+
+-- !sql_group_array_intersect_array_largeint --
+[8]
+
+-- !sql_group_array_intersect_array_float --
+[5]
+
+-- !sql_group_array_intersect_array_double --
+[0.2]
+
+-- !sql_group_array_intersect_array_date --
+["2012-03-03"]
+
+-- !sql_group_array_intersect_array_datetime --
+["2012-03-04 04:03:04"]
+
+-- !sql_group_array_intersect_array_datev2 --
+["2012-03-06"]
+
+-- !sql_group_array_intersect_array_datetimev2 --
+["2012-03-09 09:08:09.000000"]
+
+-- !sql_group_array_intersect_array_char --
+["char21", "char11", "char31"]
+
+-- !sql_group_array_intersect_array_varchar --
+["varchar11", "char11", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_string --
+["varchar11", "string1", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_decimal --
+[]
+[0.100000000]
+[0.200000000]
+[0.300000000]
+[0.400000000]
+[0.500000000]
+[0.600000000]
+[0.700000000]
+[0.800000000]
+[0.900000000]
+[1.000000000]
+[1.100000000]
+[1.200000000]
+
+-- !sql_group_array_intersect_array_bool_notnull --
+[0]
+
+-- !sql_group_array_intersect_array_tinyint_notnull --
+[1]
+
+-- !sql_group_array_intersect_array_smallint_notnull --
+[]
+
+-- !sql_group_array_intersect_array_int_notnull --
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[10]
+[11]
+[12]
+
+-- !sql_group_array_intersect_array_bigint_notnull --
+[]
+
+-- !sql_group_array_intersect_array_largeint_notnull --
+[8]
+
+-- !sql_group_array_intersect_array_float_notnull --
+[5]
+
+-- !sql_group_array_intersect_array_double_notnull --
+[0.2]
+
+-- !sql_group_array_intersect_array_date_notnull --
+["2012-03-03"]
+
+-- !sql_group_array_intersect_array_datetime_notnull --
+["2012-03-04 04:03:04"]
+
+-- !sql_group_array_intersect_array_datev2_notnull --
+["2012-03-06"]
+
+-- !sql_group_array_intersect_array_datetimev2_notnull --
+["2012-03-09 09:08:09.000000"]
+
+-- !sql_group_array_intersect_array_char_notnull --
+["char21", "char11", "char31"]
+
+-- !sql_group_array_intersect_array_varchar_notnull --
+["varchar11", "char11", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_string_notnull --
+["varchar11", "string1", "varchar31", "char31", "varchar21", "char21"]
+
+-- !sql_group_array_intersect_array_decimal_notnull --
+[0.100000000]
+[0.200000000]
+[0.300000000]
+[0.400000000]
+[0.500000000]
+[0.600000000]
+[0.700000000]
+[0.800000000]
+[0.900000000]
+[1.000000000]
+[1.100000000]
+[1.200000000]
+
 -- !sql_group_bit_and_TinyInt_gb --
 \N
 0
@@ -2713,6 +2855,9 @@
 -- !sql_percentile_BigInt_Double --
 7.6
 
+-- !sql_percentile_Null_Empty --
+\N
+
 -- !sql_percentile_BigInt_Double_agg_phase_1 --
 0	\N
 1	1.0
@@ -3102,7 +3247,7 @@
 12	1
 
 -- !sql_sequence_match_String_DateV2_Boolean_gb --
-false
+\N
 true
 false
 
@@ -3110,7 +3255,7 @@ false
 true
 
 -- !sql_sequence_match_String_DateV2_Boolean_agg_phase_1 --
-0	false
+0	\N
 1	false
 1	false
 1	false
@@ -3128,7 +3273,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateV2_Boolean_agg_phase_3 --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3160,7 +3305,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateV2_Boolean_agg_phase_3_notnull --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3168,7 +3313,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTime_Boolean_gb --
-false
+\N
 true
 false
 
@@ -3176,7 +3321,7 @@ false
 true
 
 -- !sql_sequence_match_String_DateTime_Boolean_agg_phase_1 --
-0	false
+0	\N
 1	false
 1	false
 1	false
@@ -3194,7 +3339,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTime_Boolean_agg_phase_3 --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3226,7 +3371,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTime_Boolean_agg_phase_3_notnull --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3234,7 +3379,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTimeV2_Boolean_gb --
-false
+\N
 true
 false
 
@@ -3242,7 +3387,7 @@ false
 true
 
 -- !sql_sequence_match_String_DateTimeV2_Boolean_agg_phase_1 --
-0	false
+0	\N
 1	false
 1	false
 1	false
@@ -3260,7 +3405,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTimeV2_Boolean_agg_phase_3 --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3292,7 +3437,7 @@ true
 12	true
 
 -- !sql_sequence_match_String_DateTimeV2_Boolean_agg_phase_3_notnull --
-0	false
+0	\N
 7	true
 5	false
 
@@ -3765,18 +3910,18 @@ true
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2 --
 12	3.605551275463989
@@ -3797,18 +3942,18 @@ true
 3.6055512754639896
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2_notnull --
 12	3.605551275463989
@@ -3831,18 +3976,18 @@ true
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_SmallInt_agg_phase_2 --
 12	3.605551275463989
@@ -3863,18 +4008,18 @@ true
 3.605551275463989
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_SmallInt_agg_phase_2_notnull --
 12	3.605551275463989
@@ -3897,18 +4042,18 @@ true
 
 -- !sql_stddev_samp_Integer_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Integer_agg_phase_2 --
 12	3.605551275463989
@@ -3926,21 +4071,21 @@ true
 1.5811388300841898
 
 -- !sql_stddev_samp_Integer_notnull --
-3.605551275463989
+3.6055512754639896
 
 -- !sql_stddev_samp_Integer_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Integer_agg_phase_2_notnull --
 12	3.605551275463989
@@ -3963,18 +4108,18 @@ true
 
 -- !sql_stddev_samp_BigInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_BigInt_agg_phase_2 --
 12	3.605551275463989
@@ -3995,18 +4140,18 @@ true
 3.6055512754639896
 
 -- !sql_stddev_samp_BigInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_BigInt_agg_phase_2_notnull --
 12	3.605551275463989
@@ -4029,18 +4174,18 @@ true
 
 -- !sql_stddev_samp_Float_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Float_agg_phase_2 --
 12	0.3605551333887302
@@ -4061,18 +4206,18 @@ true
 0.3605551333887302
 
 -- !sql_stddev_samp_Float_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Float_agg_phase_2_notnull --
 12	0.3605551333887302
@@ -4095,18 +4240,18 @@ true
 
 -- !sql_stddev_samp_Double_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Double_agg_phase_2 --
 12	0.3605551275463989
@@ -4127,18 +4272,18 @@ true
 0.36055512754639896
 
 -- !sql_stddev_samp_Double_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Double_agg_phase_2_notnull --
 12	0.36055512754639896
@@ -4153,18 +4298,18 @@ true
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_2 --
 12	0.36055512754639896
@@ -4178,18 +4323,18 @@ true
 12	0.3605551275463989
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_2_notnull --
 12	0.3605551275463989
@@ -5898,18 +6043,18 @@ true
 
 -- !sql_variance_samp_TinyInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2 --
 12	13.0
@@ -5930,18 +6075,18 @@ true
 13.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2_notnull --
 12	13.0
@@ -5964,18 +6109,18 @@ true
 
 -- !sql_variance_samp_SmallInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2 --
 12	13.0
@@ -5996,18 +6141,18 @@ true
 13.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2_notnull --
 12	13.0
@@ -6030,18 +6175,18 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Integer_agg_phase_2 --
 12	13.0
@@ -6062,18 +6207,18 @@ true
 13.0
 
 -- !sql_variance_samp_Integer_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Integer_agg_phase_2_notnull --
 12	13.0
@@ -6096,18 +6241,18 @@ true
 
 -- !sql_variance_samp_BigInt_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_BigInt_agg_phase_2 --
 12	13.0
@@ -6128,18 +6273,18 @@ true
 13.0
 
 -- !sql_variance_samp_BigInt_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_BigInt_agg_phase_2_notnull --
 12	13.0
@@ -6162,18 +6307,18 @@ true
 
 -- !sql_variance_samp_Float_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Float_agg_phase_2 --
 12	0.13000000421296498
@@ -6194,18 +6339,18 @@ true
 0.130000004212965
 
 -- !sql_variance_samp_Float_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Float_agg_phase_2_notnull --
 12	0.130000004212965
@@ -6228,18 +6373,18 @@ true
 
 -- !sql_variance_samp_Double_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Double_agg_phase_2 --
 12	0.13
@@ -6260,18 +6405,18 @@ true
 0.13
 
 -- !sql_variance_samp_Double_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Double_agg_phase_2_notnull --
 12	0.12999999999999998
@@ -6286,18 +6431,18 @@ true
 
 -- !sql_variance_samp_DecimalV2_agg_phase_1 --
 0	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_DecimalV2_agg_phase_2 --
 12	0.13
@@ -6311,18 +6456,18 @@ true
 12	0.12999999999999998
 
 -- !sql_variance_samp_DecimalV2_agg_phase_1_notnull --
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
-1	\N
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_DecimalV2_agg_phase_2_notnull --
 12	0.13
@@ -6336,7 +6481,7 @@ true
 12	0.13
 
 -- !sql_window_funnel_BigInt_String_DateTime_Boolean_gb --
-0
+\N
 1
 0
 
@@ -6344,7 +6489,7 @@ true
 1
 
 -- !sql_window_funnel_BigInt_String_DateTime_Boolean_agg_phase_1 --
-0	0
+0	\N
 1	1
 1	0
 1	0
@@ -6362,7 +6507,7 @@ true
 12	1
 
 -- !sql_window_funnel_BigInt_String_DateTime_Boolean_agg_phase_3 --
-0	0
+0	\N
 7	1
 5	0
 
@@ -6394,7 +6539,7 @@ true
 12	1
 
 -- !sql_window_funnel_BigInt_String_DateTime_Boolean_agg_phase_3_notnull --
-0	0
+0	\N
 7	1
 5	0
 
@@ -6402,7 +6547,7 @@ true
 12	1
 
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_gb --
-0
+\N
 1
 0
 
@@ -6410,7 +6555,7 @@ true
 1
 
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_1 --
-0	0
+0	\N
 1	1
 1	0
 1	0
@@ -6428,7 +6573,7 @@ true
 12	1
 
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_3 --
-0	0
+0	\N
 7	1
 5	0
 
@@ -6460,7 +6605,7 @@ true
 12	1
 
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_3_notnull --
-0	0
+0	\N
 7	1
 5	0
 

@@ -20,7 +20,7 @@ namespace doris {
 namespace ErrorCode {
 
 ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
-ErrorCodeInitializer error_code_init;
+ErrorCodeInitializer error_code_init(10);
 } // namespace ErrorCode
 
 void Status::to_thrift(TStatus* s) const {
@@ -29,7 +29,18 @@ void Status::to_thrift(TStatus* s) const {
         s->status_code = TStatusCode::OK;
         return;
     }
+    // Currently, there are many error codes, not defined in thrift and need pass to FE.
+    // DCHECK(_code > 0)
+    //        << "The error code has to > 0 because TStatusCode need it > 0, it's actual value is "
+    //        << _code;
     s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
+
+    if (_code == ErrorCode::VERSION_ALREADY_MERGED) {
+        s->status_code = TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED;
+    } else if (_code == ErrorCode::TABLE_NOT_FOUND) {
+        s->status_code = TStatusCode::TABLET_MISSING;
+    }
+
     s->error_msgs.push_back(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                         code_as_string(), _err_msg ? _err_msg->_msg : ""));
     s->__isset.error_msgs = true;

@@ -38,6 +38,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"CURRENT_USED_MEMORY_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
+        {"QUERY_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaBackendActiveTasksScanner::SchemaBackendActiveTasksScanner()
@@ -50,7 +51,8 @@ Status SchemaBackendActiveTasksScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -84,7 +86,7 @@ Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block,
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    mblock.add_rows(_task_stats_block.get(), _row_idx, current_batch_rows);
+    RETURN_IF_ERROR(mblock.add_rows(_task_stats_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

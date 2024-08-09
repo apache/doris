@@ -102,7 +102,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { exp_str, num ->
@@ -124,7 +123,6 @@ PROPERTIES (
 
     def insert_file = { file_name, table_name ->
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
         logger.info("file:" + file_name)
         //read and insert
         BufferedReader reader;

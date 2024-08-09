@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 public class SortTest extends SqlTestBase {
     @Test
     public void testTwoPhaseSort() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from\n"
                 + "(select score from T1 order by id) as t order by score\n";
         PhysicalPlan plan = PlanChecker.from(connectContext)

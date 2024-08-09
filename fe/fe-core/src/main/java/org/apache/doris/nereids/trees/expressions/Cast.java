@@ -79,6 +79,8 @@ public class Cast extends Expression implements UnaryExpression {
             return true;
         } else if (!childDataType.isTimeLikeType() && targetType.isTimeLikeType()) {
             return true;
+        } else if (childDataType.isJsonType() || targetType.isJsonType()) {
+            return true;
         } else {
             return child().nullable();
         }

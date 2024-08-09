@@ -118,17 +118,6 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
     get_nested_type()->to_pb_column_meta(children);
 }
 
-void get_decimal_value(const IColumn& nested_column, DecimalV2Value& decimal_value, size_t pos) {
-    const IColumn* nested_col = &nested_column;
-    if (nested_column.is_nullable()) {
-        nested_col =
-                reinterpret_cast<const ColumnNullable*>(&nested_column)->get_nested_column_ptr();
-    }
-    decimal_value = (DecimalV2Value)(reinterpret_cast<const PackedInt128*>(
-                                             nested_col->get_data_at(pos).data)
-                                             ->value);
-}
-
 void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;

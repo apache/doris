@@ -28,9 +28,9 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.wildfly.common.Assert;
 
 import java.lang.reflect.Method;
 import java.util.List;

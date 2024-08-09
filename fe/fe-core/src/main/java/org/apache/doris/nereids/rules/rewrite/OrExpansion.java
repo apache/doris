@@ -19,10 +19,12 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion.OrExpandsionContext;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -38,11 +40,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +57,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -62,7 +67,7 @@ import javax.annotation.Nullable;
  *                      =>         /        \
  *                           HJ(cond1) HJ(cond2 and !cond1)
  */
-public class OrExpansion extends OneExplorationRuleFactory {
+public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implements CustomRewriter {
     public static final OrExpansion INSTANCE = new OrExpansion();
     public static final ImmutableSet<JoinType> supportJoinType = new ImmutableSet
             .Builder<JoinType>()
@@ -73,63 +78,111 @@ public class OrExpansion extends OneExplorationRuleFactory {
             .build();
 
     @Override
-    public Rule build() {
-        return logicalJoin(any(), any()).when(JoinUtils::shouldNestedLoopJoin)
-                .whenNot(LogicalJoin::isMarkJoin)
-                .when(join -> supportJoinType.contains(join.getJoinType())
-                        && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())
-                .thenApply(ctx -> {
-                    LogicalJoin<? extends Plan, ? extends Plan> join = ctx.root;
-                    Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),
-                            "Only Expansion nest loop join without hashCond");
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        OrExpandsionContext ctx = new OrExpandsionContext(
+                jobContext.getCascadesContext().getStatementContext(), jobContext.getCascadesContext());
+        plan = plan.accept(this, ctx);
+        for (int i = ctx.cteProducerList.size() - 1; i >= 0; i--) {
+            LogicalCTEProducer<? extends Plan> producer = ctx.cteProducerList.get(i);
+            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan);
+        }
+        return plan;
+    }
 
-                    //1. Try to split or conditions
-                    Pair<List<Expression>, List<Expression>> hashOtherConditions = splitOrCondition(join);
-                    if (hashOtherConditions == null || hashOtherConditions.first.size() <= 1) {
-                        return join;
-                    }
+    @Override
+    public Plan visitLogicalCTEAnchor(
+            LogicalCTEAnchor<? extends Plan, ? extends Plan> anchor, OrExpandsionContext ctx) {
+        Plan child1 = anchor.child(0).accept(this, ctx);
+        // Consumer's CTE must be child of the cteAnchor in this case:
+        // anchor
+        // +-producer1
+        // +-agg(consumer1) join agg(consumer1)
+        // ------------>
+        // anchor
+        // +-producer1
+        // +-anchor
+        // +--producer2(agg2(consumer1))
+        // +--producer3(agg3(consumer1))
+        // +-consumer2 join consumer3
+        OrExpandsionContext consumerContext =
+                new OrExpandsionContext(ctx.statementContext, ctx.cascadesContext);
+        Plan child2 = anchor.child(1).accept(this, consumerContext);
+        for (int i = consumerContext.cteProducerList.size() - 1; i >= 0; i--) {
+            LogicalCTEProducer<? extends Plan> producer = consumerContext.cteProducerList.get(i);
+            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2);
+        }
+        return anchor.withChildren(ImmutableList.of(child1, child2));
+    }
 
-                    //2. Construct CTE with the children
-                    LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
-                            ctx.statementContext.getNextCTEId(), join.left());
-                    LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
-                            ctx.statementContext.getNextCTEId(), join.right());
-                    List<Plan> joins = new ArrayList<>();
+    @Override
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, OrExpandsionContext ctx) {
+        join = (LogicalJoin<? extends Plan, ? extends Plan>) this.visit(join, ctx);
+        if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
+            return join;
+        }
+        if (!supportJoinType.contains(join.getJoinType())) {
+            return join;
+        }
+        Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),
+                "Only Expansion nest loop join without hashCond");
 
-                    // 3. Expand join to hash join with CTE
-                    if (join.getJoinType().isInnerJoin()) {
-                        joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
-                                join, leftProducer, rightProducer));
-                    } else if (join.getJoinType().isOuterJoin()) {
-                        // left outer join = inner join union left anti join
-                        joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
-                                join, leftProducer, rightProducer));
-                        joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                                hashOtherConditions, join, leftProducer, rightProducer));
-                        if (join.getJoinType().equals(JoinType.FULL_OUTER_JOIN)) {
-                            // full outer join = inner join union left anti join union right anti join
-                            joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                                    hashOtherConditions, join, rightProducer, leftProducer));
-                        }
-                    } else if (join.getJoinType().equals(JoinType.LEFT_ANTI_JOIN)) {
-                        joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                                hashOtherConditions, join, leftProducer, rightProducer));
-                    } else {
-                        throw new RuntimeException("or-expansion is not supported for " + join);
-                    }
+        //1. Try to split or conditions
+        Pair<List<Expression>, List<Expression>> hashOtherConditions = splitOrCondition(join);
+        if (hashOtherConditions == null || hashOtherConditions.first.size() <= 1) {
+            return join;
+        }
 
-                    //4. union all joins and construct LogicalCTEAnchor with CTEs
-                    List<List<SlotReference>> childrenOutputs = joins.stream()
-                            .map(j -> j.getOutput().stream()
-                                    .map(SlotReference.class::cast)
-                                    .collect(ImmutableList.toImmutableList()))
-                            .collect(ImmutableList.toImmutableList());
-                    LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
-                            childrenOutputs, ImmutableList.of(), false, joins);
-                    LogicalCTEAnchor<? extends Plan, ? extends Plan> intermediateAnchor = new LogicalCTEAnchor<>(
-                            rightProducer.getCteId(), rightProducer, union);
-                    return new LogicalCTEAnchor<Plan, Plan>(leftProducer.getCteId(), leftProducer, intermediateAnchor);
-                }).toRule(RuleType.OR_EXPANSION);
+        //2. Construct CTE with the children
+        LogicalPlan leftClone = LogicalPlanDeepCopier.INSTANCE
+                .deepCopy((LogicalPlan) join.left(), new DeepCopierContext());
+        LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
+                ctx.statementContext.getNextCTEId(), leftClone);
+        LogicalPlan rightClone = LogicalPlanDeepCopier.INSTANCE
+                .deepCopy((LogicalPlan) join.right(), new DeepCopierContext());
+        LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
+                ctx.statementContext.getNextCTEId(), rightClone);
+        Map<Slot, Slot> leftCloneToLeft = new HashMap<>();
+        for (int i = 0; i < leftClone.getOutput().size(); i++) {
+            leftCloneToLeft.put(leftClone.getOutput().get(i), (join.left()).getOutput().get(i));
+        }
+        Map<Slot, Slot> rightCloneToRight = new HashMap<>();
+        for (int i = 0; i < rightClone.getOutput().size(); i++) {
+            rightCloneToRight.put(rightClone.getOutput().get(i), (join.right()).getOutput().get(i));
+        }
+
+        // 3. Expand join to hash join with CTE
+        List<Plan> joins = new ArrayList<>();
+        if (join.getJoinType().isInnerJoin()) {
+            joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+        } else if (join.getJoinType().isOuterJoin()) {
+            // left outer join = inner join union left anti join
+            joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+            joins.add(expandLeftAntiJoin(ctx.cascadesContext,
+                    hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+            if (join.getJoinType().equals(JoinType.FULL_OUTER_JOIN)) {
+                // full outer join = inner join union left anti join union right anti join
+                joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                        join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
+            }
+        } else if (join.getJoinType().equals(JoinType.LEFT_ANTI_JOIN)) {
+            joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+        } else {
+            throw new RuntimeException("or-expansion is not supported for " + join);
+        }
+        //4. union all joins and put producers to context
+        List<List<SlotReference>> childrenOutputs = joins.stream()
+                .map(j -> j.getOutput().stream()
+                        .map(SlotReference.class::cast)
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
+                childrenOutputs, ImmutableList.of(), false, joins);
+        ctx.cteProducerList.add(leftProducer);
+        ctx.cteProducerList.add(rightProducer);
+        return union;
     }
 
     // try to find a condition that can be split into hash conditions
@@ -150,6 +203,18 @@ public class OrExpansion extends OneExplorationRuleFactory {
         return null;
     }
 
+    private Map<Slot, Slot> constructReplaceMap(LogicalCTEConsumer leftConsumer, Map<Slot, Slot> leftCloneToLeft,
+            LogicalCTEConsumer rightConsumer, Map<Slot, Slot> rightCloneToRight) {
+        Map<Slot, Slot> replaced = new HashMap<>();
+        for (Entry<Slot, Slot> entry : leftConsumer.getProducerToConsumerOutputMap().entrySet()) {
+            replaced.put(leftCloneToLeft.get(entry.getKey()), entry.getValue());
+        }
+        for (Entry<Slot, Slot> entry : rightConsumer.getProducerToConsumerOutputMap().entrySet()) {
+            replaced.put(rightCloneToRight.get(entry.getKey()), entry.getValue());
+        }
+        return replaced;
+    }
+
     // expand Anti Join:
     // Left Anti join cond1 or cond2, other           Left Anti join cond1 and other
     // /                      \                         /                        \
@@ -160,7 +225,8 @@ public class OrExpansion extends OneExplorationRuleFactory {
             Pair<List<Expression>, List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> originJoin,
             LogicalCTEProducer<? extends Plan> leftProducer,
-            LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer) {
+            LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer,
+            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
         LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
                 leftProducer.getCteId(), "", leftProducer);
         LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
@@ -168,8 +234,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
         ctx.putCTEIdToConsumer(left);
         ctx.putCTEIdToConsumer(right);
 
-        Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-        replaced.putAll(right.getProducerToConsumerOutputMap());
+        Map<Slot, Slot> replaced = constructReplaceMap(left, leftCloneToLeft, right, rightCloneToRight);
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
         List<Expression> newOtherConditions = otherConditions.stream()
@@ -191,8 +256,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
             LogicalCTEConsumer newRight = new LogicalCTEConsumer(
                     ctx.getStatementContext().getNextRelationId(), rightProducer.getCteId(), "", rightProducer);
             ctx.putCTEIdToConsumer(newRight);
-            Map<Slot, Slot> newReplaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            newReplaced.putAll(newRight.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> newReplaced = constructReplaceMap(left, leftCloneToLeft, newRight, rightCloneToRight);
             newOtherConditions = otherConditions.stream()
                     .map(e -> e.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s))
                     .collect(Collectors.toList());
@@ -224,7 +288,8 @@ public class OrExpansion extends OneExplorationRuleFactory {
     private List<Plan> expandInnerJoin(CascadesContext ctx, Pair<List<Expression>,
             List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> join, LogicalCTEProducer<? extends Plan> leftProducer,
-            LogicalCTEProducer<? extends Plan> rightProducer) {
+            LogicalCTEProducer<? extends Plan> rightProducer,
+            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
         // For null values, equalTo and not equalTo both return false
@@ -248,8 +313,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
             ctx.putCTEIdToConsumer(right);
 
             //rewrite conjuncts to replace the old slots with CTE slots
-            Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
-            replaced.putAll(right.getProducerToConsumerOutputMap());
+            Map<Slot, Slot> replaced = constructReplaceMap(left, leftCloneToLeft, right, rightCloneToRight);
             List<Expression> hashCond = pair.first.stream()
                     .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
                     .collect(Collectors.toList());
@@ -282,5 +346,17 @@ public class OrExpansion extends OneExplorationRuleFactory {
             others.add(not.get(i));
         }
         return Pair.of(Lists.newArrayList(equal.get(hashCondIdx)), others);
+    }
+
+    class OrExpandsionContext {
+        List<LogicalCTEProducer<? extends Plan>> cteProducerList;
+        StatementContext statementContext;
+        CascadesContext cascadesContext;
+
+        public OrExpandsionContext(StatementContext statementContext, CascadesContext cascadesContext) {
+            this.statementContext = statementContext;
+            this.cteProducerList = new ArrayList<>();
+            this.cascadesContext = cascadesContext;
+        }
     }
 }

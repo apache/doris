@@ -34,6 +34,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
+#include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
@@ -88,10 +89,16 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
                 get_fragment_executing_count());
         heartbeat_result.backend_info.__set_fragment_last_active_time(
                 get_fragment_last_active_time());
+        heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
-        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time();
+        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time()
+                     << ", host:" << master_info.network_address.hostname
+                     << ", port:" << master_info.network_address.port
+                     << ", cluster id:" << master_info.cluster_id
+                     << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
+                     << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
     }
 }
 

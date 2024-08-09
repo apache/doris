@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
@@ -39,14 +40,15 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -54,17 +56,21 @@ import java.util.stream.Collectors;
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
-    public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IOException {
-        // deep copy to save repeated assignments
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream dos = new DataOutputStream(baos);
-        job.write(dos);
-        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-        DataInputStream dis = new DataInputStream(bais);
-        // partitionIndexMap cannot be deep-copied because it is referenced
-        // by `SchemaChangeJobV2#addShadowIndexToCatalog` and `SchemaChangeHandler.createJob`
-        CloudSchemaChangeJobV2 ret = (CloudSchemaChangeJobV2) CloudSchemaChangeJobV2.read(dis);
-        ret.partitionIndexMap = job.partitionIndexMap;
+    public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IllegalAccessException {
+        CloudSchemaChangeJobV2 ret = new CloudSchemaChangeJobV2();
+        List<Field> allFields = new ArrayList<>();
+        Class tmpClass = SchemaChangeJobV2.class;
+        while (tmpClass != null) {
+            allFields.addAll(Arrays.asList(tmpClass.getDeclaredFields()));
+            tmpClass = tmpClass.getSuperclass();
+        }
+        for (Field field : allFields) {
+            field.setAccessible(true);
+            Annotation annotation = field.getAnnotation(SerializedName.class);
+            if (annotation != null) {
+                field.set(ret, field.get(job));
+            }
+        }
         return ret;
     }
 
@@ -73,9 +79,11 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            LOG.debug("schema change job add cloud cluster, context not null, cluster: {}",
-                    context.getCloudCluster());
-            setCloudClusterName(context.getCloudCluster());
+            String clusterName = context.getCloudCluster();
+            LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                setCloudClusterName(clusterName);
+            }
         }
         LOG.debug("schema change job add cloud cluster, context {}", context);
     }
@@ -99,12 +107,22 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
     @Override
     protected void postProcessShadowIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop shadown indexes in checking compatibility mode");
+            return;
+        }
+
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
 
     @Override
     protected void postProcessOriginIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop origin indexes in checking compatibility mode");
+            return;
+        }
+
         List<Long> originIdxList = indexIdMap.values().stream().collect(Collectors.toList());
         dropIndex(originIdxList);
     }
@@ -117,7 +135,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                     .dropMaterializedIndex(tableId, idxList, false);
                 break;
             } catch (Exception e) {
-                LOG.warn("tryTimes:{}, dropIndex exception:", tryTimes, e);
+                LOG.warn("drop index failed, retry times {}, dbId: {}, tableId: {}, jobId: {}, idxList: {}:",
+                        tryTimes, dbId, tableId, jobId, idxList, e);
             }
             sleepSeveralSeconds();
             tryTimes++;
@@ -194,19 +213,26 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .createTabletMetaBuilder(tableId, shadowIdxId,
-                                partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
-                                shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
-                                tbl.getStoragePolicy(), tbl.isInMemory(), true,
-                                tbl.getName(), tbl.getTTLSeconds(),
-                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion, tbl.getCompactionPolicy(),
-                                tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                                tbl.getTimeSeriesCompactionFileCountThreshold(),
-                                tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                tbl.getTimeSeriesCompactionLevelThreshold());
+                                    .createTabletMetaBuilder(tableId, shadowIdxId,
+                                            partitionId, shadowTablet,
+                                            tbl.getPartitionInfo().getTabletType(partitionId),
+                                            shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
+                                            bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
+                                            tbl.getCompressionType(),
+                                            tbl.getStoragePolicy(), tbl.isInMemory(), true,
+                                            tbl.getName(), tbl.getTTLSeconds(),
+                                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                            shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                            tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            tbl.getTimeSeriesCompactionLevelThreshold(),
+                                            tbl.disableAutoCompaction(),
+                                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                            tbl.getEnableMowLightDelete(),
+                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            tbl.rowStorePageSize());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

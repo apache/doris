@@ -18,9 +18,7 @@
 #include "http/action/http_stream.h"
 
 #include <cstddef>
-#include <deque>
 #include <future>
-#include <shared_mutex>
 #include <sstream>
 
 // use string iequal
@@ -32,7 +30,6 @@
 
 #include "cloud/config.h"
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -43,7 +40,6 @@
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
@@ -52,15 +48,12 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/load_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -120,21 +113,20 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record && !config::is_cloud_mode()) {
+    if (config::enable_stream_load_record) {
         str = ctx->prepare_stream_load_record(str);
         _save_stream_load_record(ctx, str);
     }
     // update statistics
     http_stream_requests_total->increment(1);
     http_stream_duration_ms->increment(ctx->load_cost_millis);
-    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::InternalError("receive body don't equal with body bytes");
+        return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
     }
     RETURN_IF_ERROR(ctx->body_sink->finish());
 
@@ -184,7 +176,6 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        http_stream_current_processing->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
@@ -198,7 +189,7 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status::InternalError("no valid Basic authorization");
+        return Status::NotAuthorized("no valid Basic authorization");
     }
 
     // TODO(zs) : need Need to request an FE to obtain information such as format
@@ -210,8 +201,10 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         // csv max body size
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
-                                         ctx->body_bytes);
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
+                    "are sure this load is reasonable",
+                    ctx->body_bytes, csv_max_body_bytes);
         }
     }
 
@@ -288,6 +281,7 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
     }
     // remove stream load context from stream load manager and the resource will be released
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::process_put(HttpRequest* http_req,
@@ -335,11 +329,14 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
-    ctx->db = ctx->put_result.params.db_name;
-    ctx->table = ctx->put_result.params.table_name;
-    ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
-    ctx->label = ctx->put_result.params.import_label;
-    ctx->put_result.params.__set_wal_id(ctx->wal_id);
+    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
+        return Status::NotSupported("http stream 2pc is unsupported for mow table");
+    }
+    ctx->db = ctx->put_result.pipeline_params.db_name;
+    ctx->table = ctx->put_result.pipeline_params.table_name;
+    ctx->txn_id = ctx->put_result.pipeline_params.txn_conf.txn_id;
+    ctx->label = ctx->put_result.pipeline_params.import_label;
+    ctx->put_result.pipeline_params.__set_wal_id(ctx->wal_id);
     if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
@@ -355,7 +352,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
@@ -363,8 +360,9 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder =
-            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
+    std::shared_ptr<StreamLoadRecorder> stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().get_stream_load_recorder();
+
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
@@ -383,7 +381,8 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
     if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
         !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
-        return Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+        return Status::InvalidArgument(
+                "group_commit can only be [async_mode, sync_mode, off_mode]");
     }
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
@@ -396,7 +395,7 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         ss << "This http load content length <0 (" << content_length
            << "), please check your content length.";
         LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        return Status::InvalidArgument(ss.str());
     }
     // allow chunked stream load in flink
     auto is_chunk =
@@ -418,7 +417,7 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
     if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
-            return Status::InternalError("label and group_commit can't be set at the same time");
+            return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {

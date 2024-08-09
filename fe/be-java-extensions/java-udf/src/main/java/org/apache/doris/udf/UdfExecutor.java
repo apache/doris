@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.classloader.ScannerLoader;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfUtils;
@@ -31,6 +32,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -49,6 +51,8 @@ public class UdfExecutor extends BaseExecutor {
     private int evaluateIndex;
 
     private VectorTable outputTable = null;
+
+    private boolean isStaticLoad = false;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used by
@@ -70,7 +74,9 @@ public class UdfExecutor extends BaseExecutor {
         // We are now un-usable (because the class loader has been
         // closed), so null out method_ and classLoader_.
         method = null;
-        super.close();
+        if (!isStaticLoad) {
+            super.close();
+        }
     }
 
     private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
@@ -85,7 +91,7 @@ public class UdfExecutor extends BaseExecutor {
     }
 
     private ColumnValueConverter getOutputConverter() {
-        return getOutputConverter(retType.getPrimitiveType(), method.getReturnType());
+        return getOutputConverter(retType, method.getReturnType());
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {
@@ -134,6 +140,28 @@ public class UdfExecutor extends BaseExecutor {
         return null; // Method not found
     }
 
+    public ClassLoader getClassLoader(String jarPath, String signature, long expirationTime)
+            throws MalformedURLException, FileNotFoundException {
+        ClassLoader loader = null;
+        if (jarPath == null) {
+            // for test
+            loader = ClassLoader.getSystemClassLoader();
+        } else {
+            if (isStaticLoad) {
+                loader = ScannerLoader.getUdfClassLoader(signature);
+            }
+            if (loader == null) {
+                ClassLoader parent = getClass().getClassLoader();
+                classLoader = UdfUtils.getClassLoader(jarPath, parent);
+                loader = classLoader;
+                if (isStaticLoad) {
+                    ScannerLoader.cacheClassLoader(signature, loader, expirationTime);
+                }
+            }
+        }
+        return loader;
+    }
+
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
     @Override
@@ -145,16 +173,12 @@ public class UdfExecutor extends BaseExecutor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Loading UDF '" + className + "' from " + jarPath);
             }
-            ClassLoader loader;
-            if (jarPath != null) {
-                // Save for cleanup.
-                ClassLoader parent = getClass().getClassLoader();
-                classLoader = UdfUtils.getClassLoader(jarPath, parent);
-                loader = classLoader;
-            } else {
-                // for test
-                loader = ClassLoader.getSystemClassLoader();
+            isStaticLoad = request.getFn().isSetIsStaticLoad() && request.getFn().is_static_load;
+            long expirationTime = 360L; // default is 6 hours
+            if (request.getFn().isSetExpirationTime()) {
+                expirationTime = request.getFn().getExpirationTime();
             }
+            ClassLoader loader = getClassLoader(jarPath, request.getFn().getSignature(), expirationTime);
             Class<?> c = Class.forName(className, true, loader);
             methodAccess = MethodAccess.get(c);
             Constructor<?> ctor = c.getConstructor();
@@ -188,9 +212,6 @@ public class UdfExecutor extends BaseExecutor {
                         retType = returnType.second;
                     }
                     argTypes = new JavaUdfDataType[0];
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
-                    }
                     return;
                 }
                 returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
@@ -199,19 +220,12 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     retType = returnType.second;
                 }
-                Type keyType = retType.getKeyType();
-                Type valueType = retType.getValueType();
                 Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
                 if (!inputType.first) {
                     continue;
                 } else {
                     argTypes = inputType.second;
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
-                }
-                retType.setKeyType(keyType);
-                retType.setValueType(valueType);
                 return;
             }
 

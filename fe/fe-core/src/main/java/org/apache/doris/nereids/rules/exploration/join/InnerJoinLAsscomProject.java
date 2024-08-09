@@ -26,9 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.List;
@@ -59,11 +58,15 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
-                .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child(), enableLeftZigZag))
-                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots())
-                .then(topJoin -> {
+        return logicalProject(
+                innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
+                        .when(topJoin -> checkReorder(topJoin, topJoin.left().child(),
+                                enableLeftZigZag))
+                        .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
+                        .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
+                            = topProject.child();
                     /* ********** init ********** */
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
@@ -90,18 +93,19 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             newBottomOtherConjuncts, a, c, null);
 
                     // merge newTopHashConjuncts newTopOtherConjuncts topJoin.getOutputExprIdSet()
-                    Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
+                    Set<ExprId> topUsedExprIds = new HashSet<>();
+                    topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                    Plan right = CBOUtils.newProject(topUsedExprIds, b);
+                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
                             newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
+                    return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM_PROJECT);
     }
 
@@ -127,5 +131,25 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
         newTopHashConjuncts.addAll(bottomConjuncts);
 
         return splitOn;
+    }
+
+    /**
+     * trigger rule condition
+     */
+    public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin, boolean leftZigZag) {
+        if (topJoin.isLeadingJoin()
+                || bottomJoin.isLeadingJoin()) {
+            return false;
+        }
+        if (leftZigZag) {
+            double bRows = bottomJoin.right().getGroup().getStatistics().getRowCount();
+            double cRows = topJoin.right().getGroup().getStatistics().getRowCount();
+            return bRows < cRows && !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().hasLAsscom();
+        } else {
+            return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
+                    && !topJoin.getJoinReorderContext().hasLAsscom();
+        }
     }
 }

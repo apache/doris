@@ -17,6 +17,9 @@
 
 #include "parallel_scanner_builder.h"
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_hotspot.h"
+#include "cloud/config.h"
 #include "olap/rowset/beta_rowset.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -25,8 +28,7 @@ namespace doris {
 
 using namespace vectorized;
 
-template <typename ParentType>
-Status ParallelScannerBuilder<ParentType>::build_scanners(std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_is_dup_mow_key) {
         return _build_scanners_by_rowid(scanners);
@@ -36,9 +38,7 @@ Status ParallelScannerBuilder<ParentType>::build_scanners(std::list<VScannerSPtr
     }
 }
 
-template <typename ParentType>
-Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
-        std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (auto&& [tablet, version] : _tablets) {
@@ -46,6 +46,12 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
         auto& rowsets = _all_rowsets[tablet->tablet_id()];
 
         TabletReader::ReadSource reade_source_with_delete_info;
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
         if (!_state->skip_delete_predicate()) {
             RETURN_IF_ERROR(tablet->capture_rs_readers(
                     {0, version}, &reade_source_with_delete_info.rs_splits, false));
@@ -163,8 +169,7 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
 /**
  * Load rowsets of each tablet with specified version, segments of each rowset.
  */
-template <typename ParentType>
-Status ParallelScannerBuilder<ParentType>::_load() {
+Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
@@ -174,13 +179,20 @@ Status ParallelScannerBuilder<ParentType>::_load() {
             RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked({0, version}, &rowsets));
         }
 
+        bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
+                                            ? _state->query_options().enable_segment_cache
+                                            : true;
+        bool disable_file_cache = _state->query_options().__isset.disable_file_cache
+                                          ? _state->query_options().disable_file_cache
+                                          : false;
         for (auto& rowset : rowsets) {
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
             auto& segment_cache_handle = _segment_cache_handles[rowset_id];
 
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle, true));
+                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
+                    enable_segment_cache, false, disable_file_cache));
             _total_rows += rowset->num_rows();
         }
     }
@@ -191,17 +203,12 @@ Status ParallelScannerBuilder<ParentType>::_load() {
     return Status::OK();
 }
 
-template <typename ParentType>
-std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scanner(
+std::shared_ptr<NewOlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {
-            _state,  _scanner_profile.get(), key_ranges,         std::move(tablet),
-            version, std::move(read_source), _limit_per_scanner, _is_preaggregation};
+    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
+                                   version, std::move(read_source), _limit,     _is_preaggregation};
     return NewOlapScanner::create_shared(_parent, std::move(params));
 }
-
-template class ParallelScannerBuilder<NewOlapScanNode>;
-template class ParallelScannerBuilder<pipeline::OlapScanLocalState>;
 
 } // namespace doris

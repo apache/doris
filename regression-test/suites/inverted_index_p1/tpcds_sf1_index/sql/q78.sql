@@ -47,7 +47,7 @@ WITH
    WHERE (sr_ticket_number IS NULL)
    GROUP BY d_year, ss_item_sk, ss_customer_sk
 )
-SELECT
+SELECT /*+SET_VAR(experimental_enable_local_shuffle=false)*/
   ss_sold_year
 , ss_item_sk
 , ss_customer_sk

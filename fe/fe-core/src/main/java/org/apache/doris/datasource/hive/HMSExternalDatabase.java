@@ -38,7 +38,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     }
 
     @Override
-    protected HMSExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected HMSExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog);
     }
 

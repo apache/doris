@@ -73,7 +73,15 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
 
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
-    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+        DataTypes dataTypes;
+        for (size_t i = 0; i < col_desc.get_subtype_count(); i++) {
+            dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
+        }
+        nested = std::make_shared<vectorized::DataTypeAggState>(
+                dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name(),
+                col_desc.get_be_exec_version());
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
@@ -93,13 +101,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
             names.push_back(col_desc.get_sub_column(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-        DataTypes dataTypes;
-        for (size_t i = 0; i < col_desc.get_subtype_count(); i++) {
-            dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
-        }
-        nested = std::make_shared<vectorized::DataTypeAggState>(
-                dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name());
     } else {
         nested =
                 _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
@@ -176,7 +177,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
             subTypes.push_back(create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
         }
         nested = std::make_shared<vectorized::DataTypeAggState>(
-                subTypes, col_desc.result_is_nullable, col_desc.function_name);
+                subTypes, col_desc.result_is_nullable, col_desc.function_name,
+                col_desc.be_exec_version);
         break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
@@ -188,7 +190,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, col_desc.precision, col_desc.scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -414,7 +417,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, precision, scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -567,11 +571,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
             sub_types.push_back(create_data_type(child));
         }
         nested = std::make_shared<DataTypeAggState>(sub_types, pcolumn.result_is_nullable(),
-                                                    pcolumn.function_name());
+                                                    pcolumn.function_name(),
+                                                    pcolumn.be_exec_version());
         break;
     }
     default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unknown data type: {}", pcolumn.type());
         return nullptr;
     }
     }
@@ -584,7 +589,15 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
 
 DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pcolumn) {
     DataTypePtr nested = nullptr;
-    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
+    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_AGG_STATE)) {
+        DataTypes data_types;
+        for (auto child : pcolumn.children_columns()) {
+            data_types.push_back(DataTypeFactory::instance().create_data_type(child));
+        }
+        nested = std::make_shared<vectorized::DataTypeAggState>(
+                data_types, pcolumn.result_is_nullable(), pcolumn.function_name(),
+                pcolumn.be_exec_version());
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
         // Item subcolumn and length subcolumn, for sparse columns only subcolumn
         DCHECK_GE(pcolumn.children_columns().size(), 1) << pcolumn.DebugString();
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
@@ -596,13 +609,10 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         DCHECK_GE(pcolumn.children_columns().size(), 1);
         size_t col_size = pcolumn.children_columns().size();
-        DataTypes dataTypes;
-        Strings names;
-        dataTypes.reserve(col_size);
-        names.reserve(col_size);
+        DataTypes dataTypes(col_size);
+        Strings names(col_size);
         for (size_t i = 0; i < col_size; i++) {
-            dataTypes.push_back(create_data_type(pcolumn.children_columns(i)));
-            names.push_back("");
+            dataTypes[i] = create_data_type(pcolumn.children_columns(i));
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {

@@ -70,12 +70,12 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     context.file_cache_ttl_sec = _tablet->ttl_seconds();
-    context.fs = _engine.get_fs_by_vault_id(_req.storage_vault_id);
-    if (context.fs == nullptr) {
+    context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
+    if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                      _req.storage_vault_id);
     }
-    context.rowset_dir = _tablet->tablet_path();
+
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
@@ -108,6 +108,7 @@ void CloudRowsetBuilder::update_tablet_stats() {
     tablet->fetch_add_approximate_data_size(_rowset->data_disk_size());
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_deltas(_rowset->num_segments());
+    tablet->write_count.fetch_add(1, std::memory_order_relaxed);
 }
 
 CloudTablet* CloudRowsetBuilder::cloud_tablet() {

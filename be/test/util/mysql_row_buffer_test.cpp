@@ -24,11 +24,8 @@
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/fastmem.h"
 
 namespace doris {
-
-using namespace strings;
 
 TEST(MysqlRowBufferTest, basic) {
     MysqlRowBuffer mrb;
@@ -116,64 +113,6 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     EXPECT_EQ(0, strncmp(buf + 33, "56.45", 5));
     EXPECT_EQ(0, strncmp(buf + 38, "10.12", 5));
     EXPECT_EQ(0, strncmp(buf + 43, "test", 4));
-}
-
-TEST(MysqlRowBufferTest /*unused*/, faster_float_convert /*unused*/) {
-    MysqlRowBuffer mrb;
-    mrb.set_faster_float_convert(true);
-
-    mrb.push_float(0);
-    mrb.push_float(1.0);
-    mrb.push_float(-1.0);
-    mrb.push_float(56.45);
-    mrb.push_double(10.12);
-
-    const char* buf = mrb.buf();
-
-    // mem: size-data-size-data
-    // 3-'0E0'-3-'1E0'-4-'-1E0'-7-'5.645E1'-7-'1.012E1'
-    // 1b-3b---1b-3b---1b-4b----1b-7b-------1b-7b------
-    // 0  1    4  5    8  9     13 14       21 22
-
-    EXPECT_EQ(29, mrb.length());
-
-    EXPECT_EQ(3, *((int8_t*)(buf + 0)));
-    EXPECT_EQ(0, strncmp(buf + 1, "0E0", 3));
-
-    EXPECT_EQ(3, *((int8_t*)(buf + 4)));
-    EXPECT_EQ(0, strncmp(buf + 5, "1E0", 3));
-
-    EXPECT_EQ(4, *((int8_t*)(buf + 8)));
-    EXPECT_EQ(0, strncmp(buf + 9, "-1E0", 4));
-
-    EXPECT_EQ(7, *((int8_t*)(buf + 13)));
-    EXPECT_EQ(0, strncmp(buf + 14, "5.645E1", 7));
-
-    EXPECT_EQ(7, *((int8_t*)(buf + 21)));
-    EXPECT_EQ(0, strncmp(buf + 22, "1.012E1", 7));
-}
-
-TEST(MysqlRowBufferTest /*unused*/, faster_float_convert_dynamic /*unused*/) {
-    MysqlRowBuffer mrb;
-    mrb.set_faster_float_convert(true);
-    mrb.open_dynamic_mode();
-
-    mrb.push_float(0);
-    mrb.push_float(1.0);
-    mrb.push_float(-1.0);
-    mrb.push_float(56.45);
-    mrb.push_double(10.12);
-
-    const char* buf = mrb.buf();
-
-    EXPECT_EQ(33, mrb.length());
-    EXPECT_EQ(254, *((uint8_t*)(buf)));
-
-    EXPECT_EQ(0, strncmp(buf + 9, "0E0", 3));
-    EXPECT_EQ(0, strncmp(buf + 12, "1E0", 3));
-    EXPECT_EQ(0, strncmp(buf + 15, "-1E0", 4));
-    EXPECT_EQ(0, strncmp(buf + 19, "5.645E1", 7));
-    EXPECT_EQ(0, strncmp(buf + 26, "1.012E1", 7));
 }
 
 } // namespace doris

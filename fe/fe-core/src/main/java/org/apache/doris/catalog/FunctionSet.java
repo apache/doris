@@ -178,6 +178,7 @@ public class FunctionSet<T> {
     public static final String HLL_UNION_AGG = "hll_union_agg";
     public static final String HLL_RAW_AGG = "hll_raw_agg";
     public static final String HLL_CARDINALITY = "hll_cardinality";
+    public static final String HLL_FROM_BASE64 = "hll_from_base64";
 
     public static final String TO_BITMAP = "to_bitmap";
     public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
@@ -612,7 +613,13 @@ public class FunctionSet<T> {
 
     public static final String GROUP_ARRAY = "group_array";
 
+    public static final String GROUP_ARRAY_INTERSECT = "group_array_intersect";
+
     public static final String ARRAY_AGG = "array_agg";
+
+    public static final String SUM0 = "sum0";
+
+    public static final String MULTI_DISTINCT_SUM0 = "multi_distinct_sum0";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -1503,7 +1510,9 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
-
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_ARRAY_INTERSECT, Lists.newArrayList(new ArrayType(t)),
+                            new ArrayType(t), t, "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
                     true, false, true, true));
 

@@ -41,7 +41,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,6 +62,7 @@ public class LocationPath {
         COSN, // Tencent
         OFS, // Tencent CHDFS
         GFS, // Tencent GooseFs,
+        LAKEFS, // used by Tencent DLC
         OSS, // Alibaba,
         OSS_HDFS, // JindoFS on OSS
         JFS, // JuiceFS,
@@ -74,10 +75,14 @@ public class LocationPath {
     }
 
     private LocationPath(String location) {
-        this(location, new HashMap<>());
+        this(location, Collections.emptyMap(), true);
     }
 
     public LocationPath(String location, Map<String, String> props) {
+        this(location, props, true);
+    }
+
+    public LocationPath(String location, Map<String, String> props, boolean convertPath) {
         String scheme = parseScheme(location).toLowerCase();
         if (scheme.isEmpty()) {
             locationType = LocationType.NOSCHEME;
@@ -88,7 +93,7 @@ public class LocationPath {
                     locationType = LocationType.HDFS;
                     // Need add hdfs host to location
                     String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                    this.location = normalizedHdfsPath(location, host);
+                    this.location = convertPath ? normalizedHdfsPath(location, host) : location;
                     break;
                 case FeConstants.FS_PREFIX_S3:
                     locationType = LocationType.S3;
@@ -96,22 +101,22 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_S3A:
                     locationType = LocationType.S3A;
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_S3N:
                     // include the check for multi locations and in a table, such as both s3 and hdfs are in a table.
                     locationType = LocationType.S3N;
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_BOS:
                     locationType = LocationType.BOS;
                     // use s3 client to access
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_GCS:
                     locationType = LocationType.GCS;
                     // use s3 client to access
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_OSS:
                     if (isHdfsOnOssEndpoint(location)) {
@@ -119,7 +124,7 @@ public class LocationPath {
                         this.location = location;
                     } else {
                         if (useS3EndPoint(props)) {
-                            this.location = convertToS3(location);
+                            this.location = convertPath ? convertToS3(location) : location;
                         } else {
                             this.location = location;
                         }
@@ -128,7 +133,7 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_COS:
                     if (useS3EndPoint(props)) {
-                        this.location = convertToS3(location);
+                        this.location = convertPath ? convertToS3(location) : location;
                     } else {
                         this.location = location;
                     }
@@ -136,7 +141,7 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_OBS:
                     if (useS3EndPoint(props)) {
-                        this.location = convertToS3(location);
+                        this.location = convertPath ? convertToS3(location) : location;
                     } else {
                         this.location = location;
                     }
@@ -158,6 +163,10 @@ public class LocationPath {
                     // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
                     locationType = LocationType.COSN;
                     this.location = location;
+                    break;
+                case FeConstants.FS_PREFIX_LAKEFS:
+                    locationType = LocationType.COSN;
+                    this.location = normalizedLakefsPath(location);
                     break;
                 case FeConstants.FS_PREFIX_VIEWFS:
                     locationType = LocationType.VIEWFS;
@@ -273,6 +282,15 @@ public class LocationPath {
         }
     }
 
+    private static String normalizedLakefsPath(String location) {
+        int atIndex = location.indexOf("@dlc");
+        if (atIndex != -1) {
+            return "lakefs://" + location.substring(atIndex + 1);
+        } else {
+            return location;
+        }
+    }
+
     public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
         LocationPath locationPath = new LocationPath(location);
         FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
@@ -296,8 +314,11 @@ public class LocationPath {
                 fsType = FileSystemType.S3;
                 break;
             case COSN:
+                // COSN use s3 client on FE side, because it need to complete multi-part uploading files on FE side.
+                fsType = FileSystemType.S3;
+                break;
             case OFS:
-                // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
+                // ofs:// use the underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
                 fsType = FileSystemType.OFS;
                 break;
             case HDFS:
@@ -328,8 +349,12 @@ public class LocationPath {
         if (location == null || location.isEmpty()) {
             return null;
         }
-        LocationPath locationPath = new LocationPath(location);
-        switch (locationPath.getLocationType()) {
+        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), false);
+        return locationPath.getTFileTypeForBE();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        switch (this.getLocationType()) {
             case S3:
             case S3A:
             case S3N:
@@ -340,6 +365,7 @@ public class LocationPath {
             case GCS:
                 // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
             case COSN:
+            case LAKEFS:
                 // now we only support S3 client for object storage on BE
                 return TFileType.FILE_S3;
             case HDFS:
@@ -362,7 +388,7 @@ public class LocationPath {
      *
      * @return BE scan range path
      */
-    public Path toScanRangeLocation() {
+    public Path toStorageLocation() {
         switch (locationType) {
             case S3:
             case S3A:

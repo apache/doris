@@ -98,7 +98,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE));
 
         if (properties.size() != 1) {
             throw new UserException("Can only set one table property at a time");
@@ -272,6 +274,48 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
             param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            boolean disableAutoCompaction = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_DISABLE_AUTO_COMPACTION));
+            olapTable.readLock();
+            try {
+                if (disableAutoCompaction
+                        == olapTable.disableAutoCompaction()) {
+                    LOG.info("disableAutoCompaction:{} is equal with"
+                                    + " olapTable.disableAutoCompaction():{}",
+                            disableAutoCompaction,
+                            olapTable.disableAutoCompaction());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.disableAutoCompaction = disableAutoCompaction;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.DISABLE_AUTO_COMPACTION;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
+            boolean enableMowLightDelete = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_MOW_LIGHT_DELETE));
+            olapTable.readLock();
+            try {
+                if (enableMowLightDelete
+                        == olapTable.getEnableMowLightDelete()) {
+                    LOG.info("enableMowLightDelete:{} is equal with"
+                                    + " olapTable.getEnableMowLightDelete():{}",
+                            enableMowLightDelete,
+                            olapTable.getEnableMowLightDelete());
+                    return;
+                }
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new UserException("enable_mow_light_delete property is "
+                            + "not supported for unique merge-on-read table");
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.enableMowLightDelete = enableMowLightDelete;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -302,6 +346,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
             TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
             TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+            DISABLE_AUTO_COMPACTION,
+            ENABLE_MOW_LIGHT_DELETE,
         }
 
         TabletMetaType type;
@@ -316,6 +362,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         long timeSeriesCompactionTimeThresholdSeconds = 0;
         long timeSeriesCompactionEmptyRowsetsThreshold = 0;
         long timeSeriesCompactionLevelThreshold = 0;
+        boolean disableAutoCompaction = false;
+        boolean enableMowLightDelete = false;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -385,6 +433,15 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     case TIME_SERIES_COMPACTION_LEVEL_THRESHOLD:
                         infoBuilder.setTimeSeriesCompactionLevelThreshold(
                                 param.timeSeriesCompactionLevelThreshold);
+                        break;
+                    case DISABLE_AUTO_COMPACTION:
+                        infoBuilder.setDisableAutoCompaction(
+                                param.disableAutoCompaction);
+                        break;
+                    case ENABLE_MOW_LIGHT_DELETE:
+                        infoBuilder.setEnableMowLightDelete(
+                                param.enableMowLightDelete
+                        );
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");

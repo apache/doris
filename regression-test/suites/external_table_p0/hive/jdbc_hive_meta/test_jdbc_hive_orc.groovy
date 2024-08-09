@@ -75,12 +75,17 @@ suite("test_jdbc_hive_orc", "all_types,p0,external,hive,external_docker,external
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "test_jdbc_hive_orc"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_jdbc_${hivePrefix}_orc"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hive_pg_port = context.config.otherConfigs.get("hive_pg_port")
+            String hive_pg_port = context.config.otherConfigs.get(hivePrefix + "PgPort")
 
 
             String s3_endpoint = getS3Endpoint()

@@ -34,6 +34,7 @@
 #include "olap/uint24.h"
 #include "runtime/collection_value.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
@@ -44,6 +45,8 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_object.h"
 
 namespace doris {
@@ -75,8 +78,11 @@ public:
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
-    void set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
-                                                  size_t num_rows, std::vector<uint32_t> cids);
+    Status set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
+                                                    size_t num_rows, std::vector<uint32_t> cids);
+    Status set_source_content_with_specifid_column(const ColumnWithTypeAndName& typed_column,
+                                                   size_t row_pos, size_t num_rows, uint32_t cid);
+
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
@@ -91,7 +97,11 @@ private:
     using OlapColumnDataConvertorBaseUPtr = std::unique_ptr<OlapColumnDataConvertorBase>;
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
-    OlapColumnDataConvertorBaseUPtr create_olap_column_data_convertor(const TabletColumn& column);
+    static OlapColumnDataConvertorBaseUPtr create_olap_column_data_convertor(
+            const TabletColumn& column);
+    static OlapColumnDataConvertorBaseUPtr create_map_convertor(const TabletColumn& column);
+    static OlapColumnDataConvertorBaseUPtr create_array_convertor(const TabletColumn& column);
+    static OlapColumnDataConvertorBaseUPtr create_agg_state_convertor(const TabletColumn& column);
 
     // accessors for different data types;
     class OlapColumnDataConvertorBase : public IOlapColumnDataAccessor {
@@ -443,6 +453,7 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorArray";
+            __builtin_unreachable();
         };
         Status convert_to_olap() override;
 
@@ -460,10 +471,11 @@ private:
 
     class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorMap(OlapColumnDataConvertorBaseUPtr key_convertor,
-                                   OlapColumnDataConvertorBaseUPtr value_convertor)
-                : _key_convertor(std::move(key_convertor)),
-                  _value_convertor(std::move(value_convertor)) {
+        OlapColumnDataConvertorMap(const TabletColumn& key_column, const TabletColumn& value_column)
+                : _key_convertor(create_olap_column_data_convertor(key_column)),
+                  _value_convertor(create_olap_column_data_convertor(value_column)),
+                  _data_type(DataTypeFactory::instance().create_data_type(key_column),
+                             DataTypeFactory::instance().create_data_type(value_column)) {
             _base_offset = 0;
             _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
@@ -472,21 +484,23 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
+            __builtin_unreachable();
         };
 
     private:
-        Status convert_to_olap(const ColumnMap* column_map, const DataTypeMap* data_type_map);
+        Status convert_to_olap(const ColumnMap* column_map);
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
         PaddedPODArray<UInt64> _offsets; // map offsets in disk layout
         UInt64 _base_offset;
+        DataTypeMap _data_type;
     }; //OlapColumnDataConvertorMap
 
     class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorVariant()
-                : _root_data_convertor(std::make_unique<OlapColumnDataConvertorVarChar>(true)) {}
+        OlapColumnDataConvertorVariant() = default;
+
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         Status convert_to_olap() override;
@@ -495,10 +509,11 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        // encodes sparsed columns
-        const ColumnString* _root_data_column;
-        // _nullmap contains null info for this variant
+        // // encodes sparsed columns
+        // const ColumnString* _root_data_column;
+        // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+        ColumnObject* _source_column_ptr;
     };
 
 private:

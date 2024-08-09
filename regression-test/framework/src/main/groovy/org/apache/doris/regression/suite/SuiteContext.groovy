@@ -44,7 +44,8 @@ class SuiteContext implements Closeable {
     public final String dbName
     public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
     public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
-    public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHive2DockerConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHive3DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
@@ -143,14 +144,14 @@ class SuiteContext implements Closeable {
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
             threadConnInfo.conn = config.getConnectionByDbName(dbName)
-            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.username = config.jdbcUser 
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
         return threadConnInfo.conn
     }
 
-    Connection getArrowFlightSqlConnection(){
+    Connection getArrowFlightSqlConnection() {
         def threadConnInfo = threadArrowFlightSqlConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
@@ -163,16 +164,25 @@ class SuiteContext implements Closeable {
         return threadConnInfo.conn
     }
 
-    Connection getHiveDockerConnection(){
-        def threadConn = threadHiveDockerConn.get()
-        if (threadConn == null) {
-            threadConn = getConnectionByHiveDockerConfig()
-            threadHiveDockerConn.set(threadConn)
+    Connection getHiveDockerConnection(String hivePrefix) {
+        if (hivePrefix == "hive2") {
+            def threadConn = threadHive2DockerConn.get()
+            if (threadConn == null) {
+                threadConn = getConnectionByHiveDockerConfig(hivePrefix)
+                threadHive2DockerConn.set(threadConn)
+            }
+            return threadConn
+        } else if (hivePrefix == "hive3") {
+            def threadConn = threadHive3DockerConn.get()
+            if (threadConn == null) {
+                threadConn = getConnectionByHiveDockerConfig(hivePrefix)
+                threadHive3DockerConn.set(threadConn)
+            }
+            return threadConn
         }
-        return threadConn
     }
 
-    Connection getHiveRemoteConnection(){
+    Connection getHiveRemoteConnection() {
         def threadConn = threadHiveRemoteConn.get()
         if (threadConn == null) {
             threadConn = getConnectionByHiveRemoteConfig()
@@ -181,7 +191,7 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
-    Connection getDB2DockerConnection(){
+    Connection getDB2DockerConnection() {
         def threadConn = threadDB2DockerConn.get()
         if (threadConn == null) {
             threadConn = getConnectionByDB2DockerConfig()
@@ -212,28 +222,34 @@ class SuiteContext implements Closeable {
         return spec
     }
 
-    Map<String, String> getSrcSpec() {
+    Map<String, String> getSrcSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
-        spec.put("database", dbName)
+        spec.put("database", db)
 
         return spec
     }
 
-    Map<String, String> getDestSpec() {
+    Map<String, String> getDestSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getDownstreamJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
-        spec.put("database", "TEST_" + dbName)
+        spec.put("database", "TEST_" + db)
 
         return spec
     }
 
-    Connection getConnectionByHiveDockerConfig() {
+    Connection getConnectionByHiveDockerConfig(String hivePrefix) {
         Class.forName("org.apache.hive.jdbc.HiveDriver");
         String hiveHost = config.otherConfigs.get("externalEnvIp")
-        String hivePort = config.otherConfigs.get("hiveServerPort")
+        String hivePort = config.otherConfigs.get(hivePrefix + "ServerPort")
         String hiveJdbcUrl = "jdbc:hive2://${hiveHost}:${hivePort}/default"
         String hiveJdbcUser =  "hadoop"
         String hiveJdbcPassword = "hadoop"
@@ -431,11 +447,21 @@ class SuiteContext implements Closeable {
             }
         }
 
-        Connection hive_docker_conn = threadHiveDockerConn.get()
-        if (hive_docker_conn != null) {
-            threadHiveDockerConn.remove()
+        Connection hive2_docker_conn = threadHive2DockerConn.get()
+        if (hive2_docker_conn != null) {
+            threadHive2DockerConn.remove()
             try {
-                hive_docker_conn.close()
+                hive2_docker_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
+        Connection hive3_docker_conn = threadHive3DockerConn.get()
+        if (hive3_docker_conn != null) {
+            threadHive3DockerConn.remove()
+            try {
+                hive3_docker_conn.close()
             } catch (Throwable t) {
                 log.warn("Close connection failed", t)
             }

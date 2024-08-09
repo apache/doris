@@ -179,7 +179,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
             order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
-            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
             explain {
                 sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
                 contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
@@ -388,6 +387,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
         }
         explain {
+            sql("select k12 from test1 where negative(k12) = 1;")
+
+            contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
+        }
+        explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
@@ -415,93 +419,91 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         }
         sql """ set enable_ext_func_pred_pushdown = "true"; """
         // test date_add
-        sql """ set disable_nereids_rules='NORMALIZE_REWRITE_RULES'; """
         order_qt_date_add_year """ select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 year) = '2023-01-01')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 month) = '2022-02-01')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 week) = '2022-01-08')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_day """ select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 day) = '2022-01-02')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_hour """ select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 hour) = '2022-01-01 01:00:00')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_min """ select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 minute) = '2022-01-01 00:01:00')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_add_sec """ select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 second) = '2022-01-01 00:00:01')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         // date_sub
         order_qt_date_sub_year """ select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 year) = '2021-01-01')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 month) = '2021-12-01')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 week) = '2021-12-25')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_day """ select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 day) = '2021-12-31')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_hour """ select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 hour) = '2021-12-31 23:00:00')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_min """ select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 minute) = '2021-12-31 23:59:00')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
         order_qt_date_sub_sec """ select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 second) = '2021-12-31 23:59:59')"
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
         }
-        sql """ set disable_nereids_rules=''; """
 
         sql """ drop catalog if exists mysql_fun_push_catalog; """
 

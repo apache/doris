@@ -28,11 +28,11 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -47,15 +47,16 @@ public class AggregateFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(AggregateFunction.class);
 
     public static ImmutableSet<String> NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("row_number", "rank",
-            "dense_rank", "multi_distinct_count", "multi_distinct_sum", FunctionSet.HLL_UNION_AGG,
-            FunctionSet.HLL_UNION, FunctionSet.HLL_RAW_AGG, FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_INTERSECT,
+            "dense_rank", "multi_distinct_count", FunctionSet.HLL_UNION_AGG, FunctionSet.HLL_UNION,
+            FunctionSet.HLL_RAW_AGG, FunctionSet.BITMAP_UNION, FunctionSet.BITMAP_INTERSECT,
             FunctionSet.ORTHOGONAL_BITMAP_INTERSECT, FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT,
             FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT, FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE,
-            FunctionSet.INTERSECT_COUNT, FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT,
-            FunctionSet.COUNT, "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT,
-            FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL, FunctionSet.RETENTION,
-            FunctionSet.SEQUENCE_MATCH, FunctionSet.SEQUENCE_COUNT, FunctionSet.MAP_AGG, FunctionSet.BITMAP_AGG,
-            FunctionSet.ARRAY_AGG, FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET);
+            FunctionSet.INTERSECT_COUNT, FunctionSet.ORTHOGONAL_BITMAP_UNION_COUNT, FunctionSet.COUNT,
+            "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT,
+            "ndv_no_finalize", "percentile_array", "histogram",
+            FunctionSet.SEQUENCE_COUNT, FunctionSet.MAP_AGG, FunctionSet.BITMAP_AGG, FunctionSet.ARRAY_AGG,
+            FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET, FunctionSet.GROUP_ARRAY_INTERSECT,
+            FunctionSet.SUM0, FunctionSet.MULTI_DISTINCT_SUM0);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx", "first_value",
@@ -67,16 +68,24 @@ public class AggregateFunction extends Function {
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
     // Set if different from retType_, null otherwise.
+    @SerializedName("it")
     private Type intermediateType;
 
     // The symbol inside the binary at location_ that contains this particular.
     // They can be null if it is not required.
+    @SerializedName("ufs")
     private String updateFnSymbol;
+    @SerializedName("ifs")
     private String initFnSymbol;
+    @SerializedName("sfs")
     private String serializeFnSymbol;
+    @SerializedName("mfs")
     private String mergeFnSymbol;
+    @SerializedName("gvfs")
     private String getValueFnSymbol;
+    @SerializedName("rfs")
     private String removeFnSymbol;
+    @SerializedName("ffs")
     private String finalizeFnSymbol;
 
     private static String BE_BUILTINS_CLASS = "AggregateFunctions";
@@ -85,6 +94,7 @@ public class AggregateFunction extends Function {
     // e.g. min(distinct col) == min(col).
     // TODO: currently it is not possible for user functions to specify this. We should
     // extend the create aggregate function stmt to allow additional metadata like this.
+    @SerializedName("igd")
     private boolean ignoresDistinct;
 
     // True if this function can appear within an analytic expr (fn() OVER(...)).
@@ -92,9 +102,11 @@ public class AggregateFunction extends Function {
     // we should identify this property from the function itself (e.g., based on which
     // functions of the UDA API are implemented).
     // Currently, there is no reliable way of doing that.
+    @SerializedName("isAn")
     private boolean isAnalyticFn;
 
     // True if this function can be used for aggregation (without an OVER() clause).
+    @SerializedName("isAg")
     private boolean isAggregateFn;
 
     // True if this function returns a non-null value on an empty input. It is used
@@ -102,9 +114,11 @@ public class AggregateFunction extends Function {
     // TODO: Instead of manually setting this flag, we should identify this
     // property from the function itself (e.g. evaluating the function on an
     // empty input in BE).
+    @SerializedName("rnno")
     private boolean returnsNonNullOnEmpty;
 
     // use for java-udaf to point the class of user define
+    @SerializedName("sn")
     private String symbolName;
 
     // only used for serialization
@@ -621,33 +635,6 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
         return fn;
-    }
-
-    @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.AGGREGATE.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. self's member
-        boolean hasInterType = intermediateType != null;
-        output.writeBoolean(hasInterType);
-        if (hasInterType) {
-            ColumnType.write(output, intermediateType);
-        }
-        IOUtils.writeOptionString(output, updateFnSymbol);
-        IOUtils.writeOptionString(output, initFnSymbol);
-        IOUtils.writeOptionString(output, serializeFnSymbol);
-        IOUtils.writeOptionString(output, mergeFnSymbol);
-        IOUtils.writeOptionString(output, getValueFnSymbol);
-        IOUtils.writeOptionString(output, removeFnSymbol);
-        IOUtils.writeOptionString(output, finalizeFnSymbol);
-        IOUtils.writeOptionString(output, symbolName);
-
-        output.writeBoolean(ignoresDistinct);
-        output.writeBoolean(isAnalyticFn);
-        output.writeBoolean(isAggregateFn);
-        output.writeBoolean(returnsNonNullOnEmpty);
     }
 
     public void readFields(DataInput input) throws IOException {

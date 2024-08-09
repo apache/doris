@@ -80,23 +80,32 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
         return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
     }
-    size_t disk_total_size = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize);
-    if (disk_total_size < file_cache_settings.capacity) {
-        file_cache_settings = get_file_cache_settings(size_t(disk_total_size * 0.9),
-                                                      file_cache_settings.max_query_cache_size);
+    size_t disk_capacity = static_cast<size_t>(
+            static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
+            (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
+    if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+        LOG_INFO("The cache {} config size {} is larger than {}% disk size {} or zero, recalc it.",
+                 cache_base_path, file_cache_settings.capacity,
+                 config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
+        file_cache_settings =
+                get_file_cache_settings(disk_capacity, file_cache_settings.max_query_cache_size);
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
-    _path_to_cache[cache_base_path] = cache.get();
-    _caches.push_back(std::move(cache));
+    {
+        std::lock_guard lock(_mtx);
+        _path_to_cache[cache_base_path] = cache.get();
+        _caches.push_back(std::move(cache));
+        _capacity += file_cache_settings.capacity;
+    }
     LOG(INFO) << "[FileCache] path: " << cache_base_path
               << " total_size: " << file_cache_settings.capacity
-              << " disk_total_size: " << disk_total_size;
-    _capacity += file_cache_settings.capacity;
+              << " disk_total_size: " << disk_capacity;
     return Status::OK();
 }
 
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
+    // dont need lock mutex because _caches is immutable after create_file_cache
     return _caches[KeyHash()(key) % _caches.size()].get();
 }
 
@@ -124,6 +133,29 @@ std::string FileCacheFactory::clear_file_caches(bool sync) {
         ss << (sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async()) << "\n";
     }
     return ss.str();
+}
+
+std::vector<std::string> FileCacheFactory::get_base_paths() {
+    std::vector<std::string> paths;
+    for (const auto& pair : _path_to_cache) {
+        paths.push_back(pair.first);
+    }
+    return paths;
+}
+
+std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    if (path.empty()) {
+        std::stringstream ss;
+        for (auto& [_, cache] : _path_to_cache) {
+            ss << cache->reset_capacity(new_capacity);
+        }
+        return ss.str();
+    } else {
+        if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
+            return iter->second->reset_capacity(new_capacity);
+        }
+    }
+    return "Unknown the cache path " + path;
 }
 
 } // namespace io

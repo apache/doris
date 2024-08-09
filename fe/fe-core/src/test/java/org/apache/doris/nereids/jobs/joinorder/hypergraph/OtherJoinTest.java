@@ -19,12 +19,17 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +56,7 @@ public class OtherJoinTest extends TPCHTestBase {
         plan = new LogicalProject(plan.getOutput(), plan);
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("tpch", cascadesContext);
         Plan optimizedPlan = PlanChecker.from(cascadesContext)
                 .dpHypOptimize()
                 .getBestPlanTree();
@@ -67,5 +72,18 @@ public class OtherJoinTest extends TPCHTestBase {
         }
         Assertions.assertTrue(res1.equals(res2));
 
+    }
+
+    @Test
+    void testOneSideJoin() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
+        Plan plan = hyperGraphBuilder.init(1, 2, 3)
+                .addEdge(JoinType.LEFT_OUTER_JOIN, 0, 1)
+                .addEdge(JoinType.LEFT_OUTER_JOIN, 0, 2)
+                .buildPlan();
+        Expression oneSideCond = new EqualTo(plan.child(0).getOutput().get(0), plan.child(0).getOutput().get(2));
+        plan = ((LogicalJoin<?, ?>) plan).withJoinConjuncts(ImmutableList.of(), ImmutableList.of(oneSideCond), ((LogicalJoin<?, ?>) plan).getJoinReorderContext());
+        Set<List<String>> res = hyperGraphBuilder.evaluate(plan);
+        Assertions.assertEquals(4, res.size());
     }
 }

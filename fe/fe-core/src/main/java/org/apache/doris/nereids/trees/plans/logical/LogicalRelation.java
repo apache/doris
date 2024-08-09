@@ -83,6 +83,8 @@ public abstract class LogicalRelation extends LogicalLeaf implements Relation {
         return relationId;
     }
 
+    public abstract LogicalRelation withRelationId(RelationId relationId);
+
     @Override
     public JSONObject toJson() {
         JSONObject logicalRelation = super.toJson();

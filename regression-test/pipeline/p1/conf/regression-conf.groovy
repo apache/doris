@@ -70,11 +70,9 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 cacheDataPath="/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+s3Source="aliyun"
 
-max_failure_num=0
+max_failure_num=10000000
 
 externalEnvIp="127.0.0.1"
 

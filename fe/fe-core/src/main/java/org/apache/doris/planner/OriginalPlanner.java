@@ -39,8 +39,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -550,7 +550,7 @@ public class OriginalPlanner extends Planner {
                     OlapScanNode scanNode = (OlapScanNode) child;
                     if (scanNode.isDupKeysOrMergeOnWrite()) {
                         sortNode.setUseTopnOpt(true);
-                        scanNode.setUseTopnOpt(true);
+                        // scanNode.setUseTopnOpt(true);
                     }
                 }
             }
@@ -643,13 +643,14 @@ public class OriginalPlanner extends Planner {
         List<Column> columns = new ArrayList<>(selectItems.size());
         List<String> columnLabels = parsedSelectStmt.getColLabels();
         List<String> data = new ArrayList<>();
+        FormatOptions options = FormatOptions.getDefault();
         for (int i = 0; i < selectItems.size(); i++) {
             SelectListItem item = selectItems.get(i);
             Expr expr = item.getExpr();
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                data.add(((LiteralExpr) expr).getStringValueInFe());
+                data.add(((LiteralExpr) expr).getStringValueInFe(options));
             } else {
                 return Optional.empty();
             }
@@ -658,7 +659,4 @@ public class OriginalPlanner extends Planner {
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
         return Optional.of(resultSet);
     }
-
-    @Override
-    public void addHook(PlannerHook hook) {}
 }

@@ -61,6 +61,7 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
@@ -101,7 +102,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -137,8 +138,8 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table_2 (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL,\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union ,\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -148,7 +149,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.hll_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` hll hll_union NULL\n"
+                + "  `id2` hll hll_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -566,20 +567,20 @@ public class QueryPlanTest extends TestWithFeService {
         // disable cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
-                "Invalid type cast of `id2` from HLL to VARCHAR(65533)"
+                "Invalid type cast of `id2` from hll to varchar(65533)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
-                "Invalid type cast of `id2` from BITMAP to VARCHAR(65533)"
+                "Invalid type cast of `id2` from bitmap to varchar(65533)"
         );
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
-                "No matching function with signature: length(HLL)"
+                "No matching function with signature: length(hll)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
-                "No matching function with signature: length(BITMAP)"
+                "No matching function with signature: length(bitmap)"
         );
     }
 
@@ -1101,7 +1102,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1115,7 +1116,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1199,7 +1200,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1229,7 +1230,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1249,7 +1250,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1278,7 +1279,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -2064,7 +2065,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS int)\n" + "    CAST(<slot 5> <slot 3> 4 AS int)"));
     }
 
     @Test
@@ -2179,7 +2180,7 @@ public class QueryPlanTest extends TestWithFeService {
         createTable("CREATE TABLE test.bitmap_tb (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
                 + "  `id2` int(11) NULL COMMENT \"\",\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`,`id2`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"

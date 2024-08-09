@@ -29,8 +29,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.planner.OlapScanNode;
@@ -80,7 +80,7 @@ public class DemoMultiBackendsTest {
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+            FeStartException, NotInitException, UserException, InterruptedException {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.tablet_checker_interval_ms = 1000;
@@ -89,7 +89,7 @@ public class DemoMultiBackendsTest {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -125,6 +125,7 @@ public class DemoMultiBackendsTest {
     public void testCreateDbAndTable() throws Exception {
         // 1. create connect context
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setParallelResultSink(false);
         // 2. create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
@@ -199,13 +200,13 @@ public class DemoMultiBackendsTest {
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 8));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"currentFragmentNum\":0,\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 3));
-        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 2));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
+        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 4));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 3));
     }
 
     private static void updateReplicaPathHash() {

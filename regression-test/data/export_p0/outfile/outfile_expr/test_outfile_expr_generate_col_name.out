@@ -36,7 +36,7 @@ false
 false
 
 -- !desc_s3 --
-__binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
+__greater_than_0	boolean	Yes	false	\N	NONE
 
 -- !select_base1 --
 10
@@ -45,7 +45,7 @@ __binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
 10
 
 -- !desc_s3 --
-__max_0	INT	Yes	false	\N	NONE
+__max_0	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 1	id = 1
@@ -72,8 +72,8 @@ __max_0	INT	Yes	false	\N	NONE
 9	id not exist
 
 -- !desc_s3 --
-__case_expr_1	TEXT	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
+__case_when_1	text	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 1	1	string	19	false	5	true	1
@@ -100,14 +100,14 @@ id	INT	Yes	false	\N	NONE
 9	1	string	27	false	5	true	1
 
 -- !desc_s3 --
-__arithmetic_expr_5	INT	Yes	false	\N	NONE
-__arithmetic_expr_7	BIGINT	Yes	false	\N	NONE
-__binary_predicate_4	BOOLEAN	Yes	false	\N	NONE
-__cast_expr_3	BIGINT	Yes	false	\N	NONE
-__in_predicate_6	BOOLEAN	Yes	false	\N	NONE
-__literal_1	INT	Yes	false	\N	NONE
-__literal_2	TEXT	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
+__add_5	int	Yes	false	\N	NONE
+__bit_or_7	int	Yes	false	\N	NONE
+__cast_3	bigint	Yes	false	\N	NONE
+__greater_than_4	boolean	Yes	false	\N	NONE
+__in_predicate_6	boolean	Yes	false	\N	NONE
+__literal_1	int	Yes	false	\N	NONE
+__literal_2	text	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 2566	888	9999
@@ -134,9 +134,9 @@ id	INT	Yes	false	\N	NONE
 2566	888	9999
 
 -- !desc_s3 --
-__cast_expr_0	TEXT	Yes	false	\N	NONE
-__cast_expr_1	BIGINT	Yes	false	\N	NONE
-__cast_expr_2	TEXT	Yes	false	\N	NONE
+__cast_0	text	Yes	false	\N	NONE
+__cast_1	bigint	Yes	false	\N	NONE
+__cast_2	text	Yes	false	\N	NONE
 
 -- !select_base1 --
 false
@@ -163,7 +163,7 @@ false
 false
 
 -- !desc_s3 --
-__binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
+__greater_than_0	boolean	Yes	false	\N	NONE
 
 -- !select_base1 --
 10
@@ -172,7 +172,7 @@ __binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
 10
 
 -- !desc_s3 --
-__max_0	INT	Yes	false	\N	NONE
+__max_0	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 1	id = 1
@@ -199,8 +199,8 @@ __max_0	INT	Yes	false	\N	NONE
 9	id not exist
 
 -- !desc_s3 --
-__case_expr_1	VARCHAR(65533)	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
+__case_when_1	text	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 1	1	string	19	false	5	true	1
@@ -227,14 +227,14 @@ id	INT	Yes	false	\N	NONE
 9	1	string	27	false	5	true	1
 
 -- !desc_s3 --
-__arithmetic_expr_5	SMALLINT	Yes	false	\N	NONE
-__arithmetic_expr_7	BIGINT	Yes	false	\N	NONE
-__binary_predicate_4	BOOLEAN	Yes	false	\N	NONE
-__cast_expr_3	BIGINT	Yes	false	\N	NONE
-__in_predicate_6	BOOLEAN	Yes	false	\N	NONE
-__literal_1	TINYINT	Yes	false	\N	NONE
-__literal_2	VARCHAR(65533)	Yes	false	\N	NONE
-id	INT	Yes	false	\N	NONE
+__add_5	smallint	Yes	false	\N	NONE
+__bit_or_7	tinyint	Yes	false	\N	NONE
+__cast_3	bigint	Yes	false	\N	NONE
+__greater_than_4	boolean	Yes	false	\N	NONE
+__in_predicate_6	boolean	Yes	false	\N	NONE
+__literal_1	tinyint	Yes	false	\N	NONE
+__literal_2	varchar(6)	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
 
 -- !select_base1 --
 2566	888	9999
@@ -261,7 +261,7 @@ id	INT	Yes	false	\N	NONE
 2566	888	9999
 
 -- !desc_s3 --
-__cast_expr_0	TEXT	Yes	false	\N	NONE
-__cast_expr_1	BIGINT	Yes	false	\N	NONE
-__cast_expr_2	TEXT	Yes	false	\N	NONE
+__cast_0	text	Yes	false	\N	NONE
+__cast_1	bigint	Yes	false	\N	NONE
+__cast_2	text	Yes	false	\N	NONE
 

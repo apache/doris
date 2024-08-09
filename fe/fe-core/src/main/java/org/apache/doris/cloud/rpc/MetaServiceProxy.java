@@ -100,6 +100,11 @@ public class MetaServiceProxy {
     }
 
     private MetaServiceClient getProxy() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.error("Should not use RPC in check compatibility mode");
+            throw new RuntimeException("use RPC in the check compatibility mode");
+        }
+
         String address = Config.meta_service_endpoint;
         MetaServiceClient service = serviceMap.get(address);
         if (service != null && service.isNormalState()) {
@@ -226,11 +231,41 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.getTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
             return client.getCurrentMaxTxnId(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.beginSubTxn(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.abortSubTxn(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }
@@ -278,6 +313,15 @@ public class MetaServiceProxy {
         try {
             final MetaServiceClient client = getProxy();
             return client.commitIndex(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.checkKv(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }
@@ -443,6 +487,16 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.alterStorageVault(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
@@ -454,11 +508,31 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.ResetRLProgressResponse resetRLProgress(Cloud.ResetRLProgressRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.resetRLProgress(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
             return client.getObjStoreInfo(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.abortTxnWithCoordinator(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

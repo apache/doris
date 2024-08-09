@@ -158,9 +158,7 @@ suite("view_p0") {
             GROUP BY  
                 date_format(c_date, '%Y-%m-%d');
     """
-    sql """set enable_nereids_planner=false;"""
-    sql """select * from test_view_table2_view;"""
-    sql """set enable_nereids_planner=true;"""
+
     sql """select * from test_view_table2_view;"""
     sql """ drop view if exists test_view_table2_view;"""
     sql """DROP TABLE IF EXISTS test_view_table2"""

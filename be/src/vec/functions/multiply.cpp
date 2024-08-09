@@ -76,11 +76,17 @@ struct MultiplyImpl {
                 int128_t i128_mul_result;
                 if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
                                          i128_mul_result)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                    THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
+                            DecimalV2Value(a[i]).to_string(), "multiply",
+                            DecimalV2Value(b[i]).to_string(),
+                            DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
                 c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
                 if (c[i].value > max.value() || c[i].value < min.value()) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                    THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
+                            DecimalV2Value(a[i]).to_string(), "multiply",
+                            DecimalV2Value(b[i]).to_string(),
+                            DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
             } else {
                 c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /

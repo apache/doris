@@ -17,10 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_point_query_load", "p0") {
-    //test legacy planner
-    sql """set enable_nereids_planner=false"""
-
+suite("test_load_and_schema_change_row_store", "p0") {
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 
     // define dup key table1
@@ -50,8 +47,9 @@ suite("test_point_query_load", "p0") {
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "store_row_column" = "true");
+        PROPERTIES("replication_num" = "1", "row_store_columns" = "k1,c_bool,c_tinyint,c_bigint,c_decimal,c_decimalv3,c_datev2,c_string");
         """
+
 
     // load data
     streamLoad {
@@ -69,13 +67,8 @@ suite("test_point_query_load", "p0") {
             assertEquals(100000, json.NumberLoadedRows)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable} AS SELECT c_tinyint, c_bool, k1, c_smallint, c_int, c_bigint, c_largeint, c_float, c_double,  c_decimal, c_decimalv3, c_date, c_datetime, c_datev2, c_datetimev2, c_char, c_varchar, c_string FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
 
     sql "set topn_opt_limit_threshold = 100"
-    explain {
-        sql("SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10")
-        contains "(mv_${testTable})"
-    }
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
@@ -83,40 +76,90 @@ suite("test_point_query_load", "p0") {
           ALTER table ${testTable} MODIFY COLUMN c_int BIGINT;
           """
     def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-          return jobStateResult[0][9]
-     }
-    int max_try_time = 100
-     while (max_try_time--){
-          String result = getJobState(testTable)
-          if (result == "FINISHED") {
-               break
-          } else {
-               sleep(2000)
-               if (max_try_time < 1){
-                    assertEquals(1,2)
-               }
-          }
-     }
-    sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
-
-    // test nereids planner
-    sql """set enable_nereids_planner=true;"""
-    explain {
-        sql("""SELECT
-                    t0.`c_int` as column_key,
-                    COUNT(1) as `count`
-                FROM
-                    (
-                        SELECT
-                            `c_int`
-                        FROM
-                            `tbl_scalar_types_dup`
-                        limit
-                            200000
-                    ) as `t0`
-                GROUP BY
-                    `t0`.`c_int`""")
-        notContains "(mv_${testTable})"
+        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        return jobStateResult[0][9]
     }
+    def wait_job_done = { tableName ->
+        def max_try_time = 100
+        while (max_try_time--){
+              String result = getJobState("${tableName}")
+              if (result == "FINISHED") {
+                   break
+              } else {
+                   sleep(2000)
+                   if (max_try_time < 1){
+                        assertEquals(1,2)
+                   }
+              }
+         }
+    }
+
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_dup_1 FORCE"
+    sql """
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_dup_1 (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+    wait_job_done.call("tbl_scalar_types_dup")
+    sql "INSERT INTO tbl_scalar_types_dup_1 SELECT * from tbl_scalar_types_dup"
+    sql """alter table tbl_scalar_types_dup_1 set ("bloom_filter_columns" = "c_largeint")"""    
+    wait_job_done.call("tbl_scalar_types_dup_1")
+    sql """alter table tbl_scalar_types_dup_1 set ("store_row_column" = "true")"""    
+    wait_job_done.call("tbl_scalar_types_dup_1")
+    qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
+    sql """
+         ALTER table tbl_scalar_types_dup_1 ADD COLUMN new_column1 INT default "123";
+    """
+    sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
+    sql """insert into tbl_scalar_types_dup_1(new_column1) values (9999999)"""
+    qt_sql """select length(__DORIS_ROW_STORE_COL__) from tbl_scalar_types_dup_1 where new_column1 = 9999999"""
+
+    explain {
+        sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679")
+        contains "SHORT-CIRCUIT"
+    } 
+    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
+    wait_job_done.call("tbl_scalar_types_dup_1")
+    qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
+    sql "set enable_short_circuit_query_access_column_store = false"
+    test {
+        sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
+        exception("Not support column store")
+    }
+    explain {
+        sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679")
+        contains "SHORT-CIRCUIT"
+    } 
+    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
+
+    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
+    wait_job_done.call("tbl_scalar_types_dup_1")
+    test {
+        sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
+        exception("Not support column store")
+    }
+    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
+    sql "set enable_short_circuit_query_access_column_store = true"
 }

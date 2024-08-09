@@ -91,7 +91,10 @@ public class RefreshDbTest extends TestWithFeService {
         }
         long l3 = db1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
-        Assertions.assertTrue(table.isObjectCreated());
+        // when use_meta_cache is true, the table will be recreated after refresh.
+        // so we need to get table again
+        table = db1.getTable("tbl11").get();
+        Assertions.assertFalse(table.isObjectCreated());
         test1.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
         try {

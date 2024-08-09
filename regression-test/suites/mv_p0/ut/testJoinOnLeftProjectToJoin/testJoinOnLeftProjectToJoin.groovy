@@ -50,10 +50,20 @@ suite ("testJoinOnLeftProjectToJoin") {
     createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
     createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;")
         contains "(emps_mv)"
         contains "(depts_mv)"
     }
     qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;")
+        contains "(emps_mv)"
+        contains "(depts_mv)"
+    }
 }

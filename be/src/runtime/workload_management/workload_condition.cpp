@@ -56,4 +56,17 @@ bool WorkloadConditionScanBytes::eval(std::string str_val) {
     return WorkloadCompareUtils::compare_signed_integer(_op, scan_bytes_args, _scan_bytes);
 }
 
+// query memory
+WorkloadConditionQueryMemory::WorkloadConditionQueryMemory(WorkloadCompareOperator op,
+                                                           std::string str_val) {
+    _op = op;
+    _query_memory_bytes = std::stol(str_val);
+}
+
+bool WorkloadConditionQueryMemory::eval(std::string str_val) {
+    int64_t query_memory_bytes = std::stol(str_val);
+    return WorkloadCompareUtils::compare_signed_integer(_op, query_memory_bytes,
+                                                        _query_memory_bytes);
+}
+
 } // namespace doris

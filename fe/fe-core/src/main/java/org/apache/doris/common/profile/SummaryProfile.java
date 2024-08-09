@@ -18,15 +18,26 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,17 +55,20 @@ public class SummaryProfile {
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
     public static final String USER = "User";
+    public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
     public static final String IS_NEREIDS = "Is Nereids";
-    public static final String IS_PIPELINE = "Is Pipeline";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
+    public static final String SCHEDULE_TIME_PER_BE = "Schedule Time Of BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
-
+    public static final String PHYSICAL_PLAN = "Physical Plan";
+    public static final String DISTRIBUTED_PLAN = "Distributed Plan";
+    public static final String SYSTEM_MESSAGE = "System Message";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -87,6 +101,7 @@ public class SummaryProfile {
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+    public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
@@ -94,17 +109,28 @@ public class SummaryProfile {
     public static final String FILESYSTEM_OPT_TIME = "FileSystem Operator Time";
     public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Count";
     public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Count";
+
+    public static final String FILESYSTEM_OPT_DELETE_FILE_CNT = "Delete File Count";
     public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Count";
     public static final String HMS_ADD_PARTITION_TIME = "HMS Add Partition Time";
     public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
     public static final String HMS_UPDATE_PARTITION_TIME = "HMS Update Partition Time";
     public static final String HMS_UPDATE_PARTITION_CNT = "HMS Update Partition Count";
+    public static final String LATENCY_FROM_FE_TO_BE = "RPC Latency From FE To BE";
+    public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
+    public static final String RPC_WORK_TIME = "RPC Work Time";
+    public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
-    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
+    public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
+    public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
+            .addAll(SUMMARY_CAPTIONS)
+            .add(PHYSICAL_PLAN)
+            .add(DISTRIBUTED_PLAN)
+            .build();
 
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
@@ -137,18 +163,19 @@ public class SummaryProfile {
             SEND_FRAGMENT_PHASE2_TIME,
             FRAGMENT_COMPRESSED_SIZE,
             FRAGMENT_RPC_COUNT,
+            SCHEDULE_TIME_PER_BE,
             WAIT_FETCH_RESULT_TIME,
             FETCH_RESULT_TIME,
             WRITE_RESULT_TIME,
             DORIS_VERSION,
             IS_NEREIDS,
-            IS_PIPELINE,
             IS_CACHED,
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
             TRACE_ID,
-            TRANSACTION_COMMIT_TIME
+            TRANSACTION_COMMIT_TIME,
+            SYSTEM_MESSAGE
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -178,6 +205,7 @@ public class SummaryProfile {
             .put(FILESYSTEM_OPT_TIME, 1)
             .put(FILESYSTEM_OPT_RENAME_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_RENAME_DIR_CNT, 2)
+            .put(FILESYSTEM_OPT_DELETE_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_DELETE_DIR_CNT, 2)
             .put(HMS_ADD_PARTITION_TIME, 1)
             .put(HMS_ADD_PARTITION_CNT, 2)
@@ -185,70 +213,150 @@ public class SummaryProfile {
             .put(HMS_UPDATE_PARTITION_CNT, 2)
             .build();
 
-    private RuntimeProfile summaryProfile;
-    private RuntimeProfile executionSummaryProfile;
-
+    @SerializedName(value = "summaryProfile")
+    private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
+    @SerializedName(value = "executionSummaryProfile")
+    private RuntimeProfile executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
+    @SerializedName(value = "parseSqlStartTime")
     private long parseSqlStartTime = -1;
+    @SerializedName(value = "parseSqlFinishTime")
     private long parseSqlFinishTime = -1;
+    @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
+    @SerializedName(value = "nereidsRewriteFinishTime")
     private long nereidsRewriteFinishTime = -1;
+    @SerializedName(value = "nereidsOptimizeFinishTime")
     private long nereidsOptimizeFinishTime = -1;
+    @SerializedName(value = "nereidsTranslateFinishTime")
     private long nereidsTranslateFinishTime = -1;
+    private long nereidsDistributeFinishTime = -1;
     // timestamp of query begin
+    @SerializedName(value = "queryBeginTime")
     private long queryBeginTime = -1;
     // Analysis end time
+    @SerializedName(value = "queryAnalysisFinishTime")
     private long queryAnalysisFinishTime = -1;
     // Join reorder end time
+    @SerializedName(value = "queryJoinReorderFinishTime")
     private long queryJoinReorderFinishTime = -1;
     // Create single node plan end time
+    @SerializedName(value = "queryCreateSingleNodeFinishTime")
     private long queryCreateSingleNodeFinishTime = -1;
     // Create distribute plan end time
+    @SerializedName(value = "queryDistributedFinishTime")
     private long queryDistributedFinishTime = -1;
+    @SerializedName(value = "initScanNodeStartTime")
     private long initScanNodeStartTime = -1;
+    @SerializedName(value = "initScanNodeFinishTime")
     private long initScanNodeFinishTime = -1;
+    @SerializedName(value = "finalizeScanNodeStartTime")
     private long finalizeScanNodeStartTime = -1;
+    @SerializedName(value = "finalizeScanNodeFinishTime")
     private long finalizeScanNodeFinishTime = -1;
+    @SerializedName(value = "getSplitsStartTime")
     private long getSplitsStartTime = -1;
+    @SerializedName(value = "getPartitionsFinishTime")
     private long getPartitionsFinishTime = -1;
+    @SerializedName(value = "getPartitionFilesFinishTime")
     private long getPartitionFilesFinishTime = -1;
+    @SerializedName(value = "getSplitsFinishTime")
     private long getSplitsFinishTime = -1;
+    @SerializedName(value = "createScanRangeFinishTime")
     private long createScanRangeFinishTime = -1;
     // Plan end time
+    @SerializedName(value = "queryPlanFinishTime")
     private long queryPlanFinishTime = -1;
+    @SerializedName(value = "assignFragmentTime")
     private long assignFragmentTime = -1;
+    @SerializedName(value = "fragmentSerializeTime")
     private long fragmentSerializeTime = -1;
+    @SerializedName(value = "fragmentSendPhase1Time")
     private long fragmentSendPhase1Time = -1;
+    @SerializedName(value = "fragmentSendPhase2Time")
     private long fragmentSendPhase2Time = -1;
+    @SerializedName(value = "fragmentCompressedSize")
     private long fragmentCompressedSize = 0;
+    @SerializedName(value = "fragmentRpcCount")
     private long fragmentRpcCount = 0;
     // Fragment schedule and send end time
+    @SerializedName(value = "queryScheduleFinishTime")
     private long queryScheduleFinishTime = -1;
     // Query result fetch end time
+    @SerializedName(value = "queryFetchResultFinishTime")
     private long queryFetchResultFinishTime = -1;
+    @SerializedName(value = "tempStarTime")
     private long tempStarTime = -1;
+    @SerializedName(value = "queryFetchResultConsumeTime")
     private long queryFetchResultConsumeTime = 0;
+    @SerializedName(value = "queryWriteResultConsumeTime")
     private long queryWriteResultConsumeTime = 0;
+    @SerializedName(value = "getPartitionVersionTime")
     private long getPartitionVersionTime = 0;
+    @SerializedName(value = "getPartitionVersionCount")
     private long getPartitionVersionCount = 0;
+    @SerializedName(value = "getPartitionVersionByHasDataCount")
     private long getPartitionVersionByHasDataCount = 0;
+    @SerializedName(value = "getTableVersionTime")
     private long getTableVersionTime = 0;
+    @SerializedName(value = "getTableVersionCount")
     private long getTableVersionCount = 0;
+    @SerializedName(value = "transactionCommitBeginTime")
     private long transactionCommitBeginTime = -1;
+    @SerializedName(value = "transactionCommitEndTime")
     private long transactionCommitEndTime = -1;
+    @SerializedName(value = "filesystemOptTime")
     private long filesystemOptTime = -1;
+    @SerializedName(value = "hmsAddPartitionTime")
     private long hmsAddPartitionTime = -1;
+    @SerializedName(value = "hmsAddPartitionCnt")
     private long hmsAddPartitionCnt = 0;
+    @SerializedName(value = "hmsUpdatePartitionTime")
     private long hmsUpdatePartitionTime = -1;
+    @SerializedName(value = "hmsUpdatePartitionCnt")
     private long hmsUpdatePartitionCnt = 0;
+    @SerializedName(value = "filesystemRenameFileCnt")
     private long filesystemRenameFileCnt = 0;
+    @SerializedName(value = "filesystemRenameDirCnt")
     private long filesystemRenameDirCnt = 0;
+    @SerializedName(value = "filesystemDeleteDirCnt")
     private long filesystemDeleteDirCnt = 0;
+    @SerializedName(value = "filesystemDeleteFileCnt")
+    private long filesystemDeleteFileCnt = 0;
+    @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
+    // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
+    // to FE)
+    private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
+    private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
+
     public SummaryProfile() {
-        summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
-        executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
         init();
+    }
+
+    private void init() {
+        for (String key : SUMMARY_KEYS) {
+            summaryProfile.addInfoString(key, "N/A");
+        }
+        for (String key : EXECUTION_SUMMARY_KEYS) {
+            executionSummaryProfile.addInfoString(key, "N/A");
+        }
+    }
+
+    // For UT usage
+    public void fuzzyInit() {
+        for (String key : SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            summaryProfile.addInfoString(key, randomId);
+        }
+        for (String key : EXECUTION_SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            executionSummaryProfile.addInfoString(key, randomId);
+        }
+    }
+
+    public static SummaryProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), SummaryProfile.class);
     }
 
     public String getProfileId() {
@@ -263,15 +371,6 @@ public class SummaryProfile {
         return executionSummaryProfile;
     }
 
-    private void init() {
-        for (String key : SUMMARY_KEYS) {
-            summaryProfile.addInfoString(key, "N/A");
-        }
-        for (String key : EXECUTION_SUMMARY_KEYS) {
-            executionSummaryProfile.addInfoString(key, "N/A");
-        }
-    }
-
     public void prettyPrint(StringBuilder builder) {
         summaryProfile.prettyPrint(builder, "");
         executionSummaryProfile.prettyPrint(builder, "");
@@ -279,7 +378,7 @@ public class SummaryProfile {
 
     public Map<String, String> getAsInfoStings() {
         Map<String, String> infoStrings = Maps.newHashMap();
-        for (String header : SummaryProfile.SUMMARY_KEYS) {
+        for (String header : SummaryProfile.SUMMARY_CAPTIONS) {
             infoStrings.put(header, summaryProfile.getInfoString(header));
         }
         return infoStrings;
@@ -308,6 +407,7 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
+        executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME,
                 getPrettyTime(queryAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(PLAN_TIME,
@@ -332,6 +432,7 @@ public class SummaryProfile {
                 getPrettyTime(createScanRangeFinishTime, getSplitsFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(SCHEDULE_TIME,
                 getPrettyTime(queryScheduleFinishTime, queryPlanFinishTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, getRpcLatency());
         executionSummaryProfile.addInfoString(ASSIGN_FRAGMENT_TIME,
                 getPrettyTime(assignFragmentTime, queryPlanFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(FRAGMENT_SERIALIZE_TIME,
@@ -372,6 +473,8 @@ public class SummaryProfile {
                     getPrettyCount(filesystemRenameFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_RENAME_DIR_CNT,
                     getPrettyCount(filesystemRenameDirCnt));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_FILE_CNT,
+                    getPrettyCount(filesystemDeleteFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_DIR_CNT,
                     getPrettyCount(filesystemDeleteDirCnt));
 
@@ -408,6 +511,10 @@ public class SummaryProfile {
 
     public void setNereidsTranslateTime() {
         this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsDistributeTime() {
+        this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryBeginTime() {
@@ -532,6 +639,14 @@ public class SummaryProfile {
         return queryBeginTime;
     }
 
+    public void setRpcPhase1Latency(Map<TNetworkAddress, List<Long>> rpcPhase1Latency) {
+        this.rpcPhase1Latency = rpcPhase1Latency;
+    }
+
+    public void setRpcPhase2Latency(Map<TNetworkAddress, List<Long>> rpcPhase2Latency) {
+        this.rpcPhase2Latency = rpcPhase2Latency;
+    }
+
     public static class SummaryBuilder {
         private Map<String, String> map = Maps.newHashMap();
 
@@ -572,6 +687,11 @@ public class SummaryProfile {
 
         public SummaryBuilder user(String val) {
             map.put(USER, val);
+            return this;
+        }
+
+        public SummaryBuilder defaultCatalog(String val) {
+            map.put(DEFAULT_CATALOG, val);
             return this;
         }
 
@@ -620,11 +740,6 @@ public class SummaryProfile {
             return this;
         }
 
-        public SummaryBuilder isPipeline(String isPipeline) {
-            map.put(IS_PIPELINE, isPipeline);
-            return this;
-        }
-
         public Map<String, String> build() {
             return map;
         }
@@ -648,6 +763,10 @@ public class SummaryProfile {
 
     public String getPrettyNereidsTranslateTime() {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsDistributeTime() {
+        return getPrettyTime(nereidsDistributeFinishTime, nereidsTranslateFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyGetPartitionVersionTime() {
@@ -737,5 +856,56 @@ public class SummaryProfile {
 
     public void incDeleteDirRecursiveCnt() {
         this.filesystemDeleteDirCnt += 1;
+    }
+
+    public void incDeleteFileCnt() {
+        this.filesystemDeleteFileCnt += 1;
+    }
+
+    private String getRpcLatency() {
+        Map<String, Map<String, Map<String, String>>> jsonObject = new HashMap<>();
+        if (rpcPhase1Latency != null) {
+            Map<String, Map<String, String>> latencyForPhase1 = new HashMap<>();
+            for (TNetworkAddress key : rpcPhase1Latency.keySet()) {
+                Preconditions.checkState(rpcPhase1Latency.get(key).size() == 4, "rpc latency should have 4 elements");
+                Map<String, String> latency = new HashMap<>();
+                latency.put(LATENCY_FROM_FE_TO_BE, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(0),
+                        TUnit.TIME_MS));
+                latency.put(RPC_QUEUE_TIME, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(1),
+                        TUnit.TIME_MS));
+                latency.put(RPC_WORK_TIME, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(2),
+                        TUnit.TIME_MS));
+                latency.put(LATENCY_FROM_BE_TO_FE, RuntimeProfile.printCounter(rpcPhase1Latency.get(key).get(3),
+                        TUnit.TIME_MS));
+                latencyForPhase1.put(key.getHostname() + ": " + key.getPort(), latency);
+            }
+            jsonObject.put("phase1", latencyForPhase1);
+        }
+        if (rpcPhase2Latency != null) {
+            Map<String, Map<String, String>> latencyForPhase2 = new HashMap<>();
+            for (TNetworkAddress key : rpcPhase2Latency.keySet()) {
+                Preconditions.checkState(rpcPhase2Latency.get(key).size() == 4, "rpc latency should have 4 elements");
+                Map<String, String> latency = new HashMap<>();
+                latency.put(LATENCY_FROM_FE_TO_BE, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(0),
+                        TUnit.TIME_MS));
+                latency.put(RPC_QUEUE_TIME, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(1),
+                        TUnit.TIME_MS));
+                latency.put(RPC_WORK_TIME, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(2),
+                        TUnit.TIME_MS));
+                latency.put(LATENCY_FROM_BE_TO_FE, RuntimeProfile.printCounter(rpcPhase2Latency.get(key).get(3),
+                        TUnit.TIME_MS));
+                latencyForPhase2.put(key.getHostname() + ": " + key.getPort(), latency);
+            }
+            jsonObject.put("phase2", latencyForPhase2);
+        }
+        return new Gson().toJson(jsonObject);
+    }
+
+    public void setSystemMessage(String msg) {
+        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+    }
+
+    public void write(DataOutput output) throws IOException {
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 }

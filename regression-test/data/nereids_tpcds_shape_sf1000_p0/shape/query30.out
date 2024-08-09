@@ -7,42 +7,35 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[wr_returning_addr_sk]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[wr_returned_date_sk]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((date_dim.d_year = 2000))
-----------------------------PhysicalOlapScan[date_dim]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[customer_address]
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[wr_returning_addr_sk]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[wr_returned_date_sk]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1
+--------------------PhysicalProject
+----------------------filter((date_dim.d_year = 2000))
+------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer_address]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ctr_customer_sk]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ctr_customer_sk]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer] apply RFs: RF2
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((customer_address.ca_state = 'AR'))
-----------------------------PhysicalOlapScan[customer_address]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalProject
+------------------------filter((customer_address.ca_state = 'AR'))
+--------------------------PhysicalOlapScan[customer_address]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------hashAgg[LOCAL]
+--------------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

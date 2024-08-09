@@ -214,7 +214,7 @@ public class MinidumpUtils {
         }
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
         return ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
     }
 
@@ -247,7 +247,8 @@ public class MinidumpUtils {
     }
 
     private static Histogram getColumnHistogram(TableIf table, String colName) {
-        return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        return Env.getCurrentEnv().getStatisticsCache().getHistogram(
+                table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), colName);
     }
 
     /**

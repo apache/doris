@@ -26,6 +26,17 @@ class MemTracker;
 
 namespace vectorized {
 
+struct ChannelField {
+    const void* channel_id;
+    const uint32_t len;
+
+    template <typename T>
+    const T* get() const {
+        CHECK_EQ(sizeof(T), len) << " sizeof(T): " << sizeof(T) << " len: " << len;
+        return reinterpret_cast<const T*>(channel_id);
+    }
+};
+
 class PartitionerBase {
 public:
     PartitionerBase(size_t partition_count) : _partition_count(partition_count) {}
@@ -40,7 +51,7 @@ public:
     virtual Status do_partitioning(RuntimeState* state, Block* block,
                                    MemTracker* mem_tracker) const = 0;
 
-    virtual void* get_channel_ids() const = 0;
+    virtual ChannelField get_channel_ids() const = 0;
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
@@ -67,7 +78,9 @@ public:
     Status do_partitioning(RuntimeState* state, Block* block,
                            MemTracker* mem_tracker) const override;
 
-    void* get_channel_ids() const override { return _hash_vals.data(); }
+    ChannelField get_channel_ids() const override {
+        return {_hash_vals.data(), sizeof(HashValueType)};
+    }
 
 protected:
     Status _get_partition_column_result(Block* block, std::vector<int>& result) const {
@@ -110,6 +123,13 @@ public:
 
 private:
     void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
+};
+
+struct SpillPartitionChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, size_t r) {
+        return ((l >> 16) | (l << 16)) % r;
+    }
 };
 
 } // namespace vectorized

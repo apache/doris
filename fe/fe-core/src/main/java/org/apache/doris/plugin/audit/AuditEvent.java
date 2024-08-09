@@ -84,6 +84,8 @@ public class AuditEvent {
     public boolean isNereids = false;
     @AuditField(value = "feIp")
     public String feIp = "";
+    @AuditField(value = "StmtType")
+    public String stmtType = "";
     @AuditField(value = "Stmt")
     public String stmt = "";
     @AuditField(value = "CpuTimeMS")
@@ -107,6 +109,10 @@ public class AuditEvent {
     // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
+    @AuditField(value = "scanBytesFromLocalStorage")
+    public long scanBytesFromLocalStorage = -1;
+    @AuditField(value = "scanBytesFromRemoteStorage")
+    public long scanBytesFromRemoteStorage = -1;
 
     public long pushToAuditLogQueueTime;
 
@@ -226,6 +232,11 @@ public class AuditEvent {
             return this;
         }
 
+        public AuditEventBuilder setStmtType(String stmtType) {
+            auditEvent.stmtType = stmtType;
+            return this;
+        }
+
         public AuditEventBuilder setStmt(String stmt) {
             auditEvent.stmt = stmt;
             return this;
@@ -248,6 +259,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromLocalStorage(long scanBytesFromLocalStorage) {
+            auditEvent.scanBytesFromLocalStorage = scanBytesFromLocalStorage;
+            return this;
+        }
+
+        public AuditEventBuilder setScanBytesFromRemoteStorage(long scanBytesFromRemoteStorage) {
+            auditEvent.scanBytesFromRemoteStorage = scanBytesFromRemoteStorage;
             return this;
         }
 

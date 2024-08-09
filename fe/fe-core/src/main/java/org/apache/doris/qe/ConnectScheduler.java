@@ -173,11 +173,11 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql, boolean isShowFeHost) {
+    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
-            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, isShowFeHost));
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));
         }
         return list;
     }

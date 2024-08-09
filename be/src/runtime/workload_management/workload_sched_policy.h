@@ -30,6 +30,7 @@ public:
     ~WorkloadSchedPolicy() = default;
 
     void init(int64_t id, std::string name, int version, bool enabled, int priority,
+              std::set<int64_t> wg_id_set,
               std::vector<std::unique_ptr<WorkloadCondition>> condition_list,
               std::vector<std::unique_ptr<WorkloadAction>> action_list);
 
@@ -50,6 +51,7 @@ private:
     int _version;
     bool _enabled;
     int _priority;
+    std::set<int64_t> _wg_id_set;
 
     std::vector<std::unique_ptr<WorkloadCondition>> _condition_list;
     std::vector<std::unique_ptr<WorkloadAction>> _action_list;

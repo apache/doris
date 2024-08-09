@@ -37,6 +37,9 @@ suite ("testNDVToHll") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"
@@ -54,4 +57,20 @@ suite ("testNDVToHll") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from user_tags order by time_col;")
+        contains "(user_tags)"
+    }
+
+    explain {
+        sql("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;")
+        contains "(user_tags_mv)"
+    }
+
+    explain {
+        sql("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;")
+        contains "(user_tags_mv)"
+    }
 }

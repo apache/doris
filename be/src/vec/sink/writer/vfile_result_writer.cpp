@@ -32,10 +32,12 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -55,21 +57,21 @@
 #include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
 
-VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs) {}
+VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                                     std::shared_ptr<pipeline::Dependency> dep,
+                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep) {}
 
-VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
-                                     const TStorageBackendType::type storage_type,
-                                     const TUniqueId fragment_instance_id,
-                                     const VExprContextSPtrs& output_vexpr_ctxs,
-                                     BufferControlBlock* sinker, Block* output_block,
-                                     bool output_object_data,
-                                     const RowDescriptor& output_row_descriptor)
-        : AsyncResultWriter(output_vexpr_ctxs),
+VFileResultWriter::VFileResultWriter(
+        const pipeline::ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
+        const TUniqueId fragment_instance_id, const VExprContextSPtrs& output_vexpr_ctxs,
+        std::shared_ptr<BufferControlBlock> sinker, Block* output_block, bool output_object_data,
+        const RowDescriptor& output_row_descriptor, std::shared_ptr<pipeline::Dependency> dep,
+        std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_vexpr_ctxs, dep, fin_dep),
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
@@ -108,7 +110,11 @@ Status VFileResultWriter::_create_next_file_writer() {
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name));
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            {
+                    .write_file_cache = false,
+                    .sync_file_data = false,
+            }));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
@@ -123,9 +129,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
-                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
-                                                _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
+                _output_object_data, _file_opts->orc_compression_type));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -189,7 +195,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::write(Block& block) {
+Status VFileResultWriter::write(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -235,7 +241,7 @@ Status VFileResultWriter::_close_file_writer(bool done) {
         // and _current_written_bytes will less than _vfile_writer->written_len()
         COUNTER_UPDATE(_written_data_bytes, _vfile_writer->written_len());
         _vfile_writer.reset(nullptr);
-    } else if (_file_writer_impl) {
+    } else if (_file_writer_impl && _file_writer_impl->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_file_writer_impl->close());
     }
 
@@ -286,7 +292,8 @@ Status VFileResultWriter::_send_result() {
     attach_infos.insert(std::make_pair("URL", file_url));
 
     result->result_batch.__set_attached_infos(attach_infos);
-    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
+                                   "failed to send outfile result");
     return Status::OK();
 }
 

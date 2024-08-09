@@ -47,26 +47,4 @@ public enum DistributeType {
         this.leftHint = leftHint;
         this.rightHint = rightHint;
     }
-
-    public JoinDistributeType getLeftHint() {
-        return leftHint;
-    }
-
-    public JoinDistributeType getRightHint() {
-        return rightHint;
-    }
-
-    /**
-     * Create join hint from join right child's join hint type.
-     */
-    public static DistributeType fromRightPlanHintType(JoinDistributeType hintType) {
-        switch (hintType) {
-            case SHUFFLE:
-                return SHUFFLE_RIGHT;
-            case BROADCAST:
-                return BROADCAST_RIGHT;
-            default:
-                return NONE;
-        }
-    }
 }

@@ -24,10 +24,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-class DataSink;
-} // namespace doris
-
 namespace doris::pipeline {
 
 JdbcTableSinkOperatorX::JdbcTableSinkOperatorX(const RowDescriptor& row_desc, int operator_id,

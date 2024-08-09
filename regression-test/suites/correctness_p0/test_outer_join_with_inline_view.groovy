@@ -159,7 +159,6 @@ suite("test_outer_join_with_inline_view") {
             aa.org_code;
     """
 
-    sql """set enable_nereids_planner=false;"""
     sql """drop table if exists tableau_trans_wide_day_month_year;"""
     sql """CREATE TABLE
             `tableau_trans_wide_day_month_year` (

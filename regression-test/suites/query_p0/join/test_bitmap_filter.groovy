@@ -25,8 +25,8 @@ suite("test_bitmap_filter", "query_p0") {
     sql """
     CREATE TABLE ${tbl2} (
       `k1` int(11) NULL,
-      `k2` bitmap BITMAP_UNION NULL,
-      `k3` bitmap BITMAP_UNION NULL
+      `k2` bitmap BITMAP_UNION ,
+      `k3` bitmap BITMAP_UNION 
     ) ENGINE=OLAP
     AGGREGATE KEY(`k1`)
     COMMENT 'OLAP'

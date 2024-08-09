@@ -22,9 +22,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
@@ -46,9 +48,9 @@ public class BackendsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
             .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightSqlPort")
             .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("TrashUsedCapcacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole")
+            .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -166,6 +168,11 @@ public class BackendsProcDir implements ProcDirInterface {
             // node role, show the value only when backend is alive.
             backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
+            // cpu cores
+            backendInfo.add(String.valueOf(backend.getCputCores()));
+
+            // memory
+            backendInfo.add(RuntimeProfile.printCounter(backend.getBeMemory(), TUnit.BYTES));
             comparableBackendInfos.add(backendInfo);
         }
 

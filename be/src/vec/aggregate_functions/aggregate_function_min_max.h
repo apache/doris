@@ -69,6 +69,16 @@ public:
 
     constexpr static bool IsFixedLength = true;
 
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+                                value);
+    }
+
     void insert_result_into(IColumn& to) const {
         if (has()) {
             assert_cast<ColumnVector<T>&>(to).get_data().push_back(value);
@@ -144,28 +154,16 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -185,6 +183,16 @@ public:
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
+
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+                                value);
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -261,28 +269,16 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -436,40 +432,43 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
     }
-
-    bool is_equal_to(const Self& to) const {
-        return has() && to.get_string_ref() == get_string_ref();
-    }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const { return false; }
 };
 
 template <typename Data>
 struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
+
+    AggregateFunctionMaxData() { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_greater(column, row_num, arena);
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, false);
+        } else {
+            this->change_if_greater(column, row_num, arena);
+        }
     }
+
     void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(false);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "max"; }
 };
@@ -478,11 +477,25 @@ template <typename Data>
 struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
+
+    AggregateFunctionMinData() { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_less(column, row_num, arena);
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, true);
+        } else {
+            this->change_if_less(column, row_num, arena);
+        }
     }
     void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(true);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "min"; }
 };
@@ -491,6 +504,7 @@ template <typename Data>
 struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = true;
 
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
         this->change_first_time(column, row_num, arena);
@@ -514,10 +528,10 @@ public:
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
             if (!type->is_comparable()) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of aggregate function {} because the values "
-                        "of that data type are not comparable",
-                        type->get_name(), get_name());
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Illegal type {} of argument of aggregate function {} "
+                                       "because the values of that data type are not comparable",
+                                       type->get_name(), get_name());
             }
         }
     }
@@ -529,6 +543,16 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        if constexpr (Data::IS_ANY) {
+            DCHECK_GT(batch_size, 0);
+            this->data(place).change_if_better(*columns[0], 0, arena);
+        } else {
+            Base::add_batch_single_place(batch_size, place, columns, arena);
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
@@ -624,7 +648,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
@@ -632,7 +656,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });

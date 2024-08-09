@@ -112,12 +112,14 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -130,21 +132,22 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 // QuantileState is binary data which is not shown by mysql
 template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
                                                           MysqlRowBuffer<is_binary_format>& result,
-                                                          int row_idx, bool col_const) const {
+                                                          int row_idx, bool col_const,
+                                                          const FormatOptions& options) const {
     auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
         auto& quantile_value = const_cast<QuantileState&>(data_column.get_element(col_index));
         size_t size = quantile_value.get_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
         quantile_value.serialize((uint8_t*)buf.get());
         if (0 != result.push_string(buf.get(), size)) {
             return Status::InternalError("pack mysql buffer failed.");

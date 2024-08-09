@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -33,7 +37,6 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Function implements ComputeSignature {
-    private final String name;
 
     private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
         // first step: find the candidate signature in the signature list
@@ -43,17 +46,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     });
 
     public BoundFunction(String name, Expression... arguments) {
-        super(arguments);
-        this.name = Objects.requireNonNull(name, "name can not be null");
+        super(name, arguments);
     }
 
     public BoundFunction(String name, List<Expression> children) {
-        super(children);
-        this.name = Objects.requireNonNull(name, "name can not be null");
-    }
-
-    public String getName() {
-        return name;
+        super(name, children);
     }
 
     @Override
@@ -75,17 +72,17 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     protected boolean extraEquals(Expression that) {
-        return Objects.equals(name, ((BoundFunction) that).name);
+        return Objects.equals(getName(), ((BoundFunction) that).getName());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, children);
+        return Objects.hash(getName(), children);
     }
 
     @Override
     public String toSql() throws UnboundException {
-        StringBuilder sql = new StringBuilder(name).append("(");
+        StringBuilder sql = new StringBuilder(getName()).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {
             Expression arg = child(i);
@@ -103,6 +100,19 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
-        return name + "(" + args + ")";
+        return getName() + "(" + args + ")";
+    }
+
+    /**
+     * checkOrderExprIsValid.
+     */
+    public void checkOrderExprIsValid() {
+        for (Expression child : children) {
+            if (child instanceof OrderExpression
+                    && !(this instanceof GroupConcat || this instanceof MultiDistinctGroupConcat)) {
+                throw new AnalysisException(
+                        String.format("%s doesn't support order by expression", getName()));
+            }
+        }
     }
 }

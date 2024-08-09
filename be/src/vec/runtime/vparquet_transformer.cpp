@@ -19,6 +19,7 @@
 
 #include <arrow/io/type_fwd.h>
 #include <arrow/table.h>
+#include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
 #include <math.h>
 #include <parquet/column_writer.h>
@@ -34,18 +35,21 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/binary_cast.hpp"
+#include "util/debug_util.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
@@ -99,15 +103,14 @@ arrow::Result<int64_t> ParquetOutputStream::Tell() const {
 }
 
 arrow::Status ParquetOutputStream::Close() {
-    if (_is_closed) {
-        return arrow::Status::OK();
+    if (!_is_closed) {
+        Defer defer {[this] { _is_closed = true; }};
+        Status st = _file_writer->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "close parquet output stream failed: " << st;
+            return arrow::Status::IOError(st.to_string());
+        }
     }
-    Status st = _file_writer->close();
-    if (!st.ok()) {
-        LOG(WARNING) << "close parquet output stream failed: " << st;
-        return arrow::Status::IOError(st.to_string());
-    }
-    _is_closed = true;
     return arrow::Status::OK();
 }
 
@@ -145,39 +148,40 @@ void ParquetBuildHelper::build_compression_type(
         const TParquetCompressionType::type& compression_type) {
     switch (compression_type) {
     case TParquetCompressionType::SNAPPY: {
-        builder.compression(parquet::Compression::SNAPPY);
+        builder.compression(arrow::Compression::SNAPPY);
         break;
     }
     case TParquetCompressionType::GZIP: {
-        builder.compression(parquet::Compression::GZIP);
+        builder.compression(arrow::Compression::GZIP);
         break;
     }
     case TParquetCompressionType::BROTLI: {
-        builder.compression(parquet::Compression::BROTLI);
+        builder.compression(arrow::Compression::BROTLI);
         break;
     }
     case TParquetCompressionType::ZSTD: {
-        builder.compression(parquet::Compression::ZSTD);
+        builder.compression(arrow::Compression::ZSTD);
         break;
     }
     case TParquetCompressionType::LZ4: {
-        builder.compression(parquet::Compression::LZ4);
+        builder.compression(arrow::Compression::LZ4);
         break;
     }
-    case TParquetCompressionType::LZO: {
-        builder.compression(parquet::Compression::LZO);
-        break;
-    }
-    case TParquetCompressionType::BZ2: {
-        builder.compression(parquet::Compression::BZ2);
-        break;
-    }
+    // arrow do not support lzo and bz2 compression type.
+    // case TParquetCompressionType::LZO: {
+    //     builder.compression(arrow::Compression::LZO);
+    //     break;
+    // }
+    // case TParquetCompressionType::BZ2: {
+    //     builder.compression(arrow::Compression::BZ2);
+    //     break;
+    // }
     case TParquetCompressionType::UNCOMPRESSED: {
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::UNCOMPRESSED);
         break;
     }
     default:
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::SNAPPY);
     }
 }
 
@@ -203,13 +207,15 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          TParquetCompressionType::type compression_type,
                                          bool parquet_disable_dictionary,
                                          TParquetVersion::type parquet_version,
-                                         bool output_object_data)
+                                         bool output_object_data,
+                                         const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_schemas(nullptr),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
-          _parquet_version(parquet_version) {
+          _parquet_version(parquet_version),
+          _iceberg_schema_json(iceberg_schema_json) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -219,17 +225,20 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          TParquetCompressionType::type compression_type,
                                          bool parquet_disable_dictionary,
                                          TParquetVersion::type parquet_version,
-                                         bool output_object_data)
+                                         bool output_object_data,
+                                         const std::string* iceberg_schema_json)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(&parquet_schemas),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
-          _parquet_version(parquet_version) {
+          _parquet_version(parquet_version),
+          _iceberg_schema_json(iceberg_schema_json) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
 Status VParquetTransformer::_parse_properties() {
     try {
+        arrow::MemoryPool* pool = ExecEnv::GetInstance()->arrow_memory_pool();
         parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_version);
@@ -238,6 +247,10 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
+        builder.created_by(
+                fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
+        builder.max_row_group_length(std::numeric_limits<int64_t>::max());
+        builder.memory_pool(pool);
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
@@ -265,7 +278,13 @@ Status VParquetTransformer::_parse_schema() {
             fields.emplace_back(field);
         }
     }
-    _arrow_schema = arrow::schema(std::move(fields));
+    if (_iceberg_schema_json != nullptr) {
+        std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
+                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
+        _arrow_schema = arrow::schema(std::move(fields), std::move(schema_metadata));
+    } else {
+        _arrow_schema = arrow::schema(std::move(fields));
+    }
     return Status::OK();
 }
 
@@ -276,22 +295,24 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                           &result, _state->timezone_obj()));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema,
+                                           ExecEnv::GetInstance()->arrow_memory_pool(), &result,
+                                           _state->timezone_obj()));
 
-    auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
-    if (!get_table_res.ok()) {
-        return Status::InternalError("Error when get arrow table from record batchs");
+    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    _write_size += block.bytes();
+    if (_write_size >= doris::config::min_row_group_size) {
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+        _write_size = 0;
     }
-    auto& table = get_table_res.ValueOrDie();
-    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteTable(*table, block.rows()));
     return Status::OK();
 }
 
 arrow::Status VParquetTransformer::_open_file_writer() {
-    ARROW_ASSIGN_OR_RAISE(_writer, parquet::arrow::FileWriter::Open(
-                                           *_arrow_schema, arrow::default_memory_pool(), _outstream,
-                                           _parquet_writer_properties, _arrow_properties));
+    ARROW_ASSIGN_OR_RAISE(_writer,
+                          parquet::arrow::FileWriter::Open(
+                                  *_arrow_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
+                                  _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 

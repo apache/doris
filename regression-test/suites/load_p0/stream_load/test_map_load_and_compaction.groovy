@@ -77,7 +77,7 @@ suite("test_map_load_and_compaction", "p0") {
         for (String rowset in (List<String>) compactStatusJson.rowsets) {
             rowsetsCount += Integer.parseInt(rowset.split(" ")[1])
         }
-        assertTrue(assertRowSetNum==rowsetsCount)
+        assertEquals(assertRowSetNum, rowsetsCount)
     }
 
 

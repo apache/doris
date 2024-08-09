@@ -19,12 +19,18 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,18 +38,19 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * A manager to manage all backup repositories
  */
-public class RepositoryMgr extends Daemon implements Writable {
+public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RepositoryMgr.class);
 
     // all key should be in lower case
-    private Map<String, Repository> repoNameMap = Maps.newConcurrentMap();
-    private Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
+    @SerializedName("rn")
+    private ConcurrentMap<String, Repository> repoNameMap = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, Repository> repoIdMap = Maps.newConcurrentMap();
 
     private ReentrantLock lock = new ReentrantLock();
 
@@ -102,7 +109,8 @@ public class RepositoryMgr extends Daemon implements Writable {
         try {
             Repository repo = repoNameMap.get(newRepo.getName());
             if (repo != null) {
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem
+                        || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
                     repoNameMap.put(repo.getName(), newRepo);
                     repoIdMap.put(repo.getId(), newRepo);
 
@@ -151,19 +159,27 @@ public class RepositoryMgr extends Daemon implements Writable {
     }
 
     public static RepositoryMgr read(DataInput in) throws IOException {
-        RepositoryMgr mgr = new RepositoryMgr();
-        mgr.readFields(in);
-        return mgr;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            RepositoryMgr mgr = new RepositoryMgr();
+            mgr.readFields(in);
+            return mgr;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RepositoryMgr.class);
+        }
+
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(repoNameMap.size());
-        for (Repository repo : repoNameMap.values()) {
-            repo.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Override
+    public void gsonPostProcess() {
+        repoNameMap.forEach((n, repo) -> repoIdMap.put(repo.getId(), repo));
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

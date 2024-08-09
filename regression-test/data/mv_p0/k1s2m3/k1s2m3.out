@@ -4,68 +4,41 @@
 -4	-4	-4	d
 1	1	1	a
 2	2	2	b
+2	2	2	b
 3	-3	\N	c
 
 -- !select_mv --
 \N	\N
 -4	16
 1	1
-2	4
+2	8
 3	\N
 
 -- !select_mv --
 \N	\N
 -4	16
 1	1
-2	4
+2	8
 3	\N
 
 -- !select_mv --
 \N	\N
 -4	16
 1	1
-2	4
+2	8
 3	\N
 
 -- !select_mv --
 \N	\N
 -4	16
 1	1
-2	4
+2	8
 3	\N
 
 -- !select_mv --
 \N	\N
 -4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-1	1
-2	4
-3	\N
-
--- !select_mv --
-\N	\N
--4	16
-2	4
+2	8
 3	\N
 
 -- !select_mv --
@@ -74,6 +47,7 @@
 -- !select_star --
 \N	4	\N	d
 -4	-4	-4	d
+2	2	2	b
 2	2	2	b
 3	-3	\N	c
 

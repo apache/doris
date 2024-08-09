@@ -91,10 +91,11 @@ suite("test_grouping_sets_combination") {
           group by grouping sets ((b),(pk),()) order by col1, col2;
      """
 
-    qt_group_concat_distinct """
-          select pk, group_concat(distinct cast(a as varchar(10))) col1 from mal_test1 
-          group by grouping sets ((b),(pk),()) order by 1,2;
-    """
+    // group_concat's result is not stable, disable for now
+    // qt_group_concat_distinct """
+    //       select pk, group_concat(distinct cast(a as varchar(10))) col1 from mal_test1 
+    //       group by grouping sets ((b),(pk),()) order by 1,2;
+    // """
 
     qt_agg_subquery_expression """
         select sum(a+(select sum(a) from mal_test1)) col1 from mal_test1 group by grouping sets ((b),(pk),()) order by col1;

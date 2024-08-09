@@ -20,30 +20,12 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vrepeat_node.h"
+#include "pipeline/exec/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class RepeatOperatorBuilder final : public OperatorBuilder<vectorized::VRepeatNode> {
-public:
-    RepeatOperatorBuilder(int32_t id, ExecNode* repeat_node);
-
-    OperatorPtr build_operator() override;
-};
-
-class RepeatOperator final : public StatefulOperator<vectorized::VRepeatNode> {
-public:
-    RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
 
 class RepeatOperatorX;
 
@@ -54,7 +36,7 @@ public:
     using Base = PipelineXLocalState<FakeSharedState>;
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
     Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
                               vectorized::Block* output_block);

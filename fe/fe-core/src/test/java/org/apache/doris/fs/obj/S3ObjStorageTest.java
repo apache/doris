@@ -19,14 +19,13 @@ package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3URI;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import software.amazon.awssdk.core.sync.RequestBody;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -60,8 +59,10 @@ class S3ObjStorageTest {
         S3ObjStorage storage = new S3ObjStorage(properties);
 
         String baseUrl = "s3://" + bucket + "/" + prefix + "/";
+        String content = "mocked";
         for (int i = 0; i < 5; ++i) {
-            Status st = storage.putObject(baseUrl + "key" + i, RequestBody.fromString("mocked"));
+            Status st = storage.putObject(baseUrl + "key" + i,
+                    new ByteArrayInputStream(content.getBytes()), content.length());
             Assertions.assertEquals(Status.OK, st);
         }
 
@@ -113,14 +114,7 @@ class S3ObjStorageTest {
         client.setAccessible(true);
         MockedS3Client mockedClient = new MockedS3Client();
         client.set(storage, mockedClient);
-        Assertions.assertTrue(storage.getClient("mocked") instanceof MockedS3Client);
-
-        S3URI vUri = S3URI.create("s3://bucket/key", true);
-        S3URI uri = S3URI.create("s3://bucket/key", false);
-        Assertions.assertEquals(vUri.getVirtualBucket(), "bucket");
-        Assertions.assertEquals(vUri.getBucket(), "key");
-        Assertions.assertEquals(uri.getVirtualBucket(), "");
-        Assertions.assertEquals(uri.getBucket(), "bucket");
+        Assertions.assertTrue(storage.getClient() instanceof MockedS3Client);
 
         Status st = storage.headObject("s3://bucket/key");
         Assertions.assertEquals(Status.OK, st);
@@ -129,8 +123,10 @@ class S3ObjStorageTest {
         st = storage.getObject("s3://bucket/key", new File("/mocked/file"));
         Assertions.assertEquals(Status.OK, st);
 
+        String content = "mocked";
         for (int i = 0; i < 5; i++) {
-            st = storage.putObject("s3://bucket/keys/key" + i,  RequestBody.fromString("mocked"));
+            st = storage.putObject("s3://bucket/keys/key" + i,
+                    new ByteArrayInputStream(content.getBytes()), content.length());
             Assertions.assertEquals(Status.OK, st);
         }
         st = storage.copyObject("s3://bucket/key", "s3://bucket/key1");

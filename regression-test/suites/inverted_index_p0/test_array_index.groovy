@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 suite("test_array_index1"){
     // prepare test table
 

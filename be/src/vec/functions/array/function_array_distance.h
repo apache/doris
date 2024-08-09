@@ -19,6 +19,8 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -119,15 +121,15 @@ public:
         }
 
         // prepare return data
-        auto dst = ColumnVector<Float64>::create(input_rows_count);
+        auto dst = ColumnFloat64::create(input_rows_count);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(input_rows_count);
         auto& dst_null_data = dst_null_column->get_data();
 
         const auto& offsets1 = *arr1.offsets_ptr;
         const auto& offsets2 = *arr2.offsets_ptr;
-        const auto& nested_col1 = arr1.nested_col;
-        const auto& nested_col2 = arr2.nested_col;
+        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col);
+        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col);
         for (ssize_t row = 0; row < offsets1.size(); ++row) {
             if (arr1.array_nullmap_data && arr1.array_nullmap_data[row]) {
                 dst_null_data[row] = true;
@@ -156,8 +158,8 @@ public:
                     dst_null_data[row] = true;
                     break;
                 }
-                DistanceImpl::accumulate(st, nested_col1->get_float64(pos),
-                                         nested_col2->get_float64(pos));
+                DistanceImpl::accumulate(st, nested_col1->get_element(pos),
+                                         nested_col2->get_element(pos));
             }
             if (!dst_null_data[row]) {
                 dst_data[row] = DistanceImpl::finalize(st);
@@ -178,10 +180,7 @@ private:
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        if (is_integer(nested_type) || is_float(nested_type)) {
-            return true;
-        }
-        return false;
+        return WhichDataType(nested_type).is_float64();
     }
 };
 

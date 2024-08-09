@@ -62,4 +62,9 @@ public class RandomDistributionDesc extends DistributionDesc {
         RandomDistributionInfo randomDistributionInfo = new RandomDistributionInfo(numBucket, autoBucket);
         return randomDistributionInfo;
     }
+
+    @Override
+    public List<String> getDistributionColumnNames() {
+        return null;
+    }
 }

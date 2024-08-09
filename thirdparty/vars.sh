@@ -466,12 +466,6 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.1-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.1-for-doris"
 HADOOP_LIBS_MD5SUM="8a4455b07f5df2bb10a2718c957972b8"
 
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
-
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -513,6 +507,18 @@ BASE64_DOWNLOAD="https://github.com/aklomp/base64/archive/refs/tags/v0.5.2.tar.g
 BASE64_NAME="v0.5.2.tar.gz"
 BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
+
+# azure blob
+AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.10.3.tar.gz"
+AZURE_NAME="azure-core_1.10.3.tar.gz"
+AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
+AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+
+# libdragonbox for faster double/float to string
+DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
+DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
+DRAGONBOX_SOURCE=dragonbox-1.1.3
+DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -582,7 +588,6 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
-    'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
@@ -590,6 +595,8 @@ export TP_ARCHIVES=(
     'LIBUUID'
     'ALI_SDK'
     'BASE64'
+    'AZURE'
+    'DRAGONBOX'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

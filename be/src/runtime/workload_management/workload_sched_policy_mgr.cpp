@@ -77,7 +77,6 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
     while (!_stop_latch.wait_for(std::chrono::milliseconds(500))) {
         // 1 get query info
         std::vector<WorkloadQueryInfo> list;
-        //todo(wb) maybe we can get runtime queryinfo from RuntimeQueryStatiticsMgr directly
         _exec_env->fragment_mgr()->get_runtime_query_info(&list);
         // todo: add timer
         if (list.size() == 0) {

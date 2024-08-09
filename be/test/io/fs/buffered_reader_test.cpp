@@ -282,8 +282,8 @@ TEST_F(BufferedReaderTest, test_read_amplify) {
     random_access_ranges.emplace_back(512 * kb, 2048 * kb); // column4
 
     io::MergeRangeFileReader merge_reader(nullptr, offset_reader, random_access_ranges);
-    char data[2048 * kb]; // 2MB
-    Slice result(data, 2048 * kb);
+    std::vector<char> data(2048 * kb); // 2MB
+    Slice result(data.data(), 2048 * kb);
     size_t bytes_read = 0;
 
     // read column4

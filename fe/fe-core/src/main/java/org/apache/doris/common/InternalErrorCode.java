@@ -38,6 +38,9 @@ public enum InternalErrorCode {
     CANNOT_RESUME_ERR(105),
     TIMEOUT_TOO_MUCH(106),
 
+    // for external catalog
+    GET_REMOTE_DATA_ERROR(202),
+
     // for MoW table
     DELETE_BITMAP_LOCK_ERR(301);
 

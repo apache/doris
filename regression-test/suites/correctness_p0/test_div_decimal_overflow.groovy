@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_div_decimal_overflow") {
-    sql """
-        set enable_nereids_planner=true;
-    """
     sql """ drop table if exists table_test_div_decimal_overflow;"""
     sql """CREATE TABLE `table_test_div_decimal_overflow` (
             `total_shy_num` decimalv3(38, 18) NULL,
@@ -38,12 +35,6 @@ suite("test_div_decimal_overflow") {
     sql """ insert into table_test_div_decimal_overflow values (7166,3242.5);"""
 
     qt_sql1 """select total_shy_num,used_shy_num,used_shy_num/total_shy_num from table_test_div_decimal_overflow;"""
-
-    sql """
-        set enable_nereids_planner=false;
-    """
-
-    qt_sql2 """select total_shy_num,used_shy_num,used_shy_num/total_shy_num from table_test_div_decimal_overflow;"""
 
     sql """ drop table if exists table_test_div_decimal_overflow;"""
 }

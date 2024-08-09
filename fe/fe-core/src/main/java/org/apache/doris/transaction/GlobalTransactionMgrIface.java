@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
@@ -88,6 +89,9 @@ public interface GlobalTransactionMgrIface extends Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException;
 
+    public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException;
+
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
@@ -109,7 +113,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId);
 
-    public void finishTransaction(long dbId, long transactionId) throws UserException;
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException;
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException;
@@ -129,7 +134,9 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException;
 
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit);
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime);
+
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit);
 
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException;
 
@@ -186,4 +193,11 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) throws Exception;
 
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse);
+
+    public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
+
+    public void removeSubTransaction(long dbId, long subTransactionId);
+
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
+                long dbId, List<Long> tableIdList) throws UserException;
 }

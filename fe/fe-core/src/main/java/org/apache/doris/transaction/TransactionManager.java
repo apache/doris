@@ -18,11 +18,8 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.persist.EditLog;
 
 public interface TransactionManager {
-
-    void setEditLog(EditLog editLog);
 
     long begin();
 

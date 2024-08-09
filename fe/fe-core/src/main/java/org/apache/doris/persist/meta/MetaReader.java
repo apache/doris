@@ -100,15 +100,6 @@ public class MetaReader {
                     LOG.info("Skip {} module since empty meta length in the end.", metaIndex.name);
                     continue;
                 }
-                // FIXME: pick cloudWarmUpJob and remove below codes.
-                if (metaIndex.name.equals("cloudWarmUpJob")) {
-                    LOG.warn("meta modules {} is not supported yet, ignore and skip it", metaIndex.name);
-                    // If this is the last module, nothing need to do.
-                    if (i < metaFooter.metaIndices.size() - 1) {
-                        IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
-                    }
-                    continue;
-                }
                 // skip deprecated modules
                 if (PersistMetaModules.DEPRECATED_MODULE_NAMES.contains(metaIndex.name)) {
                     LOG.warn("meta modules {} is deprecated, ignore and skip it", metaIndex.name);

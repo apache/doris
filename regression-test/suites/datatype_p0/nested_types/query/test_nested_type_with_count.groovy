@@ -18,9 +18,6 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("test_nested_type_with_count") {
-    // this test case aim to test nested type with old planner
-    sql """set enable_nereids_planner=false"""
-
     def table_names = ["test_array_one_level", "test_map_one_level", "test_struct_one_level"]
 
     def colNameArr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",

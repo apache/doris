@@ -50,7 +50,6 @@ import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -102,7 +101,7 @@ public class CascadesContext implements ScheduleContext {
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
-    private StatementContext statementContext;
+    private final StatementContext statementContext;
 
     private final CTEContext cteContext;
     private final RuleSet ruleSet;
@@ -123,7 +122,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final List<MaterializationContext> materializationContexts;
+    private final Set<MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -161,7 +160,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new ArrayList<>();
+        this.materializationContexts = new HashSet<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -241,19 +240,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Analyzer newAnalyzer() {
-        return newAnalyzer(false);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView) {
-        return new Analyzer(this, analyzeView);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView, Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, analyzeView, customTableResolver);
+        return newAnalyzer(Optional.empty());
     }
 
     public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return newAnalyzer(false, customTableResolver);
+        return new Analyzer(this, customTableResolver);
     }
 
     @Override
@@ -270,7 +261,8 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void setTables(List<TableIf> tables) {
-        this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
+        this.tables = tables.stream()
+                .collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1, () -> Maps.newTreeMap()));
     }
 
     public final ConnectContext getConnectContext() {
@@ -408,7 +400,7 @@ public class CascadesContext implements ScheduleContext {
      */
     public void extractTables(LogicalPlan logicalPlan) {
         Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newHashMap();
+        tables = Maps.newTreeMap();
         for (List<String> tableName : tableNames) {
             try {
                 TableIf table = getTable(tableName);
@@ -561,16 +553,13 @@ public class CascadesContext implements ScheduleContext {
         if (db == null) {
             throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
         }
-        db.readLock();
-        try {
-            TableIf table = db.getTableNullable(tableName);
-            if (table == null) {
-                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
-            }
-            return table;
-        } finally {
-            db.readUnlock();
+
+        TableIf table = db.getTableNullable(tableName);
+        if (table == null) {
+            throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
         }
+        return table;
+
     }
 
     /**
@@ -616,16 +605,6 @@ public class CascadesContext implements ScheduleContext {
         consumers.add(cteConsumer);
     }
 
-    public void putCTEIdToProject(CTEId cteId, NamedExpression p) {
-        Set<NamedExpression> projects = this.statementContext.getCteIdToProjects()
-                .computeIfAbsent(cteId, k -> new HashSet<>());
-        projects.add(p);
-    }
-
-    public Set<NamedExpression> getProjectForProducer(CTEId cteId) {
-        return this.statementContext.getCteIdToProjects().get(cteId);
-    }
-
     public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
         return this.statementContext.getCteIdToConsumers();
     }
@@ -637,17 +616,6 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
-    }
-
-    public void markConsumerUnderProject(LogicalCTEConsumer cteConsumer) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects()
-                .computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
-        consumerIds.add(cteConsumer.getRelationId());
-    }
-
-    public boolean couldPruneColumnOnProducer(CTEId cteId) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects().get(cteId);
-        return consumerIds.size() == this.statementContext.getCteIdToConsumers().get(cteId).size();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
@@ -746,7 +714,7 @@ public class CascadesContext implements ScheduleContext {
 
     public static void printPlanProcess(List<PlanProcess> planProcesses) {
         for (PlanProcess row : planProcesses) {
-            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
+            LOG.info("RULE: {}\nBEFORE:\n{}\nafter:\n{}", row.ruleName, row.beforeShape, row.afterShape);
         }
     }
 

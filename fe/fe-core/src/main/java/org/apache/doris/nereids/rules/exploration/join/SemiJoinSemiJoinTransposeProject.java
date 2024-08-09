@@ -25,12 +25,14 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,17 @@ import java.util.stream.Collectors;
  */
 public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory {
     public static final SemiJoinSemiJoinTransposeProject INSTANCE = new SemiJoinSemiJoinTransposeProject();
+
+    private static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
+            Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_SEMI_JOIN),
+            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_SEMI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.LEFT_SEMI_JOIN),
+            Pair.of(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN),
+            Pair.of(JoinType.LEFT_ANTI_JOIN, JoinType.NULL_AWARE_LEFT_ANTI_JOIN));
 
     /*
      *        topSemi                   newTopSemi
@@ -51,12 +64,14 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalProject(logicalJoin()), group())
+        return logicalProject(logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
-                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
+                .when(topSemi -> InnerJoinLAsscomProject.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots())
-                .then(topSemi -> {
+                .when(join -> join.left().isAllSlots()))
+                .then(topProject -> {
+                    LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi
+                            = topProject.child();
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> abProject = topSemi.left();
                     GroupPlan a = bottomSemi.left();
@@ -68,7 +83,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     Set<NamedExpression> acProjects = abProject.getProjects().stream()
                             .filter(slot -> !(abProject.child().isMarkJoin()
                                     && abProject.child().getMarkJoinSlotReference().get()
-                                            .getExprId() == slot.getExprId()))
+                                    .getExprId() == slot.getExprId()))
                             .collect(Collectors.toSet());
 
                     bottomSemi.getConditionSlot()
@@ -85,16 +100,22 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
-                    LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
-                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b, null);
+                    Set<ExprId> topUsedExprIds = new HashSet<>();
+                    topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
+                    bottomSemi.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                    bottomSemi.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+
+                    Plan left = CBOUtils.newProject(topUsedExprIds, newBottomSemi);
+                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
+
+                    LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(left, right, null);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
-                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topSemi.getOutput()), newTopSemi);
+                    return topProject.withChildren(newTopSemi);
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE_PROJECT);
     }
 
     public boolean typeChecker(LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin) {
-        return SemiJoinSemiJoinTranspose.VALID_TYPE_PAIR_SET
-                .contains(Pair.of(topJoin.getJoinType(), topJoin.left().child().getJoinType()));
+        return VALID_TYPE_PAIR_SET.contains(Pair.of(topJoin.getJoinType(), topJoin.left().child().getJoinType()));
     }
 }

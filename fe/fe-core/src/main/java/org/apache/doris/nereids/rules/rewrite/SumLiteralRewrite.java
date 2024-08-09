@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 
@@ -64,11 +65,31 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
                         }
                         sumLiteralMap.put(pel.first, pel.second);
                     }
-                    if (sumLiteralMap.isEmpty()) {
+                    Map<NamedExpression, Pair<SumInfo, Literal>> validSumLiteralMap =
+                            removeOneSumLiteral(sumLiteralMap);
+                    if (validSumLiteralMap.isEmpty()) {
                         return null;
                     }
-                    return rewriteSumLiteral(agg, sumLiteralMap);
+                    return rewriteSumLiteral(agg, validSumLiteralMap);
                 }).toRule(RuleType.SUM_LITERAL_REWRITE);
+    }
+
+    // when there only one sum literal like select count(id1 + 1), count(id2 + 1) from t, we don't rewrite them.
+    private Map<NamedExpression, Pair<SumInfo, Literal>> removeOneSumLiteral(
+            Map<NamedExpression, Pair<SumInfo, Literal>> sumLiteralMap) {
+        Map<Expression, Integer> countSum = new HashMap<>();
+        for (Entry<NamedExpression, Pair<SumInfo, Literal>> e : sumLiteralMap.entrySet()) {
+            Expression expr = e.getValue().first.expr;
+            countSum.merge(expr, 1, Integer::sum);
+        }
+        Map<NamedExpression, Pair<SumInfo, Literal>> validSumLiteralMap = new HashMap<>();
+        for (Entry<NamedExpression, Pair<SumInfo, Literal>> e : sumLiteralMap.entrySet()) {
+            Expression expr = e.getValue().first.expr;
+            if (countSum.get(expr) > 1) {
+                validSumLiteralMap.put(e.getKey(), e.getValue());
+            }
+        }
+        return validSumLiteralMap;
     }
 
     private Plan rewriteSumLiteral(

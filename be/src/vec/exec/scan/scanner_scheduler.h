@@ -39,6 +39,7 @@ namespace doris::vectorized {
 class ScannerDelegate;
 class ScanTask;
 class ScannerContext;
+class SimplifiedScanScheduler;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
 // Execution thread pool
@@ -63,7 +64,11 @@ public:
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
 
-    int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
+    int remote_thread_pool_max_thread_num() const { return _remote_thread_pool_max_thread_num; }
+
+    static int get_remote_scan_thread_num();
+
+    static int get_remote_scan_thread_queue_size();
 
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
@@ -77,14 +82,14 @@ private:
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
-    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _local_scan_thread_pool;
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
-    int _remote_thread_pool_max_size;
+    int _remote_thread_pool_max_thread_num;
 };
 
 struct SimplifiedScanTask {
@@ -136,15 +141,33 @@ public:
         }
     }
 
-    void reset_thread_num(int thread_num) {
-        int max_thread_num = _scan_thread_pool->max_threads();
-        if (max_thread_num != thread_num) {
-            if (thread_num > max_thread_num) {
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-            } else {
-                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
-                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
+    void reset_thread_num(int new_max_thread_num, int new_min_thread_num) {
+        int cur_max_thread_num = _scan_thread_pool->max_threads();
+        int cur_min_thread_num = _scan_thread_pool->min_threads();
+        if (cur_max_thread_num == new_max_thread_num && cur_min_thread_num == new_min_thread_num) {
+            return;
+        }
+        if (new_max_thread_num >= cur_max_thread_num) {
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+        } else {
+            Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for scan thread pool: "
+                             << st_min.to_string();
+            }
+            Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
             }
         }
     }
@@ -170,6 +193,12 @@ public:
             }
         }
     }
+
+    int get_queue_size() { return _scan_thread_pool->get_queue_size(); }
+
+    int get_active_threads() { return _scan_thread_pool->num_active_threads(); }
+
+    std::vector<int> thread_debug_info() { return _scan_thread_pool->debug_info(); }
 
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;

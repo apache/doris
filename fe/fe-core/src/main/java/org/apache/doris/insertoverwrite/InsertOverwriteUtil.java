@@ -54,6 +54,7 @@ public class InsertOverwriteUtil {
             for (int i = 0; i < partitionNames.size(); i++) {
                 Env.getCurrentEnv().addPartitionLike((Database) tableIf.getDatabase(), tableIf.getName(),
                         new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
+                LOG.info("successfully add temp partition [{}] for [{}]", tempPartitionNames.get(i), tableIf.getName());
             }
         }
     }
@@ -77,7 +78,7 @@ public class InsertOverwriteUtil {
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
                 ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
                         new PartitionNames(false, partitionNames),
-                        new PartitionNames(true, tempPartitionNames), properties);
+                        new PartitionNames(true, tempPartitionNames), true, properties);
                 Env.getCurrentEnv()
                         .replaceTempPartition((Database) olapTable.getDatabase(),
                                 (OlapTable) olapTable, replacePartitionClause);

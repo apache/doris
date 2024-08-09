@@ -42,7 +42,9 @@ public:
     ~VExplodeBitmapTableFunction() override = default;
 
     void reset() override;
-    void get_value(MutableColumnPtr& column) override;
+    void get_same_many_values(MutableColumnPtr& column, int length) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
+
     void forward(int step = 1) override;
 
     Status process_init(Block* block, RuntimeState* state) override;

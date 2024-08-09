@@ -72,5 +72,6 @@ message POlapTableSchemaParam {
     optional string auto_increment_column = 10;
     optional int64 timestamp_ms = 11 [default = 0];
     optional string timezone = 12;
+    optional int32 auto_increment_column_unique_id = 13 [default = -1];
 };
 

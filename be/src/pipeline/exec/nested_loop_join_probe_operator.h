@@ -22,34 +22,12 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "util/simd/bits.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class NestLoopJoinProbeOperatorBuilder final
-        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinProbeOperatorBuilder(int32_t id, ExecNode* node);
-
-    OperatorPtr build_operator() override;
-};
-
-class NestLoopJoinProbeOperator final : public StatefulOperator<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    Status prepare(RuntimeState* state) override;
-
-    Status open(RuntimeState*) override { return Status::OK(); }
-
-    Status close(RuntimeState* state) override;
-};
 
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
@@ -66,6 +44,7 @@ public:
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_gender) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
 PROPERTIES (
   "replication_num" = "1"
 );

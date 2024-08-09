@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -53,6 +54,8 @@ public class UnboundTableSinkCreator {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof IcebergExternalCatalog) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -71,6 +74,9 @@ public class UnboundTableSinkCreator {
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof IcebergExternalCatalog) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
@@ -101,6 +107,9 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, Optional.empty(), Optional.empty(), plan);
         }
         // TODO: we need to support insert into other catalog
         try {

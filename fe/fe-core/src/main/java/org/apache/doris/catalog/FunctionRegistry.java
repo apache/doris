@@ -90,9 +90,11 @@ public class FunctionRegistry {
         Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
         if (StringUtils.isEmpty(dbName)) {
             List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            for (FunctionBuilder functionBuilder : functionBuilders) {
-                if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
-                    return true;
+            if (functionBuilders != null) {
+                for (FunctionBuilder functionBuilder : functionBuilders) {
+                    if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
+                        return true;
+                    }
                 }
             }
         }
@@ -155,7 +157,14 @@ public class FunctionRegistry {
         }
         if (candidateBuilders.size() > 1) {
             String candidateHints = getCandidateHint(name, candidateBuilders);
-            // NereidsPlanner not supported override function by the same arity, should we support it?
+            // TODO: NereidsPlanner not supported override function by the same arity, we will support it later
+            if (ConnectContext.get() != null) {
+                try {
+                    ConnectContext.get().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+                } catch (Throwable t) {
+                    // ignore error
+                }
+            }
             throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
 

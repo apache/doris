@@ -96,16 +96,16 @@ public class BDBEnvironment {
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort) {
         // Almost never used, just in case the master can not restart
-        if (metadataFailureRecovery) {
-            if (!isElectable) {
+        if (metadataFailureRecovery || Config.enable_check_compatibility_mode) {
+            if (!isElectable && !Config.enable_check_compatibility_mode) {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
-            LOG.info("start group reset");
+            LOG.warn("start group reset");
             DbResetRepGroup resetUtility = new DbResetRepGroup(
                     envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
-            LOG.info("group has been reset.");
+            LOG.warn("metadata recovery mode, group has been reset.");
         }
 
         // set replication config
@@ -142,6 +142,11 @@ public class BDBEnvironment {
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
         environmentConfig.setConfigParam(EnvironmentConfig.FREE_DISK,
                 String.valueOf(Config.bdbje_free_disk_bytes));
+
+        if (Config.ignore_bdbje_log_checksum_read) {
+            environmentConfig.setConfigParam(EnvironmentConfig.LOG_CHECKSUM_READ, "false");
+            LOG.warn("set EnvironmentConfig.LOG_CHECKSUM_READ false");
+        }
 
         if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
             java.util.logging.Logger parent = java.util.logging.Logger.getLogger("com.sleepycat.je");

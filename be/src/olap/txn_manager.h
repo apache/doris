@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -52,6 +51,7 @@ namespace doris {
 class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
+struct PartialUpdateInfo;
 
 enum class TxnState {
     NOT_FOUND = 0,
@@ -61,6 +61,7 @@ enum class TxnState {
     ABORTED = 4,
     DELETED = 5,
 };
+enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
 struct TabletTxnInfo {
     PUniqueId load_id;
@@ -73,6 +74,7 @@ struct TabletTxnInfo {
     int64_t creation_time;
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    std::shared_ptr<PublishStatus> publish_status;
     TxnState state {TxnState::PREPARED};
 
     TabletTxnInfo() = default;
@@ -128,8 +130,6 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::TABLET_VERSION_CACHE) {}
-
         int64_t value;
     };
 
@@ -145,8 +145,8 @@ public:
 
     Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
-                      bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -161,8 +161,8 @@ public:
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
-                      bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     // remove a txn from txn manager
     // not persist rowset meta because
@@ -266,12 +266,13 @@ private:
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
-    class TabletVersionCache : public LRUCachePolicy {
+    class TabletVersionCache : public LRUCachePolicyTrackingManual {
     public:
         TabletVersionCache(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
-                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::TABLET_VERSION_CACHE,
+                                               capacity, LRUCacheType::NUMBER, -1,
+                                               DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                               DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
 private:

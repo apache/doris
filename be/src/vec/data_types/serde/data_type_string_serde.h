@@ -73,17 +73,57 @@ public:
         auto result = check_column_const_set_readability(column, row_num);
         ColumnPtr ptr = result.first;
         row_num = result.second;
-
-        if (_nesting_level > 1) {
-            bw.write('"');
-        }
-
         const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
-        bw.write(value.data, value.size);
+
         if (_nesting_level > 1) {
             bw.write('"');
         }
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                // we should make deal with some special characters in json str if we have escape_char
+                StringRef str_ref = value;
+                write_with_escaped_char_to_json(str_ref, bw);
+            } else {
+                bw.write(value.data, value.size);
+            }
+        } else {
+            bw.write(value.data, value.size);
+        }
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+
         return Status::OK();
+    }
+
+    inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) const {
+        for (char it : value) {
+            switch (it) {
+            case '\b':
+                bw.write("\\b", 2);
+                break;
+            case '\f':
+                bw.write("\\f", 2);
+                break;
+            case '\n':
+                bw.write("\\n", 2);
+                break;
+            case '\r':
+                bw.write("\\r", 2);
+                break;
+            case '\t':
+                bw.write("\\t", 2);
+                break;
+            case '\\':
+                bw.write("\\\\", 2);
+                break;
+            case '"':
+                bw.write("\\\"", 2);
+                break;
+            default:
+                bw.write(it);
+            }
+        }
     }
 
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
@@ -132,6 +172,31 @@ public:
         }
         return Status::OK();
     }
+
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override {
+        Status st = deserialize_one_cell_from_json(column, slice, options);
+        if (!st.ok()) {
+            return st;
+        }
+
+        DataTypeStringSerDeBase::insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
+        auto& col = static_cast<ColumnString&>(column);
+        auto sz = col.size();
+
+        StringRef ref = col.get_data_at(sz - 1);
+        String str(ref.data, ref.size);
+        std::vector<StringRef> refs(times, {str.data(), str.size()});
+
+        col.insert_many_strings(refs.data(), refs.size());
+    }
+
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         auto& column_dest = assert_cast<ColumnType&>(column);
         column_dest.reserve(column_dest.size() + arg.string_value_size());
@@ -205,12 +270,14 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -229,7 +296,7 @@ public:
         return Status::OK();
     }
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
@@ -252,26 +319,10 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const {
+                                  int row_idx, bool col_const, const FormatOptions& options) const {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                if (UNLIKELY(0 != result.push_null())) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            }
-        } else {
-            if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
+        result.push_string(string_val.data, string_val.size);
         return Status::OK();
     }
 };

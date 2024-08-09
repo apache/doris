@@ -32,12 +32,12 @@ suite("test_dynamic_partition") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
-    List<List<Object>> result  = sql "show tables like 'dy_par'"
+    def result  = sql "show tables like 'dy_par'"
     logger.info("${result}")
     assertEquals(result.size(), 1)
-    result = sql "show partitions from dy_par"
+    result = sql_return_maparray "show partitions from dy_par"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
+    assertEquals(result.get(0).Buckets.toInteger(), 10)
     sql "drop table dy_par"
 
     sql "drop table if exists dy_par"
@@ -59,9 +59,9 @@ suite("test_dynamic_partition") {
     result  = sql "show tables like 'dy_par'"
     logger.info("${result}")
     assertEquals(result.size(), 1)
-    result = sql "show partitions from dy_par"
+    result = sql_return_maparray "show partitions from dy_par"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
+    assertEquals(result.get(0).Buckets.toInteger(), 10)
     sql "drop table dy_par"
 
     sql "drop table if exists dy_par_bucket_set_by_distribution"
@@ -83,9 +83,9 @@ suite("test_dynamic_partition") {
     result  = sql "show tables like 'dy_par_bucket_set_by_distribution'"
     logger.info("${result}")
     assertEquals(result.size(), 1)
-    result = sql "show partitions from dy_par_bucket_set_by_distribution"
+    result = sql_return_maparray "show partitions from dy_par_bucket_set_by_distribution"
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 3)
+    assertEquals(result.get(0).Buckets.toInteger(), 3)
     sql "drop table dy_par_bucket_set_by_distribution"
     sql "drop table if exists dy_par_bad"
     def isCloudMode = {

@@ -62,18 +62,20 @@ public abstract class AbstractInsertExecutor {
 
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
+    protected final boolean emptyInsert;
 
     /**
      * Constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx) {
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
         this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();
         this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
     }
 
     public Coordinator getCoordinator() {
@@ -130,6 +132,7 @@ public abstract class AbstractInsertExecutor {
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {
@@ -163,16 +166,20 @@ public abstract class AbstractInsertExecutor {
         }
     }
 
-    private boolean checkStrictMode() {
+    private void checkStrictModeAndFilterRatio() throws Exception {
         // if in strict mode, insert will fail if there are filtered rows
         if (ctx.getSessionVariable().getEnableInsertStrict()) {
             if (filteredRows > 0) {
-                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                        "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
-                return false;
+                ErrorReport.reportDdlException("Insert has filtered data in strict mode",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT);
+            }
+        } else {
+            if (filteredRows > ctx.getSessionVariable().getInsertMaxFilterRatio() * (filteredRows + loadedRows)) {
+                ErrorReport.reportDdlException("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
+                        ctx.getSessionVariable().getInsertMaxFilterRatio());
             }
         }
-        return true;
     }
 
     /**
@@ -181,10 +188,9 @@ public abstract class AbstractInsertExecutor {
     public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
+            executor.updateProfile(false);
             execImpl(executor, jobId);
-            if (!checkStrictMode()) {
-                return;
-            }
+            checkStrictModeAndFilterRatio();
             int retryTimes = 0;
             while (retryTimes < Config.mow_insert_into_commit_retry_times) {
                 try {
@@ -212,5 +218,9 @@ public abstract class AbstractInsertExecutor {
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    public boolean isEmptyInsert() {
+        return emptyInsert;
     }
 }

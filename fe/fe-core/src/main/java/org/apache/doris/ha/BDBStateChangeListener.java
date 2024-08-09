@@ -18,7 +18,7 @@
 package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.LogUtils;
 
 import com.google.common.base.Preconditions;
 import com.sleepycat.je.rep.StateChangeEvent;
@@ -57,7 +57,7 @@ public class BDBStateChangeListener implements StateChangeListener {
             default: {
                 String msg = "this node is " + sce.getState().name();
                 LOG.warn(msg);
-                Util.stdoutWithTime(msg);
+                LogUtils.stdout(msg);
                 return;
             }
         }

@@ -28,23 +28,27 @@
 
 namespace doris {
 
+namespace pipeline {
+class OlapScanLocalState;
+}
+
 namespace vectorized {
 class VScanner;
 }
 
 using VScannerSPtr = std::shared_ptr<vectorized::VScanner>;
 
-template <typename ParentType>
 class ParallelScannerBuilder {
 public:
-    ParallelScannerBuilder(ParentType* parent, const std::vector<TabletWithVersion>& tablets,
+    ParallelScannerBuilder(pipeline::OlapScanLocalState* parent,
+                           const std::vector<TabletWithVersion>& tablets,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit_per_scanner, bool is_dup_mow_key, bool is_preaggregation)
+                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
-              _limit_per_scanner(limit_per_scanner),
+              _limit(limit),
               _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
@@ -65,7 +69,7 @@ private:
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
             TabletReader::ReadSource&& read_source);
 
-    ParentType* _parent;
+    pipeline::OlapScanLocalState* _parent;
 
     /// Max scanners count limit to build
     size_t _max_scanners_count {16};
@@ -81,7 +85,7 @@ private:
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
-    int64_t _limit_per_scanner;
+    int64_t _limit;
     bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;

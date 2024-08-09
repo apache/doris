@@ -33,7 +33,7 @@
 #include <utility>
 
 #include "common/exception.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -93,17 +93,17 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    if (failed_if_exists) {
-        bool exists = true;
-        RETURN_IF_ERROR(exists_impl(dir, &exists));
-        if (exists) {
-            return Status::AlreadyExist("failed to create {}, already exists", dir.native());
-        }
+    bool exists = true;
+    RETURN_IF_ERROR(exists_impl(dir, &exists));
+    if (exists && failed_if_exists) {
+        return Status::AlreadyExist("failed to create {}, already exists", dir.native());
     }
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
-        return localfs_error(ec, fmt::format("failed to create {}", dir.native()));
+    if (!exists) {
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (ec) {
+            return localfs_error(ec, fmt::format("failed to create {}", dir.native()));
+        }
     }
     return Status::OK();
 }

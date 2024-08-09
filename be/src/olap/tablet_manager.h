@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -73,9 +74,15 @@ public:
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    TabletSharedPtr find_best_tablet_to_compaction(
+    // Find two tablets.
+    // One with the highest score to execute single compaction,
+    // the other with the highest score to execute cumu or base compaction.
+    // Single compaction needs to be completed successfully after the peer completes it.
+    // We need to generate two types of tasks separately to avoid continuously generating
+    // single compaction tasks for the tablet.
+    std::vector<TabletSharedPtr> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 
@@ -119,7 +126,7 @@ public:
     // - restore: whether the request is from restore tablet action,
     //   where we should change tablet status from shutdown back to running
     Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id, TSchemaHash schema_hash,
-                                 const std::string& header, bool update_meta, bool force = false,
+                                 std::string_view header, bool update_meta, bool force = false,
                                  bool restore = false, bool check_path = true);
 
     Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
@@ -137,20 +144,25 @@ public:
     Status start_trash_sweep();
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
-                                       SchemaHash schema_hash, const std::string& schema_hash_path);
+                                       SchemaHash schema_hash, const std::string& schema_hash_path,
+                                       int16_t shard_id);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
+    void get_partitions_visible_version(std::map<int64_t, int64_t>* partitions_version);
+
+    void update_partitions_visible_version(const std::map<int64_t, int64_t>& partitions_version);
+
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
     // return `true` if register success
-    bool register_clone_tablet(int64_t tablet_id);
-    void unregister_clone_tablet(int64_t tablet_id);
+    Status register_transition_tablet(int64_t tablet_id, std::string reason);
+    void unregister_transition_tablet(int64_t tablet_id, std::string reason);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
@@ -182,8 +194,8 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                                 bool is_drop_table_or_partition);
+    Status _drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                        bool is_drop_table_or_partition, bool had_held_shard_lock);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
@@ -221,30 +233,38 @@ private:
         tablets_shard() = default;
         tablets_shard(tablets_shard&& shard) {
             tablet_map = std::move(shard.tablet_map);
-            tablets_under_clone = std::move(shard.tablets_under_clone);
+            tablets_under_transition = std::move(shard.tablets_under_transition);
         }
-        // protect tablet_map, tablets_under_clone and tablets_under_restore
         mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
-        std::set<int64_t> tablets_under_clone;
+        std::mutex lock_for_transition;
+        // tablet do clone, path gc, move to trash, disk migrate will record in tablets_under_transition
+        // tablet <reason, thread_id, lock_times>
+        std::map<int64_t, std::tuple<std::string, std::thread::id, int64_t>>
+                tablets_under_transition;
+    };
+
+    struct Partition {
+        std::set<TabletInfo> tablets;
+        std::shared_ptr<VersionWithTime> visible_version {new VersionWithTime};
     };
 
     StorageEngine& _engine;
 
     // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;
     std::vector<tablets_shard> _tablets_shards;
 
-    // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
-    std::shared_mutex _partition_tablet_map_lock;
+    // Protect _partitions, should not be obtained before _tablet_map_lock to avoid dead lock
+    std::shared_mutex _partitions_lock;
+    // partition_id => partition
+    std::map<int64_t, Partition> _partitions;
+
     // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
     std::shared_mutex _shutdown_tablets_lock;
-    // partition_id => tablet_info
-    std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
     std::list<TabletSharedPtr> _shutdown_tablets;
     std::mutex _gc_tablets_lock;

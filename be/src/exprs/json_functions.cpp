@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/logging.h"
 
 namespace doris {
@@ -213,10 +214,14 @@ void JsonFunctions::parse_json_paths(const std::string& path_string,
     //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
     //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
     //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    boost::tokenizer<boost::escaped_list_separator<char>> tok(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, parsed_paths);
+    try {
+        boost::tokenizer<boost::escaped_list_separator<char>> tok(
+                path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+        std::vector<std::string> paths(tok.begin(), tok.end());
+        get_parsed_paths(paths, parsed_paths);
+    } catch (const boost::escaped_list_error& err) {
+        throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
+    }
 }
 
 void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
@@ -346,6 +351,11 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
             dst_object.AddMember(src_it->name, src_it->value, allocator);
         }
     }
+}
+
+// root path "$."
+bool JsonFunctions::is_root_path(const std::vector<JsonPath>& json_path) {
+    return json_path.size() == 2 && json_path[0].key == "$" && json_path[1].key.empty();
 }
 
 } // namespace doris

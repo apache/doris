@@ -44,30 +44,26 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                      \
-    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                       \
-    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                    \
-    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                    \
-    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)                 \
-    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                    \
-    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)                 \
-    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                    \
-    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)                 \
-    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                 \
-    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)              \
-    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)              \
-    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal<Int128>>, Int128) \
-    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal<Int128>>, Int128) \
-    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)      \
-    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)      \
-    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                     \
-    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)                 \
-    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                 \
+#define FOR_FIXED_LENGTH_TYPES(M)                                   \
+    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                    \
+    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                 \
+    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                 \
+    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)              \
+    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                 \
+    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)              \
+    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                 \
+    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)              \
+    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)              \
+    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)           \
+    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)           \
+    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal128V2>, Int128) \
+    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal128V3>, Int128) \
+    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)   \
+    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)   \
+    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                  \
+    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)              \
+    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)              \
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
-
-JniConnector::~JniConnector() {
-    static_cast<void>(close());
-}
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
@@ -158,6 +154,13 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
 
 std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
+    jthrowable exc = (env)->ExceptionOccurred();
+    if (exc != nullptr) {
+        LOG(WARNING) << "get_statistics has error: "
+                     << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->DeleteLocalRef(metrics);
+        return std::map<std::string, std::string> {};
+    }
     std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
     env->DeleteLocalRef(metrics);
     return result;
@@ -167,14 +170,17 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        if (_scanner_opened) {
+        if (_scanner_opened && _jni_scanner_obj != nullptr) {
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
             env->DeleteGlobalRef(_jni_scanner_obj);
         }
-        env->DeleteGlobalRef(_jni_scanner_cls);
+        if (_jni_scanner_cls != nullptr) {
+            // _jni_scanner_cls may be null if init connector failed
+            env->DeleteGlobalRef(_jni_scanner_cls);
+        }
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {

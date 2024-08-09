@@ -74,8 +74,7 @@ public class MetaIdGenerator {
         }
     }
 
-    // just for checkpoint, so no need to synchronize
-    public long getBatchEndId() {
+    public synchronized long getBatchEndId() {
         return batchEndId;
     }
 

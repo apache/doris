@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_gender) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_state char(2),
     w_zip char(10),
     w_country varchar(20),
-    w_gmt_offset decimalv3(5,2)
+    w_gmt_offset decimal(5,2)
 )
 DUPLICATE KEY(w_warehouse_sk)
 DISTRIBUTED BY HASH(w_warehouse_sk) BUCKETS 1
@@ -121,21 +121,21 @@ CREATE TABLE IF NOT EXISTS catalog_sales (
     cs_warehouse_sk bigint,
     cs_promo_sk bigint,
     cs_quantity integer,
-    cs_wholesale_cost decimalv3(7,2),
-    cs_list_price decimalv3(7,2),
-    cs_sales_price decimalv3(7,2),
-    cs_ext_discount_amt decimalv3(7,2),
-    cs_ext_sales_price decimalv3(7,2),
-    cs_ext_wholesale_cost decimalv3(7,2),
-    cs_ext_list_price decimalv3(7,2),
-    cs_ext_tax decimalv3(7,2),
-    cs_coupon_amt decimalv3(7,2),
-    cs_ext_ship_cost decimalv3(7,2),
-    cs_net_paid decimalv3(7,2),
-    cs_net_paid_inc_tax decimalv3(7,2),
-    cs_net_paid_inc_ship decimalv3(7,2),
-    cs_net_paid_inc_ship_tax decimalv3(7,2),
-    cs_net_profit decimalv3(7,2)
+    cs_wholesale_cost decimal(7,2),
+    cs_list_price decimal(7,2),
+    cs_sales_price decimal(7,2),
+    cs_ext_discount_amt decimal(7,2),
+    cs_ext_sales_price decimal(7,2),
+    cs_ext_wholesale_cost decimal(7,2),
+    cs_ext_list_price decimal(7,2),
+    cs_ext_tax decimal(7,2),
+    cs_coupon_amt decimal(7,2),
+    cs_ext_ship_cost decimal(7,2),
+    cs_net_paid decimal(7,2),
+    cs_net_paid_inc_tax decimal(7,2),
+    cs_net_paid_inc_ship decimal(7,2),
+    cs_net_paid_inc_ship_tax decimal(7,2),
+    cs_net_profit decimal(7,2)
 )
 DUPLICATE KEY(cs_item_sk, cs_order_number)
 PARTITION BY RANGE(cs_sold_date_sk)
@@ -249,8 +249,8 @@ CREATE TABLE IF NOT EXISTS call_center (
   cc_state char(2),
   cc_zip char(10),
   cc_country varchar(20),
-  cc_gmt_offset decimalv3(5,2),
-  cc_tax_percentage decimalv3(5,2)
+  cc_gmt_offset decimal(5,2),
+  cc_tax_percentage decimal(5,2)
 )
 DUPLICATE KEY(cc_call_center_sk)
 DISTRIBUTED BY HASH(cc_call_center_sk) BUCKETS 1
@@ -364,15 +364,15 @@ CREATE TABLE IF NOT EXISTS catalog_returns (
   cr_warehouse_sk bigint,
   cr_reason_sk bigint,
   cr_return_quantity integer,
-  cr_return_amount decimalv3(7,2),
-  cr_return_tax decimalv3(7,2),
-  cr_return_amt_inc_tax decimalv3(7,2),
-  cr_fee decimalv3(7,2),
-  cr_return_ship_cost decimalv3(7,2),
-  cr_refunded_cash decimalv3(7,2),
-  cr_reversed_charge decimalv3(7,2),
-  cr_store_credit decimalv3(7,2),
-  cr_net_loss decimalv3(7,2)
+  cr_return_amount decimal(7,2),
+  cr_return_tax decimal(7,2),
+  cr_return_amt_inc_tax decimal(7,2),
+  cr_fee decimal(7,2),
+  cr_return_ship_cost decimal(7,2),
+  cr_refunded_cash decimal(7,2),
+  cr_reversed_charge decimal(7,2),
+  cr_store_credit decimal(7,2),
+  cr_net_loss decimal(7,2)
 )
 DUPLICATE KEY(cr_item_sk, cr_order_number)
 PARTITION BY RANGE(cr_returned_date_sk)
@@ -481,7 +481,7 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_state char(2),
     ca_zip char(10),
     ca_country varchar(20),
-    ca_gmt_offset decimalv3(5,2),
+    ca_gmt_offset decimal(5,2),
     ca_location_type char(20)
 )
 DUPLICATE KEY(ca_address_sk)
@@ -524,8 +524,8 @@ CREATE TABLE IF NOT EXISTS item (
     i_rec_start_date datev2,
     i_rec_end_date datev2,
     i_item_desc varchar(200),
-    i_current_price decimalv3(7,2),
-    i_wholesale_cost decimalv3(7,2),
+    i_current_price decimal(7,2),
+    i_wholesale_cost decimal(7,2),
     i_brand_id integer,
     i_brand char(50),
     i_class_id integer,
@@ -564,15 +564,15 @@ CREATE TABLE IF NOT EXISTS web_returns (
     wr_web_page_sk bigint,
     wr_reason_sk bigint,
     wr_return_quantity integer,
-    wr_return_amt decimalv3(7,2),
-    wr_return_tax decimalv3(7,2),
-    wr_return_amt_inc_tax decimalv3(7,2),
-    wr_fee decimalv3(7,2),
-    wr_return_ship_cost decimalv3(7,2),
-    wr_refunded_cash decimalv3(7,2),
-    wr_reversed_charge decimalv3(7,2),
-    wr_account_credit decimalv3(7,2),
-    wr_net_loss decimalv3(7,2)
+    wr_return_amt decimal(7,2),
+    wr_return_tax decimal(7,2),
+    wr_return_amt_inc_tax decimal(7,2),
+    wr_fee decimal(7,2),
+    wr_return_ship_cost decimal(7,2),
+    wr_refunded_cash decimal(7,2),
+    wr_reversed_charge decimal(7,2),
+    wr_account_credit decimal(7,2),
+    wr_net_loss decimal(7,2)
 )
 DUPLICATE KEY(wr_item_sk, wr_order_number)
 PARTITION BY RANGE(wr_returned_date_sk)
@@ -681,8 +681,8 @@ CREATE TABLE IF NOT EXISTS web_site (
     web_state char(2),
     web_zip char(10),
     web_country varchar(20),
-    web_gmt_offset decimalv3(5,2),
-    web_tax_percentage decimalv3(5,2)
+    web_gmt_offset decimal(5,2),
+    web_tax_percentage decimal(5,2)
 )
 DUPLICATE KEY(web_site_sk)
 DISTRIBUTED BY HASH(web_site_sk) BUCKETS 1
@@ -696,7 +696,7 @@ CREATE TABLE IF NOT EXISTS promotion (
     p_start_date_sk bigint,
     p_end_date_sk bigint,
     p_item_sk bigint,
-    p_cost decimalv3(15,2),
+    p_cost decimal(15,2),
     p_response_targe integer,
     p_promo_name char(50),
     p_channel_dmail char(1),
@@ -737,21 +737,21 @@ CREATE TABLE IF NOT EXISTS web_sales (
     ws_warehouse_sk bigint,
     ws_promo_sk bigint,
     ws_quantity integer,
-    ws_wholesale_cost decimalv3(7,2),
-    ws_list_price decimalv3(7,2),
-    ws_sales_price decimalv3(7,2),
-    ws_ext_discount_amt decimalv3(7,2),
-    ws_ext_sales_price decimalv3(7,2),
-    ws_ext_wholesale_cost decimalv3(7,2),
-    ws_ext_list_price decimalv3(7,2),
-    ws_ext_tax decimalv3(7,2),
-    ws_coupon_amt decimalv3(7,2),
-    ws_ext_ship_cost decimalv3(7,2),
-    ws_net_paid decimalv3(7,2),
-    ws_net_paid_inc_tax decimalv3(7,2),
-    ws_net_paid_inc_ship decimalv3(7,2),
-    ws_net_paid_inc_ship_tax decimalv3(7,2),
-    ws_net_profit decimalv3(7,2)
+    ws_wholesale_cost decimal(7,2),
+    ws_list_price decimal(7,2),
+    ws_sales_price decimal(7,2),
+    ws_ext_discount_amt decimal(7,2),
+    ws_ext_sales_price decimal(7,2),
+    ws_ext_wholesale_cost decimal(7,2),
+    ws_ext_list_price decimal(7,2),
+    ws_ext_tax decimal(7,2),
+    ws_coupon_amt decimal(7,2),
+    ws_ext_ship_cost decimal(7,2),
+    ws_net_paid decimal(7,2),
+    ws_net_paid_inc_tax decimal(7,2),
+    ws_net_paid_inc_ship decimal(7,2),
+    ws_net_paid_inc_ship_tax decimal(7,2),
+    ws_net_profit decimal(7,2)
 )
 DUPLICATE KEY(ws_item_sk, ws_order_number)
 PARTITION BY RANGE(ws_sold_date_sk)
@@ -863,8 +863,8 @@ CREATE TABLE IF NOT EXISTS store (
     s_state char(2),
     s_zip char(10),
     s_country varchar(20),
-    s_gmt_offset decimalv3(5,2),
-    s_tax_precentage decimalv3(5,2)
+    s_gmt_offset decimal(5,2),
+    s_tax_precentage decimal(5,2)
 )
 DUPLICATE KEY(s_store_sk)
 DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1
@@ -924,15 +924,15 @@ CREATE TABLE IF NOT EXISTS store_returns (
     sr_store_sk bigint,
     sr_reason_sk bigint,
     sr_return_quantity integer,
-    sr_return_amt decimalv3(7,2),
-    sr_return_tax decimalv3(7,2),
-    sr_return_amt_inc_tax decimalv3(7,2),
-    sr_fee decimalv3(7,2),
-    sr_return_ship_cost decimalv3(7,2),
-    sr_refunded_cash decimalv3(7,2),
-    sr_reversed_charge decimalv3(7,2),
-    sr_store_credit decimalv3(7,2),
-    sr_net_loss decimalv3(7,2)
+    sr_return_amt decimal(7,2),
+    sr_return_tax decimal(7,2),
+    sr_return_amt_inc_tax decimal(7,2),
+    sr_fee decimal(7,2),
+    sr_return_ship_cost decimal(7,2),
+    sr_refunded_cash decimal(7,2),
+    sr_reversed_charge decimal(7,2),
+    sr_store_credit decimal(7,2),
+    sr_net_loss decimal(7,2)
 )
 DUPLICATE KEY(sr_item_sk, sr_ticket_number)
 PARTITION BY RANGE(sr_returned_date_sk)
@@ -1028,18 +1028,18 @@ CREATE TABLE IF NOT EXISTS store_sales (
     ss_store_sk bigint,
     ss_promo_sk bigint,
     ss_quantity integer,
-    ss_wholesale_cost decimalv3(7,2),
-    ss_list_price decimalv3(7,2),
-    ss_sales_price decimalv3(7,2),
-    ss_ext_discount_amt decimalv3(7,2),
-    ss_ext_sales_price decimalv3(7,2),
-    ss_ext_wholesale_cost decimalv3(7,2),
-    ss_ext_list_price decimalv3(7,2),
-    ss_ext_tax decimalv3(7,2),
-    ss_coupon_amt decimalv3(7,2),
-    ss_net_paid decimalv3(7,2),
-    ss_net_paid_inc_tax decimalv3(7,2),
-    ss_net_profit decimalv3(7,2)
+    ss_wholesale_cost decimal(7,2),
+    ss_list_price decimal(7,2),
+    ss_sales_price decimal(7,2),
+    ss_ext_discount_amt decimal(7,2),
+    ss_ext_sales_price decimal(7,2),
+    ss_ext_wholesale_cost decimal(7,2),
+    ss_ext_list_price decimal(7,2),
+    ss_ext_tax decimal(7,2),
+    ss_coupon_amt decimal(7,2),
+    ss_net_paid decimal(7,2),
+    ss_net_paid_inc_tax decimal(7,2),
+    ss_net_profit decimal(7,2)
 )
 DUPLICATE KEY(ss_item_sk, ss_ticket_number)
 PARTITION BY RANGE(ss_sold_date_sk)

@@ -145,7 +145,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         * 4. insert 10 rows, again
         * 5. full compaction
         */
-        table_name = "test_index_compaction_with_multi_index_segments_dups"
+        tableName = "test_index_compaction_with_multi_index_segments_dups"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (
@@ -160,7 +160,8 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             DISTRIBUTED BY RANDOM BUCKETS 1
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
-            "disable_auto_compaction" = "true"
+            "disable_auto_compaction" = "true",
+            "inverted_index_storage_format" = "V1"
             );
         """
 
@@ -277,7 +278,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         * 4. insert 10 rows, again
         * 5. full compaction
         */
-        table_name = "test_index_compaction_with_multi_index_segments_unique"
+        tableName = "test_index_compaction_with_multi_index_segments_unique"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (
@@ -293,7 +294,8 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "true"
+            "enable_unique_key_merge_on_write" = "true",
+            "inverted_index_storage_format" = "V1"
             );
         """
 

@@ -21,56 +21,18 @@ import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
 
-public class VariantType extends Type {
+public class VariantType extends ScalarType {
+
     public VariantType() {
-
-    }
-
-    @Override
-    public String toSql(int depth) {
-        return "VARIANT";
-    }
-
-    @Override
-    protected String prettyPrint(int lpad) {
-        return "VARIANT";
-    }
-
-    @Override
-    public boolean equals(Object other) {
-        return other instanceof VariantType;
+        super(PrimitiveType.VARIANT);
     }
 
     @Override
     public void toThrift(TTypeDesc container) {
+        // not use ScalarType's toThrift for compatibility, because VariantType is not extends ScalarType previously
         TTypeNode node = new TTypeNode();
         container.types.add(node);
         node.setType(TTypeNodeType.VARIANT);
-    }
-
-    @Override
-    public String toString() {
-        return toSql(0);
-    }
-
-    @Override
-    public PrimitiveType getPrimitiveType() {
-        return PrimitiveType.VARIANT;
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        return false;
-    }
-
-    @Override
-    public int getSlotSize() {
-        return PrimitiveType.VARIANT.getSlotSize();
-    }
-
-    @Override
-    public boolean isSupported() {
-        return true;
     }
 
     @Override

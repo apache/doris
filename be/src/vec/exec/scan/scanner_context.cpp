@@ -38,12 +38,12 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
-ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* output_tuple_desc,
-                               const RowDescriptor* output_row_descriptor,
-                               const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                               int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                               const int num_parallel_instances,
-                               pipeline::ScanLocalStateBase* local_state)
+ScannerContext::ScannerContext(
+        RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+        const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
+        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
+        int64_t max_bytes_in_blocks_queue, std::shared_ptr<pipeline::Dependency> dependency,
+        const int num_parallel_instances)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -82,44 +82,44 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
-    if ((_parent && _parent->should_run_serial()) ||
-        (_local_state && _local_state->should_run_serial())) {
+    if (_local_state && _local_state->should_run_serial()) {
         _max_thread_num = 1;
     }
-    _query_thread_context = {_query_id, _state->query_mem_tracker()};
-}
+    // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
+    // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
+    // you can refer https://github.com/apache/doris/issues/35340 for details.
+    int32_t max_column_reader_num = state->query_options().max_column_reader_num;
+    if (_max_thread_num != 1 && max_column_reader_num > 0) {
+        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t current_column_num = scan_column_num * _max_thread_num;
+        if (current_column_num > max_column_reader_num) {
+            int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
+            new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
+            if (new_max_thread_num < _max_thread_num) {
+                int32_t origin_max_thread_num = _max_thread_num;
+                _max_thread_num = new_max_thread_num;
+                LOG(INFO) << "downgrade query:" << print_id(state->query_id())
+                          << " scan's max_thread_num from " << origin_max_thread_num << " to "
+                          << _max_thread_num << ",column num: " << scan_column_num
+                          << ", max_column_reader_num: " << max_column_reader_num;
+            }
+        }
+    }
 
-ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,
-                               const doris::TupleDescriptor* output_tuple_desc,
-                               const RowDescriptor* output_row_descriptor,
-                               const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                               int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                               const int num_parallel_instances,
-                               pipeline::ScanLocalStateBase* local_state)
-        : ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners, limit_,
-                         max_bytes_in_blocks_queue, num_parallel_instances, local_state) {
-    _parent = parent;
+    _query_thread_context = {_query_id, _state->query_mem_tracker(),
+                             _state->get_query_ctx()->workload_group()};
+    _dependency = dependency;
 }
 
 // After init function call, should not access _parent
 Status ScannerContext::init() {
-    if (_parent) {
-        _scanner_profile = _parent->_scanner_profile;
-        _scanner_sched_counter = _parent->_scanner_sched_counter;
-        _newly_create_free_blocks_num = _parent->_newly_create_free_blocks_num;
-        _scanner_wait_batch_timer = _parent->_scanner_wait_batch_timer;
-        _free_blocks_memory_usage_mark = _parent->_free_blocks_memory_usage;
-        _scanner_ctx_sched_time = _parent->_scanner_ctx_sched_time;
-        _scale_up_scanners_counter = _parent->_scale_up_scanners_counter;
-    } else {
-        _scanner_profile = _local_state->_scanner_profile;
-        _scanner_sched_counter = _local_state->_scanner_sched_counter;
-        _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
-        _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
-        _free_blocks_memory_usage_mark = _local_state->_free_blocks_memory_usage;
-        _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
-        _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
-    }
+    _scanner_profile = _local_state->_scanner_profile;
+    _scanner_sched_counter = _local_state->_scanner_sched_counter;
+    _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
+    _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
+    _free_blocks_memory_usage_mark = _local_state->_free_blocks_memory_usage;
+    _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
+    _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -133,15 +133,9 @@ Status ScannerContext::init() {
     }
 #endif
 
-    if (_parent) {
-        COUNTER_SET(_parent->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _parent->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                   thread_token == nullptr ? "False" : "True");
-    } else {
-        COUNTER_SET(_local_state->_max_scanner_thread_num, (int64_t)_max_thread_num);
-        _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                        thread_token == nullptr ? "False" : "True");
-    }
+    COUNTER_SET(_local_state->_max_scanner_thread_num, (int64_t)_max_thread_num);
+    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
+                                                    thread_token == nullptr ? "False" : "True");
 
     // submit `_max_thread_num` running scanners to `ScannerScheduler`
     // When a running scanners is finished, it will submit one of the remaining scanners.
@@ -157,23 +151,21 @@ Status ScannerContext::init() {
 }
 
 std::string ScannerContext::parent_name() {
-    return _parent ? _parent->get_name() : _local_state->get_name();
+    return _local_state->get_name();
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
-    vectorized::BlockUPtr block;
+    vectorized::BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _free_blocks_memory_usage -= block->allocated_bytes();
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        return block;
-    }
-    if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
-        return vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
-                                                true /*ignore invalid slots*/);
+    } else if (_free_blocks_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
+        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
+                                                 true /*ignore invalid slots*/);
     }
-    return nullptr;
+    return block;
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
@@ -198,7 +190,7 @@ void ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
 
 void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
     if (scan_task->status_ok()) {
-        for (const vectorized::BlockUPtr& block : scan_task->cached_blocks) {
+        for (const auto& [block, _] : scan_task->cached_blocks) {
             if (block->rows() > 0) {
                 Status st = validate_block_schema(block.get());
                 if (!st.ok()) {
@@ -221,43 +213,33 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
     }
     _num_scheduled_scanners--;
     _blocks_queue.emplace_back(scan_task);
-    _blocks_queue_added_cv.notify_one();
+    _dependency->set_ready();
 }
 
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Block* block,
-                                            bool* eos, int id, bool wait) {
+                                            bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
-        return Status::Cancelled("Query cancelled in ScannerContext");
+        return state->cancel_reason();
     }
     std::unique_lock l(_transfer_lock);
-    // Wait for block from queue
-    if (wait) {
-        // scanner batch wait time
-        SCOPED_TIMER(_scanner_wait_batch_timer);
-        while (!done() && _blocks_queue.empty() && _process_status.ok()) {
-            _blocks_queue_added_cv.wait_for(l, 1s);
-        }
-    }
+
     if (!_process_status.ok()) {
         _set_scanner_done();
         return _process_status;
     }
-    std::shared_ptr<ScanTask> scan_task = nullptr;
     if (!_blocks_queue.empty() && !done()) {
         _last_fetch_time = UnixMillis();
-        scan_task = _blocks_queue.front();
-    }
+        auto scan_task = _blocks_queue.front();
+        DCHECK(scan_task);
 
-    if (scan_task) {
         if (!scan_task->status_ok()) {
             _set_scanner_done();
             return scan_task->get_status();
         }
         if (!scan_task->cached_blocks.empty()) {
-            vectorized::BlockUPtr current_block = std::move(scan_task->cached_blocks.front());
+            auto [current_block, block_size] = std::move(scan_task->cached_blocks.front());
             scan_task->cached_blocks.pop_front();
-            size_t block_size = current_block->allocated_bytes();
             if (_estimated_block_size > block_size) {
                 _estimated_block_size = block_size;
             }
@@ -266,8 +248,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
-        }
-        if (scan_task->cached_blocks.empty()) {
+        } else {
             _blocks_queue.pop_front();
             if (scan_task->is_eos()) { // current scanner is finished, and no more data to read
                 _num_finished_scanners++;
@@ -302,6 +283,10 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _is_finished = true;
     }
     *eos = done();
+
+    if (_blocks_queue.empty()) {
+        _dependency->block();
+    }
     return Status::OK();
 }
 
@@ -384,7 +369,6 @@ Status ScannerContext::validate_block_schema(Block* block) {
 void ScannerContext::set_status_on_error(const Status& status) {
     std::lock_guard<std::mutex> l(_transfer_lock);
     _process_status = status;
-    _blocks_queue_added_cv.notify_one();
 }
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
@@ -405,9 +389,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
         std::stringstream scanner_wait_worker_time;
+        std::stringstream scanner_projection;
         scanner_statistics << "[";
         scanner_rows_read << "[";
         scanner_wait_worker_time << "[";
+        scanner_projection << "[";
         // Scanners can in 3 state
         //  state 1: in scanner context, not scheduled
         //  state 2: in scanner worker pool's queue, scheduled but not running
@@ -419,6 +405,9 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             }
             // Add per scanner running time before close them
             scanner_statistics << PrettyPrinter::print(scanner->_scanner->get_time_cost_ns(),
+                                                       TUnit::TIME_NS)
+                               << ", ";
+            scanner_projection << PrettyPrinter::print(scanner->_scanner->projection_time(),
                                                        TUnit::TIME_NS)
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->_scanner->get_rows_read(),
@@ -434,12 +423,12 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         scanner_statistics << "]";
         scanner_rows_read << "]";
         scanner_wait_worker_time << "]";
+        scanner_projection << "]";
         _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
         _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
+        _scanner_profile->add_info_string("PerScannerProjectionTime", scanner_projection.str());
     }
-
-    _blocks_queue_added_cv.notify_one();
 }
 
 std::string ScannerContext::debug_string() {
@@ -451,6 +440,10 @@ std::string ScannerContext::debug_string() {
             ctx_id, _all_scanners.size(), _blocks_queue.size(), _should_stop, _is_finished,
             _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_thread_num,
             _max_bytes_in_queue, print_id(_query_id));
+}
+
+void ScannerContext::_set_scanner_done() {
+    _dependency->set_always_ready();
 }
 
 } // namespace doris::vectorized

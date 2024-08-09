@@ -17,6 +17,7 @@
 
 #include "workload_group_manager.h"
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -76,35 +77,40 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     int64_t begin_time = MonotonicMillis();
     // 1 get delete group without running queries
     std::vector<WorkloadGroupPtr> deleted_task_groups;
+    int old_wg_size = 0;
+    int new_wg_size = 0;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+        old_wg_size = _workload_groups.size();
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
-            uint64_t tg_id = iter->first;
+            uint64_t wg_id = iter->first;
             auto workload_group_ptr = iter->second;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
+            if (used_wg_id.find(wg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
-                // only when no query running in workload group, its resource can be released in BE
-                if (workload_group_ptr->query_num() == 0) {
-                    LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
-                    deleted_task_groups.push_back(workload_group_ptr);
-                }
+                LOG(INFO) << "[topic_publish_wg] shutdown wg:" << wg_id;
+            }
+            // wg is shutdown and running rum = 0, its resource can be released in BE
+            if (workload_group_ptr->can_be_dropped()) {
+                LOG(INFO) << "[topic_publish_wg]There is no query in wg" << wg_id << ", delete it.";
+                deleted_task_groups.push_back(workload_group_ptr);
             }
         }
     }
 
     // 2 stop active thread
-    for (auto& tg : deleted_task_groups) {
+    for (auto& wg : deleted_task_groups) {
         // There is not lock here, but the tg may be released by another
-        // thread, so that we should use shared ptr here, not use tg_id
-        tg->try_stop_schedulers();
+        // thread, so that we should use shared ptr here, not use wg_id
+        wg->try_stop_schedulers();
     }
 
     // 3 release resource in memory
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-        for (auto& tg : deleted_task_groups) {
-            _workload_groups.erase(tg->id());
+        for (auto& wg : deleted_task_groups) {
+            _workload_groups.erase(wg->id());
         }
+        new_wg_size = _workload_groups.size();
     }
 
     // 4 clear cgroup dir
@@ -113,147 +119,140 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     // So the first time to rmdir a cgroup path may failed.
     // Using cgdelete has no such issue.
     {
-        std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
-        if (!_cg_cpu_ctl) {
-            _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
-        }
-        if (!_is_init_succ) {
-            Status ret = _cg_cpu_ctl->init();
-            if (ret.ok()) {
-                _is_init_succ = true;
-            } else {
-                LOG(INFO) << "init workload group mgr cpu ctl failed, " << ret.to_string();
+        if (config::doris_cgroup_cpu_path != "") {
+            std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
+            if (!_cg_cpu_ctl) {
+                _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
             }
-        }
-        if (_is_init_succ) {
-            Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
-            if (!ret.ok()) {
-                LOG(WARNING) << ret.to_string();
+            if (!_is_init_succ) {
+                Status ret = _cg_cpu_ctl->init();
+                if (ret.ok()) {
+                    _is_init_succ = true;
+                } else {
+                    LOG(INFO) << "[topic_publish_wg]init workload group mgr cpu ctl failed, "
+                              << ret.to_string();
+                }
+            }
+            if (_is_init_succ) {
+                Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
+                if (!ret.ok()) {
+                    LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
+                }
             }
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
-    LOG(INFO) << "finish clear unused workload group, time cost: " << time_cost_ms
-              << "ms, deleted group size:" << deleted_task_groups.size();
+    LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
+              << "ms, deleted group size:" << deleted_task_groups.size()
+              << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
 struct WorkloadGroupMemInfo {
     int64_t total_mem_used = 0;
-    int64_t weighted_mem_used = 0;
-    bool is_low_wartermark = false;
-    bool is_high_wartermark = false;
-    double mem_used_ratio = 0;
+    std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =
+            std::list<std::shared_ptr<MemTrackerLimiter>>();
 };
-void WorkloadGroupMgr::refresh_wg_memory_info() {
+
+void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    // workload group id -> workload group queries
-    std::unordered_map<uint64_t, std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>>>
-            all_wg_queries;
-    for (auto& [wg_id, wg] : _workload_groups) {
-        all_wg_queries.insert({wg_id, wg->queries()});
-    }
 
-    int64_t all_queries_mem_used = 0;
-
-    // calculate total memory used of each workload group and total memory used of all queries
+    // 1. make all workload groups memory snapshots(refresh workload groups total memory used at the same time)
+    // and calculate total memory used of all queries.
+    int64_t all_workload_groups_mem_usage = 0;
     std::unordered_map<uint64_t, WorkloadGroupMemInfo> wgs_mem_info;
-    for (auto& [wg_id, wg_queries] : all_wg_queries) {
-        int64_t wg_total_mem_used = 0;
-        for (const auto& [query_id, query_ctx_ptr] : wg_queries) {
-            if (auto query_ctx = query_ctx_ptr.lock()) {
-                wg_total_mem_used += query_ctx->query_mem_tracker->consumption();
-            }
-        }
-        all_queries_mem_used += wg_total_mem_used;
-        wgs_mem_info[wg_id] = {wg_total_mem_used};
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wgs_mem_info[wg_id].total_mem_used =
+                wg->make_memory_tracker_snapshots(&wgs_mem_info[wg_id].tracker_snapshots);
+        all_workload_groups_mem_usage += wgs_mem_info[wg_id].total_mem_used;
     }
-
-    auto proc_vm_rss = PerfCounters::get_vm_rss();
-    if (all_queries_mem_used <= 0) {
+    if (all_workload_groups_mem_usage <= 0) {
         return;
     }
 
-    auto process_mem_used = doris::MemInfo::proc_mem_no_allocator_cache();
-    auto sys_mem_available = doris::MemInfo::sys_mem_available();
-    if (proc_vm_rss < all_queries_mem_used) {
-        all_queries_mem_used = proc_vm_rss;
+    // 2. calculate weighted memory limit ratio.
+    // when construct workload group, mem_limit is equal to (process_memory_limit * group_limit_percent),
+    // here, it is assumed that the available memory of workload groups is equal to process_memory_limit.
+    //
+    // but process_memory_usage is actually bigger than all_workload_groups_mem_usage,
+    // because public_memory of page cache, allocator cache, segment cache etc. are included in process_memory_usage.
+    // so actual available memory of the workload groups is equal to (process_memory_limit - public_memory)
+    //
+    // we will exclude this public_memory when calculate workload group mem_limit.
+    // so a ratio is calculated to multiply the workload group mem_limit from the previous construction.
+    auto process_memory_usage = GlobalMemoryArbitrator::process_memory_usage();
+    auto process_memory_limit = MemInfo::mem_limit();
+    double weighted_memory_limit_ratio = 1;
+    // if all_workload_groups_mem_usage is greater than process_memory_usage, it means that the memory statistics
+    // of the workload group are inaccurate.
+    // the reason is that query/load/etc. tracked is virtual memory, and virtual memory is not used in time.
+    //
+    // At this time, weighted_memory_limit_ratio is equal to 1, and workload group mem_limit is still equal to
+    // (process_memory_limit * group_limit_percent), this may cause query spill to occur earlier,
+    // However, there is no good solution at present, but we cannot predict when these virtual memory will be used.
+    if (all_workload_groups_mem_usage < process_memory_usage) {
+        int64_t public_memory = process_memory_usage - all_workload_groups_mem_usage;
+        weighted_memory_limit_ratio = 1 - (double)public_memory / (double)process_memory_limit;
     }
 
-    // process memory used is actually bigger than all_queries_mem_used,
-    // because memory of page cache, allocator cache, segment cache etc. are included
-    // in process_mem_used.
-    // we count these cache memories equally on workload groups.
-    double ratio = (double)proc_vm_rss / (double)all_queries_mem_used;
-    if (ratio >= 1.25) {
-        std::string debug_msg = fmt::format(
-                "\nProcess Memory Summary: process_vm_rss: {}, process mem: {}, sys mem available: "
-                "{}, all quries mem: {}",
-                PrettyPrinter::print(proc_vm_rss, TUnit::BYTES),
-                PrettyPrinter::print(process_mem_used, TUnit::BYTES),
-                PrettyPrinter::print(sys_mem_available, TUnit::BYTES),
-                PrettyPrinter::print(all_queries_mem_used, TUnit::BYTES));
-        LOG_EVERY_N(INFO, 10) << debug_msg;
-    }
+    std::string debug_msg = fmt::format(
+            "\nProcess Memory Summary: {}, {}, all workload groups memory usage: {}, "
+            "weighted_memory_limit_ratio: {}",
+            doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
+            doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
+            PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES),
+            weighted_memory_limit_ratio);
+    LOG_EVERY_T(INFO, 10) << debug_msg;
 
     for (auto& wg : _workload_groups) {
-        auto wg_mem_limit = wg.second->memory_limit();
-        auto& wg_mem_info = wgs_mem_info[wg.first];
-        wg_mem_info.weighted_mem_used = int64_t(wg_mem_info.total_mem_used * ratio);
-        wg_mem_info.mem_used_ratio = (double)wg_mem_info.weighted_mem_used / wg_mem_limit;
+        // 3.1 calculate query spill threshold of task group
+        auto wg_weighted_mem_limit =
+                int64_t(wg.second->memory_limit() * weighted_memory_limit_ratio);
+        wg.second->set_weighted_memory_limit(wg_weighted_mem_limit);
 
-        wg.second->set_weighted_memory_used(wg_mem_info.total_mem_used, ratio);
-
-        auto spill_low_water_mark = wg.second->spill_threshold_low_water_mark();
-        auto spill_high_water_mark = wg.second->spill_threashold_high_water_mark();
-        wg_mem_info.is_high_wartermark = (wg_mem_info.weighted_mem_used >
-                                          ((double)wg_mem_limit * spill_high_water_mark / 100));
-        wg_mem_info.is_low_wartermark = (wg_mem_info.weighted_mem_used >
-                                         ((double)wg_mem_limit * spill_low_water_mark / 100));
-
-        // calculate query weighted memory limit of task group
-        const auto& wg_queries = all_wg_queries[wg.first];
-        auto wg_query_count = wg_queries.size();
-        int64_t query_weighted_mem_limit =
-                wg_query_count ? (wg_mem_limit + wg_query_count) / wg_query_count : wg_mem_limit;
-
-        std::string debug_msg;
-        if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-            debug_msg = fmt::format(
-                    "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem used: {}, used "
-                    "ratio: {}, query "
-                    "count: {}, query_weighted_mem_limit: {}",
-                    wg.second->name(), PrettyPrinter::print(wg_mem_limit, TUnit::BYTES),
-                    PrettyPrinter::print(wg_mem_info.total_mem_used, TUnit::BYTES),
-                    PrettyPrinter::print(wg_mem_info.weighted_mem_used, TUnit::BYTES),
-                    wg_mem_info.mem_used_ratio, wg_query_count,
-                    PrettyPrinter::print(query_weighted_mem_limit, TUnit::BYTES));
-
-            debug_msg += "\n  Query Memory Summary:";
-        }
-        // check where queries need to revoke memory for task group
-        for (const auto& query : wg_queries) {
+        // 3.2 set workload groups weighted memory limit and all query spill threshold.
+        auto wg_query_count = wgs_mem_info[wg.first].tracker_snapshots.size();
+        int64_t query_spill_threshold =
+                wg_query_count ? (wg_weighted_mem_limit + wg_query_count) / wg_query_count
+                               : wg_weighted_mem_limit;
+        for (const auto& query : wg.second->queries()) {
             auto query_ctx = query.second.lock();
             if (!query_ctx) {
                 continue;
             }
-            auto query_consumption = query_ctx->query_mem_tracker->consumption();
-            auto query_weighted_consumption = int64_t(query_consumption * ratio);
-            query_ctx->set_weighted_mem(query_weighted_mem_limit, query_weighted_consumption);
-
-            if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-                debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Parent Label={}, Used={}, WeightedUsed={}, "
-                        "Peak={}",
-                        query_ctx->query_mem_tracker->label(),
-                        query_ctx->query_mem_tracker->parent_label(),
-                        PrettyPrinter::print(query_consumption, TUnit::BYTES),
-                        PrettyPrinter::print(query_weighted_consumption, TUnit::BYTES),
-                        PrettyPrinter::print(query_ctx->query_mem_tracker->peak_consumption(),
-                                             TUnit::BYTES));
-            }
+            query_ctx->set_spill_threshold(query_spill_threshold);
         }
-        if (wg_mem_info.is_high_wartermark || wg_mem_info.is_low_wartermark) {
-            LOG_EVERY_N(INFO, 10) << debug_msg;
+
+        // 3.3 only print debug logs, if workload groups is_high_wartermark or is_low_wartermark.
+        bool is_low_wartermark = false;
+        bool is_high_wartermark = false;
+        wg.second->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+        std::string debug_msg;
+        if (is_high_wartermark || is_low_wartermark) {
+            debug_msg = fmt::format(
+                    "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
+                    "used "
+                    "ratio: {}, query count: {}, query spill threshold: {}",
+                    wg.second->name(),
+                    PrettyPrinter::print(wg.second->memory_limit(), TUnit::BYTES),
+                    PrettyPrinter::print(wgs_mem_info[wg.first].total_mem_used, TUnit::BYTES),
+                    PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
+                    (double)wgs_mem_info[wg.first].total_mem_used / wg_weighted_mem_limit,
+                    wg_query_count, PrettyPrinter::print(query_spill_threshold, TUnit::BYTES));
+
+            debug_msg += "\n  Query Memory Summary:";
+            // check whether queries need to revoke memory for task group
+            for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
+                debug_msg += fmt::format(
+                        "\n    MemTracker Label={}, Parent Label={}, Used={}, SpillThreshold={}, "
+                        "Peak={}",
+                        query_mem_tracker->label(), query_mem_tracker->parent_label(),
+                        PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
+                        PrettyPrinter::print(query_spill_threshold, TUnit::BYTES),
+                        PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
+            }
+            LOG_EVERY_T(INFO, 1) << debug_msg;
+        } else {
+            continue;
         }
     }
 }

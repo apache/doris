@@ -31,6 +31,11 @@ public:
     // set on any ancestor CGroups.
     static Status find_cgroup_mem_limit(int64_t* bytes);
 
+    // memory.usage_in_bytes ~= free.used + free.(buff/cache) - (buff)
+    // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
+    static Status find_cgroup_mem_usage(int64_t* bytes);
+    static Status find_cgroup_mem_info(std::string* file_path);
+
     // Determines the CGroup cpu cores limit from the current processes' cgroup.
     static Status find_cgroup_cpu_limit(float* cpu_count);
 

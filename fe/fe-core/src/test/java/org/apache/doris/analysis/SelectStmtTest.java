@@ -65,7 +65,6 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32),"
@@ -301,8 +300,8 @@ public class SelectStmtTest {
         String commonExpr2 = "`t3`.`k3` = `t1`.`k3`";
         String commonExpr3 = "`t1`.`k1` = `t5`.`k1`";
         String commonExpr4 = "t5`.`k2` = 'United States'";
-        String betweenExpanded1 = "(CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 100) AND (CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 150)";
-        String betweenExpanded2 = "(CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 50) AND (CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 100)";
+        String betweenExpanded1 = "(CAST(CAST(`t1`.`k4` AS decimalv3(12,2)) AS int) >= 100) AND (CAST(CAST(`t1`.`k4` AS decimalv3(12,2)) AS int) <= 150)";
+        String betweenExpanded2 = "(CAST(CAST(`t1`.`k4` AS decimalv3(12,2)) AS int) >= 50) AND (CAST(CAST(`t1`.`k4` AS decimalv3(12,2)) AS int) <= 100)";
         String betweenExpanded3 = "(`t1`.`k4` >= 50) AND (`t1`.`k4` <= 250)";
 
         String rewrittenSql = stmt.toSql();
@@ -525,7 +524,7 @@ public class SelectStmtTest {
 
     @Test
     public void testDeleteSign() throws Exception {
-        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false, DISABLE_NEREIDS_RULES=PRUNE_EMPTY_PARTITION) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
                 .contains("__DORIS_DELETE_SIGN__ = 0"));

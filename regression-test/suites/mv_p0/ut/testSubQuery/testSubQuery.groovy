@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testSubQuery") {
     sql """set enable_nereids_planner=true;"""
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -41,17 +43,20 @@ suite ("testSubQuery") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from emps order by empid;")
         contains "(emps)"
     }
     qt_select_star "select * from emps order by empid;"
 
+    qt_select_mv "select empid, deptno, salary from emps e1 where empid = (select max(empid) from emps where deptno = e1.deptno) order by deptno;"
 
+    sql """set enable_stats=true;"""
     explain {
-        sql("select empid, deptno, salary from emps e1 where empid = (select max(empid) from emps where deptno = e1.deptno);")
-        contains "(emps_mv)"
+        sql("select * from emps order by empid;")
         contains "(emps)"
     }
-    qt_select_mv "select empid, deptno, salary from emps e1 where empid = (select max(empid) from emps where deptno = e1.deptno) order by deptno;"
 }

@@ -17,13 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -166,50 +169,49 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType(),
-                "only support scalar type and array serialization");
-        if (type.isScalarType()) {
-            ScalarType scalarType = (ScalarType) type;
-            Text.writeString(out, scalarType.getPrimitiveType().name());
-            out.writeInt(scalarType.getScalarScale());
-            out.writeInt(scalarType.getScalarPrecision());
-            out.writeInt(scalarType.getLength());
-            // Actually, varcharLimit need not to write here, write true to back compatible
-            out.writeBoolean(true);
-        } else if (type.isArrayType()) {
-            ArrayType arrayType = (ArrayType) type;
-            Text.writeString(out, arrayType.getPrimitiveType().name());
-            write(out, arrayType.getItemType());
-            out.writeBoolean(arrayType.getContainsNull());
-        } else if (type.isMapType()) {
-            MapType mapType = (MapType) type;
-            Text.writeString(out, mapType.getPrimitiveType().name());
-            write(out, mapType.getKeyType());
-            write(out, mapType.getValueType());
-            out.writeBoolean(mapType.getIsKeyContainsNull());
-            out.writeBoolean(mapType.getIsValueContainsNull());
-        }
+        Preconditions.checkArgument(type.isScalarType() || type.isAggStateType()
+                        || type.isArrayType() || type.isMapType() || type.isStructType(),
+                "not support serialize this type " + type.toSql());
+        Text.writeString(out, GsonUtils.GSON.toJson(type));
     }
 
     public static Type read(DataInput in) throws IOException {
-        PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
-        if (primitiveType == PrimitiveType.ARRAY) {
-            Type itermType = read(in);
-            boolean containsNull = in.readBoolean();
-            return ArrayType.create(itermType, containsNull);
-        } else if (primitiveType == PrimitiveType.MAP) {
-            Type keyType = read(in);
-            Type valueType = read(in);
-            boolean keyContainsNull = in.readBoolean();
-            boolean valueContainsNull = in.readBoolean();
-            return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
         } else {
-            int scale = in.readInt();
-            int precision = in.readInt();
-            int len = in.readInt();
-            // Useless, just for back compatible
-            in.readBoolean();
-            return ScalarType.createType(primitiveType, len, precision, scale);
+            PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
+            if (primitiveType == PrimitiveType.ARRAY) {
+                Type itermType = read(in);
+                boolean containsNull = in.readBoolean();
+                return ArrayType.create(itermType, containsNull);
+            } else if (primitiveType == PrimitiveType.MAP) {
+                Type keyType = read(in);
+                Type valueType = read(in);
+                boolean keyContainsNull = in.readBoolean();
+                boolean valueContainsNull = in.readBoolean();
+                return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
+            } else if (primitiveType == PrimitiveType.STRUCT) {
+                int size = in.readInt();
+                ArrayList<StructField> fields = new ArrayList<>();
+                for (int i = 0; i < size; ++i) {
+                    String name = Text.readString(in);
+                    Type type = read(in);
+                    String comment = Text.readString(in);
+                    int pos = in.readInt();
+                    boolean containsNull = in.readBoolean();
+                    StructField field = new StructField(name, type, comment, containsNull);
+                    field.setPosition(pos);
+                    fields.add(field);
+                }
+                return new StructType(fields);
+            } else {
+                int scale = in.readInt();
+                int precision = in.readInt();
+                int len = in.readInt();
+                // Useless, just for back compatible
+                in.readBoolean();
+                return ScalarType.createType(primitiveType, len, precision, scale);
+            }
         }
     }
 }

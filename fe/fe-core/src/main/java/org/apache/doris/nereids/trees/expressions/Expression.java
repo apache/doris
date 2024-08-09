@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -67,7 +68,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final boolean inferred;
     private final boolean hasUnbound;
     private final boolean compareWidthAndDepth;
-    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(() -> collect(Slot.class::isInstance));
+    private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
+            () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
+    private final int fastChildrenHashCode;
 
     protected Expression(Expression... children) {
         super(children);
@@ -78,12 +81,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.depth = 1;
                 this.width = 1;
                 this.compareWidthAndDepth = supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = 0;
                 break;
             case 1:
                 Expression child = children[0];
                 this.depth = child.depth + 1;
                 this.width = child.width;
                 this.compareWidthAndDepth = child.compareWidthAndDepth && supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = child.fastChildrenHashCode() + 1;
                 break;
             case 2:
                 Expression left = children[0];
@@ -92,21 +97,25 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.width = left.width + right.width;
                 this.compareWidthAndDepth =
                         left.compareWidthAndDepth && right.compareWidthAndDepth && supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = left.fastChildrenHashCode() + right.fastChildrenHashCode() + 2;
                 break;
             default:
                 int maxChildDepth = 0;
                 int sumChildWidth = 0;
                 boolean compareWidthAndDepth = true;
+                int fastChildrenHashCode = 0;
                 for (Expression expression : children) {
                     child = expression;
                     maxChildDepth = Math.max(child.depth, maxChildDepth);
                     sumChildWidth += child.width;
                     hasUnbound |= child.hasUnbound;
                     compareWidthAndDepth &= child.compareWidthAndDepth;
+                    fastChildrenHashCode = fastChildrenHashCode + expression.fastChildrenHashCode() + 1;
                 }
                 this.depth = maxChildDepth + 1;
                 this.width = sumChildWidth;
                 this.compareWidthAndDepth = compareWidthAndDepth;
+                this.fastChildrenHashCode = fastChildrenHashCode;
         }
 
         checkLimit();
@@ -127,12 +136,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.depth = 1;
                 this.width = 1;
                 this.compareWidthAndDepth = supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = 0;
                 break;
             case 1:
                 Expression child = children.get(0);
                 this.depth = child.depth + 1;
                 this.width = child.width;
                 this.compareWidthAndDepth = child.compareWidthAndDepth && supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = child.fastChildrenHashCode() + 1;
                 break;
             case 2:
                 Expression left = children.get(0);
@@ -141,21 +152,25 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 this.width = left.width + right.width;
                 this.compareWidthAndDepth =
                         left.compareWidthAndDepth && right.compareWidthAndDepth && supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = left.fastChildrenHashCode() + right.fastChildrenHashCode() + 2;
                 break;
             default:
                 int maxChildDepth = 0;
                 int sumChildWidth = 0;
                 boolean compareWidthAndDepth = true;
+                int fastChildrenhashCode = 0;
                 for (Expression expression : children) {
                     child = expression;
                     maxChildDepth = Math.max(child.depth, maxChildDepth);
                     sumChildWidth += child.width;
                     hasUnbound |= child.hasUnbound;
                     compareWidthAndDepth &= child.compareWidthAndDepth;
+                    fastChildrenhashCode = fastChildrenhashCode + expression.fastChildrenHashCode() + 1;
                 }
                 this.depth = maxChildDepth + 1;
                 this.width = sumChildWidth;
                 this.compareWidthAndDepth = compareWidthAndDepth && supportCompareWidthAndDepth();
+                this.fastChildrenHashCode = fastChildrenhashCode;
         }
 
         checkLimit();
@@ -207,6 +222,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             }
         }
         return checkInputDataTypesInternal();
+    }
+
+    public int fastChildrenHashCode() {
+        return fastChildrenHashCode;
     }
 
     protected TypeCheckResult checkInputDataTypesInternal() {
@@ -390,6 +409,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
     }
 
+    public boolean isKeyColumnFromTable() {
+        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent()
+                && ((SlotReference) this).getColumn().get().isKey();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -399,7 +423,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             return false;
         }
         Expression that = (Expression) o;
-        if ((compareWidthAndDepth && (this.width != that.width || this.depth != that.depth))
+        if ((compareWidthAndDepth
+                && (this.width != that.width || this.depth != that.depth
+                    || this.fastChildrenHashCode != that.fastChildrenHashCode))
                 || arity() != that.arity() || !extraEquals(that)) {
             return false;
         }
@@ -423,7 +449,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
-        return getClass().hashCode();
+        return getClass().hashCode() + fastChildrenHashCode();
     }
 
     /**

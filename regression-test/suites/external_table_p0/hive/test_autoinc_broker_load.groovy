@@ -23,7 +23,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
         brokerName = getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hdfs_port")
+        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         def test_dir = "user/doris/preinstalled_data/data_case/autoinc"

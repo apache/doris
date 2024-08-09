@@ -101,9 +101,13 @@ public:
 
     void init_params(const RuntimeFilterParams* params) {
         _bloom_filter_length = params->bloom_filter_size;
+
         _build_bf_exactly = params->build_bf_exactly;
+        _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
+        _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _null_aware = params->null_aware;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
+        _limit_length();
     }
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
@@ -128,16 +132,12 @@ public:
             } else {
                 _bloom_filter_length = be_calculate_size;
             }
+            _limit_length();
         }
         return init_with_fixed_length(_bloom_filter_length);
     }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
-        if (_inited) {
-            return Status::OK();
-        }
-        // TODO: really need the lock?
-        std::lock_guard<std::mutex> l(_lock);
         if (_inited) {
             return Status::OK();
         }
@@ -154,7 +154,6 @@ public:
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
-        std::lock_guard<std::mutex> l(_lock);
         if (!_inited) {
             auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
             DCHECK(_bloom_filter == nullptr);
@@ -167,7 +166,7 @@ public:
         DCHECK(bloomfilter_func != nullptr);
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            return Status::InvalidArgument(
+            return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
                     "allocated bytes {}",
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);
@@ -223,13 +222,24 @@ public:
                                                 uint16_t* offsets, int number,
                                                 bool is_parse_column) = 0;
 
+private:
+    void _limit_length() {
+        if (_runtime_bloom_filter_min_size > 0) {
+            _bloom_filter_length = std::max(_bloom_filter_length, _runtime_bloom_filter_min_size);
+        }
+        if (_runtime_bloom_filter_max_size > 0) {
+            _bloom_filter_length = std::min(_bloom_filter_length, _runtime_bloom_filter_max_size);
+        }
+    }
+
 protected:
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
-    bool _inited {};
-    std::mutex _lock;
+    bool _inited = false;
     int64_t _bloom_filter_length;
+    int64_t _runtime_bloom_filter_min_size;
+    int64_t _runtime_bloom_filter_max_size;
     bool _build_bf_exactly = false;
     bool _bloom_filter_size_calculated_by_ndv = false;
 };
@@ -379,25 +389,38 @@ struct CommonFindOp {
 struct StringFindOp : CommonFindOp<StringRef> {
     static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
                              size_t start) {
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
-            const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
-
-            for (size_t i = start; i < col.size(); i++) {
-                if (!nullmap[i]) {
+        auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
+                                         size_t start, size_t size) {
+            for (size_t i = start; i < size; i++) {
+                if (nullmap == nullptr || !nullmap[i]) {
                     bloom_filter.add_element(col.get_data_at(i));
                 } else {
                     bloom_filter.set_contain_null();
                 }
             }
+        };
+
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+            if (nullable->get_nested_column().is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(
+                                              nullable->get_nested_column()),
+                                      nullmap.data(), start, nullmap.size());
+            } else {
+                _insert_batch_col_str(
+                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
+            }
         } else {
-            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
-            for (size_t i = start; i < col->size(); i++) {
-                bloom_filter.add_element(col->get_data_at(i));
+            if (column->is_column_string64()) {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString64&>(*column),
+                                      nullptr, start, column->size());
+            } else {
+                _insert_batch_col_str(assert_cast<const vectorized::ColumnString&>(*column),
+                                      nullptr, start, column->size());
             }
         }
     }

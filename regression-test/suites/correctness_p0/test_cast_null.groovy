@@ -56,29 +56,12 @@ suite("test_cast_null") {
         );
     """
 
-    sql """
-        set enable_nereids_planner=false;
-    """
-
-    explain {
-        sql """SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/ * FROM test_table_t53 LEFT JOIN test_table_t0 ON (('I4') LIKE (CAST(CAST(DATE '1970-05-06' AS FLOAT) AS VARCHAR) ));"""
-        contains "19700506"
-    }
-
     qt_sql1 """
         select CAST(CAST(DATE '1970-05-06' AS FLOAT) AS VARCHAR);
     """
 
     qt_sql2 """
         select 'abc' like null;
-    """
-
-    sql """
-        set enable_nereids_planner=true;
-    """
-
-    qt_sql3 """
-        select CAST(CAST(DATE '1970-05-06' AS FLOAT) AS VARCHAR);
     """
 
     qt_sql4 """

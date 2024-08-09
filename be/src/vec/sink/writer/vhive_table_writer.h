@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include "util/runtime_profile.h"
+#include "vec/columns/column.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/writer/async_result_writer.h"
 
@@ -38,15 +39,17 @@ struct ColumnWithTypeAndName;
 
 class VHiveTableWriter final : public AsyncResultWriter {
 public:
-    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                     std::shared_ptr<pipeline::Dependency> dep,
+                     std::shared_ptr<pipeline::Dependency> fin_dep);
 
-    ~VHiveTableWriter() = default;
+    ~VHiveTableWriter() override = default;
 
     Status init_properties(ObjectPool* pool);
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(vectorized::Block& block) override;
+    Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status close(Status) override;
 
@@ -61,6 +64,9 @@ private:
                                     const ColumnWithTypeAndName& partition_column, int position);
 
     std::string _compute_file_name();
+
+    Status _filter_block(doris::vectorized::Block& block, const vectorized::IColumn::Filter* filter,
+                         doris::vectorized::Block* output_block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;

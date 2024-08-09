@@ -22,7 +22,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("window_funnel") {
-    sql "SET enable_nereids_planner=false"
     def tableName = "windowfunnel_test"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

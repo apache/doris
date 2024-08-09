@@ -17,26 +17,24 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.exception.UdfRuntimeException;
-
 import java.util.Map;
 
 public interface JdbcExecutor {
-    int read() throws UdfRuntimeException;
+    int read() throws JdbcExecutorException;
 
-    int write(Map<String, String> params) throws UdfRuntimeException;
+    int write(Map<String, String> params) throws JdbcExecutorException;
 
-    long getBlockAddress(int batchSize, Map<String, String> outputParams) throws UdfRuntimeException;
+    long getBlockAddress(int batchSize, Map<String, String> outputParams) throws JdbcExecutorException;
 
-    void close() throws UdfRuntimeException, Exception;
+    void close() throws JdbcExecutorException, Exception;
 
-    void openTrans() throws UdfRuntimeException;
+    void openTrans() throws JdbcExecutorException;
 
-    void commitTrans() throws UdfRuntimeException;
+    void commitTrans() throws JdbcExecutorException;
 
-    void rollbackTrans() throws UdfRuntimeException;
+    void rollbackTrans() throws JdbcExecutorException;
 
     int getCurBlockRows();
 
-    boolean hasNext() throws UdfRuntimeException;
+    boolean hasNext() throws JdbcExecutorException;
 }

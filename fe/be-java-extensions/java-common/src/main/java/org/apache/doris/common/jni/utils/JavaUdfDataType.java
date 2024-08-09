@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.jni.utils;
 
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -26,6 +27,7 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -57,6 +59,7 @@ public class JavaUdfDataType {
             16);
     public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfDataType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
     public static final JavaUdfDataType MAP_TYPE = new JavaUdfDataType("MAP_TYPE", TPrimitiveType.MAP, 0);
+    public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfDataType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
 
     private static Set<JavaUdfDataType> JavaUdfDataTypeSet = new HashSet<>();
 
@@ -83,6 +86,7 @@ public class JavaUdfDataType {
         JavaUdfDataTypeSet.add(DECIMAL128);
         JavaUdfDataTypeSet.add(ARRAY_TYPE);
         JavaUdfDataTypeSet.add(MAP_TYPE);
+        JavaUdfDataTypeSet.add(STRUCT_TYPE);
     }
 
     private final String description;
@@ -95,6 +99,7 @@ public class JavaUdfDataType {
     private Type valueType;
     private int keyScale;
     private int valueScale;
+    private ArrayList<StructField> fields = new ArrayList<>();
 
     public JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
         this.description = description;
@@ -150,7 +155,7 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
                     JavaUdfDataType.DECIMAL128);
         } else if (c == java.util.ArrayList.class) {
-            return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
+            return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE, JavaUdfDataType.STRUCT_TYPE);
         } else if (c == java.util.HashMap.class) {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
         }
@@ -231,5 +236,17 @@ public class JavaUdfDataType {
 
     public int getValueScale() {
         return valueScale;
+    }
+
+    public void setFields(ArrayList<StructField> fields) {
+        this.fields = fields;
+    }
+
+    public ArrayList<String> getFieldNames() {
+        ArrayList<String> names = new ArrayList<>();
+        for (StructField filed : fields) {
+            names.add(filed.getName());
+        }
+        return names;
     }
 }

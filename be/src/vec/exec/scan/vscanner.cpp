@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include "common/config.h"
-#include "exec/exec_node.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
@@ -31,21 +30,9 @@
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile)
-        : _state(state),
-          _parent(parent),
-          _local_state(nullptr),
-          _limit(limit),
-          _profile(profile),
-          _output_tuple_desc(parent->output_tuple_desc()),
-          _output_row_descriptor(_parent->_output_row_descriptor.get()) {
-    _total_rf_num = _parent->runtime_filter_num();
-}
-
 VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                    RuntimeProfile* profile)
         : _state(state),
-          _parent(nullptr),
           _local_state(local_state),
           _limit(limit),
           _profile(profile),
@@ -62,7 +49,7 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
         }
     }
 
-    const auto& projections = _parent ? _parent->_projections : _local_state->_projections;
+    const auto& projections = _local_state->_projections;
     if (!projections.empty()) {
         _projections.resize(projections.size());
         for (size_t i = 0; i != projections.size(); ++i) {
@@ -70,8 +57,7 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
         }
     }
 
-    const auto& intermediate_projections =
-            _parent ? _parent->_intermediate_projections : _local_state->_intermediate_projections;
+    const auto& intermediate_projections = _local_state->_intermediate_projections;
     if (!intermediate_projections.empty()) {
         _intermediate_projections.resize(intermediate_projections.size());
         for (int i = 0; i < intermediate_projections.size(); i++) {
@@ -88,8 +74,7 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
 Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
-    auto& row_descriptor =
-            _parent ? _parent->_row_descriptor : _local_state->_parent->row_descriptor();
+    auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
         auto status = get_block(state, &_origin_block, eos);
@@ -127,7 +112,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto* timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
+                auto* timer = _local_state->_scan_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
@@ -140,7 +125,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto* timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
+                auto* timer = _local_state->_filter_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
@@ -186,10 +171,8 @@ Status VScanner::_filter_output_block(Block* block) {
 }
 
 Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
-    auto& projection_timer = _parent ? _parent->_projection_timer : _local_state->_projection_timer;
-    auto& exec_timer = _parent ? _parent->_exec_timer : _local_state->_exec_timer;
-    SCOPED_TIMER(exec_timer);
-    SCOPED_TIMER(projection_timer);
+    SCOPED_RAW_TIMER(&_per_scanner_timer);
+    SCOPED_RAW_TIMER(&_projection_timer);
 
     const size_t rows = origin_block->rows();
     if (rows == 0) {
@@ -241,11 +224,7 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     DCHECK(_applied_rf_num < _total_rf_num);
 
     int arrived_rf_num = 0;
-    if (_parent) {
-        RETURN_IF_ERROR(_parent->try_append_late_arrival_runtime_filter(&arrived_rf_num));
-    } else {
-        RETURN_IF_ERROR(_local_state->try_append_late_arrival_runtime_filter(&arrived_rf_num));
-    }
+    RETURN_IF_ERROR(_local_state->try_append_late_arrival_runtime_filter(&arrived_rf_num));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -259,11 +238,7 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    if (_parent) {
-        RETURN_IF_ERROR(_parent->clone_conjunct_ctxs(_conjuncts));
-    } else {
-        RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
-    }
+    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
@@ -273,24 +248,14 @@ Status VScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (_parent) {
-        COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
-    } else {
-        COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
-    }
+    COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
     _is_closed = true;
     return Status::OK();
 }
 
 void VScanner::_collect_profile_before_close() {
-    if (_parent) {
-        COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
-        COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
-        COUNTER_UPDATE(_parent->_byte_read_counter, _num_byte_read);
-    } else {
-        COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
-        COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
-    }
+    COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
+    COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
     if (!_state->enable_profile() && !_is_load) return;
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);

@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_4") {
     sql """ use @regression_cluster_name1 """
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="0") """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="900") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
@@ -35,14 +35,14 @@ suite("alter_ttl_4") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }
@@ -61,7 +61,8 @@ suite("alter_ttl_4") {
         |"AWS_ACCESS_KEY" = "${getS3AK()}",
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
-        |"AWS_REGION" = "${getS3Region()}")
+        |"AWS_REGION" = "${getS3Region()}",
+        |"provider" = "${getS3Provider()}")
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
@@ -132,7 +133,7 @@ suite("alter_ttl_4") {
             def strs = out.split('\n')
             Boolean flag2 = false;
             for (String line in strs) {
-                if (line.contains("file_cache_cache_size")) {
+                if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
@@ -143,7 +144,7 @@ suite("alter_ttl_4") {
             }
             assertTrue(flag2)
     }
-
+    sleep(60000)
     // one customer table would take about 1.3GB, the total cache size is 20GB
     // the following would take 20.8G all
     // evict customer_ttl
@@ -164,9 +165,6 @@ suite("alter_ttl_4") {
     load_customer_once("customer")
     load_customer_once("customer")
 
-    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="3600") """
-    // wait for fetching new tablet meta in BE
-    sleep(60000)
     // some datas in s3 and will download them
     sql """ select C_CUSTKEY from customer_ttl order by C_CUSTKEY limit 1"""
     sql """ select C_NAME from customer_ttl order by C_NAME limit 1"""
@@ -176,6 +174,10 @@ suite("alter_ttl_4") {
     sql """ select C_ACCTBAL from customer_ttl order by C_ACCTBAL limit 1"""
     sql """ select C_MKTSEGMENT from customer_ttl order by C_MKTSEGMENT limit 1"""
     sql """ select C_COMMENT from customer_ttl order by C_COMMENT limit 1"""
+
+    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="3600") """
+    // wait for fetching new tablet meta in BE
+    sleep(60000)
     // wait for updating file cache metrics
     sleep(30000)
     getMetricsMethod.call() {

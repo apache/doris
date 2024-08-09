@@ -19,13 +19,15 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -33,6 +35,9 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -40,7 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-public class TableStatsMeta implements Writable {
+public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     @SerializedName("tblId")
     public final long tblId;
@@ -72,10 +77,16 @@ public class TableStatsMeta implements Writable {
     public JobType jobType;
 
     @SerializedName("newPartitionLoaded")
-    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+    public AtomicBoolean partitionChanged = new AtomicBoolean(false);
 
     @SerializedName("userInjected")
     public boolean userInjected;
+
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+
+    @SerializedName("irc")
+    public ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -119,6 +130,10 @@ public class TableStatsMeta implements Writable {
         colToColStatsMeta.remove(Pair.of(indexName, colName));
     }
 
+    public void removeAllColumn() {
+        colToColStatsMeta.clear();
+    }
+
     public Set<Pair<String, String>> analyzeColumns() {
         return colToColStatsMeta.keySet();
     }
@@ -129,41 +144,88 @@ public class TableStatsMeta implements Writable {
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+                colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
+                        analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
+                        analyzedJob.updateRows, analyzedJob.enablePartition ? analyzedJob.partitionUpdateRows : null));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
+                colStatsMeta.updatedRows = analyzedJob.updateRows;
+                colStatsMeta.rowCount = analyzedJob.rowCount;
+                if (analyzedJob.enablePartition) {
+                    if (colStatsMeta.partitionUpdateRows == null) {
+                        colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                    }
+                    colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
+                }
             }
         }
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
-                rowCount = analyzedJob.emptyJob ? 0 : tableIf.getRowCount();
+                indexesRowCount.putAll(analyzedJob.indexesRowCount);
+                clearStaleIndexRowCount((OlapTable) tableIf);
             }
-            if (analyzedJob.emptyJob) {
+            rowCount = analyzedJob.rowCount;
+            if (rowCount == 0 && AnalysisMethod.SAMPLE.equals(analyzedJob.analysisMethod)) {
                 return;
             }
             if (analyzedJob.jobColumns.containsAll(
                     tableIf.getColumnIndexPairs(
-                    tableIf.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet())))) {
-                updatedRows.set(0);
-                newPartitionLoaded.set(false);
-            }
-            if (tableIf instanceof OlapTable) {
-                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
-                if (partitionInfo != null && analyzedJob.jobColumns
-                        .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
+                    tableIf.getSchemaAllIndexes(false).stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                    newPartitionLoaded.set(false);
-                }
+                partitionChanged.set(false);
+                userInjected = false;
             }
         }
     }
 
     public void convertDeprecatedColStatsToNewVersion() {
         deprecatedColNameToColStatsMeta = null;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (partitionUpdateRows == null) {
+            partitionUpdateRows = new ConcurrentHashMap<>();
+        }
+        if (indexesRowCount == null) {
+            indexesRowCount = new ConcurrentHashMap<>();
+        }
+        if (colToColStatsMeta == null) {
+            colToColStatsMeta = new ConcurrentHashMap<>();
+        }
+    }
+
+    public long getRowCount(long indexId) {
+        return indexesRowCount.getOrDefault(indexId, -1L);
+    }
+
+    private void clearStaleIndexRowCount(OlapTable table) {
+        Iterator<Long> iterator = indexesRowCount.keySet().iterator();
+        List<Long> indexIds = table.getIndexIds();
+        while (iterator.hasNext()) {
+            long key = iterator.next();
+            if (indexIds.contains(key)) {
+                iterator.remove();
+            }
+        }
+    }
+
+    public long getBaseIndexDeltaRowCount(OlapTable table) {
+        if (colToColStatsMeta == null) {
+            return -1;
+        }
+        long maxUpdateRows = 0;
+        String baseIndexName = table.getIndexNameById(table.getBaseIndexId());
+        for (Map.Entry<Pair<String, String>, ColStatsMeta> entry : colToColStatsMeta.entrySet()) {
+            if (entry.getKey().first.equals(baseIndexName) && entry.getValue().updatedRows > maxUpdateRows) {
+                maxUpdateRows = entry.getValue().updatedRows;
+            }
+        }
+        return updatedRows.get() - maxUpdateRows;
     }
 }

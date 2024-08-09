@@ -84,7 +84,7 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
 
 Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                              rapidjson::Document::AllocatorType& allocator,
-                                             int row_num) const {
+                                             Arena& mem_pool, int row_num) const {
     return Status::InternalError("Not support write {} to rapidjson", column.get_name());
 }
 

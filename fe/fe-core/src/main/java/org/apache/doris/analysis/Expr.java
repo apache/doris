@@ -38,9 +38,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -54,11 +57,11 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -72,14 +75,13 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
  * Root of the expr node hierarchy.
  */
-public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, Writable, ExprStats {
-
-    private static final Logger LOG = LogManager.getLogger(Expr.class);
+public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneable, ExprStats {
 
     // Name of the function that needs to be implemented by every Expr that
     // supports negation.
@@ -100,6 +102,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final double DEFAULT_SELECTIVITY = 0.1;
 
     public static final float FUNCTION_CALL_COST = 10;
+
+    protected Optional<Boolean> nullableFromNereids = Optional.empty();
 
     // returns true if an Expr is a non-analytic aggregate.
     private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
@@ -237,27 +241,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         selectivity = -1;
     }
 
-    /* TODO(zc)
-    public final static com.google.common.base.Predicate<Expr>
-            IS_NONDETERMINISTIC_BUILTIN_FN_PREDICATE =
-            new com.google.common.base.Predicate<Expr>() {
-                @Override
-                public boolean apply(Expr arg) {
-                    return arg instanceof FunctionCallExpr
-                            && ((FunctionCallExpr) arg).isNondeterministicBuiltinFn();
-                }
-            };
-
-    public final static com.google.common.base.Predicate<Expr> IS_UDF_PREDICATE =
-            new com.google.common.base.Predicate<Expr>() {
-                @Override
-                public boolean apply(Expr arg) {
-                    return arg instanceof FunctionCallExpr
-                            && !((FunctionCallExpr) arg).getFnName().isBuiltin();
-                }
-            };
-    */
-
     // id that's unique across the entire query statement and is assigned by
     // Analyzer.registerConjuncts(); only assigned for the top-level terms of a
     // conjunction, and therefore null for most Exprs
@@ -268,14 +251,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // false if Expr originated with a query stmt directly
     private boolean isAuxExpr = false;
 
+    @SerializedName("type")
     protected Type type;  // result of analysis
 
     protected boolean isOnClauseConjunct; // set by analyzer
 
     protected boolean isAnalyzed = false;  // true after analyze() has been called
 
+    @SerializedName("opcode")
     protected TExprOpcode opcode;  // opcode for this expr
-    protected TExprOpcode vectorOpcode;  // vector opcode for this expr
 
     // estimated probability of a predicate evaluating to true;
     // set during analysis;
@@ -288,8 +272,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     protected int outputScale = -1;
 
-    protected int outputColumn = -1;
-
     protected boolean isFilter = false;
 
     // The function to call. This can either be a scalar or aggregate function.
@@ -297,7 +279,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Function fn;
 
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
-    private boolean isConstant;
+    private Supplier<Boolean> isConstant = Suppliers.memoize(() -> false);
 
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
@@ -310,7 +292,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         super();
         type = Type.INVALID;
         opcode = TExprOpcode.INVALID_OPCODE;
-        vectorOpcode = TExprOpcode.INVALID_OPCODE;
         selectivity = -1.0;
         numDistinctValues = -1;
     }
@@ -388,10 +369,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (scale > 0 && scale < 10) {
             outputScale = scale;
         }
-    }
-
-    public int getOutputColumn() {
-        return outputColumn;
     }
 
     public boolean isFilter() {
@@ -485,7 +462,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Preconditions.checkState(!isAnalyzed);
         // We need to compute the const-ness as the last step, since analysis may change
         // the result, e.g. by resolving function.
-        isConstant = isConstantImpl();
+        isConstant = Suppliers.memoize(this::isConstantImpl);
         isAnalyzed = true;
     }
 
@@ -943,31 +920,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return numDistinctValues;
     }
 
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        for (Expr child : children) {
-            child.vectorizedAnalyze(analyzer);
-        }
-    }
-
-    public void computeOutputColumn(Analyzer analyzer) {
-        for (Expr child : children) {
-            child.computeOutputColumn(analyzer);
-            LOG.info("child " + child.debugString() + " outputColumn: " + child.getOutputColumn());
-        }
-
-        if (!isConstant() && !isFilter) {
-            List<TupleId> tupleIds = Lists.newArrayList();
-            getIds(tupleIds, null);
-            Preconditions.checkArgument(tupleIds.size() == 1);
-
-            int currentOutputColumn = analyzer.getCurrentOutputColumn(tupleIds.get(0));
-            this.outputColumn = currentOutputColumn;
-            LOG.info(debugString() + " outputColumn: " + this.outputColumn);
-            ++currentOutputColumn;
-            analyzer.setCurrentOutputColumn(tupleIds.get(0), currentOutputColumn);
-        }
-    }
-
     public String toSql() {
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
@@ -1056,7 +1008,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         msg.output_scale = getOutputScale();
-        msg.setIsNullable(isNullable());
+        msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
         toThrift(msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -1403,7 +1355,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public final boolean isConstant() {
         if (isAnalyzed) {
-            return isConstant;
+            return isConstant.get();
         }
         return isConstantImpl();
     }
@@ -1529,7 +1481,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     public final Expr castTo(Type targetType) throws AnalysisException {
-        if (this instanceof PlaceHolderExpr && this.type.isInvalid()) {
+        if (this instanceof PlaceHolderExpr && this.type.isUnsupported()) {
             return this;
         }
         // If the targetType is NULL_TYPE then ignore the cast because NULL_TYPE
@@ -1980,11 +1932,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
             } else {
                 Function original = f;
-                f = ((AggregateFunction) f).clone();
+                f = f.clone();
                 f.setArgs(argList);
                 if (isUnion) {
                     f.setName(new FunctionName(name + AGG_UNION_SUFFIX));
-                    f.setReturnType((ScalarType) argList.get(0));
+                    f.setReturnType(argList.get(0));
                     f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
                 }
                 if (isMerge) {
@@ -2074,11 +2026,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        throw new IOException("Not implemented serializable ");
-    }
-
     public void readFields(DataInput in) throws IOException {
         throw new IOException("Not implemented serializable ");
     }
@@ -2127,46 +2074,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public static void writeTo(Expr expr, DataOutput output) throws IOException {
-        if (expr instanceof SlotRef) {
-            output.writeInt(ExprSerCode.SLOT_REF.getCode());
-        } else if (expr instanceof NullLiteral) {
-            output.writeInt(ExprSerCode.NULL_LITERAL.getCode());
-        } else if (expr instanceof BoolLiteral) {
-            output.writeInt(ExprSerCode.BOOL_LITERAL.getCode());
-        } else if (expr instanceof IntLiteral) {
-            output.writeInt(ExprSerCode.INT_LITERAL.getCode());
-        } else if (expr instanceof LargeIntLiteral) {
-            output.writeInt(ExprSerCode.LARGE_INT_LITERAL.getCode());
-        } else if (expr instanceof DateLiteral) {
-            output.writeInt(ExprSerCode.DATE_LITERAL.getCode());
-        } else if (expr instanceof FloatLiteral) {
-            output.writeInt(ExprSerCode.FLOAT_LITERAL.getCode());
-        } else if (expr instanceof DecimalLiteral) {
-            output.writeInt(ExprSerCode.DECIMAL_LITERAL.getCode());
-        } else if (expr instanceof StringLiteral) {
-            output.writeInt(ExprSerCode.STRING_LITERAL.getCode());
-        } else if (expr instanceof JsonLiteral) {
-            output.writeInt(ExprSerCode.JSON_LITERAL.getCode());
-        } else if (expr instanceof MaxLiteral) {
-            output.writeInt(ExprSerCode.MAX_LITERAL.getCode());
-        } else if (expr instanceof BinaryPredicate) {
-            output.writeInt(ExprSerCode.BINARY_PREDICATE.getCode());
-        } else if (expr instanceof FunctionCallExpr) {
-            output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
-        } else if (expr instanceof ArrayLiteral) {
-            output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
-        } else if (expr instanceof MapLiteral) {
-            output.writeInt(ExprSerCode.MAP_LITERAL.getCode());
-        } else if (expr instanceof StructLiteral) {
-            output.writeInt(ExprSerCode.STRUCT_LITERAL.getCode());
-        } else if (expr instanceof CastExpr) {
-            output.writeInt(ExprSerCode.CAST_EXPR.getCode());
-        } else if (expr instanceof ArithmeticExpr) {
-            output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
+        if (expr.supportSerializable()) {
+            Text.writeString(output, GsonUtils.GSON.toJson(expr));
         } else {
-            throw new IOException("Unsupported writable expr class: " + expr.getClass().getName());
+            throw new IOException("Unsupported writable expr " + expr.toSql());
         }
-        expr.write(output);
     }
 
     /**
@@ -2176,58 +2088,66 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * @throws IOException
      */
     public static Expr readIn(DataInput in) throws IOException {
-        int code = in.readInt();
-        ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
-        if (exprSerCode == null) {
-            throw new IOException("Unknown code: " + code);
-        }
-        switch (exprSerCode) {
-            case SLOT_REF:
-                return SlotRef.read(in);
-            case NULL_LITERAL:
-                return NullLiteral.read(in);
-            case BOOL_LITERAL:
-                return BoolLiteral.read(in);
-            case INT_LITERAL:
-                return IntLiteral.read(in);
-            case DATE_LITERAL:
-                return DateLiteral.read(in);
-            case LARGE_INT_LITERAL:
-                return LargeIntLiteral.read(in);
-            case FLOAT_LITERAL:
-                return FloatLiteral.read(in);
-            case DECIMAL_LITERAL:
-                return DecimalLiteral.read(in);
-            case STRING_LITERAL:
-                return StringLiteral.read(in);
-            case JSON_LITERAL:
-                return JsonLiteral.read(in);
-            case MAX_LITERAL:
-                return MaxLiteral.read(in);
-            case BINARY_PREDICATE:
-                return BinaryPredicate.read(in);
-            case FUNCTION_CALL:
-                return FunctionCallExpr.read(in);
-            case ARRAY_LITERAL:
-                return ArrayLiteral.read(in);
-            case MAP_LITERAL:
-                return MapLiteral.read(in);
-            case STRUCT_LITERAL:
-                return StructLiteral.read(in);
-            case CAST_EXPR:
-                return CastExpr.read(in);
-            case ARITHMETIC_EXPR:
-                return ArithmeticExpr.read(in);
-            default:
-                throw new IOException("Unknown wriable expr code: " + code);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
+        } else {
+            int code = in.readInt();
+            ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
+            if (exprSerCode == null) {
+                throw new IOException("Unknown code: " + code);
+            }
+            switch (exprSerCode) {
+                case SLOT_REF:
+                    return SlotRef.read(in);
+                case NULL_LITERAL:
+                    return NullLiteral.read(in);
+                case BOOL_LITERAL:
+                    return BoolLiteral.read(in);
+                case INT_LITERAL:
+                    return IntLiteral.read(in);
+                case DATE_LITERAL:
+                    return DateLiteral.read(in);
+                case LARGE_INT_LITERAL:
+                    return LargeIntLiteral.read(in);
+                case FLOAT_LITERAL:
+                    return FloatLiteral.read(in);
+                case DECIMAL_LITERAL:
+                    return DecimalLiteral.read(in);
+                case STRING_LITERAL:
+                    return StringLiteral.read(in);
+                case JSON_LITERAL:
+                    return JsonLiteral.read(in);
+                case MAX_LITERAL:
+                    return MaxLiteral.read(in);
+                case BINARY_PREDICATE:
+                    return BinaryPredicate.read(in);
+                case FUNCTION_CALL:
+                    return FunctionCallExpr.read(in);
+                case ARRAY_LITERAL:
+                    return ArrayLiteral.read(in);
+                case MAP_LITERAL:
+                    return MapLiteral.read(in);
+                case STRUCT_LITERAL:
+                    return StructLiteral.read(in);
+                case CAST_EXPR:
+                    return CastExpr.read(in);
+                case ARITHMETIC_EXPR:
+                    return ArithmeticExpr.read(in);
+                default:
+                    throw new IOException("Unknown writable expr code: " + code);
+            }
         }
     }
 
-    // If this expr can serialize and deserialize,
-    // Expr will be serialized when this in load statement.
-    // If one expr implement write/readFields, must override this function
+    // If this expr can serialize and deserialize.
+    // If one expr NOT implement Gson annotation, must override this function by return false
     public boolean supportSerializable() {
-        return false;
+        for (Expr child : children) {
+            if (!child.supportSerializable()) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
@@ -2256,11 +2176,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         return getStringValue();
     }
 
-    public String getStringValueForStreamLoad() {
+    public String getStringValueForStreamLoad(FormatOptions options) {
         return getStringValue();
     }
 
@@ -2269,7 +2189,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // ["1", "2", "3"]
     // ["a", "b", "c"]
     // [["1", "2", "3"], ["1"], ["3"]]
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 
@@ -2452,7 +2372,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
         List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         return isNullable(f, mockedExprs);
     }
 
@@ -2622,7 +2542,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     // In this case, agg output must be materialized whether outer query block required or not.
                     if (f.getFunctionName().getFunction().equals("count")) {
                         for (Expr expr : funcExpr.children) {
-                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                            if (expr.isConstant() && !(expr instanceof LiteralExpr)) {
                                 return true;
                             }
                         }
@@ -2660,6 +2580,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public boolean isZeroLiteral() {
         return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
+    }
+
+    public void setNullableFromNereids(boolean nullable) {
+        nullableFromNereids = Optional.of(nullable);
     }
 }
 

@@ -26,10 +26,6 @@ suite('test_partial_update_delete') {
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
 
-            sql 'set enable_nereids_planner=false'
-            sql "set experimental_enable_nereids_planner=false;"
-            sql 'set enable_nereids_dml=false'
-
             def tableName1 = "test_partial_update_delete1"
             sql "DROP TABLE IF EXISTS ${tableName1};"
             sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (

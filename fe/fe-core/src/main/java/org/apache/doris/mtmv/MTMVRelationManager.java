@@ -47,16 +47,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 
 /**
  * when do some operation, do something about cache
  */
 public class MTMVRelationManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVRelationManager.class);
+    // when
+    // create mv1 as select * from table1;
+    // create mv2 as select * from mv1;
+    // `tableMTMVs` will have 3 pair: table1 ==> mv1,mv1==>mv2, table1 ==> mv2
+    // `tableMTMVsOneLevel` will have 2 pair: table1 ==> mv1,mv1==>mv2
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
+    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
 
-    private Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
+    public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
+    }
+
+    public Set<BaseTableInfo> getMtmvsByBaseTableOneLevel(BaseTableInfo table) {
+        return tableMTMVsOneLevel.getOrDefault(table, ImmutableSet.of());
     }
 
     /**
@@ -66,13 +77,17 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param ctx
      * @return
      */
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx) {
+    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
+            boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (isMVPartitionValid(mtmv, ctx)) {
+                if (predicate.test(ctx, mtmv)) {
+                    continue;
+                }
+                if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
                 }
             } catch (AnalysisException e) {
@@ -84,9 +99,10 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @VisibleForTesting
-    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+        long currentTimeMillis = System.currentTimeMillis();
         return !CollectionUtils
-                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()));
+                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMillis, forceConsistent));
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {
@@ -104,7 +120,14 @@ public class MTMVRelationManager implements MTMVHookService {
         return tableMTMVs.get(baseTableInfo);
     }
 
-    private void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
+    private Set<BaseTableInfo> getOrCreateMTMVsOneLevel(BaseTableInfo baseTableInfo) {
+        if (!tableMTMVsOneLevel.containsKey(baseTableInfo)) {
+            tableMTMVsOneLevel.put(baseTableInfo, Sets.newConcurrentHashSet());
+        }
+        return tableMTMVsOneLevel.get(baseTableInfo);
+    }
+
+    public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
         LOG.info("refreshMTMVCache,relation: {}, mtmvInfo: {}", relation, mtmvInfo);
         removeMTMV(mtmvInfo);
         addMTMV(relation, mtmvInfo);
@@ -116,6 +139,7 @@ public class MTMVRelationManager implements MTMVHookService {
         }
         addMTMVTables(relation.getBaseTables(), mtmvInfo);
         addMTMVTables(relation.getBaseViews(), mtmvInfo);
+        addMTMVTablesOneLevel(relation.getBaseTablesOneLevel(), mtmvInfo);
     }
 
     private void addMTMVTables(Set<BaseTableInfo> baseTables, BaseTableInfo mtmvInfo) {
@@ -127,8 +151,20 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
+    private void addMTMVTablesOneLevel(Set<BaseTableInfo> baseTables, BaseTableInfo mtmvInfo) {
+        if (CollectionUtils.isEmpty(baseTables)) {
+            return;
+        }
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            getOrCreateMTMVsOneLevel(baseTableInfo).add(mtmvInfo);
+        }
+    }
+
     private void removeMTMV(BaseTableInfo mtmvInfo) {
         for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
+            sets.remove(mtmvInfo);
+        }
+        for (Set<BaseTableInfo> sets : tableMTMVsOneLevel.values()) {
             sets.remove(mtmvInfo);
         }
     }

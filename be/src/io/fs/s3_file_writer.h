@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
@@ -42,59 +43,78 @@ struct S3Conf;
 namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
+struct AsyncCloseStatusPack;
+class ObjClientHolder;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
+    S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
-    Status close() override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
 
-    const Path& path() const override { return _path; }
+    const Path& path() const override { return _obj_storage_path_opts.path; }
     size_t bytes_appended() const override { return _bytes_appended; }
-    bool closed() const override { return _closed; }
+    State state() const override { return _state; }
+
+    FileCacheAllocatorBuilder* cache_builder() const override {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
+
+    const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
+
+    const std::string& key() const { return _obj_storage_path_opts.key; }
+    const std::string& bucket() const { return _obj_storage_path_opts.bucket; }
+    std::string upload_id() const {
+        return _obj_storage_path_opts.upload_id.has_value()
+                       ? _obj_storage_path_opts.upload_id.value()
+                       : std::string();
+    }
+
+    Status close(bool non_block = false) override;
 
 private:
+    Status _close_impl();
     Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
+    Status _set_upload_to_remote_less_than_buffer_size();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
-    Path _path;
-    std::string _bucket;
-    std::string _key;
-
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::string _upload_id;
-    size_t _index_offset {0};
+    ObjectStoragePathOptions _obj_storage_path_opts;
 
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    std::vector<ObjectCompleteMultiPart> _completed_parts;
 
-    UInt128Wrapper _cache_hash;
-    BlockFileCache* _cache;
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
 
-    bool _closed = false;
     Status _st;
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    uint64_t _expiration_time;
-    bool _is_cold_data;
-    bool _write_file_cache;
+    std::unique_ptr<FileCacheAllocatorBuilder>
+            _cache_builder; // nullptr if disable write file cache
+
+    // S3 committer will start multipart uploading all files on BE side,
+    // and then complete multipart upload these files on FE side.
+    // If you do not complete multi parts of a file, the file will not be visible.
+    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
+    // guarantee the atomicity of multiple files.
+    // Because hive committers have best-effort semantics,
+    // this shortens the inconsistent time window.
+    bool _used_by_s3_committer;
+    std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
+    State _state {State::OPENED};
+    std::shared_ptr<ObjClientHolder> _obj_client;
 };
 
 } // namespace io

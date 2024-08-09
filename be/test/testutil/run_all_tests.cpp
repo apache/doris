@@ -23,6 +23,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
 #include "olap/page_cache.h"
@@ -34,6 +36,7 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "service/http_service.h"
+#include "test_util.h"
 #include "testutil/http_utils.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
@@ -51,16 +54,21 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
-    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
+    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000, 1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     auto st = doris::config::init(conf.c_str(), false);
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
             doris::TabletSchemaCache::create_global_schema_cache(
                     doris::config::tablet_schema_cache_capacity));
     LOG(INFO) << "init config " << st;
+    doris::Status s = doris::config::set_config("enable_stacktrace", "false");
+    if (!s.ok()) {
+        LOG(WARNING) << "set enable_stacktrace=false failed";
+    }
 
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
+
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
@@ -70,6 +78,10 @@ int main(int argc, char** argv) {
     service->register_debug_point_handler();
     service->_ev_http_server->start();
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
+
+    ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
+    listeners.Append(new TestListener);
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
     return res;

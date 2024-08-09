@@ -53,6 +53,75 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    //   1. when meet 'or' conjunct: a or b, if b can apply index, return all rows, so b should not be extracted
+    //   2. when meet 'and' conjunct, function with column b can not apply inverted index
+    //      eg. a and hash(b)=1, if b can apply index, but hash(b)=1 is not for index, so b should not be extracted
+    //          but a and array_contains(b, 1), b can be applied inverted index, which b can be extracted
+    Status eval_inverted_index(
+            VExprContext* context,
+            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
+                                                         segment_v2::InvertedIndexIterator*>>&
+                    colid_to_inverted_index_iter,
+            uint32_t num_rows, roaring::Roaring* bitmap) const override {
+        std::shared_ptr<roaring::Roaring> res = std::make_shared<roaring::Roaring>();
+        if (_op == TExprOpcode::COMPOUND_OR) {
+            for (auto child : _children) {
+                std::shared_ptr<roaring::Roaring> child_roaring =
+                        std::make_shared<roaring::Roaring>();
+                Status st = child->eval_inverted_index(context, colid_to_inverted_index_iter,
+                                                       num_rows, child_roaring.get());
+                if (!st.ok()) {
+                    bitmap->addRange(0, num_rows);
+                    return st;
+                }
+                if (child_roaring->cardinality() == 0) {
+                    // means inverted index filter do not reduce any rows
+                    // the left expr no need to be extracted by inverted index,
+                    // and cur roaring is all rows which means this inverted index is not useful,
+                    // do not need to calculate with res bitmap
+                    bitmap->addRange(0, num_rows);
+                    return Status::OK();
+                }
+                *res |= *child_roaring;
+            }
+            *bitmap = *res;
+        } else if (_op == TExprOpcode::COMPOUND_AND) {
+            for (int i = 0; i < _children.size(); ++i) {
+                std::shared_ptr<roaring::Roaring> child_roaring =
+                        std::make_shared<roaring::Roaring>();
+                Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
+                                                              num_rows, child_roaring.get());
+                if (!st.ok()) {
+                    continue;
+                }
+                if (i == 0) {
+                    *res = *child_roaring;
+                } else {
+                    *res &= *child_roaring;
+                }
+                if (res->isEmpty()) {
+                    // the left expr no need to be extracted by inverted index, just return 0 rows
+                    // res bitmap will be zero
+                    return Status::OK();
+                }
+            }
+            *bitmap = *res;
+        } else if (_op == TExprOpcode::COMPOUND_NOT) {
+            Status st = _children[0]->eval_inverted_index(context, colid_to_inverted_index_iter,
+                                                          num_rows, res.get());
+            if (!st.ok()) {
+                return st;
+            }
+            std::shared_ptr<roaring::Roaring> all_rows = std::make_shared<roaring::Roaring>();
+            all_rows->addRange(0, num_rows);
+            *bitmap = *all_rows - *res;
+        } else {
+            return Status::NotSupported(
+                    "Compound operator must be AND or OR or Not can execute with inverted index.");
+        }
+        return Status::OK();
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
             return VectorizedFnCall::execute(context, block, result_column_id);

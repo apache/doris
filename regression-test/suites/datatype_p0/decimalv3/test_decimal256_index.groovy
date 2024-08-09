@@ -19,7 +19,10 @@ suite("test_decimal256_index") {
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
 
+    def timeout = 60000
     def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){

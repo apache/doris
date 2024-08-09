@@ -38,21 +38,21 @@ class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
 namespace doris::io {
-
+class ObjStorageClient;
 // In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
-// The `S3FileReader` cached by the `Segment` must hold a shared `S3ClientHolder` in order to
+// The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
 // access S3 data with latest AK SK.
-class S3ClientHolder {
+class ObjClientHolder {
 public:
-    explicit S3ClientHolder(S3ClientConf conf);
-    ~S3ClientHolder();
+    explicit ObjClientHolder(S3ClientConf conf);
+    ~ObjClientHolder();
 
     Status init();
 
     // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
     Status reset(const S3ClientConf& conf);
 
-    std::shared_ptr<Aws::S3::S3Client> get() const {
+    std::shared_ptr<ObjStorageClient> get() const {
         std::shared_lock lock(_mtx);
         return _client;
     }
@@ -62,9 +62,11 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
+    const S3ClientConf& s3_client_conf() { return _conf; }
+
 private:
     mutable std::shared_mutex _mtx;
-    std::shared_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<ObjStorageClient> _client;
     S3ClientConf _conf;
 };
 
@@ -83,7 +85,13 @@ public:
 
     ~S3FileSystem() override;
 
-    const std::shared_ptr<S3ClientHolder>& client_holder() const { return _client; }
+    const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
+
+    const std::string& bucket() const { return _bucket; }
+    const std::string& prefix() const { return _prefix; }
+
+    std::string generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                       bool is_public_endpoint) const;
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
@@ -127,7 +135,7 @@ private:
 
     std::string _bucket;
     std::string _prefix;
-    std::shared_ptr<S3ClientHolder> _client;
+    std::shared_ptr<ObjClientHolder> _client;
 };
 
 } // namespace doris::io

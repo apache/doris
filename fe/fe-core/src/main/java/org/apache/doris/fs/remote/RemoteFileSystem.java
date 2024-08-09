@@ -18,17 +18,23 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.RemoteFiles;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
+import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 public abstract class RemoteFileSystem extends PersistentFileSystem {
     // this field will be visited by multi-threads, better use volatile qualifier
@@ -42,27 +48,76 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         throw new UserException("Not support to getFileSystem.");
     }
 
-    @Override
-    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
-        org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
-        try {
-            Path locatedPath = new Path(remotePath);
-            RemoteIterator<LocatedFileStatus> locatedFiles = onlyFiles ? fileSystem.listFiles(locatedPath, recursive)
-                        : fileSystem.listLocatedStatus(locatedPath);
-            return getFileLocations(locatedFiles);
-        } catch (IOException e) {
-            throw new UserException("Failed to list located status for path: " + remotePath, e);
-        }
+    public boolean ifNotSetFallbackToSimpleAuth() {
+        return properties.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
     }
 
-    private RemoteFiles getFileLocations(RemoteIterator<LocatedFileStatus> locatedFiles) throws IOException {
-        List<RemoteFile> locations = new ArrayList<>();
-        while (locatedFiles.hasNext()) {
-            LocatedFileStatus fileStatus = locatedFiles.next();
-            RemoteFile location = new RemoteFile(fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
-                    fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
-            locations.add(location);
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        try {
+            org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
+            Path locatedPath = new Path(remotePath);
+            RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
+            while (locatedFiles.hasNext()) {
+                LocatedFileStatus fileStatus = locatedFiles.next();
+                RemoteFile location = new RemoteFile(
+                        fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
+                result.add(location);
+            }
+        } catch (FileNotFoundException e) {
+            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
-        return new RemoteFiles(locations);
+        return Status.OK;
+    }
+
+    protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
+                FileSystem fileSystem, Path locatedPath) throws IOException {
+        return fileSystem.listFiles(locatedPath, recursive);
+    }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileStatus[] fileStatuses = getFileStatuses(remotePath, fileSystem);
+            result.addAll(
+                    Arrays.stream(fileStatuses)
+                            .filter(FileStatus::isDirectory)
+                            .map(file -> file.getPath().toString() + "/")
+                            .collect(ImmutableSet.toImmutableSet()));
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    protected FileStatus[] getFileStatuses(String remotePath, FileSystem fileSystem) throws IOException {
+        return fileSystem.listStatus(new Path(remotePath));
+    }
+
+    @Override
+    public Status renameDir(String origFilePath,
+                            String destFilePath,
+                            Runnable runWhenPathNotExist) {
+        Status status = exists(destFilePath);
+        if (status.ok()) {
+            return new Status(Status.ErrCode.COMMON_ERROR, "Destination directory already exists: " + destFilePath);
+        }
+
+        String targetParent = new Path(destFilePath).getParent().toString();
+        status = exists(targetParent);
+        if (Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
+            status = makeDir(targetParent);
+        }
+        if (!status.ok()) {
+            return new Status(Status.ErrCode.COMMON_ERROR, status.getErrMsg());
+        }
+
+        runWhenPathNotExist.run();
+
+        return rename(origFilePath, destFilePath);
     }
 }

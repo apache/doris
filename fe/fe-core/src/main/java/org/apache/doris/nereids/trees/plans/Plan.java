@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -98,9 +100,7 @@ public interface Plan extends TreeNode<Plan> {
     /**
      * Get output slot set of the plan.
      */
-    default Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
+    Set<Slot> getOutputSet();
 
     /** getOutputExprIds */
     default List<ExprId> getOutputExprIds() {
@@ -193,6 +193,11 @@ public interface Plan extends TreeNode<Plan> {
         String childPrefix = prefix + prefixTail;
         children().forEach(
                 child -> {
+                    if (this instanceof Join) {
+                        if (child instanceof PhysicalDistribute) {
+                            child = child.child(0);
+                        }
+                    }
                     builder.append(child.shape(childPrefix));
                 }
         );

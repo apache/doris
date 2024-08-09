@@ -24,10 +24,12 @@ import java.nio.file.Paths
 suite("test_javaudf_string") {
     def tableName = "test_javaudf_string"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ DROP TABLE IF EXISTS test_javaudf_string_2 """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             `user_id`     INT         NOT NULL COMMENT "用户id",
@@ -50,7 +52,10 @@ suite("test_javaudf_string") {
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
             """
+        sql """ create table test_javaudf_string_2 like test_javaudf_string """
+        sql """ insert into test_javaudf_string_2 select * from test_javaudf_string; """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default_2 """ SELECT * FROM test_javaudf_string_2 t ORDER BY user_id; """
 
         File path = new File(jarPath)
         if (!path.exists()) {
@@ -67,9 +72,23 @@ suite("test_javaudf_string") {
         qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
 
-        
+        qt_select_4 """ 
+            SELECT
+                COALESCE(
+                    java_udf_string_test(test_javaudf_string.varchar_col, 2, 3),
+                    'not1'
+                ),
+                COALESCE(
+                    java_udf_string_test(test_javaudf_string.varchar_col, 2, 3),
+                    'not2'
+                )
+            FROM
+                test_javaudf_string
+                JOIN test_javaudf_string_2 ON test_javaudf_string.user_id = test_javaudf_string_2.user_id order by 1,2;
+        """
     } finally {
         try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
+        try_sql("DROP TABLE IF EXISTS test_javaudf_string_2")
     }
 }

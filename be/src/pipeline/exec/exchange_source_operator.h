@@ -20,8 +20,6 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vexchange_node.h"
 
 namespace doris {
 class ExecNode;
@@ -33,22 +31,6 @@ class Block;
 } // namespace vectorized
 
 namespace doris::pipeline {
-
-class ExchangeSourceOperatorBuilder final : public OperatorBuilder<vectorized::VExchangeNode> {
-public:
-    ExchangeSourceOperatorBuilder(int32_t id, ExecNode* exec_node);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class ExchangeSourceOperator final : public SourceOperator<vectorized::VExchangeNode> {
-public:
-    ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
-    bool can_read() override;
-    bool is_pending_finish() const override;
-};
 
 class ExchangeSourceOperatorX;
 class ExchangeLocalState final : public PipelineXLocalState<> {

@@ -52,6 +52,8 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
 
+    public static String INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -99,6 +101,18 @@ public class InvertedIndexUtil {
         return charFilterMap;
     }
 
+    public static boolean getInvertedIndexParserLowercase(Map<String, String> properties) {
+        String lowercase = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        // default is true if not set
+        return lowercase != null ? Boolean.parseBoolean(lowercase) : true;
+    }
+
+    public static String getInvertedIndexParserStopwords(Map<String, String> properties) {
+        String stopwrods = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
+        // default is "" if not set
+        return stopwrods != null ? stopwrods : "";
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties) throws AnalysisException {
         String parser = null;
@@ -136,7 +150,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
                 INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
-                INVERTED_INDEX_PARSER_LOWERCASE_KEY
+                INVERTED_INDEX_PARSER_LOWERCASE_KEY,
+                INVERTED_INDEX_PARSER_STOPWORDS_KEY
         ));
 
         for (String key : properties.keySet()) {
@@ -152,6 +167,7 @@ public class InvertedIndexUtil {
         String charFilterPattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
         String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
 
         if (parser != null && !parser.matches("none|english|unicode|chinese|standard")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
@@ -193,6 +209,11 @@ public class InvertedIndexUtil {
         if (lowerCase != null && !lowerCase.matches("true|false")) {
             throw new AnalysisException(
                     "Invalid inverted index 'lower_case' value: " + lowerCase + ", lower_case must be true or false");
+        }
+
+        if (stopWords != null && !stopWords.matches("none")) {
+            throw new AnalysisException("Invalid inverted index 'stopWords' value: " + stopWords
+                    + ", stopWords must be none");
         }
     }
 }

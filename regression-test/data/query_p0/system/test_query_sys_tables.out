@@ -20,83 +20,83 @@ internal	ccc	3	int	int(11)	10
 internal	ddd	4	smallint	smallint(6)	5
 
 -- !desc_files --
-FILE_ID	BIGINT	Yes	false	\N	
-FILE_NAME	TEXT	Yes	false	\N	
-FILE_TYPE	VARCHAR(256)	Yes	false	\N	
-TABLESPACE_NAME	VARCHAR(256)	Yes	false	\N	
-TABLE_CATALOG	CHAR(16)	Yes	false	\N	
-TABLE_SCHEMA	TEXT	Yes	false	\N	
-TABLE_NAME	TEXT	Yes	false	\N	
-LOGFILE_GROUP_NAME	VARCHAR(256)	Yes	false	\N	
-LOGFILE_GROUP_NUMBER	BIGINT	Yes	false	\N	
-ENGINE	VARCHAR(64)	Yes	false	\N	
-FULLTEXT_KEYS	TEXT	Yes	false	\N	
-DELETED_ROWS	TEXT	Yes	false	\N	
-UPDATE_COUNT	TEXT	Yes	false	\N	
-FREE_EXTENTS	BIGINT	Yes	false	\N	
-TOTAL_EXTENTS	BIGINT	Yes	false	\N	
-EXTENT_SIZE	BIGINT	Yes	false	\N	
-INITIAL_SIZE	BIGINT	Yes	false	\N	
-MAXIMUM_SIZE	BIGINT	Yes	false	\N	
-AUTOEXTEND_SIZE	BIGINT	Yes	false	\N	
-CREATION_TIME	TEXT	Yes	false	\N	
-LAST_UPDATE_TIME	TEXT	Yes	false	\N	
-LAST_ACCESS_TIME	TEXT	Yes	false	\N	
-RECOVER_TIME	TEXT	Yes	false	\N	
-TRANSACTION_COUNTER	TEXT	Yes	false	\N	
-VERSION	BIGINT	Yes	false	\N	
-ROW_FORMAT	VARCHAR(256)	Yes	false	\N	
-TABLE_ROWS	TEXT	Yes	false	\N	
-AVG_ROW_LENGTH	TEXT	Yes	false	\N	
-DATA_LENGTH	TEXT	Yes	false	\N	
-MAX_DATA_LENGTH	TEXT	Yes	false	\N	
-INDEX_LENGTH	TEXT	Yes	false	\N	
-DATA_FREE	BIGINT	Yes	false	\N	
-CREATE_TIME	TEXT	Yes	false	\N	
-UPDATE_TIME	TEXT	Yes	false	\N	
-CHECK_TIME	TEXT	Yes	false	\N	
-CHECKSUM	TEXT	Yes	false	\N	
-STATUS	VARCHAR(256)	Yes	false	\N	
-EXTRA	VARCHAR(256)	Yes	false	\N	
+FILE_ID	bigint	Yes	false	\N	
+FILE_NAME	text	Yes	false	\N	
+FILE_TYPE	varchar(256)	Yes	false	\N	
+TABLESPACE_NAME	varchar(256)	Yes	false	\N	
+TABLE_CATALOG	char(16)	Yes	false	\N	
+TABLE_SCHEMA	text	Yes	false	\N	
+TABLE_NAME	text	Yes	false	\N	
+LOGFILE_GROUP_NAME	varchar(256)	Yes	false	\N	
+LOGFILE_GROUP_NUMBER	bigint	Yes	false	\N	
+ENGINE	varchar(64)	Yes	false	\N	
+FULLTEXT_KEYS	text	Yes	false	\N	
+DELETED_ROWS	text	Yes	false	\N	
+UPDATE_COUNT	text	Yes	false	\N	
+FREE_EXTENTS	bigint	Yes	false	\N	
+TOTAL_EXTENTS	bigint	Yes	false	\N	
+EXTENT_SIZE	bigint	Yes	false	\N	
+INITIAL_SIZE	bigint	Yes	false	\N	
+MAXIMUM_SIZE	bigint	Yes	false	\N	
+AUTOEXTEND_SIZE	bigint	Yes	false	\N	
+CREATION_TIME	text	Yes	false	\N	
+LAST_UPDATE_TIME	text	Yes	false	\N	
+LAST_ACCESS_TIME	text	Yes	false	\N	
+RECOVER_TIME	text	Yes	false	\N	
+TRANSACTION_COUNTER	text	Yes	false	\N	
+VERSION	bigint	Yes	false	\N	
+ROW_FORMAT	varchar(256)	Yes	false	\N	
+TABLE_ROWS	text	Yes	false	\N	
+AVG_ROW_LENGTH	text	Yes	false	\N	
+DATA_LENGTH	text	Yes	false	\N	
+MAX_DATA_LENGTH	text	Yes	false	\N	
+INDEX_LENGTH	text	Yes	false	\N	
+DATA_FREE	bigint	Yes	false	\N	
+CREATE_TIME	text	Yes	false	\N	
+UPDATE_TIME	text	Yes	false	\N	
+CHECK_TIME	text	Yes	false	\N	
+CHECKSUM	text	Yes	false	\N	
+STATUS	varchar(256)	Yes	false	\N	
+EXTRA	varchar(256)	Yes	false	\N	
 
 -- !query_files --
 
 -- !desc_statistics --
-TABLE_CATALOG	VARCHAR(512)	Yes	false	\N	
-TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
-TABLE_NAME	VARCHAR(64)	Yes	false	\N	
-NON_UNIQUE	BIGINT	Yes	false	\N	
-INDEX_SCHEMA	VARCHAR(64)	Yes	false	\N	
-INDEX_NAME	VARCHAR(64)	Yes	false	\N	
-SEQ_IN_INDEX	BIGINT	Yes	false	\N	
-COLUMN_NAME	VARCHAR(64)	Yes	false	\N	
-COLLATION	VARCHAR(1)	Yes	false	\N	
-CARDINALITY	BIGINT	Yes	false	\N	
-SUB_PART	BIGINT	Yes	false	\N	
-PACKED	VARCHAR(10)	Yes	false	\N	
-NULLABLE	VARCHAR(3)	Yes	false	\N	
-INDEX_TYPE	VARCHAR(16)	Yes	false	\N	
-COMMENT	VARCHAR(16)	Yes	false	\N	
-INDEX_COMMENT	VARCHAR(1024)	Yes	false	\N	
+TABLE_CATALOG	varchar(512)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+NON_UNIQUE	bigint	Yes	false	\N	
+INDEX_SCHEMA	varchar(64)	Yes	false	\N	
+INDEX_NAME	varchar(64)	Yes	false	\N	
+SEQ_IN_INDEX	bigint	Yes	false	\N	
+COLUMN_NAME	varchar(64)	Yes	false	\N	
+COLLATION	varchar(1)	Yes	false	\N	
+CARDINALITY	bigint	Yes	false	\N	
+SUB_PART	bigint	Yes	false	\N	
+PACKED	varchar(10)	Yes	false	\N	
+NULLABLE	varchar(3)	Yes	false	\N	
+INDEX_TYPE	varchar(16)	Yes	false	\N	
+COMMENT	varchar(16)	Yes	false	\N	
+INDEX_COMMENT	varchar(1024)	Yes	false	\N	
 
 -- !query_statistics --
 
 -- !desc_statistics --
-CONSTRAINT_CATALOG	VARCHAR(512)	Yes	false	\N	
-CONSTRAINT_SCHEMA	VARCHAR(64)	Yes	false	\N	
-CONSTRAINT_NAME	VARCHAR(64)	Yes	false	\N	
-TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
-TABLE_NAME	VARCHAR(64)	Yes	false	\N	
-CONSTRAINT_TYPE	VARCHAR(64)	Yes	false	\N	
+CONSTRAINT_CATALOG	varchar(512)	Yes	false	\N	
+CONSTRAINT_SCHEMA	varchar(64)	Yes	false	\N	
+CONSTRAINT_NAME	varchar(64)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+CONSTRAINT_TYPE	varchar(64)	Yes	false	\N	
 
 -- !query_table_constraints --
 
 -- !desc_schema_privileges --
-GRANTEE	VARCHAR(81)	Yes	false	\N	
-TABLE_CATALOG	VARCHAR(512)	Yes	false	\N	
-TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
-PRIVILEGE_TYPE	VARCHAR(64)	Yes	false	\N	
-IS_GRANTABLE	VARCHAR(3)	Yes	false	\N	
+GRANTEE	varchar(81)	Yes	false	\N	
+TABLE_CATALOG	varchar(512)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+PRIVILEGE_TYPE	varchar(64)	Yes	false	\N	
+IS_GRANTABLE	varchar(3)	Yes	false	\N	
 
 -- !schema_privileges1 --
 'root'@'%'	def	mysql	SELECT	NO
@@ -107,12 +107,12 @@ IS_GRANTABLE	VARCHAR(3)	Yes	false	\N
 -- !schema_privileges3 --
 
 -- !desc_table_privileges --
-GRANTEE	VARCHAR(81)	Yes	false	\N	
-TABLE_CATALOG	VARCHAR(512)	Yes	false	\N	
-TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
-TABLE_NAME	VARCHAR(64)	Yes	false	\N	
-PRIVILEGE_TYPE	VARCHAR(64)	Yes	false	\N	
-IS_GRANTABLE	VARCHAR(3)	Yes	false	\N	
+GRANTEE	varchar(81)	Yes	false	\N	
+TABLE_CATALOG	varchar(512)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+PRIVILEGE_TYPE	varchar(64)	Yes	false	\N	
+IS_GRANTABLE	varchar(3)	Yes	false	\N	
 
 -- !table_privileges --
 
@@ -126,60 +126,33 @@ IS_GRANTABLE	VARCHAR(3)	Yes	false	\N
 'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	INSERT	NO
 
 -- !desc_partitions --
-TABLE_CATALOG	VARCHAR(64)	Yes	false	\N	
-TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
-TABLE_NAME	VARCHAR(64)	Yes	false	\N	
-PARTITION_NAME	VARCHAR(64)	Yes	false	\N	
-SUBPARTITION_NAME	VARCHAR(64)	Yes	false	\N	
-PARTITION_ORDINAL_POSITION	INT	Yes	false	\N	
-SUBPARTITION_ORDINAL_POSITION	INT	Yes	false	\N	
-PARTITION_METHOD	VARCHAR(13)	Yes	false	\N	
-SUBPARTITION_METHOD	VARCHAR(13)	Yes	false	\N	
-PARTITION_EXPRESSION	VARCHAR(2048)	Yes	false	\N	
-SUBPARTITION_EXPRESSION	VARCHAR(2048)	Yes	false	\N	
-PARTITION_DESCRIPTION	TEXT	Yes	false	\N	
-TABLE_ROWS	BIGINT	Yes	false	\N	
-AVG_ROW_LENGTH	BIGINT	Yes	false	\N	
-DATA_LENGTH	BIGINT	Yes	false	\N	
-MAX_DATA_LENGTH	BIGINT	Yes	false	\N	
-INDEX_LENGTH	BIGINT	Yes	false	\N	
-DATA_FREE	BIGINT	Yes	false	\N	
-CREATE_TIME	BIGINT	Yes	false	\N	
-UPDATE_TIME	DATETIME	Yes	false	\N	
-CHECK_TIME	DATETIME	Yes	false	\N	
-CHECKSUM	BIGINT	Yes	false	\N	
-PARTITION_COMMENT	TEXT	Yes	false	\N	
-NODEGROUP	VARCHAR(256)	Yes	false	\N	
-TABLESPACE_NAME	VARCHAR(268)	Yes	false	\N	
+TABLE_CATALOG	varchar(64)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+PARTITION_NAME	varchar(64)	Yes	false	\N	
+SUBPARTITION_NAME	varchar(64)	Yes	false	\N	
+PARTITION_ORDINAL_POSITION	int	Yes	false	\N	
+SUBPARTITION_ORDINAL_POSITION	int	Yes	false	\N	
+PARTITION_METHOD	varchar(13)	Yes	false	\N	
+SUBPARTITION_METHOD	varchar(13)	Yes	false	\N	
+PARTITION_EXPRESSION	varchar(2048)	Yes	false	\N	
+SUBPARTITION_EXPRESSION	varchar(2048)	Yes	false	\N	
+PARTITION_DESCRIPTION	text	Yes	false	\N	
+TABLE_ROWS	bigint	Yes	false	\N	
+AVG_ROW_LENGTH	bigint	Yes	false	\N	
+DATA_LENGTH	bigint	Yes	false	\N	
+MAX_DATA_LENGTH	bigint	Yes	false	\N	
+INDEX_LENGTH	bigint	Yes	false	\N	
+DATA_FREE	bigint	Yes	false	\N	
+CREATE_TIME	bigint	Yes	false	\N	
+UPDATE_TIME	datetime	Yes	false	\N	
+CHECK_TIME	datetime	Yes	false	\N	
+CHECKSUM	bigint	Yes	false	\N	
+PARTITION_COMMENT	text	Yes	false	\N	
+NODEGROUP	varchar(256)	Yes	false	\N	
+TABLESPACE_NAME	varchar(268)	Yes	false	\N	
 
 -- !select_partitions --
-
--- !desc_rowsets --
-BACKEND_ID	BIGINT	Yes	false	\N	
-ROWSET_ID	VARCHAR(64)	Yes	false	\N	
-TABLET_ID	BIGINT	Yes	false	\N	
-ROWSET_NUM_ROWS	BIGINT	Yes	false	\N	
-TXN_ID	BIGINT	Yes	false	\N	
-NUM_SEGMENTS	BIGINT	Yes	false	\N	
-START_VERSION	BIGINT	Yes	false	\N	
-END_VERSION	BIGINT	Yes	false	\N	
-INDEX_DISK_SIZE	BIGINT	Yes	false	\N	
-DATA_DISK_SIZE	BIGINT	Yes	false	\N	
-CREATION_TIME	BIGINT	Yes	false	\N	
-NEWEST_WRITE_TIMESTAMP	BIGINT	Yes	false	\N	
-
--- !rowsets1 --
-0	1
-
--- !rowsets2 --
-0	1
-2	2
-
--- !rowsets3 --
-0	1
-2	2
-3	3
-4	4
 
 -- !schemata --
 internal	test_query_sys_db_1	\N
@@ -187,7 +160,6 @@ internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
 -- !tables --
-internal	test_query_rowset	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_1	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_2	BASE TABLE	0	\N	\N
 internal	test_query_sys_tb_3	BASE TABLE	0	\N	\N

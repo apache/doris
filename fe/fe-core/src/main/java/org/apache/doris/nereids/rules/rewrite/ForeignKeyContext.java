@@ -67,6 +67,7 @@ public class ForeignKeyContext {
             public Void visitLogicalRelation(LogicalRelation relation, ForeignKeyContext context) {
                 if (relation instanceof LogicalCatalogRelation) {
                     context.putAllForeignKeys(((LogicalCatalogRelation) relation).getTable());
+                    context.putAllPrimaryKeys(((LogicalCatalogRelation) relation).getTable());
                     relation.getOutput().stream()
                             .filter(SlotReference.class::isInstance)
                             .map(SlotReference.class::cast)
@@ -101,7 +102,13 @@ public class ForeignKeyContext {
             Map<Column, Column> constraint = c.getForeignToPrimary(table);
             constraints.add(c.getForeignToPrimary(table));
             foreignKeys.addAll(constraint.keySet());
-            primaryKeys.addAll(constraint.values());
+        });
+    }
+
+    void putAllPrimaryKeys(TableIf table) {
+        table.getPrimaryKeyConstraints().forEach(c -> {
+            Set<Column> primaryKey = c.getPrimaryKeys(table);
+            primaryKeys.addAll(primaryKey);
         });
     }
 
@@ -129,13 +136,28 @@ public class ForeignKeyContext {
         }
     }
 
+    private boolean isHiddenConjunct(Expression expression) {
+        for (Slot slot : expression.getInputSlots()) {
+            if (slot instanceof SlotReference
+                    && ((SlotReference) slot).getColumn().isPresent()
+                    && ((SlotReference) slot).getColumn().get().isDeleteSignColumn()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void addFilter(LogicalFilter<?> filter) {
-        filter.getOutput().stream()
-                .filter(slotToColumn::containsKey)
-                .forEach(slot -> {
-                    slotWithPredicates.computeIfAbsent(slot, v -> new HashSet<>());
-                    slotWithPredicates.get(slot).addAll(filter.getConjuncts());
-                });
+        for (Slot s : filter.getOutput()) {
+            if (slotToColumn.containsKey(s)) {
+                slotWithPredicates.computeIfAbsent(s, v -> new HashSet<>());
+                for (Expression conjunct : filter.getConjuncts()) {
+                    if (!isHiddenConjunct(conjunct)) {
+                        slotWithPredicates.get(s).add(conjunct);
+                    }
+                }
+            }
+        }
     }
 
     private void expirePrimaryKey(Plan plan) {

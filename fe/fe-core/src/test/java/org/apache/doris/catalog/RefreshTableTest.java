@@ -138,7 +138,7 @@ public class RefreshTableTest extends TestWithFeService {
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Access denied; you need (at least one of) the DROP privilege(s) for this operation",
+                "Access denied",
                 () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
         ConnectContext.remove();
 

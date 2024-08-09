@@ -199,7 +199,7 @@ public class SystemInfoService {
 
     // for test
     public void addBackend(Backend backend) {
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         copiedBackends.put(backend.getId(), backend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
@@ -209,7 +209,7 @@ public class SystemInfoService {
     private void addBackend(String host, int heartbeatPort, Map<String, String> tagMap) {
         Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), host, heartbeatPort);
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         copiedBackends.put(newBackend.getId(), newBackend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
@@ -271,7 +271,7 @@ public class SystemInfoService {
                     .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
         }
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         copiedBackends.remove(droppedBackend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
@@ -299,27 +299,11 @@ public class SystemInfoService {
     }
 
     public Backend getBackend(long backendId) {
-        return idToBackendRef.get(backendId);
-    }
-
-    public boolean checkBackendLoadAvailable(long backendId) {
-        Backend backend = idToBackendRef.get(backendId);
-        if (backend == null || !backend.isLoadAvailable()) {
-            return false;
-        }
-        return true;
-    }
-
-    public boolean checkBackendQueryAvailable(long backendId) {
-        Backend backend = idToBackendRef.get(backendId);
-        if (backend == null || !backend.isQueryAvailable()) {
-            return false;
-        }
-        return true;
+        return getAllClusterBackendsNoException().get(backendId);
     }
 
     public boolean checkBackendScheduleAvailable(long backendId) {
-        Backend backend = idToBackendRef.get(backendId);
+        Backend backend = getAllClusterBackendsNoException().get(backendId);
         if (backend == null || !backend.isScheduleAvailable()) {
             return false;
         }
@@ -327,7 +311,7 @@ public class SystemInfoService {
     }
 
     public boolean checkBackendAlive(long backendId) {
-        Backend backend = idToBackendRef.get(backendId);
+        Backend backend = getAllClusterBackendsNoException().get(backendId);
         if (backend == null || !backend.isAlive()) {
             return false;
         }
@@ -335,7 +319,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
                 return backend;
@@ -345,7 +329,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithBePort(String ip, int bePort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(ip) && backend.getBePort() == bePort) {
                 return backend;
@@ -355,7 +339,7 @@ public class SystemInfoService {
     }
 
     public Backend getBackendWithHttpPort(String ip, int httpPort) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(ip) && backend.getHttpPort() == httpPort) {
                 return backend;
@@ -377,7 +361,7 @@ public class SystemInfoService {
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
         if (!needAlive) {
             return backendIds;
@@ -394,7 +378,7 @@ public class SystemInfoService {
     }
 
     public List<Long> getDecommissionedBackendIds() {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
 
         Iterator<Long> iter = backendIds.iterator();
@@ -407,24 +391,22 @@ public class SystemInfoService {
         return backendIds;
     }
 
-    public List<Backend> getAllBackends() {
-        return Lists.newArrayList(idToBackendRef.values());
-    }
-
     public List<Backend> getMixBackends() {
-        return idToBackendRef.values().stream().filter(backend -> backend.isMixNode()).collect(Collectors.toList());
+        return getAllClusterBackendsNoException().values()
+                .stream().filter(backend -> backend.isMixNode()).collect(Collectors.toList());
     }
 
     public List<Backend> getCnBackends() {
-        return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
+        return getAllClusterBackendsNoException()
+                .values().stream().filter(Backend::isComputeNode).collect(Collectors.toList());
     }
 
     // return num of backends that from different hosts
-    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+    public int getStorageBackendNumFromDiffHosts(boolean aliveOnly) {
         Set<String> hosts = Sets.newHashSet();
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         for (Backend backend : idToBackend.values()) {
-            if (aliveOnly && !backend.isAlive()) {
+            if ((aliveOnly && !backend.isAlive()) || backend.isComputeNode()) {
                 continue;
             }
             hosts.add(backend.getHost());
@@ -493,7 +475,7 @@ public class SystemInfoService {
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
@@ -552,7 +534,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host.\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
@@ -571,7 +554,7 @@ public class SystemInfoService {
      */
     public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
+        List<Backend> candidates = policy.getCandidateBackends(getAllClusterBackendsNoException().values());
         if (candidates.size() < number || candidates.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
@@ -650,14 +633,6 @@ public class SystemInfoService {
         }
     }
 
-    public ImmutableMap<Long, Backend> getIdToBackend() {
-        return idToBackendRef;
-    }
-
-    public ImmutableMap<Long, Backend> getAllBackendsMap() {
-        return idToBackendRef;
-    }
-
     public long getBackendReportVersion(long backendId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get(backendId)) == null) {
@@ -684,7 +659,7 @@ public class SystemInfoService {
     }
 
     public long saveBackends(CountingDataOutputStream dos, long checksum) throws IOException {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         int backendCount = idToBackend.size();
         checksum ^= backendCount;
         dos.writeInt(backendCount);
@@ -750,7 +725,7 @@ public class SystemInfoService {
 
     public void replayAddBackend(Backend newBackend) {
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         copiedBackends.put(newBackend.getId(), newBackend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
@@ -767,7 +742,7 @@ public class SystemInfoService {
             LOG.debug("replayDropBackend: {}", backend);
         }
         // update idToBackend
-        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
         copiedBackends.remove(backend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
@@ -804,7 +779,7 @@ public class SystemInfoService {
 
     private long getAvailableCapacityB() {
         long capacity = 0L;
-        for (Backend backend : idToBackendRef.values()) {
+        for (Backend backend : getAllClusterBackendsNoException().values()) {
             // Here we do not check if backend is alive,
             // We suppose the dead backends will back to alive later.
             if (backend.isDecommissioned()) {
@@ -824,12 +799,21 @@ public class SystemInfoService {
         }
     }
 
+    private ImmutableMap<Long, Backend> getAllClusterBackendsNoException() {
+        try {
+            return getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("getAllClusterBackendsNoException: ", e);
+            return ImmutableMap.of();
+        }
+    }
+
     /*
      * Try to randomly get a backend id by given host.
      * If not found, return -1
      */
     public long getBackendIdByHost(String host) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        ImmutableMap<Long, Backend> idToBackend = getAllClusterBackendsNoException();
         List<Backend> selectedBackends = Lists.newArrayList();
         for (Backend backend : idToBackend.values()) {
             if (backend.getHost().equals(host)) {
@@ -994,19 +978,19 @@ public class SystemInfoService {
     }
 
     // CloudSystemInfoService override
-    public List<Backend> getBackendsByCurrentCluster() throws UserException {
-        return idToBackendRef.values().stream().collect(Collectors.toList());
+    public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
+        return idToBackendRef;
     }
 
-    // CloudSystemInfoService override
-    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
-        return getIdToBackend();
+    // Cloud and NonCloud get all bes
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
+        return idToBackendRef;
     }
 
     public int getMinPipelineExecutorSize() {
         List<Backend> currentBackends = null;
         try {
-            currentBackends = getBackendsByCurrentCluster();
+            currentBackends = getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get current cluster backends failed: ", e);
@@ -1024,9 +1008,5 @@ public class SystemInfoService {
             }
         }
         return minPipelineExecutorSize;
-    }
-
-    public long aliveBECount() {
-        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
     }
 }

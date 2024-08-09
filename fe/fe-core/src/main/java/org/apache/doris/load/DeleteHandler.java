@@ -126,7 +126,7 @@ public class DeleteHandler implements Writable {
                 // must call this to make sure we only handle the tablet in the mIndex we saw here.
                 // table may be under schema change or rollup, and the newly created tablets will not be checked later,
                 // to make sure that the delete transaction can be done successfully.
-                txnState.addTableIndexes(targetTbl);
+                deleteJob.addTableIndexes(txnState);
                 idToDeleteJob.put(txnId, deleteJob);
                 deleteJob.dispatch();
             } finally {

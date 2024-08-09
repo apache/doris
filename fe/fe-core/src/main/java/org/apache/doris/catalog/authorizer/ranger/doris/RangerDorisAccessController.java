@@ -24,13 +24,16 @@ import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
@@ -42,16 +45,25 @@ import java.util.stream.Collectors;
 
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
-    private RangerDorisPlugin dorisPlugin;
+    private RangerBasePlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
 
     public RangerDorisAccessController(String serviceName) {
-        dorisPlugin = new RangerDorisPlugin(serviceName);
+        this(serviceName, null);
+    }
+
+    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
+        dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+    }
+
+    @VisibleForTesting
+    public RangerDorisAccessController(RangerBasePlugin plugin) {
+        dorisPlugin = plugin;
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, DorisAccessType accessType) {
@@ -118,6 +130,10 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        if (res) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
                 ClusterNamespace.getNameFromFullName(db));
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -125,6 +141,11 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        if (res) {
+            return true;
+        }
+
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -133,6 +154,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        if (res) {
+            return;
+        }
+
         List<RangerDorisResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
@@ -157,6 +183,10 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        // For compatibility with older versions, it is not needed to check the privileges of the default group.
+        if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }

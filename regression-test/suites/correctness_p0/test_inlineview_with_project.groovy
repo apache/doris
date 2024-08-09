@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_inlineview_with_project") {
-    sql "set enable_nereids_planner=false"
     sql """
         drop table if exists cir_1756_t1;
     """
@@ -666,4 +665,88 @@ suite("test_inlineview_with_project") {
 
     sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
     sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
+
+    sql """
+        drop table if exists dws_mf_wms_join_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_join_t2;
+    """
+    
+
+    sql """CREATE TABLE `dws_mf_wms_join_t1` (
+          `ddate` DATE NULL COMMENT '日期字段',
+          `game_id` VARCHAR(65533) NULL,
+          `main_currency_stock` BIGINT NULL
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`ddate`)
+          DISTRIBUTED BY HASH(`ddate`) BUCKETS 10
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+         );"""
+
+    sql """CREATE TABLE `dws_mf_wms_join_t2` (
+          `game_id` VARCHAR(65533) NULL,
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`game_id`)
+          DISTRIBUTED BY HASH(`game_id`) BUCKETS 10
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+         );"""
+
+    sql """insert into dws_mf_wms_join_t1 values('2020-01-01','12345',100);"""
+    sql """insert into dws_mf_wms_join_t2 values('12345');"""
+
+    qt_select6 """SELECT
+                a1.ddate
+            FROM
+                (
+                    SELECT
+                        aaa.ddate
+                    FROM
+                        (
+                            SELECT
+                                aa.ddate,
+                                CONCAT('main', aa.main_currency_stock) AS arr,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY aa.ddate
+                                ) AS rn
+                            FROM
+                                (
+                                    SELECT
+                                        ddate,
+                                        main_currency_stock,
+                                        game_id
+                                    FROM
+                                        dws_mf_wms_join_t1 a
+                                ) aa
+                                LEFT JOIN (
+                                    SELECT
+                                        game_id
+                                    FROM
+                                        dws_mf_wms_join_t2
+                                ) b ON aa.game_id = b.game_id
+                        ) aaa
+                        CROSS JOIN (
+                            select
+                                1 as newarr
+                        ) b
+                    WHERE
+                        rn = 1
+                ) a1
+            GROUP BY
+                GROUPING SETS (
+                    (
+                        a1.ddate
+                    )
+                );"""
+
+    sql """
+        drop table if exists dws_mf_wms_join_join_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_join_join_t2;
+    """
 }

@@ -50,7 +50,8 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
     const COffsets* offsets_concrete = typeid_cast<const COffsets*>(offsets_column.get());
 
     if (!offsets_concrete) {
-        LOG(FATAL) << "offsets_column must be a ColumnUInt64";
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "offsets_column must be a ColumnUInt64.");
     }
 
     if (!offsets_concrete->empty() && keys_column && values_column) {
@@ -58,12 +59,16 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with key_column "
-                       << keys_column->size() << " " << last_offset;
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with key_column {}", last_offset,
+                    keys_column->size());
         }
         if (values_column->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with value_column "
-                       << values_column->size() << " " << last_offset;
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with value_column {}",
+                    last_offset, values_column->size());
         }
     }
 }
@@ -105,9 +110,10 @@ Field ColumnMap::operator[](size_t n) const {
     size_t element_size = size_at(n);
 
     if (element_size > max_array_size_as_field) {
-        LOG(FATAL) << "element size " << start_offset
-                   << " is too large to be manipulated as single map field,"
-                   << "maximum size " << max_array_size_as_field;
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "element size {} is too large to be manipulated as single map "
+                               "field, maximum size {}",
+                               element_size, max_array_size_as_field);
     }
 
     Array k(element_size), v(element_size);
@@ -126,11 +132,13 @@ void ColumnMap::get(size_t n, Field& res) const {
 }
 
 StringRef ColumnMap::get_data_at(size_t n) const {
-    LOG(FATAL) << "Method get_data_at is not supported for " << get_name();
+    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                           "Method get_data_at is not supported for {}", get_name());
 }
 
 void ColumnMap::insert_data(const char*, size_t) {
-    LOG(FATAL) << "Method insert_data is not supported for " << get_name();
+    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                           "Method insert_data is not supported for {}", get_name());
 }
 
 void ColumnMap::insert(const Field& x) {
@@ -389,6 +397,42 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
 
     keys_column->insert_range_from(src_concrete.get_keys(), nested_offset, nested_length);
     values_column->insert_range_from(src_concrete.get_values(), nested_offset, nested_length);
+
+    auto& cur_offsets = get_offsets();
+    const auto& src_offsets = src_concrete.get_offsets();
+
+    if (start == 0 && cur_offsets.empty()) {
+        cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+    } else {
+        size_t old_size = cur_offsets.size();
+        // -1 is ok, because PaddedPODArray pads zeros on the left.
+        size_t prev_max_offset = cur_offsets.back();
+        cur_offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i) {
+            cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+        }
+    }
+}
+
+void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) {
+    const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
+
+    if (start + length > src_concrete.size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnMap::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.size()));
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.offset_at(start + length) - nested_offset;
+
+    keys_column->insert_range_from_ignore_overflow(src_concrete.get_keys(), nested_offset,
+                                                   nested_length);
+    values_column->insert_range_from_ignore_overflow(src_concrete.get_values(), nested_offset,
+                                                     nested_length);
 
     auto& cur_offsets = get_offsets();
     const auto& src_offsets = src_concrete.get_offsets();

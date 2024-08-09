@@ -129,7 +129,8 @@ private:
 
 class RowInBlockComparator {
 public:
-    RowInBlockComparator(const TabletSchema* tablet_schema) : _tablet_schema(tablet_schema) {}
+    RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema)
+            : _tablet_schema(tablet_schema) {}
     // call set_block before operator().
     // only first time insert block to create _input_mutable_block,
     // so can not Comparator of construct to set pblock
@@ -137,7 +138,7 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     vectorized::MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
@@ -168,7 +169,7 @@ public:
 
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
@@ -181,8 +182,7 @@ public:
                _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                bool is_append = false);
+    Status insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
     void shrink_memtable_by_agg();
 
@@ -190,7 +190,7 @@ public:
 
     bool need_agg() const;
 
-    std::unique_ptr<vectorized::Block> to_block();
+    Status to_block(std::unique_ptr<vectorized::Block>* res);
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
@@ -210,7 +210,7 @@ private:
     bool _enable_unique_key_mow = false;
     bool _is_partial_update = false;
     const KeysType _keys_type;
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
@@ -245,7 +245,7 @@ private:
 
     //return number of same keys
     size_t _sort();
-    void _sort_by_cluster_keys();
+    Status _sort_by_cluster_keys();
     void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
@@ -253,7 +253,7 @@ private:
                            int row_pos);
     template <bool is_final>
     void _aggregate();
-    void _put_into_output(vectorized::Block& in_block);
+    Status _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);
@@ -266,6 +266,8 @@ private:
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
+
+    bool _is_partial_update_and_auto_inc = false;
 }; // class MemTable
 
 } // namespace doris
