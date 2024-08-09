@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_with_inverted_index_all_type"){
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
     // 1. mor|dup|mow
     // 2. index with english or standard parser (only string | variant type support english parser now)
     // 3. all types

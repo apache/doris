@@ -39,8 +39,8 @@ suite("test_select_column_auth","p0,auth") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
-
     sql """create database ${dbName}"""
+    sql("""use ${dbName}""")
     sql """
         CREATE TABLE IF NOT EXISTS ${dbName}.`${tableName}` (
             id BIGINT,
@@ -55,7 +55,7 @@ suite("test_select_column_auth","p0,auth") {
     sql """create view ${dbName}.${mv_name} as select * from ${dbName}.${tableName};"""
     sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
     sleep(5 * 1000)
-    sql """create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}"""
+    createMV("""create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}""")
     sleep(5 * 1000)
     sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 

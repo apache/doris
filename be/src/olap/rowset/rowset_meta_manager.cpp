@@ -533,4 +533,98 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     return status;
 }
 
+Status RowsetMetaManager::save_partial_update_info(
+        OlapMeta* meta, int64_t tablet_id, int64_t partition_id, int64_t txn_id,
+        const PartialUpdateInfoPB& partial_update_info_pb) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    std::string value;
+    if (!partial_update_info_pb.SerializeToString(&value)) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                "serialize partial update info failed. key={}", key);
+    }
+    VLOG_NOTICE << "save partial update info, key=" << key << ", value_size=" << value.size();
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+}
+
+Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                                      int64_t partition_id, int64_t txn_id,
+                                                      PartialUpdateInfoPB* partial_update_info_pb) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    std::string value;
+    Status status = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    if (status.is<META_KEY_NOT_FOUND>()) {
+        return status;
+    }
+    if (!status.ok()) {
+        LOG_WARNING("failed to get partial update info. tablet_id={}, partition_id={}, txn_id={}",
+                    tablet_id, partition_id, txn_id);
+        return status;
+    }
+    if (!partial_update_info_pb->ParseFromString(value)) {
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
+                "fail to parse partial update info content to protobuf object. tablet_id={}, "
+                "partition_id={}, txn_id={}",
+                tablet_id, partition_id, txn_id);
+    }
+    return Status::OK();
+}
+
+Status RowsetMetaManager::traverse_partial_update_info(
+        OlapMeta* meta,
+        std::function<bool(int64_t, int64_t, int64_t, std::string_view)> const& func) {
+    auto traverse_partial_update_info_func = [&func](std::string_view key,
+                                                     std::string_view value) -> bool {
+        std::vector<std::string> parts;
+        // key format: pui_{tablet_id}_{partition_id}_{txn_id}
+        RETURN_IF_ERROR(split_string(key, '_', &parts));
+        if (parts.size() != 4) {
+            LOG_WARNING("invalid rowset key={}, splitted size={}", key, parts.size());
+            return true;
+        }
+        int64_t tablet_id = std::stoll(parts[1]);
+        int64_t partition_id = std::stoll(parts[2]);
+        int64_t txn_id = std::stoll(parts[3]);
+        return func(tablet_id, partition_id, txn_id, value);
+    };
+    return meta->iterate(META_COLUMN_FAMILY_INDEX, PARTIAL_UPDATE_INFO_PREFIX,
+                         traverse_partial_update_info_func);
+}
+
+Status RowsetMetaManager::remove_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                                     int64_t partition_id, int64_t txn_id) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    VLOG_NOTICE << "remove partial update info, key=" << key;
+    return res;
+}
+
+Status RowsetMetaManager::remove_partial_update_infos(
+        OlapMeta* meta, const std::vector<std::tuple<int64_t, int64_t, int64_t>>& keys) {
+    std::vector<std::string> remove_keys;
+    for (auto [tablet_id, partition_id, txn_id] : keys) {
+        remove_keys.push_back(fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id,
+                                          partition_id, txn_id));
+    }
+    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+    VLOG_NOTICE << "remove partial update info, remove_keys.size()=" << remove_keys.size();
+    return res;
+}
+
+Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* meta,
+                                                                    int64_t tablet_id) {
+    std::string prefix = fmt::format("{}{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id);
+    std::vector<std::string> remove_keys;
+    auto get_remove_keys_func = [&](std::string_view key, std::string_view val) -> bool {
+        remove_keys.emplace_back(key);
+        return true;
+    };
+    VLOG_NOTICE << "remove tablet related partial update info, tablet_id: " << tablet_id
+                << " removed keys size: " << remove_keys.size();
+    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
+    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+}
+
 } // namespace doris

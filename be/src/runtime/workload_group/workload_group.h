@@ -189,7 +189,9 @@ public:
 
     std::string thread_debug_info();
 
-    std::shared_ptr<IOThrottle> get_scan_io_throttle(const std::string& disk_dir);
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
 
     void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
 

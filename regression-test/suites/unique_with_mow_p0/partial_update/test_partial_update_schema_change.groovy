@@ -15,6 +15,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite("test_partial_update_schema_change", "p0") {
 
@@ -70,16 +72,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-    def try_times=100
-    while(true){
+    def try_times=12000
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     
     // test load data without new column
     streamLoad {
@@ -192,16 +193,14 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     // test load data without delete column
     streamLoad {
@@ -314,16 +313,14 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     // test load data with update column
     streamLoad {
@@ -398,28 +395,24 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     // test load data with all key column, should fail because
     // it don't have any value columns
@@ -501,16 +494,14 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql10 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     //test load data with create index
     streamLoad {
@@ -674,17 +665,14 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
-    
+        return false;
+    });
     // test load data without new column
     streamLoad {
         table "${tableName}"
@@ -795,17 +783,14 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
-
+        return false;
+    });
     // test load data without delete column
     streamLoad {
         table "${tableName}"
@@ -912,17 +897,14 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
-
+        return false;
+    });
     // test load data with update column
     streamLoad {
         table "${tableName}"
@@ -995,27 +977,23 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     // test load data with all key column
     streamLoad {
@@ -1092,16 +1070,14 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql23 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
-    try_times=100
-    while(true){
+    // if timeout awaitility will raise exception
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
-            break;
+            return true;
         }
-        assert(try_times>0)
-        try_times--
-    }
+        return false;
+    });
 
     //test load data with create index
     streamLoad {

@@ -276,7 +276,7 @@ public abstract class MaterializationContext {
         return originalPlan;
     }
 
-    public Plan getScanPlan() {
+    public Plan getScanPlan(StructInfo queryStructInfo) {
         return scanPlan;
     }
 
