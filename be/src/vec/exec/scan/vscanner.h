@@ -69,7 +69,8 @@ public:
     }
 
     virtual Status init() { return Status::OK(); }
-
+    // Not virtual, all child will call this method explictly
+    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
@@ -97,9 +98,6 @@ protected:
     Status _filter_output_block(Block* block);
 
     Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
-
-    // Not virtual, all child will call this method explictly
-    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
