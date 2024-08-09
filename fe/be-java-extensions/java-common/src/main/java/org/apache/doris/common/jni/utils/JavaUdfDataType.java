@@ -43,8 +43,6 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType BIGINT = new JavaUdfDataType("BIGINT", TPrimitiveType.BIGINT, 8);
     public static final JavaUdfDataType FLOAT = new JavaUdfDataType("FLOAT", TPrimitiveType.FLOAT, 4);
     public static final JavaUdfDataType DOUBLE = new JavaUdfDataType("DOUBLE", TPrimitiveType.DOUBLE, 8);
-    public static final JavaUdfDataType CHAR = new JavaUdfDataType("CHAR", TPrimitiveType.CHAR, 0);
-    public static final JavaUdfDataType VARCHAR = new JavaUdfDataType("VARCHAR", TPrimitiveType.VARCHAR, 0);
     public static final JavaUdfDataType STRING = new JavaUdfDataType("STRING", TPrimitiveType.STRING, 0);
     public static final JavaUdfDataType DATE = new JavaUdfDataType("DATE", TPrimitiveType.DATE, 8);
     public static final JavaUdfDataType DATETIME = new JavaUdfDataType("DATETIME", TPrimitiveType.DATETIME, 8);
@@ -72,8 +70,6 @@ public class JavaUdfDataType {
         JavaUdfDataTypeSet.add(BIGINT);
         JavaUdfDataTypeSet.add(FLOAT);
         JavaUdfDataTypeSet.add(DOUBLE);
-        JavaUdfDataTypeSet.add(CHAR);
-        JavaUdfDataTypeSet.add(VARCHAR);
         JavaUdfDataTypeSet.add(STRING);
         JavaUdfDataTypeSet.add(DATE);
         JavaUdfDataTypeSet.add(DATETIME);
@@ -142,7 +138,9 @@ public class JavaUdfDataType {
         } else if (c == double.class || c == Double.class) {
             return Sets.newHashSet(JavaUdfDataType.DOUBLE);
         } else if (c == char.class || c == Character.class) {
-            return Sets.newHashSet(JavaUdfDataType.CHAR);
+            // some users case have create UDF use varchar as parameter not
+            // string type, but evaluate is String Class, so set TPrimitiveType is STRING
+            return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (c == String.class) {
             return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
@@ -170,6 +168,10 @@ public class JavaUdfDataType {
             if (javaType.getPrimitiveType() == t.getPrimitiveType().toThrift()) {
                 return true;
             }
+        }
+        if (t.getPrimitiveType().toThrift() == TPrimitiveType.VARCHAR
+                || t.getPrimitiveType().toThrift() == TPrimitiveType.CHAR) {
+            return true;
         }
         return false;
     }
