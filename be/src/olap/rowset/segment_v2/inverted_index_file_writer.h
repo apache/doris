@@ -71,6 +71,10 @@ public:
                   lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
+    void set_file_writer_opts_cb(std::function<io::FileWriterOptions()> cb) {
+        _file_writer_opts_cb = cb;
+    }
+
 private:
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
@@ -81,6 +85,8 @@ private:
     size_t _file_size = 0;
     // write to disk or stream
     io::FileWriterPtr _idx_v2_writer;
+
+    std::function<io::FileWriterOptions()> _file_writer_opts_cb = nullptr;
 };
 } // namespace segment_v2
 } // namespace doris

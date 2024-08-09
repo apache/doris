@@ -46,8 +46,6 @@ class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
     static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
-private:
-    int filemode;
 
 protected:
     mutable std::mutex _this_lock;
@@ -91,6 +89,14 @@ public:
 
     virtual void init(const io::FileSystemSPtr& fs, const char* path,
                       lucene::store::LockFactory* lock_factory = nullptr);
+
+    void set_file_writer_opts_cb(std::function<io::FileWriterOptions()> cb) {
+        _file_writer_opts_cb = cb;
+    }
+
+private:
+    int32_t filemode;
+    std::function<io::FileWriterOptions()> _file_writer_opts_cb = nullptr;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
