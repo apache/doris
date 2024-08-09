@@ -53,7 +53,8 @@ public class FileSplit implements Split {
         this.start = start;
         this.length = length;
         this.fileLength = fileLength;
-        this.modificationTime = modificationTime;
+        // BE requires modification time to be non-negative.
+        this.modificationTime = modificationTime < 0 ? 0 : modificationTime;
         this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
         this.locationType = path.isBindBroker() ?  TFileType.FILE_BROKER : path.getTFileTypeForBE();
