@@ -224,7 +224,12 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
         if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
             break;
         }
-        agg_update_row(_value_cids, row_cursor, *_next_key);
+        if (_has_sequence_col) {
+            agg_update_row_with_sequence_agg_key(_value_cids, row_cursor, *_next_key,
+                                                 _sequence_col_idx);
+        } else {
+            agg_update_row(_value_cids, row_cursor, *_next_key);
+        }
         ++merged_count;
     } while (true);
     _merged_rows += merged_count;
