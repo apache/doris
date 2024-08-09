@@ -273,15 +273,19 @@ Status VIcebergTableWriter::_filter_block(doris::vectorized::Block& block,
 }
 
 Status VIcebergTableWriter::close(Status status) {
+    Status result_status;
     int64_t partitions_to_writers_size = _partitions_to_writers.size();
     {
         SCOPED_RAW_TIMER(&_close_ns);
         for (const auto& pair : _partitions_to_writers) {
             Status st = pair.second->close(status);
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 LOG(WARNING) << fmt::format("partition writer close failed for partition {}",
                                             st.to_string());
-                continue;
+                if (result_status.ok()) {
+                    result_status = st;
+                    continue;
+                }
             }
         }
         _partitions_to_writers.clear();
@@ -297,7 +301,7 @@ Status VIcebergTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_write_file_counter, _write_file_count);
     }
-    return Status::OK();
+    return result_status;
 }
 
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {
