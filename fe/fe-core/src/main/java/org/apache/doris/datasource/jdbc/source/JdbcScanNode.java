@@ -330,24 +330,24 @@ public class JdbcScanNode extends ExternalScanNode {
                 result.append("NOT ");
             }
 
-            // Iterate through all children of the CompoundPredicate
-            for (Expr child : compoundPredicate.getChildren()) {
-                // Recursively call conjunctExprToString for each child and append to the result
-                result.append(conjunctExprToString(tableType, child, tbl));
+            List<Expr> children = compoundPredicate.getChildren();
+            for (int i = 0; i < children.size(); i++) {
+                Expr child = children.get(i);
+                String childStr = conjunctExprToString(tableType, child, tbl);
 
-                // If the operator is not 'NOT', append the operator after each child expression
-                if (!(compoundPredicate.getOp() == Operator.NOT)) {
+                // Add parentheses only for CompoundPredicate children
+                if (child instanceof CompoundPredicate) {
+                    childStr = "(" + childStr + ")";
+                }
+
+                result.append(childStr);
+
+                // If the operator is not 'NOT', add the operator after each subexpression
+                if (compoundPredicate.getOp() != Operator.NOT && i < children.size() - 1) {
                     result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
                 }
             }
 
-            // For operators other than 'NOT', remove the extra appended operator at the end
-            // This is necessary for operators like 'AND' or 'OR' that appear between child expressions
-            if (!(compoundPredicate.getOp() == Operator.NOT)) {
-                result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
-            }
-
-            // Return the processed string trimmed of any extra spaces
             return result.toString().trim();
         }
 
@@ -367,7 +367,7 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
-        // only for old planner
+        // Only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";
         }
