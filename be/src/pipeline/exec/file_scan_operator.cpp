@@ -37,10 +37,10 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
-    size_t shard_num = std::min<size_t>(
+    int shard_num = std::min(
             config::doris_scanner_thread_pool_thread_num / state()->query_parallel_instance_num(),
             _max_scanners);
-    shard_num = std::max(shard_num, (size_t)1);
+    shard_num = std::max(shard_num, 1);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(

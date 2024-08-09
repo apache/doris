@@ -211,13 +211,14 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                     bool serialized = false;
                     RETURN_IF_ERROR(_serializer->next_serialized_block(
-                            _output_block.get(), _block_holder->get_block(), _channels.size(),
-                            &serialized, true));
+                            _output_block.get(), _block_holder->get_block(),
+                            static_cast<int>(_channels.size()), &serialized, true));
                     if (serialized) {
                         auto cur_block = _serializer->get_block()->to_block();
                         if (!cur_block.empty()) {
                             RETURN_IF_ERROR(_serializer->serialize_block(
-                                    &cur_block, _block_holder->get_block(), _channels.size()));
+                                    &cur_block, _block_holder->get_block(),
+                                    static_cast<int>(_channels.size())));
                         } else {
                             _block_holder->reset_block();
                         }

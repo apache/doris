@@ -66,7 +66,7 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
     }
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
-    _directory_mask = (1ULL << _log_num_buckets) - 1;
+    _directory_mask = (1U << _log_num_buckets) - 1;
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.

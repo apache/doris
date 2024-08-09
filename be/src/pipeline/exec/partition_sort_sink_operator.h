@@ -103,7 +103,7 @@ public:
     size_t _current_input_rows = 0;
     size_t _topn_filter_rows = 0;
     size_t _do_partition_topn_count = 0;
-    int _init_rows = 4096;
+    ssize_t _init_rows = 4096;
     bool _is_first_sorter = false;
 
     std::unique_ptr<vectorized::SortCursorCmp> _previous_row;
@@ -230,7 +230,7 @@ private:
     std::vector<const vectorized::IColumn*> _partition_columns;
     std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
-    int _partition_exprs_num = 0;
+    int64_t _partition_exprs_num = 0;
     std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
@@ -267,7 +267,7 @@ private:
     ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
     const int64_t _limit = -1;
-    const int _partition_exprs_num = 0;
+    const int64_t _partition_exprs_num = 0;
     const TPartTopNPhase::type _topn_phase;
     const bool _has_global_limit = false;
     const TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;

@@ -136,7 +136,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
             block.insert(
                     {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
-            result_col_id = block.columns() - 1;
+            result_col_id = static_cast<int>(block.columns()) - 1;
         }
 
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();

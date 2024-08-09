@@ -109,7 +109,7 @@ template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
         vectorized::Block* output_block, const int batch_size, bool* eos) {
-    int left_col_len = local_state._left_table_data_types.size();
+    auto left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
     auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;

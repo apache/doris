@@ -91,7 +91,7 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                              BlockRowPos end,
                                                              bool need_check_first) {
     auto& shared_state = *_shared_state;

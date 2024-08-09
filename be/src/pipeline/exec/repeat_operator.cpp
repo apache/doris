@@ -215,7 +215,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 
         _repeat_id_idx++;
 
-        int size = _repeat_id_list.size();
+        auto size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
             _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());

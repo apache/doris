@@ -177,7 +177,7 @@ private:
 template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
-                          HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
+                          HashJoinBuildSinkLocalState* parent, int64_t batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
               _parent(parent),
@@ -223,7 +223,7 @@ private:
     const uint32_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
-    int _batch_size;
+    int64_t _batch_size;
     RuntimeState* _state = nullptr;
 };
 

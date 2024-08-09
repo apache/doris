@@ -1382,8 +1382,8 @@ std::string& trim(std::string& s) {
 // split string by '='
 void splitkv(const std::string& s, std::string& k, std::string& v) {
     const char sep = '=';
-    int start = 0;
-    int end = 0;
+    size_t start = 0;
+    size_t end = 0;
     if ((end = s.find(sep, start)) != std::string::npos) {
         k = s.substr(start, end - start);
         v = s.substr(end + 1);

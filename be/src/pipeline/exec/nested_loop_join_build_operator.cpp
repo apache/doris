@@ -109,7 +109,7 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     // pre-compute the tuple index of build tuples in the output row
-    int num_build_tuples = _child_x->row_desc().tuple_descriptors().size();
+    auto num_build_tuples = _child_x->row_desc().tuple_descriptors().size();
 
     for (int i = 0; i < num_build_tuples; ++i) {
         TupleDescriptor* build_tuple_desc = _child_x->row_desc().tuple_descriptors()[i];

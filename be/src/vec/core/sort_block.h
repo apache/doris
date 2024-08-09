@@ -143,7 +143,7 @@ using PermutationForColumn = std::vector<PermutationWithInlineValue<T>>;
 
 class ColumnSorter {
 public:
-    explicit ColumnSorter(const ColumnWithSortDescription& column, const int limit)
+    explicit ColumnSorter(const ColumnWithSortDescription& column, const ssize_t limit)
             : _column_with_sort_desc(column),
               _limit(limit),
               _nulls_direction(column.second.nulls_direction),
@@ -483,7 +483,7 @@ private:
     }
 
     const ColumnWithSortDescription& _column_with_sort_desc;
-    mutable int _limit;
+    mutable ssize_t _limit;
     const int _nulls_direction;
     const int _direction;
 };

@@ -247,7 +247,7 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(ssize_t column_size = -1) noexcept;
 
     bool mem_reuse() { return !data.empty(); }
 
@@ -604,8 +604,8 @@ public:
     }
 
     // move to columns' data to a Block. this will invalidate
-    Block to_block(int start_column = 0);
-    Block to_block(int start_column, int end_column);
+    Block to_block(size_t start_column = 0);
+    Block to_block(size_t start_column, size_t end_column);
 
     void swap(MutableBlock& other) noexcept;
 

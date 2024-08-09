@@ -24,7 +24,7 @@ namespace doris::vectorized {
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe {
     template <typename Parent>
-    HashTableProbe(Parent* parent, int probe_rows)
+    HashTableProbe(Parent* parent, size_t probe_rows)
             : _valid_element_in_hash_tbl(parent->valid_element_in_hash_tbl()),
               _probe_rows(probe_rows),
               _probe_raw_ptrs(parent->_probe_columns) {}
