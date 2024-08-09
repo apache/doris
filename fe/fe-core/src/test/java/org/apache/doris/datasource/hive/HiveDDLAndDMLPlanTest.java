@@ -340,7 +340,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "errCode = 2, detailMessage = errCode = 2,"
+                "errCode = 2,"
                         + " detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true",
                 () -> createTable(createBucketedTableErr, true));
 
