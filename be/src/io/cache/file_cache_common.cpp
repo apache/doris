@@ -26,6 +26,19 @@
 
 namespace doris::io {
 
+std::string FileCacheSettings::to_string() const {
+    std::stringstream ss;
+    ss << "capacity: " << capacity << ", max_file_block_size: " << max_file_block_size
+       << ", max_query_cache_size: " << max_query_cache_size
+       << ", disposable_queue_size: " << disposable_queue_size
+       << ", disposable_queue_elements: " << disposable_queue_elements
+       << ", index_queue_size: " << index_queue_size
+       << ", index_queue_elements: " << index_queue_elements
+       << ", query_queue_size: " << query_queue_size
+       << ", query_queue_elements: " << query_queue_elements;
+    return ss.str();
+}
+
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent, size_t disposable_percent,
                                           size_t index_percent) {

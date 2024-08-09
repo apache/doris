@@ -38,6 +38,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/mem_file_cache_storage.h"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
@@ -50,6 +51,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size),
           _max_query_cache_size(cache_settings.max_query_cache_size) {
+    _is_in_memory = cache_base_path == "memory";
+
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_cache_size", 0);
     _cur_ttl_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -91,14 +94,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _ttl_queue = LRUQueue(std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
                           std::numeric_limits<int>::max());
 
-    LOG(INFO) << fmt::format(
-            "file cache path={}, disposable queue size={} elements={}, index queue size={} "
-            "elements={}, query queue "
-            "size={} elements={}",
-            cache_base_path, cache_settings.disposable_queue_size,
-            cache_settings.disposable_queue_elements, cache_settings.index_queue_size,
-            cache_settings.index_queue_elements, cache_settings.query_queue_size,
-            cache_settings.query_queue_elements);
+    LOG(INFO) << "file cache path= " << _cache_base_path << cache_settings.to_string();
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
@@ -206,7 +202,11 @@ Status BlockFileCache::initialize() {
 Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(!_is_initialized);
     _is_initialized = true;
-    _storage = std::make_unique<FSFileCacheStorage>();
+    if (is_in_memory()) {
+        _storage = std::make_unique<MemFileCacheStorage>();
+    } else {
+        _storage = std::make_unique<FSFileCacheStorage>();
+    }
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_thread = std::thread(&BlockFileCache::run_background_operation, this);
 
@@ -1711,20 +1711,12 @@ std::string BlockFileCache::clear_file_cache_directly() {
     std::lock_guard cache_lock(_mutex);
     LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
 
-    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " delete dir failed: " << st;
-        LOG(WARNING) << ss.str();
-        return ss.str();
+    std::string clear_msg;
+    auto s = _storage->clear(clear_msg);
+    if (!s.ok()) {
+        return clear_msg;
     }
-    st = global_local_filesystem()->create_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << " failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " create dir failed: " << st;
-        LOG(WARNING) << ss.str();
-        return ss.str();
-    }
+
     int64_t num_files = _files.size();
     int64_t cache_size = _cur_cache_size;
     int64_t index_queue_size = _index_queue.get_elements_num(cache_lock);
