@@ -26,6 +26,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -248,7 +249,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    RETURN_IF_ERROR(load_index());
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
@@ -389,6 +390,7 @@ Status Segment::load_pk_index_and_bf() {
     return Status::OK();
 }
 
+// Potential mem alloc failed expcetion.
 Status Segment::load_index() {
     auto status = [this]() { return _load_index_impl(); }();
     if (!status.ok()) {
@@ -397,6 +399,7 @@ Status Segment::load_index() {
     return status;
 }
 
+// Potential mem alloc failed expcetion.
 Status Segment::_load_index_impl() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
