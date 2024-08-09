@@ -217,7 +217,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
         // handle the scene that query top plan not use the group by in query bottom aggregate
-        if (queryGroupByExpressions.size() != queryTopPlanGroupBySet.size()) {
+        if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
             for (Expression expression : queryGroupByExpressions) {
                 if (queryTopPlanGroupBySet.contains(expression)) {
                     continue;
@@ -264,6 +264,42 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return NormalizeRepeat.doNormalize(repeat);
         }
         return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+    }
+
+    /**
+     * handle the scene that query top plan not use the group by in query bottom aggregate
+     * If mv is select o_orderdate from  orders group by o_orderdate;
+     * query is select 1 from orders group by o_orderdate.
+     * Or mv is select o_orderdate from orders group by o_orderdate
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     * if the slot which query top project use can not cover the slot which query bottom aggregate group by slot
+     * should compensate group by to make sure the data is right.
+     * For example:
+     * mv is select o_orderdate from orders group by o_orderdate;
+     * query is select o_orderdate from  orders group by o_orderdate, o_orderkey;
+     *
+     * @param queryGroupByExpressions query bottom aggregate group by is o_orderdate, o_orderkey
+     * @param queryTopProject query top project is o_orderdate
+     * @return need to compensate group by if true or not need
+     *
+     */
+    private static boolean needCompensateGroupBy(Set<? extends Expression> queryTopProject,
+            List<Expression> queryGroupByExpressions) {
+        Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
+        if (queryGroupByExpressionSet.size() != queryTopProject.size()) {
+            return true;
+        }
+        Set<NamedExpression> queryTopPlanGroupByUseNamedExpressions = new HashSet<>();
+        Set<NamedExpression> queryGroupByUseNamedExpressions = new HashSet<>();
+        for (Expression expr : queryTopProject) {
+            queryTopPlanGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        for (Expression expr : queryGroupByExpressionSet) {
+            queryGroupByUseNamedExpressions.addAll(expr.collect(NamedExpression.class::isInstance));
+        }
+        // if the slots query top project use can not cover the slots which query bottom aggregate use
+        // Should compensate.
+        return !queryTopPlanGroupByUseNamedExpressions.containsAll(queryGroupByUseNamedExpressions);
     }
 
     /**
@@ -435,7 +471,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     /**
      * Check group by is equal or not after group by eliminate by functional dependency
-     * Such as query group by expression is (l_orderdate#1, l_supperkey#2)
+     * Such as query is select l_orderdate, l_supperkey, count(*) from table group by l_orderdate, l_supperkey;
+     * materialized view is select l_orderdate, l_supperkey, l_partkey count(*) from table
+     * group by l_orderdate, l_supperkey, l_partkey;
+     * Would check the extra l_partkey is can be eliminated by functional dependency.
+     * The process step and  data is as following:
+     * group by expression is (l_orderdate#1, l_supperkey#2)
      * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
      * materialized view expression mapping is
      * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}

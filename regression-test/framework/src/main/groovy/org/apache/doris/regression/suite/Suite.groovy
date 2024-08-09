@@ -1469,6 +1469,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        sql """analyze table ${mv_name} with sync;"""
         explain {
             sql("${query_sql}")
             contains("${mv_name}(${mv_name})")
@@ -1488,6 +1489,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        sql """analyze table ${mv_name} with sync;"""
         explain {
             sql("${query_sql}")
             check {result ->
@@ -1511,6 +1513,7 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        sql """analyze table ${mv_name} with sync;"""
         explain {
             sql("${query_sql}")
             notContains("${mv_name}(${mv_name})")

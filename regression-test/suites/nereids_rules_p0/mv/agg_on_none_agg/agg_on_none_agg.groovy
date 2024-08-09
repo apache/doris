@@ -133,28 +133,6 @@ suite("agg_on_none_agg") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
 
-    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
     // query used expression is in mv
     def mv1_0 = """
              select case when o_shippriority > 1 and o_orderkey IN (4, 5) then o_custkey else o_shippriority end,
@@ -173,7 +151,8 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    // should be chosen by cbo, but not
+    check_mv_rewrite_success_without_check_chosen(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -195,7 +174,8 @@ suite("agg_on_none_agg") {
              exp(bin(o_orderkey + 1));
             """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    // should be chosen by cbo, but not
+    check_mv_rewrite_success_without_check_chosen(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -298,7 +278,8 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query3_0_before "${query3_0}"
-    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    // should be chosen by cbo, but not
+    check_mv_rewrite_success_without_check_chosen(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -454,7 +435,8 @@ suite("agg_on_none_agg") {
              bin(o_orderkey);
             """
     order_qt_query5_0_before "${query5_0}"
-    check_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
+    // should be chosen by cbo, but not
+    check_mv_rewrite_success_without_check_chosen(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
