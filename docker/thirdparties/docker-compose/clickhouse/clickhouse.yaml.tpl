@@ -30,7 +30,7 @@ services:
     ports:
       - ${DOCKER_CLICKHOUSE_EXTERNAL_HTTP_PORT}:8123
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --password=123456 --query 'SELECT 1'"]
+      test: ["CMD-SHELL", "clickhouse-client --password=123456 --query 'SELECT 1 FROM doris_test.deadline'"]
       interval: 30s
       timeout: 10s
       retries: 5
