@@ -692,6 +692,7 @@ struct ConvertImplGenericFromJsonb {
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
+            ColumnString& col_to_string = assert_cast<ColumnString&>(*col_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
@@ -720,8 +721,7 @@ struct ConvertImplGenericFromJsonb {
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
                     const auto* blob = static_cast<const JsonbBlobVal*>(value);
-                    assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
-                            blob->getBlob(), blob->getBlobLen());
+                    col_to_string.insert_data(blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
