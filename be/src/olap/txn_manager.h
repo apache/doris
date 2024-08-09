@@ -50,6 +50,7 @@ namespace doris {
 class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
+struct PartialUpdateInfo;
 
 enum class TxnState {
     NOT_FOUND = 0,
@@ -144,7 +145,8 @@ public:
 
     Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -159,8 +161,8 @@ public:
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                      const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
-                      bool is_recovery);
+                      const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, bool is_recovery,
+                      std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr);
 
     // remove a txn from txn manager
     // not persist rowset meta because
