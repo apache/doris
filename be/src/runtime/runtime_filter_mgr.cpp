@@ -410,23 +410,16 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     if (merged_size == cnt_val->producer_size) {
         DCHECK_GT(cnt_val->targetv2_info.size(), 0);
 
-        butil::IOBuf request_attachment;
-
         PPublishFilterRequestV2 apply_request;
         // serialize filter
         void* data = nullptr;
         int len = 0;
-        bool has_attachment = false;
+        butil::IOBuf* pre_iobuf = nullptr;
         if (!cnt_val->filter->get_ignored()) {
             RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
         } else {
             apply_request.set_ignored(true);
             apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
-        }
-
-        if (data != nullptr && len > 0) {
-            request_attachment.append(data, len);
-            has_attachment = true;
         }
 
         std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
@@ -441,9 +434,16 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                                request->is_pipeline());
             closure->request_->set_merge_time(merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
-            if (has_attachment) {
-                closure->cntl_->request_attachment().append(request_attachment);
+
+            if (data != nullptr && len > 0) {
+                if (pre_iobuf == nullptr) {
+                    pre_iobuf = &closure->cntl_->request_attachment();
+                    pre_iobuf->append(data, len);
+                } else {
+                    closure->cntl_->request_attachment().append(*pre_iobuf);
+                }
             }
+
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
             // set fragment-id
             for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
