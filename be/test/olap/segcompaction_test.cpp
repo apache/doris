@@ -91,6 +91,8 @@ public:
     }
 
     void TearDown() {
+        SAFE_DELETE(_data_dir);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(lTestDir).ok());
         if (l_engine != nullptr) {
             l_engine->stop();
             delete l_engine;
@@ -209,7 +211,7 @@ protected:
         tablet_meta->_tablet_id = 1;
         static_cast<void>(tablet_meta->set_partition_id(10000));
         tablet_meta->_schema = tablet_schema;
-        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, _data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, _data_dir, "test_str");
         // tablet->key
         rowset_writer_context->tablet = tablet;
     }
@@ -225,7 +227,7 @@ protected:
     }
 
 private:
-    std::unique_ptr<DataDir> _data_dir;
+    DataDir* _data_dir = nullptr;
 };
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
