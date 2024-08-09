@@ -775,7 +775,7 @@ public class LoadAction extends RestBaseController {
                     ConnectContext.get().getCurrentUserIdentity());
 
         } catch (Exception e) {
-            LOG.error("create ingestion load job failed, db: {}, err: {}", db, e.getMessage());
+            LOG.warn("create ingestion load job failed, db: {}, err: {}", db, e.getMessage());
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
@@ -810,12 +810,13 @@ public class LoadAction extends RestBaseController {
 
         } catch (DdlException | BeginTransactionException | MetaNotFoundException | AnalysisException
                  | QuotaExceedException | LoadException e) {
+            LOG.warn("create ingestion load job failed, db: {}, load id: {}, err: {}", dbName, loadId, e.getMessage());
             if (loadId != -1L) {
                 try {
                     Env.getCurrentEnv().getLoadManager().getLoadJob(loadId).cancelJob(
                             new FailMsg(FailMsg.CancelType.UNKNOWN, StringUtils.defaultIfBlank(e.getMessage(), "")));
                 } catch (DdlException ex) {
-                    LOG.error("cancel ingestion load failed, db: {}, load id: {}, err: {}", dbName, loadId,
+                    LOG.warn("cancel ingestion load failed, db: {}, load id: {}, err: {}", dbName, loadId,
                             e.getMessage());
                 }
             }
@@ -888,7 +889,7 @@ public class LoadAction extends RestBaseController {
                     });
             ingestionLoadJob.updateJobStatus(statusInfo);
         } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
-            LOG.error("cancel ingestion load job failed, db: {}, load id: {}, err: {}", db, loadId, e.getMessage());
+            LOG.warn("cancel ingestion load job failed, db: {}, load id: {}, err: {}", db, loadId, e.getMessage());
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
