@@ -108,8 +108,6 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
-    _build_timer = ADD_TIMER(profile(), "BuildTime");
-    _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
@@ -1091,7 +1089,6 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
                            using HashMethodType = std::decay_t<decltype(agg_method)>;
                            using AggState = typename HashMethodType::State;
                            AggState state(key_columns);
-                           agg_method.init_serialized_keys(key_columns, num_rows);
 
                            auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                                HashMethodType::try_presis_key_and_origin(key, origin,
@@ -1103,7 +1100,6 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
                                }
                                ctor(key, mapped);
                            };
-
                            auto creator_for_null_key = [&](auto& mapped) {
                                mapped = _agg_arena_pool->aligned_alloc(
                                        Base::_parent->template cast<StreamingAggOperatorX>()
@@ -1116,10 +1112,19 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
                                }
                            };
 
-                           SCOPED_TIMER(_hash_table_emplace_timer);
-                           for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                           {
+                               SCOPED_TIMER(_serialize_key_timer);
+                               agg_method.init_serialized_keys(key_columns, num_rows);
+                           }
+
+                           {
+                               SCOPED_TIMER(_hash_table_emplace_timer);
+                               agg_method.compute_hash(num_rows);
+
+                               for (size_t i = 0; i < num_rows; ++i) {
+                                   places[i] = agg_method.lazy_emplace(state, i, creator,
+                                                                       creator_for_null_key);
+                               }
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);

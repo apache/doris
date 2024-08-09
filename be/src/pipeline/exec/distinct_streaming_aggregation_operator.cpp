@@ -73,6 +73,7 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
     SCOPED_TIMER(Base::_init_timer);
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
+    _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
     _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
@@ -298,8 +299,7 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                                 return;
                             }
                         }
-                        AggState state(key_columns);
-                        agg_method.init_serialized_keys(key_columns, num_rows);
+
                         size_t row = 0;
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin, _arena);
@@ -311,9 +311,18 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                             distinct_row.push_back(row);
                         };
 
-                        SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (; row < num_rows; ++row) {
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                        AggState state(key_columns);
+                        {
+                            SCOPED_TIMER(this->_serialize_key_timer);
+                            agg_method.init_serialized_keys(key_columns, num_rows);
+                        }
+
+                        {
+                            SCOPED_TIMER(_hash_table_emplace_timer);
+                            agg_method.compute_hash(num_rows);
+                            for (; row < num_rows; ++row) {
+                                agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                            }
                         }
 
                         COUNTER_UPDATE(_hash_table_input_counter, num_rows);

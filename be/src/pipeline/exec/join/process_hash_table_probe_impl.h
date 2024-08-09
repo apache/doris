@@ -173,8 +173,10 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
-        hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
-                                            false, hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, false,
+                                            hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.compute_hash(probe_rows, null_map, true,
+                                    hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums,
                                                   need_judge_null ? null_map : nullptr);
         COUNTER_SET(_parent->_probe_arena_memory_usage,

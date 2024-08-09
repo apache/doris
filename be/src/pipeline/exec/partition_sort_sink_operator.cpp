@@ -111,6 +111,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _partitioned_data = std::make_unique<PartitionedHashMapVariants>();
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
+    _serialize_key_timer = ADD_TIMER(_profile, "SerializeKeyTime");
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
@@ -260,7 +261,10 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
 
                         AggState state(key_columns);
                         size_t num_rows = input_block->rows();
-                        agg_method.init_serialized_keys(key_columns, num_rows);
+                        {
+                            SCOPED_TIMER(local_state._serialize_key_timer);
+                            agg_method.init_serialized_keys(key_columns, num_rows);
+                        }
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin,
@@ -281,6 +285,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         };
 
                         SCOPED_TIMER(local_state._emplace_key_timer);
+                        agg_method.compute_hash(num_rows);
                         for (size_t row = 0; row < num_rows; ++row) {
                             auto& mapped = agg_method.lazy_emplace(state, row, creator,
                                                                    creator_for_null_key);
