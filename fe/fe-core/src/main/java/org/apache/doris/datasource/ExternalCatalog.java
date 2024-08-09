@@ -238,7 +238,7 @@ public abstract class ExternalCatalog
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
                                     buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
@@ -660,8 +660,6 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
-            //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
             case LAKESOUL:
                 return new LakeSoulExternalDatabase(this, dbId, dbName);
             case TEST:
