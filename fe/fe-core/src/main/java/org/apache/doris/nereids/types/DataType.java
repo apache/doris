@@ -283,6 +283,18 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "timestamp":
+                switch (types.size()) {
+                    case 1:
+                        dataType = DateTimeV2Type.SYSTEM_DEFAULT;
+                        break;
+                    case 2:
+                        dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
             case "hll":
                 dataType = HllType.INSTANCE;
                 break;
