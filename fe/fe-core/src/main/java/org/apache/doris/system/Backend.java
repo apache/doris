@@ -909,6 +909,32 @@ public class Backend implements Writable {
         }
     }
 
+    public void modifyTag(Map<String, String> tagMap) {
+        for (Map.Entry<String, String> entry : tagMap.entrySet()) {
+            String tagKey = entry.getKey();
+            String tagValue = entry.getValue();
+            boolean isTagValueNull = StringUtils.isEmpty(tagValue);
+            boolean isTagLocation = false;
+
+            if (Tag.TYPE_LOCATION.equals(tagKey)) {
+                this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagValue);
+                isTagLocation = true;
+            }
+
+            if (Tag.TYPE_ROLE.equals(tagKey) && Tag.validNodeRoleTag(tagValue)) {
+                this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagValue);
+            }
+
+            if (isTagValueNull) {
+                if (!isTagLocation) {
+                    this.tagMap.remove(tagKey);
+                }
+            } else {
+                this.tagMap.put(tagKey, tagValue);
+            }
+        }
+    }
+
     public Map<String, String> getTagMap() {
         return tagMap;
     }
