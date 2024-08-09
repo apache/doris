@@ -86,10 +86,10 @@ public:
             uint32_t num_rows, roaring::Roaring* bitmap);
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
-                                             int column_to_keep);
+                                             ssize_t column_to_keep);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                             int column_to_keep);
+                                             ssize_t column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
@@ -107,11 +107,12 @@ public:
 
     [[nodiscard]] static Status execute_conjuncts_and_filter_block(
             const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters,
-            Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
+            Block* block, std::vector<uint32_t>& columns_to_filter, ssize_t column_to_keep);
 
     static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                      std::vector<uint32_t>& columns_to_filter,
-                                                     int column_to_keep, IColumn::Filter& filter);
+                                                     ssize_t column_to_keep,
+                                                     IColumn::Filter& filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
                                                                      const Block&, Block*,

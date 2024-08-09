@@ -128,7 +128,7 @@ Status VExprContext::eval_inverted_index(
     return _root->eval_inverted_index(this, colid_to_inverted_index_iter, num_rows, bitmap);
 }
 
-Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
+Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, ssize_t column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();
     }
@@ -138,7 +138,7 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                  int column_to_keep) {
+                                  ssize_t column_to_keep) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
@@ -283,7 +283,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
 // need exception safety
 Status VExprContext::execute_conjuncts_and_filter_block(
         const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters, Block* block,
-        std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
+        std::vector<uint32_t>& columns_to_filter, ssize_t column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(
@@ -315,7 +315,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(
 
 Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                         std::vector<uint32_t>& columns_to_filter,
-                                                        int column_to_keep,
+                                                        ssize_t column_to_keep,
                                                         IColumn::Filter& filter) {
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;

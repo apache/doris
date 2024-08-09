@@ -38,7 +38,7 @@ public:
 #if defined(__x86_64__) && defined __GNUC__
         int64 count = 0;
         asm("popcnt %1,%0" : "=r"(count) : "rm"(n) : "cc");
-        return count;
+        return static_cast<int>(count);
 #else
         return CountOnes64(n);
 #endif

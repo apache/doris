@@ -405,7 +405,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
-        int num_ranges = ranges->size();
+        auto num_ranges = ranges->size();
         for (int i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());

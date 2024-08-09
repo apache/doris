@@ -46,7 +46,7 @@ struct RowRef {
     uint32_t row_num = 0;
 
     RowRef() = default;
-    RowRef(size_t row_num_count) : row_num(row_num_count) {}
+    RowRef(size_t row_num_count) : row_num(static_cast<uint32_t>(row_num_count)) {}
     void clear() {};
 };
 

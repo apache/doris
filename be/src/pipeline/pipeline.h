@@ -119,10 +119,11 @@ public:
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
                        _num_tasks, _num_tasks_created);
-        for (size_t i = 0; i < operatorXs.size(); i++) {
+        for (int i = 0; i < operatorXs.size(); i++) {
             fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _sink_x->debug_string(static_cast<int>(operatorXs.size())));
         return fmt::to_string(debug_string_buffer);
     }
 

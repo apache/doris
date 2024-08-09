@@ -158,7 +158,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    _slot_num = _dest_tuple_desc->slots().size();
+    _slot_num = static_cast<int>(_dest_tuple_desc->slots().size());
     // get src tuple desc
     const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());

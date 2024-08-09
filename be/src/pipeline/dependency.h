@@ -513,8 +513,8 @@ struct SpillSortSharedState : public BasicSharedState,
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
             avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
-            spill_block_batch_row_count =
-                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+            spill_block_batch_row_count = static_cast<int>(
+                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes);
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
@@ -689,7 +689,7 @@ public:
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
 
     /// init in build side
-    int child_quantity;
+    int64_t child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
     std::vector<Dependency*> probe_finished_children_dependency;
 

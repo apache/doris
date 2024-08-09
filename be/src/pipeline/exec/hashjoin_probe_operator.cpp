@@ -644,7 +644,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         }
     }
 
-    const int right_col_idx =
+    const auto right_col_idx =
             (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {

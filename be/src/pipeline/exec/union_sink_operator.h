@@ -91,7 +91,7 @@ public:
     }
 
 private:
-    int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
+    int64_t _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
@@ -102,7 +102,7 @@ private:
     /// Index of the first non-passthrough child; i.e. a child that needs materialization.
     /// 0 when all children are materialized, '_children.size()' when no children are
     /// materialized.
-    const int _first_materialized_child_idx;
+    const int64_t _first_materialized_child_idx;
 
     const RowDescriptor _row_descriptor;
     const int _cur_child_id;

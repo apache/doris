@@ -82,7 +82,7 @@ private:
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              RowRefListWithFlags& value, int& block_size);
-    const int _child_quantity;
+    const size_t _child_quantity;
 };
 
 } // namespace pipeline

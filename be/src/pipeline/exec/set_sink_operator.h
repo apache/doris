@@ -107,7 +107,7 @@ private:
                                  size_t& rows);
 
     const int _cur_child_id;
-    const int _child_quantity;
+    const size_t _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;

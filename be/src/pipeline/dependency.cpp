@@ -265,8 +265,8 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
                                               need_computes.data());
         }
 
-        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
-            for (int i = 0; i < rows; ++i) {
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
+            for (size_t i = 0; i < rows; ++i) {
                 computes[i] = computes[i] == res[i];
             }
         };

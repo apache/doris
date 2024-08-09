@@ -490,15 +490,16 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
     // header upper line
     auto line = [&]() {
         for (size_t i = 0; i < columns(); ++i) {
-            out << std::setfill('-') << std::setw(1) << "+" << std::setw(headers_size[i]) << "-";
+            out << std::setfill('-') << std::setw(1) << "+"
+                << std::setw(static_cast<int>(headers_size[i])) << "-";
         }
         out << std::setw(1) << "+" << std::endl;
     };
     line();
     // header text
     for (size_t i = 0; i < columns(); ++i) {
-        out << std::setfill(' ') << std::setw(1) << "|" << std::left << std::setw(headers_size[i])
-            << headers[i];
+        out << std::setfill(' ') << std::setw(1) << "|" << std::left
+            << std::setw(static_cast<int>(headers_size[i])) << headers[i];
     }
     out << std::setw(1) << "|" << std::endl;
     // header bottom line
@@ -510,8 +511,8 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
             if (!data[i].column || data[i].column->empty()) {
-                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
-                    << std::right;
+                out << std::setfill(' ') << std::setw(1) << "|"
+                    << std::setw(static_cast<int>(headers_size[i])) << std::right;
                 continue;
             }
             std::string s;
@@ -528,8 +529,8 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";
             }
-            out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
-                << std::right << s;
+            out << std::setfill(' ') << std::setw(1) << "|"
+                << std::setw(static_cast<int>(headers_size[i])) << std::right << s;
         }
         out << std::setw(1) << "|" << std::endl;
     }
@@ -728,12 +729,12 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(ssize_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
-        for (int i = data.size() - 1; i >= column_size; --i) {
+        for (ssize_t i = data.size() - 1; i >= column_size; --i) {
             erase(i);
         }
     }
@@ -1105,11 +1106,11 @@ void MutableBlock::erase(const String& name) {
     // }
 }
 
-Block MutableBlock::to_block(int start_column) {
+Block MutableBlock::to_block(size_t start_column) {
     return to_block(start_column, _columns.size());
 }
 
-Block MutableBlock::to_block(int start_column, int end_column) {
+Block MutableBlock::to_block(size_t start_column, size_t end_column) {
     ColumnsWithTypeAndName columns_with_schema;
     columns_with_schema.reserve(end_column - start_column);
     for (size_t i = start_column; i < end_column; ++i) {
@@ -1131,15 +1132,16 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     // header upper line
     auto line = [&]() {
         for (size_t i = 0; i < columns(); ++i) {
-            out << std::setfill('-') << std::setw(1) << "+" << std::setw(headers_size[i]) << "-";
+            out << std::setfill('-') << std::setw(1) << "+"
+                << std::setw(static_cast<int>(headers_size[i])) << "-";
         }
         out << std::setw(1) << "+" << std::endl;
     };
     line();
     // header text
     for (size_t i = 0; i < columns(); ++i) {
-        out << std::setfill(' ') << std::setw(1) << "|" << std::left << std::setw(headers_size[i])
-            << headers[i];
+        out << std::setfill(' ') << std::setw(1) << "|" << std::left
+            << std::setw(static_cast<int>(headers_size[i])) << headers[i];
     }
     out << std::setw(1) << "|" << std::endl;
     // header bottom line
@@ -1151,16 +1153,16 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     for (size_t row_num = 0; row_num < rows() && row_num < row_limit; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
             if (_columns[i].get()->empty()) {
-                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
-                    << std::right;
+                out << std::setfill(' ') << std::setw(1) << "|"
+                    << std::setw(static_cast<int>(headers_size[i])) << std::right;
                 continue;
             }
             std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";
             }
-            out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
-                << std::right << s;
+            out << std::setfill(' ') << std::setw(1) << "|"
+                << std::setw(static_cast<int>(headers_size[i])) << std::right << s;
         }
         out << std::setw(1) << "|" << std::endl;
     }
