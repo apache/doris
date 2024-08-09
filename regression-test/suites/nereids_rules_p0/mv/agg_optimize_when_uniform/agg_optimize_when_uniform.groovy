@@ -128,7 +128,8 @@ suite("agg_optimize_when_uniform") {
     (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
     """
-
+    sql """analyze table orders with sync"""
+    
     // single table
     // filter cover all roll up dimensions and contains agg function in mapping, combinator handler
     def mv1_0 = """

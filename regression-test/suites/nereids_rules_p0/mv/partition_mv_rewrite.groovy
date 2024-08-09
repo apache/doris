@@ -133,11 +133,10 @@ suite("partition_mv_rewrite") {
     """
 
 
-    def mv_name = "mv_10086"
-    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-    sql """DROP TABLE IF EXISTS ${mv_name}"""
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
+    sql """DROP TABLE IF EXISTS mv_10086"""
     sql"""
-        CREATE MATERIALIZED VIEW ${mv_name}
+        CREATE MATERIALIZED VIEW mv_10086
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL
         partition by(l_shipdate)
         DISTRIBUTED BY RANDOM BUCKETS 2
@@ -146,31 +145,40 @@ suite("partition_mv_rewrite") {
         ${mv_def_sql}
         """
 
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
 
+    multi_sql """
+         analyze table lineitem with sync;
+         analyze table orders with sync;
+         analyze table mv_10086 with sync;
+         """
+    sleep(10000)
     explain {
         sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     explain {
         sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     // base table partition data change
     sql """
     insert into lineitem values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
-    waitingPartitionIsExpected("${mv_name}", "p_20231017_20231018", false)
+    waitingPartitionIsExpected("mv_10086", "p_20231017_20231018", false)
 
     // enable union rewrite
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_3_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
+    sql "analyze table mv_10086 with sync"
+    def memo = sql "explain memo plan ${all_partition_sql}"
+    print(memo)
     explain {
         sql("${all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if sub partition is invalid
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_3_0_after "${all_partition_sql}"
 
@@ -180,19 +188,19 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${partition_sql}")
         // should rewrite successfully when union rewrite enable if doesn't query invalid partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_4_0_after "${partition_sql}"
 
     // base table add partition
-    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql "REFRESH MATERIALIZED VIEW mv_10086 AUTO"
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
     sql """
     insert into lineitem values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-21', '2023-10-21', '2023-10-21', 'a', 'b', 'yyyyyyyyy');
     """
 
-    waitingPartitionIsExpected("${mv_name}", "p_20231021_20231022", false)
+    waitingPartitionIsExpected("mv_10086", "p_20231021_20231022", false)
 
     // enable union rewrite
     sql "SET enable_materialized_view_rewrite=false"
@@ -201,7 +209,7 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_7_0_after "${all_partition_sql}"
 
@@ -211,17 +219,17 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${partition_sql}")
         // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_8_0_after "${partition_sql}"
 
     // base table delete partition test
-    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql "REFRESH MATERIALIZED VIEW mv_10086 AUTO"
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
     sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231017 FORCE;
     """
     // show partitions will cause error, tmp comment
-//    waitingPartitionIsExpected("${mv_name}", "p_20231017_20231018", false)
+   waitingPartitionIsExpected("mv_10086", "p_20231017_20231018", false)
 
     // enable union rewrite
     sql "SET enable_materialized_view_rewrite=false"
@@ -230,7 +238,7 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table delete partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_11_0_after "${all_partition_sql}"
 
@@ -240,7 +248,7 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${partition_sql}")
         // should rewrite successfully when union rewrite enable if doesn't query deleted partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_12_0_after "${partition_sql}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
@@ -327,8 +335,6 @@ suite("partition_mv_rewrite") {
     """
     def ttl_mv_name = "mv_10000"
 
-    sql """analyze table lineitem_static with sync;"""
-
     def create_ttl_mtmv = { db_name, mv_inner_name, mv_inner_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_inner_name}"""
         sql"""
@@ -347,6 +353,12 @@ suite("partition_mv_rewrite") {
     }
 
     create_ttl_mtmv(db, ttl_mv_name, ttl_mv_def_sql)
+
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
 
     // test when mv is ttl
     // enable union rewrite
@@ -411,10 +423,10 @@ suite("partition_mv_rewrite") {
     l_suppkey;
     """
 
-    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-    sql """DROP TABLE IF EXISTS ${mv_name}"""
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
+    sql """DROP TABLE IF EXISTS mv_10086"""
     sql"""
-        CREATE MATERIALIZED VIEW ${mv_name}
+        CREATE MATERIALIZED VIEW mv_10086
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL
         partition by (date_trunc(`col1`, 'month'))
         DISTRIBUTED BY RANDOM BUCKETS 2
@@ -422,15 +434,22 @@ suite("partition_mv_rewrite") {
         AS
         ${roll_up_mv_def_sql}
         """
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
+
+
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
 
     explain {
         sql("${roll_up_all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     explain {
         sql("${roll_up_partition_sql}")
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     // base table add partition
     sql """
@@ -442,10 +461,16 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_17_0_before "${roll_up_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
+    
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
     explain {
         sql("${roll_up_all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_17_0_after "${roll_up_all_partition_sql}"
 
@@ -455,7 +480,7 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${roll_up_partition_sql}")
         // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_18_0_after "${roll_up_partition_sql}"
 
@@ -472,8 +497,9 @@ suite("partition_mv_rewrite") {
 
 
     // base table partition add data
-    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql "REFRESH MATERIALIZED VIEW mv_10086 AUTO"
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
+    
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-11-21', '2023-11-21', '2023-11-21', 'd', 'd', 'yyyyyyyyy'),
@@ -484,10 +510,17 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_19_0_before "${roll_up_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
+
+    
+    multi_sql """
+        analyze table lineitem_static with sync;
+        analyze table lineitem with sync;
+        analyze table orders with sync;
+        """
     explain {
         sql("${roll_up_all_partition_sql}")
         // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_19_0_after "${roll_up_all_partition_sql}"
 
@@ -497,14 +530,14 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${roll_up_partition_sql}")
         // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("${mv_name}(${mv_name})")
+        contains("mv_10086(mv_10086)")
     }
     order_qt_query_20_0_after "${roll_up_partition_sql}"
 
 
     // base table delete partition
-    sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
-    waitingMTMVTaskFinished(getJobName(db, mv_name))
+    sql "REFRESH MATERIALIZED VIEW mv_10086 AUTO"
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
     sql """ ALTER TABLE lineitem DROP PARTITION IF EXISTS p_20231121 FORCE;
     """
 
@@ -516,7 +549,7 @@ suite("partition_mv_rewrite") {
 //    explain {
 //        sql("${roll_up_all_partition_sql}")
 //        // should rewrite successful when union rewrite enalbe if base table add new partition
-//        contains("${mv_name}(${mv_name})")
+//        contains("mv_10086(mv_10086)")
 //    }
 //    order_qt_query_21_0_after "${roll_up_all_partition_sql}"
 //
@@ -526,7 +559,7 @@ suite("partition_mv_rewrite") {
 //    explain {
 //        sql("${roll_up_partition_sql}")
 //        // should rewrite successfully when union rewrite enable if doesn't query new partition
-//        contains("${mv_name}(${mv_name})")
+//        contains("mv_10086(mv_10086)")
 //    }
 //    order_qt_query_22_0_after "${roll_up_partition_sql}"
 }
