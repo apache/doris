@@ -31,7 +31,9 @@ namespace doris::segment_v2 {
 
 PhraseEdgeQuery::PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                  const TQueryOptions& query_options)
-        : _searcher(searcher), _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()) {}
+        : _searcher(searcher),
+          _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
+          _max_expansions(query_options.inverted_index_max_expansions) {}
 
 void PhraseEdgeQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.empty()) {
@@ -50,9 +52,9 @@ void PhraseEdgeQuery::search(roaring::Roaring& roaring) {
 }
 
 void PhraseEdgeQuery::search_one_term(roaring::Roaring& roaring) {
-    size_t count = 0;
+    bool first = true;
     std::wstring sub_term = StringUtil::string_to_wstring(_terms[0]);
-    find_words([this, &count, &sub_term, &roaring](Term* term) {
+    find_words([this, &first, &sub_term, &roaring](Term* term) {
         std::wstring_view ws_term(term->text(), term->textLength());
         if (ws_term.find(sub_term) == std::wstring::npos) {
             return;
@@ -70,12 +72,12 @@ void PhraseEdgeQuery::search_one_term(roaring::Roaring& roaring) {
         }
         _CLDELETE(term_doc);
 
-        if (count) {
+        if (!first) {
             roaring.swap(result);
+            first = false;
         } else {
             roaring |= result;
         }
-        count++;
     });
 }
 
@@ -86,15 +88,19 @@ void PhraseEdgeQuery::search_multi_term(roaring::Roaring& roaring) {
     std::vector<CL_NS(index)::Term*> suffix_terms;
     std::vector<CL_NS(index)::Term*> prefix_terms;
 
-    find_words([&suffix_term, &suffix_terms, &prefix_term, &prefix_terms](Term* term) {
+    find_words([this, &suffix_term, &suffix_terms, &prefix_term, &prefix_terms](Term* term) {
         std::wstring_view ws_term(term->text(), term->textLength());
 
-        if (ws_term.ends_with(suffix_term)) {
-            suffix_terms.push_back(_CL_POINTER(term));
+        if (_max_expansions == 0 || suffix_terms.size() < _max_expansions) {
+            if (ws_term.ends_with(suffix_term)) {
+                suffix_terms.push_back(_CL_POINTER(term));
+            }
         }
 
-        if (ws_term.starts_with(prefix_term)) {
-            prefix_terms.push_back(_CL_POINTER(term));
+        if (_max_expansions == 0 || prefix_terms.size() < _max_expansions) {
+            if (ws_term.starts_with(prefix_term)) {
+                prefix_terms.push_back(_CL_POINTER(term));
+            }
         }
     });
 

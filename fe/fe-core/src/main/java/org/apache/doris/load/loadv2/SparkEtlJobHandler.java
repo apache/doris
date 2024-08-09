@@ -365,7 +365,7 @@ public class SparkEtlJobHandler {
 
     public void deleteEtlOutputPath(String outputPath, BrokerDesc brokerDesc) {
         try {
-            BrokerUtil.deletePath(outputPath, brokerDesc);
+            BrokerUtil.deletePathWithBroker(outputPath, brokerDesc);
             LOG.info("delete path success. path: {}", outputPath);
         } catch (UserException e) {
             LOG.warn("delete path failed. path: {}", outputPath, e);

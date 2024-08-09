@@ -38,6 +38,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -48,6 +49,7 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
+#include "util/parse_util.h"
 
 namespace doris {
 
@@ -180,14 +182,21 @@ Status CloudStorageEngine::open() {
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    // TODO(plat1ko): Use file cache disks number?
-    _memtable_flush_executor->init(1);
+    // Use file cache disks number
+    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
-    _txn_delete_bitmap_cache =
-            std::make_unique<CloudTxnDeleteBitmapCache>(config::delete_bitmap_agg_cache_capacity);
+    // The default cache is set to 100MB, use memory limit to dynamic adjustment
+    bool is_percent = false;
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _txn_delete_bitmap_cache = std::make_unique<CloudTxnDeleteBitmapCache>(
+            delete_bitmap_agg_cache_cache_limit > config::delete_bitmap_agg_cache_capacity
+                    ? delete_bitmap_agg_cache_cache_limit
+                    : config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);

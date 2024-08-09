@@ -56,9 +56,14 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
     TShowProcessListRequest request;
     request.__set_show_full_sql(true);
 
-    RETURN_IF_ERROR(SchemaHelper::show_process_list(*(_param->common_param->ip),
-                                                    _param->common_param->port, request,
-                                                    &_process_list_result));
+    for (const auto& fe_addr : _param->common_param->fe_addr_list) {
+        TShowProcessListResult tmp_ret;
+        RETURN_IF_ERROR(
+                SchemaHelper::show_process_list(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
+        _process_list_result.process_list.insert(_process_list_result.process_list.end(),
+                                                 tmp_ret.process_list.begin(),
+                                                 tmp_ret.process_list.end());
+    }
 
     return Status::OK();
 }

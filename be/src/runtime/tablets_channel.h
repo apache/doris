@@ -143,11 +143,8 @@ protected:
     // id of this load channel
     TabletsChannelKey _key;
 
-    // make execute sequence
+    // protect _state change. open and close. when add_batch finished, lock to change _next_seqs also
     std::mutex _lock;
-
-    SpinLock _tablet_writers_lock;
-
     enum State {
         kInitialized,
         kOpened,
@@ -173,8 +170,10 @@ protected:
     // currently it's OK.
     Status _close_status;
 
-    // tablet_id -> TabletChannel
+    // tablet_id -> TabletChannel. it will only be changed in open() or inc_open()
     std::unordered_map<int64_t, std::unique_ptr<BaseDeltaWriter>> _tablet_writers;
+    // protect _tablet_writers
+    SpinLock _tablet_writers_lock;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.

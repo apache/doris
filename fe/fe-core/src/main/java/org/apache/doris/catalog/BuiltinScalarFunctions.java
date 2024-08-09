@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContainsAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -485,6 +487,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayCompact.class, "array_compact"),
             scalar(ArrayConcat.class, "array_concat"),
             scalar(ArrayContains.class, "array_contains"),
+            scalar(ArrayContainsAll.class, "array_contains_all", "hasSubstr"),
             scalar(ArrayCount.class, "array_count"),
             scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
@@ -528,6 +531,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Asin.class, "asin"),
             scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
+            scalar(AutoPartitionName.class, "auto_partition_name"),
             scalar(Bin.class, "bin"),
             scalar(BitCount.class, "bit_count"),
             scalar(BitLength.class, "bit_length"),

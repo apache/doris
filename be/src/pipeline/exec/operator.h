@@ -871,8 +871,7 @@ protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
 
-    std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
-
+    std::shared_ptr<Dependency> _async_writer_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
 };
 

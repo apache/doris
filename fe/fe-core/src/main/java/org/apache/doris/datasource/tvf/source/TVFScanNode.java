@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -139,7 +140,8 @@ public class TVFScanNode extends FileQueryScanNode {
             Path path = new Path(fileStatus.getPath());
             try {
                 splits.addAll(splitFile(path, fileStatus.getBlockSize(), null, fileStatus.getSize(),
-                        fileStatus.getModificationTime(), fileStatus.isSplitable, null));
+                        fileStatus.getModificationTime(), fileStatus.isSplitable, null,
+                        FileSplitCreator.DEFAULT));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", path, e);
                 throw new UserException(e);

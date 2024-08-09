@@ -834,8 +834,12 @@ public class AnalysisManager implements Writable {
         //        count, ndv, null_count, min, max, data_size, update_time]
         StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (ResultRow row : resultRows) {
-            cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
-                    PartitionColumnStatistic.fromResultRow(row));
+            try {
+                cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
+                        PartitionColumnStatistic.fromResultRow(row));
+            } catch (Exception e) {
+                cache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName);
+            }
         }
     }
 
@@ -1242,16 +1246,22 @@ public class AnalysisManager implements Writable {
                     OlapTable olapTable = (OlapTable) table;
                     short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
                     Map<Long, Long> tabletRows = record.getValue();
-                    if (tabletRows == null) {
+                    if (tabletRows == null || tabletRows.isEmpty()) {
+                        LOG.info("Tablet row count map is empty");
                         continue;
                     }
-                    long tableUpdateRows = 0;
+                    long rowsForAllReplica = 0;
                     for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        tableUpdateRows += entry.getValue();
+                        rowsForAllReplica += entry.getValue();
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Table id {}, tablet id {}, row count {}",
+                                    record.getKey(), entry.getKey(), entry.getValue());
+                        }
                     }
-                    tableUpdateRows = tableUpdateRows / replicaNum;
-                    LOG.info("Update rows for table {} is {}, replicaNum is {}",
-                            olapTable.getName(), tableUpdateRows, replicaNum);
+                    long tableUpdateRows = rowsForAllReplica / replicaNum;
+                    LOG.info("Update rows for table {} is {}, replicaNum is {}, "
+                            + "rows for all replica {}, tablets count {}",
+                            olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
                     statsStatus.updatedRows.addAndGet(tableUpdateRows);
                     if (StatisticsUtil.enablePartitionAnalyze()) {
                         updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);

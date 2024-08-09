@@ -34,3 +34,9 @@ select 1 not in (null, 2);
 select timestamp '2008-08-08 00:00:00' in ('2008-08-08');
 select case when true then timestamp '2008-08-08 00:00:00' else '2008-08-08' end;
 
+select 1 is true, 1 is not true, 0 is false, 0 is not false;
+select -1 is true, -1 is not true, -0 is false, -1 is not false;
+select 1.1 is true, 1.1 is not true, 1.1 is false, 1.1 is not false;
+select 'ab' is true, 'ab' is not true, 'ab' is false, 'ab' is not false;
+select cast('2028-01-01' as date) is true, cast('2028-01-01' as date) is not true, cast('2028-01-01' as date) is false, cast('2028-01-01' as date) is not false;
+select cast('2028-01-01 01:00:00' as datetime) is true, cast('2028-01-01 01:00:00'  as datetime) is not true, cast('2028-01-01 01:00:00' as datetime) is false, cast('2028-01-01 01:00:00' as datetime) is not false;

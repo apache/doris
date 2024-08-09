@@ -190,7 +190,7 @@ Status EngineCloneTask::_do_clone() {
                                                               tablet->replica_id(), false));
         tablet.reset();
     }
-    bool is_new_tablet = tablet == nullptr;
+    _is_new_tablet = tablet == nullptr;
     // try to incremental clone
     Versions missed_versions;
     // try to repair a tablet with missing version
@@ -228,7 +228,7 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
-            RETURN_IF_ERROR(_set_tablet_info(is_new_tablet));
+            RETURN_IF_ERROR(_set_tablet_info());
             return Status::OK();
         }
 
@@ -307,10 +307,11 @@ Status EngineCloneTask::_do_clone() {
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
-    return _set_tablet_info(is_new_tablet);
+
+    return _set_tablet_info();
 }
 
-Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
+Status EngineCloneTask::_set_tablet_info() {
     // Get clone tablet info
     TTabletInfo tablet_info;
     tablet_info.__set_tablet_id(_clone_req.tablet_id);
@@ -320,7 +321,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     if (_clone_req.__isset.version && tablet_info.version < _clone_req.version) {
         // if it is a new tablet and clone failed, then remove the tablet
         // if it is incremental clone, then must not drop the tablet
-        if (is_new_tablet) {
+        if (_is_new_tablet) {
             // we need to check if this cloned table's version is what we expect.
             // if not, maybe this is a stale remaining table which is waiting for drop.
             // we drop it.

@@ -97,15 +97,16 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
                     if (pair.first.getAsBoolean() == false) {
-                        LOG.debug("group commit is off for table: {}, because: {}", table.getName(), pair.second.get());
+                        LOG.debug("group commit is off for query_id: {}, table: {}, because: {}",
+                                DebugUtil.printId(ctx.queryId()), table.getName(), pair.second.get());
                         break;
                     }
                 }
             }
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("group commit is off because for table: {}, because logicalQuery class: {}", table.getName(),
-                        logicalQuery.getClass().getName());
+                LOG.debug("group commit is off for query_id: {}, table: {}, because logicalQuery class: {}",
+                        DebugUtil.printId(ctx.queryId()), table.getName(), logicalQuery.getClass().getName());
             }
         }
     }

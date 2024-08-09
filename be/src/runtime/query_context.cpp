@@ -178,6 +178,7 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
+    _merge_controller_handler.reset();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
 

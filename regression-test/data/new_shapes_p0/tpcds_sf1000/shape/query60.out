@@ -13,9 +13,9 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ss_addr_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ss_addr_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
@@ -37,9 +37,9 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF7 i_item_sk->[cs_item_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF7 i_item_sk->[cs_item_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF6 ca_address_sk->[cs_bill_addr_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF6 ca_address_sk->[cs_bill_addr_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
 ------------------------------------PhysicalProject
@@ -61,9 +61,9 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF11 i_item_sk->[ws_item_sk]
+--------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF11 ca_address_sk->[ws_bill_addr_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF10 ca_address_sk->[ws_bill_addr_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 i_item_sk->[ws_item_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[ws_sold_date_sk]
 ------------------------------------PhysicalProject
@@ -71,13 +71,13 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_moy = 10) and (date_dim.d_year = 2000))
 ----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalProject
-----------------------------------filter((customer_address.ca_gmt_offset = -5.00))
-------------------------------------PhysicalOlapScan[customer_address]
-----------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF8 i_item_id->[i_item_id]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF8
-------------------------------PhysicalProject
---------------------------------filter((item.i_category = 'Jewelry'))
-----------------------------------PhysicalOlapScan[item]
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_item_id = item.i_item_id)) otherCondition=() build RFs:RF8 i_item_id->[i_item_id]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[item] apply RFs: RF8
+----------------------------------PhysicalProject
+------------------------------------filter((item.i_category = 'Jewelry'))
+--------------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+--------------------------------PhysicalOlapScan[customer_address]
 

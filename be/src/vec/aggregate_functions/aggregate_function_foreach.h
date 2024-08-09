@@ -223,8 +223,6 @@ public:
         return nested_function->allocates_memory_in_arena();
     }
 
-    bool is_state() const override { return nested_function->is_state(); }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         std::vector<const IColumn*> nested(num_arguments);

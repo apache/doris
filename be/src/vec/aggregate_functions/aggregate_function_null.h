@@ -180,8 +180,6 @@ public:
     bool allocates_memory_in_arena() const override {
         return nested_function->allocates_memory_in_arena();
     }
-
-    bool is_state() const override { return nested_function->is_state(); }
 };
 
 /** There are two cases: for single argument and variadic.

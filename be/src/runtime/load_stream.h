@@ -66,7 +66,7 @@ private:
     std::atomic<uint32_t> _next_segid;
     int64_t _num_segments = 0;
     bthread::Mutex _lock;
-    std::shared_ptr<Status> _failed_st;
+    Status _status;
     PUniqueId _load_id;
     int64_t _txn_id;
     RuntimeProfile* _profile = nullptr;
@@ -86,12 +86,12 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 
-    Status close(const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+    void close(const std::vector<PTabletID>& tablets_to_commit,
+               std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
 private:
-    Status _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                               int64_t partition_id);
+    void _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
+                             int64_t partition_id);
 
 private:
     int64_t _id;
@@ -124,8 +124,8 @@ public:
         }
     }
 
-    Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+    void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+               std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;

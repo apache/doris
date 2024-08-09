@@ -181,6 +181,10 @@ TEST(HdfsAccessorTest, normal) {
     std::string to_delete_dir = "data/10001";
     ret = accessor.delete_directory(to_delete_dir);
     ASSERT_EQ(ret, 0);
+    ret = accessor.list_directory(to_delete_dir, &iter);
+    ASSERT_EQ(ret, 0);
+    ASSERT_FALSE(iter->has_next());
+
     files.erase(std::remove_if(files.begin(), files.end(),
                                [&](auto&& file) { return file.starts_with(to_delete_dir); }),
                 files.end());

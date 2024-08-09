@@ -147,23 +147,26 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     return Status::OK();
 }
 
-Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
-    return load_segments(0, num_segments(), segments);
+Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
+                                 bool disable_file_cache) {
+    return load_segments(0, num_segments(), segments, disable_file_cache);
 }
 
 Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
-                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments,
+                                 bool disable_file_cache) {
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         std::shared_ptr<segment_v2::Segment> segment;
-        RETURN_IF_ERROR(load_segment(seg_id, &segment));
+        RETURN_IF_ERROR(load_segment(seg_id, &segment, disable_file_cache));
         segments->push_back(std::move(segment));
         seg_id++;
     }
     return Status::OK();
 }
 
-Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment,
+                                bool disable_file_cache) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -172,12 +175,14 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     DCHECK(seg_id >= 0);
     auto seg_path = DORIS_TRY(segment_path(seg_id));
     io::FileReaderOptions reader_options {
-            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                    : io::FileCachePolicy::NO_CACHE,
+            .cache_type = !disable_file_cache && config::enable_file_cache
+                                  ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                  : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
+
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
                                        segment);
     if (!s.ok()) {

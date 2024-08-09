@@ -47,9 +47,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -409,17 +409,8 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
-
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> {
-                if (leftRange == null) {
-                    return rightRange;
-                }
-                if (rightRange == null) {
-                    return leftRange;
-                }
-                return leftRange.intersect(rightRange);
-            });
+                (leftRange, rightRange) -> leftRange.intersect(rightRange));
 
         result = returnFalseIfExistEmptyRange(result);
         if (result.result.equals(BooleanLiteral.FALSE)) {
@@ -435,18 +426,20 @@ public class OneRangePartitionEvaluator
     @Override
     public EvaluateRangeResult visitOr(Or or, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
-
+        if (result.result.equals(BooleanLiteral.FALSE)) {
+            return result;
+        } else if (result.childrenResult.get(0).result.equals(BooleanLiteral.FALSE)) {
+            // false or a<1 -> return range a<1
+            return new EvaluateRangeResult(result.result, result.childrenResult.get(1).columnRanges,
+                    result.childrenResult);
+        } else if (result.childrenResult.get(1).result.equals(BooleanLiteral.FALSE)) {
+            // a<1 or false -> return range a<1
+            return new EvaluateRangeResult(result.result, result.childrenResult.get(0).columnRanges,
+                    result.childrenResult);
+        }
         result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                (leftRange, rightRange) -> {
-                    if (leftRange == null) {
-                        return rightRange;
-                    }
-                    if (rightRange == null) {
-                        return leftRange;
-                    }
-                    return leftRange.union(rightRange);
-                });
-        return removeEmptyRange(result);
+                (leftRange, rightRange) -> leftRange.union(rightRange));
+        return returnFalseIfExistEmptyRange(result);
     }
 
     @Override
@@ -596,7 +589,9 @@ public class OneRangePartitionEvaluator
                 .build();
 
         Map<Expression, ColumnRange> mergedRange = exprs.stream()
-                .map(expr -> Pair.of(expr, mergeFunction.apply(leftRanges.get(expr), rightRanges.get(expr))))
+                .map(expr -> Pair.of(expr, mergeFunction.apply(
+                        leftRanges.containsKey(expr) ? leftRanges.get(expr) : rangeMap.get(expr),
+                        rightRanges.containsKey(expr) ? rightRanges.get(expr) : rangeMap.get(expr))))
                 .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
         return new EvaluateRangeResult(originResult, mergedRange, ImmutableList.of(left, right));
     }
@@ -650,36 +645,11 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof Date)) {
             return result;
         }
-        date = (Date) result.result;
-        if (!(date.child() instanceof Slot) || !isPartitionSlot((Slot) date.child())) {
-            return result;
+        Expression dateChild = date.child(0);
+        if (partitionSlotContainsNull.containsKey(dateChild)) {
+            partitionSlotContainsNull.put(date, true);
         }
-        Slot partitionSlot = (Slot) date.child();
-        PartitionSlotType partitionSlotType = getPartitionSlotType(partitionSlot).get();
-        if (partitionSlotType != PartitionSlotType.RANGE || partitionSlotContainsNull.get(partitionSlot)) {
-            return result;
-        }
-        DataType childType = date.child().getDataType();
-        if (!childType.isDateTimeType() && !childType.isDateTimeV2Type()) {
-            return result;
-        }
-        ColumnRange dateTimeRange = result.childrenResult.get(0).columnRanges.get((Slot) date.child());
-        if (dateTimeRange.isEmptyRange()) {
-            return result;
-        }
-
-        Range<ColumnBound> span = dateTimeRange.span();
-        Literal lower = span.lowerEndpoint().getValue();
-        Literal upper = span.upperEndpoint().getValue();
-
-        Expression lowerDate = FoldConstantRuleOnFE.evaluate(new Date(lower), expressionRewriteContext);
-        Expression upperDate = FoldConstantRuleOnFE.evaluate(new Date(upper), expressionRewriteContext);
-
-        if (lowerDate instanceof Literal && upperDate instanceof Literal && lowerDate.equals(upperDate)) {
-            return new EvaluateRangeResult(lowerDate, result.columnRanges, result.childrenResult);
-        }
-
-        return result;
+        return computeMonotonicFunctionRange(result);
     }
 
     private boolean isPartitionSlot(Slot slot) {
@@ -846,17 +816,6 @@ public class OneRangePartitionEvaluator
         return onePartitionInputs;
     }
 
-    private EvaluateRangeResult removeEmptyRange(EvaluateRangeResult result) {
-        ImmutableMap.Builder<Expression, ColumnRange> builder = ImmutableMap.builder();
-        for (Map.Entry<Expression, ColumnRange> entry : result.columnRanges.entrySet()) {
-            if (entry.getValue().isEmptyRange()) {
-                continue;
-            }
-            builder.put(entry);
-        }
-        return new EvaluateRangeResult(result.result, builder.build(), result.childrenResult);
-    }
-
     private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result) {
         Monotonic func = (Monotonic) result.result;
         if (rangeMap.containsKey(func)) {
@@ -875,7 +834,8 @@ public class OneRangePartitionEvaluator
         }
         Range<ColumnBound> span = childRange.span();
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
-        Literal upper = span.hasUpperBound() ? span.upperEndpoint().getValue() : null;
+        Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
+                ? span.upperEndpoint().getValue() : null;
         Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
@@ -231,10 +232,27 @@ class StatisticsUtilTest {
         tableMeta.userInjected = false;
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
+        // Test column hasn't been analyzed for longer than 1 day.
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
+                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
+            }
+        };
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        Config.auto_analyze_interval_seconds = 60 * 60 * 24;
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+        Config.auto_analyze_interval_seconds = 0;
+
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, null);
             }
         };
 
@@ -282,7 +300,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
@@ -292,7 +310,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
@@ -308,7 +326,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 500, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
@@ -324,7 +342,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 80, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, null);
             }
         };
         tableMeta.partitionChanged.set(false);

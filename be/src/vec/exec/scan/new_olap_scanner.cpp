@@ -641,6 +641,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_inverted_index_query_cache_miss_counter,                              \
                    stats.inverted_index_query_cache_miss);                                        \
     COUNTER_UPDATE(Parent->_inverted_index_query_timer, stats.inverted_index_query_timer);        \
+    COUNTER_UPDATE(Parent->_inverted_index_query_null_bitmap_timer,                               \
+                   stats.inverted_index_query_null_bitmap_timer);                                 \
     COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_copy_timer,                               \
                    stats.inverted_index_query_bitmap_copy_timer);                                 \
     COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_op_timer,                                 \
@@ -649,6 +651,10 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_open_timer);                                     \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_search_timer,                                 \
                    stats.inverted_index_searcher_search_timer);                                   \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_hit_counter,                            \
+                   stats.inverted_index_searcher_cache_hit);                                      \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_miss_counter,                           \
+                   stats.inverted_index_searcher_cache_miss);                                     \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \

@@ -318,7 +318,7 @@ public class BrokerUtilTest {
 
         try {
             BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
-            BrokerUtil.deletePath("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9", brokerDesc);
+            BrokerUtil.deletePathWithBroker("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9", brokerDesc);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

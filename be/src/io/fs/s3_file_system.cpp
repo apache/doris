@@ -320,7 +320,8 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
     FileReaderSPtr local_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
     size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
-    std::unique_ptr<char[]> write_buffer = std::make_unique<char[]>(local_buffer_size);
+    std::unique_ptr<char[]> write_buffer =
+            std::make_unique_for_overwrite<char[]>(local_buffer_size);
     size_t cur_read = 0;
     while (cur_read < local_reader->size()) {
         size_t bytes_read = 0;
@@ -361,7 +362,8 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         FileReaderSPtr local_reader;
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
         size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
-        std::unique_ptr<char[]> write_buffer = std::make_unique<char[]>(local_buffer_size);
+        std::unique_ptr<char[]> write_buffer =
+                std::make_unique_for_overwrite<char[]>(local_buffer_size);
         size_t cur_read = 0;
         while (cur_read < local_reader->size()) {
             size_t bytes_read = 0;
@@ -402,7 +404,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     auto key = DORIS_TRY(get_key(remote_file));
     int64_t size;
     RETURN_IF_ERROR(file_size(remote_file, &size));
-    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+    std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
     size_t bytes_read = 0;
     // clang-format off
     auto resp = client->get_object( {.bucket = _bucket, .key = key,},

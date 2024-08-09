@@ -130,7 +130,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             return Utils.fastToImmutableList(idToPartitions.keySet());
-        } else if (Boolean.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
+        } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             return ImmutableList.of();
         }
 

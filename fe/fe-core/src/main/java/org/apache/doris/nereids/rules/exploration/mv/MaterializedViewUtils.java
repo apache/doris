@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
@@ -224,35 +223,20 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
+    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+            List<Long> partitionIds,
+            PreAggStatus preAggStatus,
+            CascadesContext cascadesContext) {
         return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
-                materializedView,
-                materializedView.getFullQualifiers(),
+                table,
+                ImmutableList.of(table.getQualifiedDbName()),
                 ImmutableList.of(),
-                materializedView.getPartitionIds(),
-                materializedView.getBaseIndexId(),
-                PreAggStatus.on(),
-                ImmutableList.of(),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                Optional.empty());
-    }
-
-    /**
-     * LIke above but generate scan plan for sync materialized view
-     */
-    public static Plan generateMvScanPlan(OlapTable olapTable, long indexId, CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
-                cascadesContext.getStatementContext().getNextRelationId(),
-                olapTable,
-                ImmutableList.of(olapTable.getQualifiedDbName()),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                olapTable.getPartitionIds(),
+                partitionIds,
                 indexId,
-                PreAggStatus.unset(),
+                preAggStatus,
                 ImmutableList.of(),
+                // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
     }
@@ -320,7 +304,7 @@ public class MaterializedViewUtils {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
         Plan originPlan = planner.getRewrittenPlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed

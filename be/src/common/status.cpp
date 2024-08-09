@@ -34,6 +34,13 @@ void Status::to_thrift(TStatus* s) const {
     //        << "The error code has to > 0 because TStatusCode need it > 0, it's actual value is "
     //        << _code;
     s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
+
+    if (_code == ErrorCode::VERSION_ALREADY_MERGED) {
+        s->status_code = TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED;
+    } else if (_code == ErrorCode::TABLE_NOT_FOUND) {
+        s->status_code = TStatusCode::TABLET_MISSING;
+    }
+
     s->error_msgs.push_back(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                         code_as_string(), _err_msg ? _err_msg->_msg : ""));
     s->__isset.error_msgs = true;

@@ -37,6 +37,7 @@ suite("test_join", "nereids_p0") {
     qt_join1 """select sum(t1.k1), sum(t1.k3), max(t1.k5), max(t2.k4) from ${tbName1} t1 inner join ${tbName2} t2 on t1.k1 = t2.k1 and 
 		    t1.k6 is not null and t2.k6 is not null"""
     qt_join2 """select k1, k2, k3 from ${tbName1} where k7 is not null order by 1 desc, 2 desc, 3 desc limit 10"""
+    sql "set enable_local_shuffle=false;"
     qt_join3 """select c.k1, c.k8 from ${tbName2} d join (select a.k1 as k1, a.k8 from ${tbName1} a join ${tbName2} b on (a.k1=b.k1)) c
 		    on c.k1 = d.k1 order by 1, 2"""
     qt_join4 """select a.k1, b.k1 from ${tbName2} a join (select k1, k2 from ${tbName1} order by k1 limit 10) b 

@@ -386,8 +386,10 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
     auto rowset_id = _writer->context().rowset_id;
     const auto* seg_map =
             src_delete_bitmap->get({rowset_id, src_seg_id, DeleteBitmap::TEMP_VERSION_COMMON});
-    _converted_delete_bitmap->set({rowset_id, dest_seg_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                                  *seg_map);
+    if (seg_map != nullptr) {
+        _converted_delete_bitmap->set({rowset_id, dest_seg_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                                      *seg_map);
+    }
 }
 
 void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap,
@@ -402,6 +404,9 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
     for (uint32_t seg_id = src_begin; seg_id <= src_end; seg_id++) {
         const auto* seg_map =
                 src_delete_bitmap->get({rowset_id, seg_id, DeleteBitmap::TEMP_VERSION_COMMON});
+        if (!seg_map) {
+            continue;
+        }
         src.segment_id = seg_id;
         for (unsigned int row_id : *seg_map) {
             src.row_id = row_id;
