@@ -112,6 +112,7 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
+        Assert.assertEquals(100, userProperty.getMaxIpConn());
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
@@ -128,6 +129,8 @@ public class UserPropertyTest {
             String value = row.get(1);
 
             if (key.equalsIgnoreCase("max_user_connections")) {
+                Assert.assertEquals("100", value);
+            } else if (key.equalsIgnoreCase("max_user_ip_connections")) {
                 Assert.assertEquals("100", value);
             } else if (key.equalsIgnoreCase("load_cluster.dpp-cluster.hadoop_palo_path")) {
                 Assert.assertEquals("/user/palo2", value);
