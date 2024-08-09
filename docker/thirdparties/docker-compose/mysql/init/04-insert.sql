@@ -1164,3 +1164,7 @@ insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01')
 insert into Doris.DORIS values ('DORIS');
 insert into Doris.Doris values ('Doris');
 insert into Doris.doris values ('doris');
+
+insert into doris_test.compoundpredicate_test(pk,col_int_undef_signed,col_int_undef_signed2) values (0,null,23868),(1,68,-18),(2,19030,-125),(3,16539,null),(4,null,null),(5,null,-127),(6,14680,-26424),(7,-22270,12722),(8,null,null),(9,null,null),(10,null,7744),(11,null,-94),(12,16970,95),(13,null,7023),(14,null,1),(15,3679,-11),(16,null,-1079),(17,-22,null),(18,30995,null),(19,null,-79);
+
+insert into doris_test.text_push values('a'),('aa'),('aaa');
