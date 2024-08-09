@@ -262,4 +262,13 @@ void VScanner::_collect_profile_before_close() {
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
+void VScanner::update_scan_cpu_timer() {
+    int64_t cpu_time = _cpu_watch.elapsed_time();
+    _scan_cpu_timer += cpu_time;
+    _query_statistics->add_cpu_nanos(cpu_time);
+    if (_state && _state->get_query_ctx()) {
+        _state->get_query_ctx()->update_wg_cpu_adder(cpu_time);
+    }
+}
+
 } // namespace doris::vectorized

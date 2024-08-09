@@ -302,6 +302,7 @@ Status PipelineTask::execute(bool* eos) {
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
+        query_context()->update_wg_cpu_adder(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         return Status::OK();
