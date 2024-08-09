@@ -38,8 +38,9 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
     size_t num_rows = size();
 
     if (num_rows < selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
-                                  selector.size(), num_rows);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of selector: {} is larger than size of column: {}",
+                               selector.size(), num_rows);
     }
 
     res->reserve(num_rows);

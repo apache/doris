@@ -182,7 +182,8 @@ public:
                 data[old_size + i] = begin + i;
             }
         } else {
-            LOG(FATAL) << "double column not support insert_range_of_integer";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "double column not support insert_range_of_integer");
             __builtin_unreachable();
         }
     }

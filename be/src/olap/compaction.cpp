@@ -1211,4 +1211,5 @@ RowsetSharedPtr Compaction::output_rowset() {
     return _output_rowset;
 }
 #endif
+
 } // namespace doris
