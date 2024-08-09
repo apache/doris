@@ -174,6 +174,11 @@ protected:
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
+    uint64_t get_rowset_num_rows() {
+        std::lock_guard l(_segid_statistics_map_mutex);
+        return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
+    }
+
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
     std::mutex _segment_set_mutex;     // mutex for _segment_set

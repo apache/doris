@@ -726,7 +726,9 @@ public class AnalysisManager implements Writable {
         }
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        boolean allColumn = false;
         if (columns == null) {
+            allColumn = true;
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
@@ -776,6 +778,9 @@ public class AnalysisManager implements Writable {
                     }
                 }
             }
+        }
+        if (allColumn && allPartition) {
+            tableStats.removeAllColumn();
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;

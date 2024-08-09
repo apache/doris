@@ -238,6 +238,11 @@ public class SlotReference extends Slot {
     }
 
     @Override
+    public int fastChildrenHashCode() {
+        return exprId.asInt();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSlotReference(this, context);
     }
