@@ -74,14 +74,14 @@ public:
         doris::EngineOptions options;
         options.store_paths = paths;
 
-        auto engine = std::make_unique<StorageEngine>(options);
-        l_engine = engine.get();
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        l_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(l_engine);
 
         Status s = l_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
 
-        _data_dir = std::make_unique<DataDir>(*l_engine, lTestDir);
+        _data_dir = new DataDir(lTestDir, 1000000000);
+        static_cast<void>(_data_dir->init());
         static_cast<void>(_data_dir->update_capacity());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
@@ -90,7 +90,15 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
-    void TearDown() { config::enable_segcompaction = false; }
+    void TearDown() {
+        if (l_engine != nullptr) {
+            l_engine->stop();
+            delete l_engine;
+            l_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        }
+        config::enable_segcompaction = false;
+    }
 
 protected:
     OlapReaderStatistics _stats;
@@ -181,7 +189,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->tablet_path = lTestDir;
+        rowset_writer_context->rowset_dir = lTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -237,10 +245,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10047, tablet_schema, &writer_context);
 
-        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -345,10 +352,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10048, tablet_schema, &writer_context);
 
-        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -493,10 +499,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10049, tablet_schema, &writer_context);
 
-        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -620,10 +625,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10051, tablet_schema, &writer_context);
 
-        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         uint32_t k1 = 0;
         uint32_t k2 = 0;
@@ -837,10 +841,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10052, tablet_schema, &writer_context);
 
-        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
-        EXPECT_TRUE(res.has_value()) << res.error();
-        auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_TRUE(s.ok());
 
         uint32_t k1 = 0;
         uint32_t k2 = 0;
