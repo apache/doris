@@ -259,7 +259,12 @@ public class S3URI {
         // parse endpoint
         if (isStandardURL) {
             if (isPathStyle) {
-                endpoint = uri.getAuthority();
+                // case : http://127.0.0.1:19001/warehouse/b.csv
+                // if endpoint = 127.0.0.1:19001, BrokerUtil will exec https request.
+                // So here we also add the protocol to the endpoint.
+                endpoint = (uri.getScheme().equals("http") || uri.getScheme().equals("https"))
+                        ? uri.getScheme() + "://" + uri.getAuthority()
+                        : uri.getAuthority();
             } else { // virtual_host_style
                 if (uri.getAuthority() == null) {
                     endpoint = null;
@@ -270,7 +275,9 @@ public class S3URI {
                     endpoint = null;
                     return;
                 }
-                endpoint = splits[1];
+                endpoint = (uri.getScheme().equals("http") || uri.getScheme().equals("https"))
+                        ? uri.getScheme() + "://" + splits[1]
+                        : splits[1];
             }
         } else {
             endpoint = null;
@@ -290,7 +297,11 @@ public class S3URI {
             return;
         }
         region = endpointSplits[1];
+        //the region may be not right.
+        //case1 : https://yy-glue-iceberg-athena.s3.amazonaws.com/csv/taxi.csv
+        //case2 : http://127.0.0.1:19001/warehouse/b.csv
     }
+
 
     /**
      * @return S3 bucket
