@@ -333,6 +333,8 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
+  127: optional i32 partition_topn_max_partitions = 1024;
+  128: optional i32 partition_topn_pre_partition_rows = 10000;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
