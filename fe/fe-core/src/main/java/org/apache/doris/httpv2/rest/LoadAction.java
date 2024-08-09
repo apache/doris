@@ -708,7 +708,7 @@ public class LoadAction extends RestBaseController {
     }
 
     /**
-     * Requset body example:
+     * Request body example:
      * {
      *     "label": "test",
      *     "tableToPartition": {
@@ -768,7 +768,7 @@ public class LoadAction extends RestBaseController {
                     ConnectContext.get().getCurrentUserIdentity());
 
         } catch (Exception e) {
-            LOG.error("create spark load job failed, err: {}", e.getMessage());
+            LOG.error("create ingestion load job failed, db: {}, err: {}", db, e.getMessage());
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
@@ -808,7 +808,8 @@ public class LoadAction extends RestBaseController {
                     Env.getCurrentEnv().getLoadManager().getLoadJob(loadId).cancelJob(
                             new FailMsg(FailMsg.CancelType.UNKNOWN, StringUtils.defaultIfBlank(e.getMessage(), "")));
                 } catch (DdlException ex) {
-                    LOG.error("cancel load failed, err: {}", e.getMessage());
+                    LOG.error("cancel ingestion load failed, db: {}, load id: {}, err: {}", dbName, loadId,
+                            e.getMessage());
                 }
             }
             throw e;
@@ -817,14 +818,18 @@ public class LoadAction extends RestBaseController {
     }
 
     /**
-     * Requset body example:
+     * Request body example:
      * {
      *     "statusInfo": {
      *         "msg": "",
      *         "hadoopProperties": "{\"fs.defaultFS\":\"hdfs://hadoop01:8020\",\"hadoop.username\":\"hadoop\"}",
      *         "appId": "local-1723088141438",
-     *         "filePathToSize": "{\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/dpp_result.json\":179,\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/load_meta.json\":3441,\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/V1.test.25056.29373.25057.0.366242211.parquet\":5745}",
-     *         "dppResult": "{\"isSuccess\":true,\"failedReason\":\"\",\"scannedRows\":10,\"fileNumber\":1,\"fileSize\":2441,\"normalRows\":10,\"abnormalRows\":0,\"unselectRows\":0,\"partialAbnormalRows\":\"[]\",\"scannedBytes\":0}",
+     *         "filePathToSize": "{\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/dpp_result.json\":179,
+     *         \"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/load_meta.json\":3441,\"hdfs://hadoop01:8020
+     *         /spark-load/jobs/25054/test/36019/V1.test.25056.29373.25057.0.366242211.parquet\":5745}",
+     *         "dppResult": "{\"isSuccess\":true,\"failedReason\":\"\",\"scannedRows\":10,\"fileNumber\":1,
+     *         \"fileSize\":2441,\"normalRows\":10,\"abnormalRows\":0,\"unselectRows\":0,\"partialAbnormalRows\":\"[]\",
+     *         \"scannedBytes\":0}",
      *         "status": "SUCCESS"
      *     },
      *     "loadId": 36018
@@ -842,8 +847,14 @@ public class LoadAction extends RestBaseController {
 
         executeCheckPassword(request, response);
 
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            return ResponseEntityBuilder.okWithCommonError("Only support internal catalog. "
+                    + "Current catalog is " + catalog);
+        }
+
         String fullDbName = getFullDbName(db);
 
+        long loadId = -1;
         try {
 
             String body = HttpUtils.getBody(request);
@@ -852,12 +863,12 @@ public class LoadAction extends RestBaseController {
             LoadJob loadJob = null;
 
             if (jsonNode.hasNonNull("loadId")) {
-                long loadId = jsonNode.get("loadId").asLong();
+                loadId = jsonNode.get("loadId").asLong();
                 loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadId);
             }
 
             if (loadJob == null) {
-                return ResponseEntityBuilder.okWithCommonError("load job not exists");
+                return ResponseEntityBuilder.okWithCommonError("load job not exists, load id: " + loadId);
             }
 
             IngestionLoadJob ingestionLoadJob = (IngestionLoadJob) loadJob;
@@ -870,8 +881,8 @@ public class LoadAction extends RestBaseController {
                     });
             ingestionLoadJob.updateJobStatus(statusInfo);
         } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
-            return ResponseEntityBuilder.okWithCommonError(
-                    String.format("cancel spark load failed, err: %s", e.getMessage()));
+            LOG.error("cancel ingestion load job failed, db: {}, load id: {}, err: {}", db, loadId, e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         return ResponseEntityBuilder.ok();
