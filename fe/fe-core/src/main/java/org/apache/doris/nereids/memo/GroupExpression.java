@@ -257,7 +257,10 @@ public class GroupExpression {
 
     public void putOutputPropertiesMap(PhysicalProperties outputProperties,
             PhysicalProperties requiredProperties) {
-        this.requestPropertiesMap.put(requiredProperties, outputProperties);
+        // avoid overriding existing entry with the different equivalenceExprIds
+        if (!requestPropertiesMap.containsKey(requiredProperties)) {
+            this.requestPropertiesMap.put(requiredProperties, outputProperties);
+        }
     }
 
     /**
