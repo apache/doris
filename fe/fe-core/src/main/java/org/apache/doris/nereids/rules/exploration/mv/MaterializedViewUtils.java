@@ -36,6 +36,7 @@ import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
@@ -227,7 +228,7 @@ public class MaterializedViewUtils {
             List<Long> partitionIds,
             PreAggStatus preAggStatus,
             CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
+        LogicalOlapScan olapScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 table,
                 ImmutableList.of(table.getQualifiedDbName()),
@@ -239,6 +240,8 @@ public class MaterializedViewUtils {
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
+        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+                olapScan.getTable());
     }
 
     /**
