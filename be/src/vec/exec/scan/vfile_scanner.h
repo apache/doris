@@ -55,8 +55,6 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class NewFileScanNode;
-
 class VFileScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(VFileScanner);
 

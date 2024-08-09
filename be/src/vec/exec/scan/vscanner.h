@@ -99,7 +99,7 @@ protected:
     Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
     // Not virtual, all child will call this method explictly
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 public:
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
