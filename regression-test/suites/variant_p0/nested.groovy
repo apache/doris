@@ -38,42 +38,42 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
                     k bigint,
                     v variant
                 )
-                UNIQUE KEY(`k`)
+                DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 4
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false");
             """
         sql """
             insert into var_nested values (1, '{"xx" : 10}');
-            insert into var_nested values (1, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (2, '{"xx" : 10}');
-            insert into var_nested values (2, '{"nested": [{"baaa" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (3, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (4, '{"nested": [{"mmm" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (2, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (3, '{"xx" : 10}');
+            insert into var_nested values (4, '{"nested": [{"baaa" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (5, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (6, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (7, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (7, '{"xx" : 10}');
+            insert into var_nested values (6, '{"nested": [{"mmm" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (7, '{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (8, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (9, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (10, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (10, '{"xx" : 10}');
             insert into var_nested values (11, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (12, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (13, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (14, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (15, '{"xx" : 10}');
             insert into var_nested values (15, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (16, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (17, '{"nested": [{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-            insert into var_nested values (18, '{"nested": [{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}, {"zzz11" : "123333"}]}');
-            insert into var_nested values (19, '{"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (17, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (18, '{"xx" : 10}');
+            insert into var_nested values (19, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (20, '{"nested": [{"yyy" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (21, '{"nested": [{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
+            insert into var_nested values (22, '{"nested": [{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}, {"zzz11" : "123333"}]}');
+            insert into var_nested values (23, '{"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
         """   
 
         sql """
-            insert into var_nested values (20, '{"xx" : 10}');
-            insert into var_nested values (20, '{"nested":{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
-            insert into var_nested values (22, '{"xx" : 10}');
-            insert into var_nested values (21, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
-            insert into var_nested values (22, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');
+            insert into var_nested values (24, '{"xx" : 10}');
+            insert into var_nested values (25, '{"nested":{"nested": [{"ba" : "11111"},{"a" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
+            insert into var_nested values (26, '{"xx" : 10}');
+            insert into var_nested values (27, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}}');
+            insert into var_nested values (28, '{"nested" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');
         """
         sql """set describe_extend_variant_column = true"""
         qt_sql """DESC var_nested"""
@@ -135,8 +135,8 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
             select * from var_nested order by k limit 101
         """ 
 
-        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "100");"""
-        sql """INSERT INTO var_nested SELECT *, '{"k2":1, "k3": "nice", "k4" : [1234], "k5" : 1.10000, "k6" : [[123]], "nested2" : {"nested1" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "5013") where number >= 100;"""
+        sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "1000") where number > 200 limit 100;"""
+        sql """INSERT INTO var_nested SELECT *, '{"k2":1, "k3": "nice", "k4" : [1234], "k5" : 1.10000, "k6" : [[123]], "nested2" : {"nested1" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "5013") where number >= 400;"""
         triger_compaction.call()
 
         qt_sql """select * from var_nested where v['k2'] = 'some' order by k limit 10"""
@@ -155,6 +155,17 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
         triger_compaction.call()
         qt_sql """select * from var_nested where v['k2'] = 'nested'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
         sql """select * from var_nested where v['k2'] = 'some' or v['k3'] = 'nice' limit 100;"""
+        sql """
+                CREATE TABLE IF NOT EXISTS var_nested2 (
+                    k bigint,
+                    v variant
+                )
+                UNIQUE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 4
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
+            """
+        sql """insert into var_nested2 select * from var_nested"""
+        qt_sql """select * from var_nested2 order by k limit 10;"""
     } finally {
         // reset flags
         set_be_config.call("variant_enable_flatten_nested", "false")

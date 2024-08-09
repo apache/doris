@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <butil/compiler_specific.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -94,6 +95,9 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Finlize mode for subcolumns, write mode will deal with sparse columns, only affects in flush block to segments.
+    // Otherwise read mode should be as default mode.
+    enum class FinalizeMode { WRITE_MODE, READ_MODE };
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -151,7 +155,7 @@ public:
 
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
-        void finalize();
+        void finalize(FinalizeMode mode);
 
         /// Returns last inserted field.
         Field get_last_field() const;
@@ -364,7 +368,7 @@ public:
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(bool ignore_sparser);
+    void finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -373,11 +377,9 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize();
+        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
-
-    void finalize_if_not();
 
     void clear() override;
 

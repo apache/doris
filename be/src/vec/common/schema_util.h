@@ -90,8 +90,6 @@ struct ParseContext {
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseContext& ctx);
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse = true);
 Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.

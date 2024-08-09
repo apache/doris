@@ -657,7 +657,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
-void ColumnObject::Subcolumn::finalize() {
+void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     if (is_finalized()) {
         return;
     }
@@ -666,8 +666,8 @@ void ColumnObject::Subcolumn::finalize() {
         return;
     }
     DataTypePtr to_type = least_common_type.get();
-    if (is_root) {
-        // Root always JSONB type
+    if (mode == FinalizeMode::WRITE_MODE && is_root) {
+        // Root always JSONB type in write mode
         to_type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
                               : std::make_shared<MostCommonType>();
         least_common_type = LeastCommonType {to_type};
@@ -945,6 +945,10 @@ void ColumnObject::insert_default() {
 }
 
 void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
+    if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+        res = Null();
+        return;
+    }
     if (is_finalized()) {
         if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
             // JsonbFiled is special case
@@ -956,10 +960,6 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
 
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
-        if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
-            res = Null();
-            return;
-        }
         res = least_common_type.get()->get_default();
         return;
     }
@@ -1087,7 +1087,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
         }
     }
     num_rows += length;
-    finalize();
+    finalize(FinalizeMode::READ_MODE);
 #ifndef NDEBUG
     check_consistency();
 #endif
@@ -1315,7 +1315,7 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,
                      const PathInData& path) {
     // skip nulls
-    if (nullable->is_null_at(row)) {
+    if (nullable && nullable->is_null_at(row)) {
         return true;
     }
     // check if it is empty nested json array, then skip
@@ -1335,7 +1335,7 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
         }
     }
     // skip empty jsonb value
-    if ((path.empty() && nullable->get_data_at(row).empty())) {
+    if ((path.empty() && nullable && nullable->get_data_at(row).empty())) {
         return true;
     }
     // skip nothing type
@@ -1356,7 +1356,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                 "failed to set value for path {}, expected type {}, but got {} at row {}",
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
-    const auto* nullable = assert_cast<const ColumnNullable*>(column);
+    const auto* nullable = check_and_get_column<ColumnNullable>(column);
     if (skip_empty_json(nullable, type, row, path)) {
         return Status::OK();
     }
@@ -1417,7 +1417,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 
 Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
+        const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
     rapidjson::StringBuffer buf;
     if (is_scalar_variant()) {
@@ -1433,7 +1433,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) c
 
 Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
+        const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
     if (is_scalar_variant()) {
         auto type = get_root_type();
@@ -1595,18 +1595,12 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
-void ColumnObject::finalize_if_not() {
-    if (!is_finalized()) {
-        finalize();
-    }
-}
-
-void ColumnObject::finalize(bool ignore_sparse) {
+void ColumnObject::finalize(FinalizeMode mode) {
     Subcolumns new_subcolumns;
     // finalize root first
-    if (!ignore_sparse || !is_null_root()) {
+    if (mode == FinalizeMode::WRITE_MODE || !is_null_root()) {
         new_subcolumns.create_root(subcolumns.get_root()->data);
-        new_subcolumns.get_mutable_root()->data.finalize();
+        new_subcolumns.get_mutable_root()->data.finalize(mode);
     }
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -1614,7 +1608,46 @@ void ColumnObject::finalize(bool ignore_sparse) {
         if (is_nothing(get_base_type_of_array(least_common_type))) {
             continue;
         }
-        entry->data.finalize();
+
+        // unnest all nested columns
+        if (mode == FinalizeMode::WRITE_MODE &&
+            least_common_type->equals(*ColumnObject::NESTED_TYPE)) {
+            entry->data.finalize(mode);
+            auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
+            auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
+            auto* nested_column_array = assert_cast<ColumnArray*>(
+                    nested_column_nullable->get_nested_column_ptr().get());
+            auto& offset = nested_column_array->get_offsets_ptr();
+
+            auto* nested_object_nullable = assert_cast<ColumnNullable*>(
+                    nested_column_array->get_data_ptr()->assume_mutable().get());
+            auto& nested_object_column =
+                    assert_cast<ColumnObject&>(nested_object_nullable->get_nested_column());
+            PathInData nested_path = entry->path;
+            // nested_path.set_nested(nested_path.get_parts().size() - 1);
+            for (auto& nested_entry : nested_object_column.subcolumns) {
+                if (nested_entry->data.least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+                    continue;
+                }
+                nested_entry->data.finalize(FinalizeMode::READ_MODE);
+                PathInDataBuilder path_builder;
+                path_builder.append(nested_path.get_parts(), false);
+                path_builder.append(nested_entry->path.get_parts(), true);
+                auto subnested_column = ColumnArray::create(
+                        ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
+                                               nested_object_nullable->get_null_map_column_ptr()),
+                        offset);
+                auto nullable_subnested_column = ColumnNullable::create(
+                        subnested_column, nested_column_nullable->get_null_map_column_ptr());
+                auto type = make_nullable(std::make_shared<DataTypeArray>(
+                        nested_entry->data.least_common_type.get()));
+                Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
+                new_subcolumns.add(path_builder.build(), subcolumn);
+            }
+            continue;
+        }
+
+        entry->data.finalize(mode);
         entry->data.wrapp_array_nullable();
 
         if (entry->data.is_root) {
@@ -1622,7 +1655,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
 
         // Check and spilit sparse subcolumns
-        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
+        if (mode == FinalizeMode::WRITE_MODE && (entry->data.check_if_sparse_column(num_rows))) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;
@@ -1636,7 +1669,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
 }
 
 void ColumnObject::finalize() {
-    finalize(true);
+    finalize(FinalizeMode::READ_MODE);
 }
 
 void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) {
