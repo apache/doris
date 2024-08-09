@@ -220,9 +220,9 @@ public:
         ss << std::this_thread::get_id();
         return ss.str();
     }
-    // After thread_mem_tracker_mgr is initialized, the current thread Hook starts to
-    // consume/release mem_tracker.
-    // Note that the use of shared_ptr will cause a crash. The guess is that there is an
+    // Note that if set global Memory Hook, After thread_mem_tracker_mgr is initialized,
+    // the current thread Hook starts to consume/release mem_tracker.
+    // the use of shared_ptr will cause a crash. The guess is that there is an
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
@@ -310,7 +310,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
+                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || doris::k_doris_exit);
             }
             DCHECK(bthread_context != nullptr);
             bthread_context->thread_local_handle_count++;
@@ -352,7 +352,7 @@ static ThreadContext* thread_context(bool allow_return_null = false) {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-        DCHECK(bthread_context != nullptr);
+        DCHECK(bthread_context != nullptr && bthread_context->thread_local_handle_count > 0);
         return bthread_context;
     }
     if (allow_return_null) {

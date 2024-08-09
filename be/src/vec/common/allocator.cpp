@@ -44,6 +44,16 @@ std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::Allocator(
+        const std::shared_ptr<doris::MemTrackerLimiter>& tracker) {
+    if (tracker) {
+        mem_tracker = tracker;
+    } else {
+        mem_tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
+}
+
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_check(
         size_t size) const {
 #ifdef BE_TEST
@@ -209,14 +219,35 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) const {
+        size_t size) {
+    // `alloc` requires that the current thread_mem_tracker lis the same as
+    // the thread_mem_tracker label when Allocator is constructed.
+    DCHECK(doris::thread_context()->thread_mem_tracker()->label() == mem_tracker->label())
+            << ", thread mem tracker label: "
+            << doris::thread_context()->thread_mem_tracker()->label()
+            << ", allocator tracker label: " << mem_tracker->label();
     CONSUME_THREAD_MEM_TRACKER(size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    RELEASE_THREAD_MEM_TRACKER(size);
+    // If thread_context does not exist or the label of thread_mem_tracker is `Orphan,
+    // it usually happens during object destruction. This means that the scope of SCOPED_ATTACH_TASK has been left,
+    // thread_mem_tracker is not set, and reserved memory does not exist,
+    // so Allocator tracker can be used directly to release memory.
+    // Otherwise, thread_mem_tracker should be used to release memory, which will do some additional operations,
+    // such as modifying reserved memory.
+    doris::ThreadContext* thread_context = doris::thread_context(true);
+    if (thread_context && thread_context->thread_mem_tracker()->label() != "Orphan") {
+        // TODO, need to be 0 when the load or other memory tracker ends.
+        // DCHECK(thread_context->thread_mem_tracker()->label() == tracker->label())
+        //         << ", thread mem tracker label: " << thread_context->thread_mem_tracker()->label()
+        //         << ", allocator tracker label: " << tracker->label();
+        RELEASE_THREAD_MEM_TRACKER(size);
+    } else {
+        mem_tracker->release(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
