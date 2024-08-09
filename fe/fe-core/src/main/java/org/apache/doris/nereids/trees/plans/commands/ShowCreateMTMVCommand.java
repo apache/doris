@@ -28,7 +28,7 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ShowCreateMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class ShowCreateMTMVCommand extends Command implements NoForward, NotAllowFallback {
     private final ShowCreateMTMVInfo showCreateMTMVInfo;
 
     public ShowCreateMTMVCommand(ShowCreateMTMVInfo showCreateMTMVInfo) {
