@@ -80,15 +80,6 @@ public interface MTMVRelatedTableIf extends TableIf {
     MTMVSnapshotIf getTableSnapshot() throws AnalysisException;
 
     /**
-     * getPartitionName
-     *
-     * @param partitionId
-     * @return partitionName
-     * @throws AnalysisException
-     */
-    String getPartitionName(long partitionId) throws AnalysisException;
-
-    /**
      * Does the current type of table allow timed triggering
      *
      * @return If return false,The method of comparing whether to synchronize will directly return true,

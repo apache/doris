@@ -48,6 +48,7 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -732,26 +733,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 getDbName(), getName(), getPartitionColumnTypes());
         Map<String, PartitionItem> res = Maps.newHashMap();
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
         for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-            try {
-                res.put(getPartitionName(entry.getKey()), entry.getValue());
-            } catch (AnalysisException e) {
-                LOG.info("can not get partitionName by: " + entry.getKey());
-            }
-
+            res.put(idToName.get(entry.getKey()), entry.getValue());
         }
         return res;
-    }
-
-    @Override
-    public String getPartitionName(long partitionId) throws AnalysisException {
-        Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();
-        for (Entry<String, Long> entry : partitionNameToIdMap.entrySet()) {
-            if (entry.getValue().equals(partitionId)) {
-                return entry.getKey();
-            }
-        }
-        throw new AnalysisException("can not find partition,  partitionId: " + partitionId);
     }
 
     private HiveMetaStoreCache.HivePartitionValues getHivePartitionValues() {

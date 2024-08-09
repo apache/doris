@@ -41,7 +41,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -164,14 +163,6 @@ public class MTMVPartitionUtil {
                     System.currentTimeMillis() - start, mvPartitionInfo);
         }
         return result.getDescs();
-    }
-
-    public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
-        List<String> res = Lists.newArrayList();
-        for (Long partitionId : ids) {
-            res.add(mtmv.getPartitionName(partitionId));
-        }
-        return res;
     }
 
     public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
