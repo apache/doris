@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
@@ -1216,5 +1217,46 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(lastSuccessVersion, replica.getLastSuccessVersion());
         Assert.assertEquals(lastFailedVersion, replica.getLastFailedVersion());
     }
+
+    @Test
+    public void testBatchCommitTransaction2PC() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        long dbId = CatalogTestUtil.testDbId1;
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(dbId);
+        long tableId = CatalogTestUtil.testTableId1;
+        String label1 = CatalogTestUtil.testTxnLabel1;
+        String label2 = CatalogTestUtil.testTxnLabel2;
+        long tabletId = CatalogTestUtil.testTabletId1;
+        // begin 2 transactions
+        long txnId1 = masterTransMgr.beginTransaction(dbId, Lists.newArrayList(tableId), label1, transactionSource,
+                LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
+        long txnId2 = masterTransMgr.beginTransaction(dbId, Lists.newArrayList(tableId), label2, transactionSource,
+                LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
+        // pre-commit transactions
+        List<TabletCommitInfo> transTablets = generateTabletCommitInfos(tabletId, allBackends);
+        Table testTable = db.getTableOrMetaException(tableId);
+        masterTransMgr.preCommitTransaction2PC(dbId, Lists.newArrayList(testTable), txnId1, transTablets, null);
+        masterTransMgr.preCommitTransaction2PC(dbId, Lists.newArrayList(testTable), txnId2, transTablets, null);
+
+        // batch commit transactions
+        masterTransMgr.batchCommitTransaction2PC(db, Lists.newArrayList(testTable), Lists.newArrayList(txnId1, txnId2),
+                Config.stream_load_default_timeout_second);
+
+        // check status is committed
+        TransactionState transactionState1 = fakeEditLog.getTransaction(txnId1);
+        TransactionState transactionState2 = fakeEditLog.getTransaction(txnId2);
+        Assert.assertEquals(TransactionStatus.COMMITTED, transactionState1.getTransactionStatus());
+        Assert.assertEquals(TransactionStatus.COMMITTED, transactionState2.getTransactionStatus());
+        // check replica version
+        checkVersion(testTable, CatalogTestUtil.testPartition1, CatalogTestUtil.testIndexId1,
+                tabletId, CatalogTestUtil.testStartVersion, CatalogTestUtil.testStartVersion + 3,
+                CatalogTestUtil.testStartVersion);
+        // slave replay new state and compare catalog
+        FakeEnv.setEnv(slaveEnv);
+        slaveTransMgr.replayUpsertTransactionState(transactionState1);
+        slaveTransMgr.replayUpsertTransactionState(transactionState2);
+        Assert.assertTrue(CatalogTestUtil.compareCatalog(masterEnv, slaveEnv));
+    }
+
 }
 
