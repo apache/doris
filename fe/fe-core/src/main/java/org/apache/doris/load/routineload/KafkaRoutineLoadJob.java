@@ -723,12 +723,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ((KafkaProgress) progress).checkPartitions(kafkaPartitionOffsets);
             }
 
+            if (Config.isCloudMode()) {
+                Cloud.UpdateRLProgressRequest.Builder builder = Cloud.UpdateRLProgressRequest.newBuilder();
+                builder.setCloudUniqueId(Config.cloud_unique_id);
+                builder.setDbId(dbId);
+                builder.setJobId(id);
+                if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
+                    builder.setIsReset(true);
+                }
+                if (!kafkaPartitionOffsets.isEmpty()) {
+                    Map<Integer, Long> partitionOffsetMap = new HashMap<>();
+                    for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
+                        partitionOffsetMap.put(pair.first, pair.second);
+                    }
+                    builder.putAllPartitionToOffset(partitionOffsetMap);
+                }
+                updateCloudProgress(builder);
+            }
+
             // It is necessary to reset the Kafka progress cache if topic change,
             // and should reset cache before modifying partition offset.
             if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
-                if (Config.isCloudMode()) {
-                    resetCloudProgress();
-                }
                 this.topic = dataSourceProperties.getTopic();
                 this.progress = new KafkaProgress();
             }
@@ -756,18 +771,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 this.id, jobProperties, dataSourceProperties);
     }
 
-    private void resetCloudProgress() throws DdlException {
-        Cloud.ResetRLProgressRequest.Builder builder =
-                Cloud.ResetRLProgressRequest.newBuilder();
-        builder.setCloudUniqueId(Config.cloud_unique_id);
-        builder.setDbId(dbId);
-        builder.setJobId(id);
-
-        Cloud.ResetRLProgressResponse response;
+    private void updateCloudProgress(Cloud.UpdateRLProgressRequest.Builder builder) throws DdlException {
+        Cloud.UpdateRLProgressResponse response;
         try {
-            response = MetaServiceProxy.getInstance().resetRLProgress(builder.build());
+            response = MetaServiceProxy.getInstance().updateRLProgress(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("failed to reset cloud progress, response: {}", response);
+                LOG.warn("failed to update cloud progress, response: {}", response);
                 if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
                     LOG.warn("not found routine load progress, response: {}", response);
                     return;
@@ -776,7 +785,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         } catch (RpcException e) {
-            LOG.info("failed to reset cloud progress {}", e);
+            LOG.info("failed to update cloud progress {}", e);
             throw new DdlException(e.getMessage());
         }
     }
