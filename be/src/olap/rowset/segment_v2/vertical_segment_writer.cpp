@@ -463,7 +463,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
         // 1. if the delete sign is marked, it means that the value columns of the row will not
         //    be read. So we don't need to read the missing values from the previous rows.
-        // 2. the one exception is when there are sequence columns in the table, we need to read
+        // 2. the one exception is when there is sequence column in the table, we need to read
         //    the sequence columns, otherwise it may cause the merge-on-read based compaction
         //    policy to produce incorrect results
         if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
@@ -582,9 +582,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             auto rowset = _rsid_to_rowset[rs_it.first];
             CHECK(rowset);
             std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                read_index[id_and_pos.pos] = read_idx++;
+            for (auto [rid, pos] : seg_it.second) {
+                rids.emplace_back(rid);
+                read_index[pos] = read_idx++;
             }
             if (has_row_column) {
                 auto st = tablet->fetch_value_through_row_column(
@@ -636,7 +636,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // `use_default_or_null_flag[idx] == false` doesn't mean that we should read values from the old row
         // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
         // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
         // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not

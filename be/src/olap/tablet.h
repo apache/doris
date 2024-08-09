@@ -486,7 +486,8 @@ public:
                                 const std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index);
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                const signed char* __restrict skip_map = nullptr);
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
