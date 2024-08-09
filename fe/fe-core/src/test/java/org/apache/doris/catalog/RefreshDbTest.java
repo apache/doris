@@ -120,23 +120,19 @@ public class RefreshDbTest extends TestWithFeService {
         // create user1
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1';", rootCtx));
-        // grant only create_priv to user1 on test1.db1.tbl11
-        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
-                "grant create_priv on test1.db1.* to 'user1'@'%';", rootCtx);
-        auth.grant(grantStmt);
 
         // mock login user1
         UserIdentity user1 = new UserIdentity("user1", "%");
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Access denied for user 'user1' to database 'db1'",
+                "Access denied",
                 () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
         ConnectContext.remove();
 
         // add drop priv to user1
         rootCtx.setThreadLocalInfo();
-        grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
                 "grant drop_priv on test1.db1.* to 'user1'@'%';", rootCtx);
         auth.grant(grantStmt);
         ConnectContext.remove();

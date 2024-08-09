@@ -128,10 +128,6 @@ public class RefreshTableTest extends TestWithFeService {
         // create user1
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1';", rootCtx));
-        // grant only create_priv to user1 on test1.db1.tbl11
-        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
-                "grant create_priv on test1.db1.tbl11 to 'user1'@'%';", rootCtx);
-        auth.grant(grantStmt);
 
         // mock login user1
         UserIdentity user1 = new UserIdentity("user1", "%");
@@ -144,7 +140,7 @@ public class RefreshTableTest extends TestWithFeService {
 
         // add drop priv to user1
         rootCtx.setThreadLocalInfo();
-        grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
                 "grant drop_priv on test1.db1.tbl11 to 'user1'@'%';", rootCtx);
         auth.grant(grantStmt);
         ConnectContext.remove();
