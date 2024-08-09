@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <butil/compiler_specific.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -94,6 +95,9 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Finlize mode for subcolumns, write mode will deal with sparse columns, only affects in flush block to segments.
+    // Otherwise read mode should be as default mode.
+    enum class FinalizeMode { WRITE_MODE, READ_MODE };
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -141,11 +145,20 @@ public:
 
         void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
 
+        /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
+        /// Used to create columns of type Nested with consistent array sizes.
+        Subcolumn recreateWithDefaultValues(const FieldInfo& field_info) const;
+
         void pop_back(size_t n);
+
+        Subcolumn cut(size_t start, size_t length) const;
 
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
-        void finalize();
+        void finalize(FinalizeMode mode);
+
+        /// Returns last inserted field.
+        Field get_last_field() const;
 
         bool check_if_sparse_column(size_t num_rows);
 
@@ -280,6 +293,10 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
+    bool is_nested_variant() const;
+
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;
@@ -315,6 +332,16 @@ public:
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
 
+    /// Adds a subcolumn of type Nested of specific size with default values.
+    /// It cares about consistency of sizes of Nested arrays.
+    void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
+    /// Finds a subcolumn from the same Nested type as @entry and inserts
+    /// an array with default values with consistent sizes as in Nested type.
+    bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
+    bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
+    /// It's used to get shared sized of Nested to insert correct default values.
+    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
+
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
     const Subcolumns& get_sparse_subcolumns() const { return sparse_columns; }
@@ -341,7 +368,7 @@ public:
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(bool ignore_sparser);
+    void finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -350,11 +377,9 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize();
+        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
-
-    void finalize_if_not();
 
     void clear() override;
 

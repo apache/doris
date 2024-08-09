@@ -162,7 +162,11 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             continue;
         }
         if (column_object.get_subcolumn(paths[i], i) == nullptr) {
-            column_object.add_sub_column(paths[i], old_num_rows);
+            if (paths[i].has_nested_part()) {
+                column_object.add_nested_subcolumn(paths[i], field_info, old_num_rows);
+            } else {
+                column_object.add_sub_column(paths[i], old_num_rows);
+            }
         }
         auto* subcolumn = column_object.get_subcolumn(paths[i], i);
         if (!subcolumn) {
@@ -180,7 +184,10 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            entry->data.insertDefault();
+            bool inserted = column_object.try_insert_default_from_nested(entry);
+            if (!inserted) {
+                entry->data.insertDefault();
+            }
         }
     }
     column_object.incr_num_rows();

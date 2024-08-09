@@ -29,15 +29,18 @@
 #include <vector>
 
 #include "gen_cpp/segment_v2.pb.h"
+#include "vec/columns/column.h"
 #include "vec/common/uint128.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
 /// Class that represents path in document, e.g. JSON.
 class PathInData;
 using PathInDataPtr = std::shared_ptr<PathInData>;
+
 class PathInData {
 public:
     struct Part {
@@ -72,6 +75,7 @@ public:
     const vectorized::String& get_path() const { return path; }
     const Parts& get_parts() const { return parts; }
     bool is_nested(size_t i) const { return parts[i].is_nested; }
+    bool set_nested(size_t i) { return parts[i].is_nested = true; }
     bool has_nested_part() const { return has_nested; }
     bool operator==(const PathInData& other) const { return parts == other.parts; }
     struct Hash {
@@ -81,6 +85,7 @@ public:
 
     PathInData copy_pop_front() const;
     PathInData copy_pop_nfront(size_t n) const;
+    PathInData copy_pop_back() const;
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
@@ -141,5 +146,13 @@ struct PathInDataRef {
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
     bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
 };
+
+struct PathWithColumnAndType {
+    PathInData path;
+    ColumnPtr column;
+    DataTypePtr type;
+};
+
+using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 
 } // namespace doris::vectorized

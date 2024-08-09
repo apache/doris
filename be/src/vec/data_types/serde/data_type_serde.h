@@ -335,6 +335,9 @@ protected:
                                            rapidjson::Document::AllocatorType& allocator);
     static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
                                            rapidjson::Document::AllocatorType& allocator);
+    static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
+                                                 rapidjson::Value& target,
+                                                 rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

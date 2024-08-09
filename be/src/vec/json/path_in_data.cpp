@@ -124,6 +124,7 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
         Part part;
         part.is_nested = part_info.is_nested();
+        has_nested |= part.is_nested;
         part.anonymous_array_level = part_info.anonymous_array_level();
         // use string_view to ref data in path
         part.key = std::string_view {begin, part_info.key().length()};
@@ -168,6 +169,18 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
 
 PathInData PathInData::copy_pop_front() const {
     return copy_pop_nfront(1);
+}
+
+PathInData PathInData::copy_pop_back() const {
+    if (parts.size() <= 1) {
+        return {};
+    }
+    PathInData new_path;
+    Parts new_parts = parts;
+    new_parts.pop_back();
+    new_path.build_path(new_parts);
+    new_path.build_parts(new_parts);
+    return new_path;
 }
 
 PathInData PathInData::copy_pop_nfront(size_t n) const {

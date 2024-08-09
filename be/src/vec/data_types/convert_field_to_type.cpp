@@ -98,6 +98,10 @@ public:
         LOG(FATAL) << "not implemeted";
         __builtin_unreachable();
     }
+    [[noreturn]] String operator()(const VariantMap& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
 };
 
 class FieldVisitorToJsonb : public StaticVisitor<void> {
@@ -265,6 +269,15 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                         src);
         *to = JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        return;
+    } else if (which_type.is_variant_type()) {
+        if (src.get_type() == Field::Types::VariantMap) {
+            *to = src;
+            return;
+        }
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
+                               type.get_name(), src.get_type());
         return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == Field::Types::Array) {
