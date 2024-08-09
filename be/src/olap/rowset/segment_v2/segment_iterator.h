@@ -107,6 +107,15 @@ struct ColumnPredicateInfo {
     int32_t column_id;
 };
 
+class SegmentIterator;
+struct FuncExprParams {
+    ColumnId _column_id = 0;
+    uint32_t _unique_id = 0;
+    std::string _column_name;
+    SegmentIterator* _segment_iterator = nullptr;
+    std::shared_ptr<roaring::Roaring> result;
+};
+
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
@@ -123,6 +132,8 @@ public:
             std::vector<RowLocation>* block_row_locations) override;
 
     const Schema& schema() const override { return *_schema; }
+    Segment& segment() { return *_segment; }
+    StorageReadOptions& storage_read_options() { return _opts; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
@@ -141,6 +152,11 @@ public:
 
         return updated;
     }
+
+    std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
+        return _inverted_index_iterators;
+    }
+    [[nodiscard]] Status _init_inverted_index_iterators(ColumnId cid);
 
 private:
     Status _next_batch_internal(vectorized::Block* block);
@@ -308,6 +324,7 @@ private:
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
                                           bool is_match = false);
     void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
+    void _calculate_func_in_remaining_conjunct_root();
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
@@ -387,6 +404,10 @@ private:
 
     bool _can_opt_topn_reads() const;
 
+    Status execute_func_expr(const vectorized::VExprSPtr& expr,
+                             const vectorized::VExprContextSPtr& expr_ctx,
+                             std::shared_ptr<roaring::Roaring>& result);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -452,6 +473,11 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
+
+    using FuncExprPair = std::pair<vectorized::VExprSPtr, vectorized::VExprContextSPtr>;
+    std::vector<FuncExprPair> no_compound_func_exprs;
+    std::vector<FuncExprPair> compound_func_exprs;
+
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
@@ -493,6 +519,13 @@ private:
     std::set<int32_t> _output_columns;
 
     std::unique_ptr<HierarchicalDataReader> _path_reader;
+
+    std::vector<uint8_t> _ret_flags;
+
+    std::unordered_map<int, std::unordered_map<std::string, bool>>
+            _column_predicate_inverted_index_status;
+
+    std::mutex _idx_init_lock;
 };
 
 } // namespace segment_v2
