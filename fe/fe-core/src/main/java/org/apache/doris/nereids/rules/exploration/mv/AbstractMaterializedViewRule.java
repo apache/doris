@@ -426,6 +426,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
+        // Bail out, not check invalid partition if not olap scan, support later
+        if (queryUsedBaseTablePartitions.isEmpty()) {
+            return Pair.of(ImmutableMap.of(), ImmutableMap.of());
+        }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
                 .stream()
                 .map(Partition::getName)
