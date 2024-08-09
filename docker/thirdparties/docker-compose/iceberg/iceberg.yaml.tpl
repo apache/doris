@@ -31,8 +31,7 @@ services:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
       - ./data:/mnt/data
-      - ./spark-init-iceberg.sql:/mnt/spark-init-iceberg.sql
-      - ./spark-init-paimon.sql:/mnt/spark-init-paimon.sql
+      - ./scripts:/mnt/scripts
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
       - ./data/input/jars/paimon-spark-3.5-0.8.0.jar:/opt/spark/jars/paimon-spark-3.5-0.8.0.jar
       - ./data/input/jars/paimon-s3-0.8.0.jar:/opt/spark/jars/paimon-s3-0.8.0.jar
@@ -40,15 +39,14 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
-    entrypoint:  >
-      /bin/sh -c "
-          spark-sql --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f /mnt/spark-init-iceberg.sql 2>&1;
-          spark-sql --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f /mnt/spark-init-paimon.sql 2>&1;
-          tail -f /dev/null
-      "
+    entrypoint: /bin/sh /mnt/scripts/entrypoint.sh 
     networks:
       - doris--iceberg
-
+    healthcheck:
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      interval: 5s
+      timeout: 120s
+      retries: 120
   rest:
     image: tabulario/iceberg-rest
     container_name: doris--iceberg-rest
@@ -105,6 +103,15 @@ services:
       mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       tail -f /dev/null
       "
+  
+  iceberg-hello-world:
+    image: hello-world
+    container_name: doris--iceberg-hello-world
+    depends_on:
+      spark-iceberg:
+        condition: service_healthy
+    network_mode: "host"
+
 networks:
   doris--iceberg:
     ipam:
