@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -253,8 +254,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFileScan()
                     )
-                )
-                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                ).when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                     .thenApply(ctx -> {
                         LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
                         LogicalProject<LogicalFileScan> project = agg.child();
