@@ -402,7 +402,9 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
         offset_inc = IPV6_BINARY_LENGTH;
     }
 
-    auto* column_string = assert_cast<ColumnString*>(col_res.get());
+    if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+        auto* column_string = assert_cast<ColumnString*>(col_res.get());
+    }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
         size_t src_next_offset = src_offset;
