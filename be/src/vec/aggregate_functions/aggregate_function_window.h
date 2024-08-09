@@ -387,7 +387,8 @@ public:
 
     void set_value(const IColumn** columns, size_t pos) {
         if constexpr (arg_is_nullable) {
-            if (assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
+            if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
+                        ->is_null_at(pos)) {
                 // ptr == nullptr means nullable
                 _data_value.reset();
                 return;
@@ -400,7 +401,8 @@ public:
     void check_default(const IColumn* column) {
         if (!_is_inited) {
             if (is_column_nullable(*column)) {
-                const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
+                const auto* nullable_column =
+                        assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {

@@ -123,9 +123,9 @@ private:
                 field_name = "$." + field_name;
             }
             JsonFunctions::parse_json_paths(field_name, &parsed_paths);
+            ColumnString* col_str = assert_cast<ColumnString*>(result_column.get());
             for (size_t i = 0; i < docs.size(); ++i) {
-                if (!extract_from_document(parser, docs.get_data_at(i), parsed_paths,
-                                           assert_cast<ColumnString*>(result_column.get()))) {
+                if (!extract_from_document(parser, docs.get_data_at(i), parsed_paths, col_str)) {
                     VLOG_DEBUG << "failed to parse " << docs.get_data_at(i) << ", field "
                                << field_name;
                     result_column->insert_default();

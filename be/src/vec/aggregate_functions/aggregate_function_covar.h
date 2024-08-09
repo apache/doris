@@ -107,9 +107,11 @@ struct BaseData {
     }
 
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
-        const auto& sources_x = assert_cast<const ColumnVector<T>&>(*column_x);
+        const auto& sources_x =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
         double source_data_x = sources_x.get_data()[row_num];
-        const auto& sources_y = assert_cast<const ColumnVector<T>&>(*column_y);
+        const auto& sources_y =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
         double source_data_y = sources_y.get_data()[row_num];
 
         sum_x += source_data_x;
@@ -186,7 +188,8 @@ struct BaseDatadecimal {
     }
 
     DecimalV2Value get_source_data(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnDecimal<T>&>(*column);
+        const auto& sources =
+                assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(*column);
         Field field = sources[row_num];
         auto decimal_field = field.template get<DecimalField<T>>();
         int128_t value;

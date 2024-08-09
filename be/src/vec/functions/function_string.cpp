@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"

@@ -46,7 +46,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = assert_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 

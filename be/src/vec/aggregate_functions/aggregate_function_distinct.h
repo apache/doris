@@ -65,7 +65,9 @@ struct AggregateFunctionDistinctSingleNumericData {
     Container data;
 
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
-        const auto& vec = assert_cast<const ColumnVector<T>&>(*columns[0]).get_data();
+        const auto& vec =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data();
         if constexpr (stable) {
             data.emplace(vec[row_num], data.size());
         } else {
