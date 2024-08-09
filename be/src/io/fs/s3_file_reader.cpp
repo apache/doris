@@ -104,6 +104,13 @@ Status S3FileReader::close() {
 
 Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* /*io_ctx*/) {
+    using namespace std::chrono;
+    auto start_time = steady_clock::now();
+    Defer cost {[&]() {
+        int64_t cost = duration_cast<microseconds>(steady_clock::now() - start_time).count();
+        LOG(ERROR) << "read_at_impl: " << _path.native() << ", " << result.size << ", " << cost << " us";
+    }};
+    
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
