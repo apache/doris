@@ -140,7 +140,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 case DELETE:
                 case HADOOP:
                 case INSERT:
-                    throw new DdlException("LoadManager only support create broker load job from stmt.");
+                    throw new DdlException("LoadManager only support create broker and spark load job from stmt.");
                 default:
                     throw new DdlException("Unknown load job type.");
             }
@@ -408,6 +408,11 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 case BROKER_LOAD:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
                             insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
+                    break;
+                case SPARK_LOAD:
+                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
+                            insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 default:
