@@ -38,6 +38,7 @@ class SelectExceptTest implements MemoPatternMatchSupported {
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.of(new UnboundStar(ImmutableList.of("db", "t1"))),
                 ImmutableList.of(new UnboundSlot("db", "t1", "id")),
+                ImmutableList.of(),
                 false,
                 olapScan);
         PlanChecker.from(MemoTestUtils.createConnectContext())
