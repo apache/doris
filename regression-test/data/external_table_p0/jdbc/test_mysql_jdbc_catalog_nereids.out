@@ -187,6 +187,7 @@ statistics
 table_constraints
 table_options
 table_privileges
+table_properties
 tables
 triggers
 user_privileges

@@ -29,12 +29,12 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-class SchemaTableOptionsScanner : public SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaTableOptionsScanner);
+class SchemaTablePropertiesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTablePropertiesScanner);
 
 public:
-    SchemaTableOptionsScanner();
-    ~SchemaTableOptionsScanner() override = default;
+    SchemaTablePropertiesScanner();
+    ~SchemaTablePropertiesScanner() override = default;
 
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
@@ -45,11 +45,11 @@ private:
     Status get_onedb_info_from_fe(int64_t dbId);
     bool check_and_mark_eos(bool* eos) const;
     int _block_rows_limit = 4096;
-    int _db_index = 0;
-    TGetDbsResult _db_result;
     int _row_idx = 0;
     int _total_rows = 0;
-    std::unique_ptr<vectorized::Block> _tableoptions_block = nullptr;
+    int _db_index = 0;
+    TGetDbsResult _db_result;
+    std::unique_ptr<vectorized::Block> _tableproperties_block = nullptr;
     int _rpc_timeout_ms = 3000;
 };
 }; // namespace doris
