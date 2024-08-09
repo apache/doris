@@ -50,6 +50,7 @@ statementBase
     | materailizedViewStatement         #materailizedViewStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedUseStatement             #supportedUseStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -158,6 +159,10 @@ supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
     ;
 
+supportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    ;
+
 unsupportedSetStatement
     : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
     | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
@@ -176,8 +181,7 @@ unsupportedSetStatement
     ;
 
 unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     ;
 
 variable

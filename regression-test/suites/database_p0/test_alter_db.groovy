@@ -45,7 +45,11 @@ suite("test_alter_db") {
     assertEquals("1024", result[7])
     assertEquals("1024", result[9])
 
+    sql """set enable_fallback_to_original_planner = false;"""
     sql """use ${dbName};"""
+    sql """set enable_fallback_to_original_planner = true;"""
+    sql """use ${dbName};"""
+    sql """UNSET VARIABLE enable_fallback_to_original_planner;"""
     sql """
         CREATE TABLE `${tableName}`
         (
