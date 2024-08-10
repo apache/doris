@@ -163,13 +163,6 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    ThreadCpuStopWatch cpu_time_stop_watch;
-    cpu_time_stop_watch.start();
-    Defer defer {[&]() {
-        if (_state && _state->get_query_ctx()) {
-            _state->get_query_ctx()->update_wg_cpu_adder(cpu_time_stop_watch.elapsed_time());
-        }
-    }};
     return _memtable_writer->write(block, row_idxs);
 }
 

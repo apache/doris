@@ -17,6 +17,7 @@
 
 #include "runtime/workload_management/io_throttle.h"
 
+#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris {
@@ -56,6 +57,11 @@ bool IOThrottle::try_acquire() {
 }
 
 void IOThrottle::update_next_io_time(int64_t io_bytes) {
+    Defer defer {[&]() {
+        if (io_bytes > 0) {
+            (*_io_adder) << io_bytes;
+        }
+    }};
     if (_io_bytes_per_second_limit <= 0 || io_bytes <= 0) {
         return;
     }
@@ -72,7 +78,6 @@ void IOThrottle::update_next_io_time(int64_t io_bytes) {
         }
         _next_io_time_micros += ret < 1 ? static_cast<int64_t>(1) : static_cast<int64_t>(ret);
     }
-    (*_io_adder) << io_bytes;
 }
 
 void IOThrottle::set_io_bytes_per_second(int64_t io_bytes_per_second) {

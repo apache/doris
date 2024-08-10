@@ -33,7 +33,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendWorkloadGroupResourceUsage::
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"MEMORY_USAGE_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
-        {"CPU_USAGE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CPU_USAGE_PERCENT", TYPE_DOUBLE, sizeof(double), false},
         {"LOCAL_SCAN_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), false},
         {"REMOTE_SCAN_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), false},
 };
@@ -49,7 +49,7 @@ Status SchemaBackendWorkloadGroupResourceUsage::start(RuntimeState* state) {
 }
 
 Status SchemaBackendWorkloadGroupResourceUsage::get_next_block_internal(vectorized::Block* block,
-                                                                bool* eos) {
+                                                                        bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

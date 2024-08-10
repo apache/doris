@@ -545,7 +545,7 @@ public class SchemaTable extends Table {
                             builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("MEMORY_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("CPU_USAGE", ScalarType.createVarchar(256))
+                                    .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())

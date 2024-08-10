@@ -234,6 +234,7 @@ triggers
 user_privileges
 views
 workload_group_privileges
+workload_group_resource_usage
 workload_groups
 workload_policy
 

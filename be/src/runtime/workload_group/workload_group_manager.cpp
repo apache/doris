@@ -270,14 +270,14 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
         nullable_column->get_null_map_data().emplace_back(0);
     };
 
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
+    auto insert_double_value = [&](int col_index, double double_val, vectorized::Block* block) {
         vectorized::MutableColumnPtr mutable_col_ptr;
         mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
         auto* nullable_column =
                 reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
         vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
+                double_val);
         nullable_column->get_null_map_data().emplace_back(0);
     };
 
@@ -295,10 +295,9 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 
         double cpu_usage_p =
                 (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
-        std::stringstream cpu_usage_ss;
-        cpu_usage_ss << std::fixed << std::setprecision(2) << cpu_usage_p << "%";
+        cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
 
-        insert_string_value(3, cpu_usage_ss.str(), block);
+        insert_double_value(3, cpu_usage_p, block);
 
         insert_int_value(4, wg->get_local_scan_bytes_per_second(), block);
         insert_int_value(5, wg->get_remote_scan_bytes_per_second(), block);
