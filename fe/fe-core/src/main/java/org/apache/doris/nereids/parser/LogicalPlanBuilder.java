@@ -1358,6 +1358,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Optional.ofNullable(ctx.aggClause()),
                     Optional.ofNullable(ctx.havingClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            if ((selectHintMap == null) || selectHintMap.isEmpty()) {
+                return selectPlan;
+            }
             List<ParserRuleContext> selectHintContexts = Lists.newArrayList();
             for (Integer key : selectHintMap.keySet()) {
                 if (key > selectCtx.getStart().getStopIndex() && key < selectCtx.getStop().getStartIndex()) {

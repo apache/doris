@@ -273,21 +273,22 @@ public class NereidsParser {
     private <T> T parse(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
                         Function<DorisParser, ParserRuleContext> parseFunction) {
         ParserRuleContext tree = toAst(sql, parseFunction);
-        Map<Integer, ParserRuleContext> selectHintMap = getHintMap(sql, DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(selectHintMap) : logicalPlanBuilder;
+                    ? new LogicalPlanBuilder(getHintMap(sql, DorisParser::selectHint)) : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
     public LogicalPlan parseForCreateView(String sql) {
         ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
-        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView();
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
+                getHintMap(sql, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
     public Optional<String> parseForSyncMv(String sql) {
         ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
-        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv();
+        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
+                getHintMap(sql, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
     }

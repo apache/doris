@@ -52,12 +52,13 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import org.antlr.v4.runtime.ParserRuleContext;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**LogicalPlanBuilderForCreateView*/
 public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
-    public LogicalPlanBuilderForCreateView() {
-        super(null);
+    public LogicalPlanBuilderForCreateView(Map<Integer, ParserRuleContext> selectHintMap) {
+        super(selectHintMap);
     }
 
     @Override
