@@ -381,9 +381,8 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
         res[i] = i;
     }
 
-    if (limit >= s) {
-        limit = 0;
-    }
+    // std::partial_sort need limit << s can get performance benefit
+    if (limit > (s / 8.0)) limit = 0;
 
     if (limit) {
         if (reverse) {
@@ -393,9 +392,9 @@ void ColumnString::get_permutation(bool reverse, size_t limit, int /*nan_directi
         }
     } else {
         if (reverse) {
-            std::sort(res.begin(), res.end(), less<false>(*this));
+            pdqsort(res.begin(), res.end(), less<false>(*this));
         } else {
-            std::sort(res.begin(), res.end(), less<true>(*this));
+            pdqsort(res.begin(), res.end(), less<true>(*this));
         }
     }
 }
