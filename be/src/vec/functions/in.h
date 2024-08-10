@@ -114,7 +114,7 @@ public:
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
             state->hybrid_set.reset(
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
