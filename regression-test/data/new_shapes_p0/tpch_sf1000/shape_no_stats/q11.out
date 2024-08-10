@@ -7,20 +7,18 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
 ------------PhysicalProject
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[partsupp] apply RFs: RF2
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[supplier] apply RFs: RF3
+--------------------------PhysicalOlapScan[partsupp] apply RFs: RF2
 ------------------------PhysicalProject
---------------------------filter((nation.n_name = 'GERMANY'))
-----------------------------PhysicalOlapScan[nation]
+--------------------------PhysicalOlapScan[supplier] apply RFs: RF3
+--------------------PhysicalProject
+----------------------filter((nation.n_name = 'GERMANY'))
+------------------------PhysicalOlapScan[nation]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecGather]
@@ -28,7 +26,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
 ----------------------------PhysicalProject

@@ -35,6 +35,8 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
@@ -125,6 +127,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
     const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
     const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
+
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {

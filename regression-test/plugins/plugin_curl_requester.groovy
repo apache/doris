@@ -36,7 +36,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
         throw new Exception("Invalid url: ${url}")
     }
     
-    Integer timeout = 60 // seconds
+    Integer timeout = 300 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
     Integer sleepTime = 1000 // milliseconds
@@ -90,6 +90,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 timeout = timeout + 10
                 logger.warn("Read timed out, retrying (${++retryCount}/${maxRetries}): ${e.message}")
             } catch (Exception e) {
+                code = 500 // Internal Server Error
                 logger.error("Error executing HTTP request: ${e.message}")
                 err = e.message
                 return [code, out, err]
@@ -101,6 +102,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
         err = "Failed after ${maxRetries} attempts"
+        code = 500 // Internal Server Error
         return [code, out, err]
     } finally {
         httpClient.close()
@@ -255,7 +257,8 @@ logger.info("Added 'be_report_task' function to Suite")
 Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format -> 
     def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
     logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-    if (code == 500) {
+    // only when the expected_indices_count is 0, the tablet may not have the index file.
+    if (code == 500 && expected_indices_count == 0) {
         assertEquals("E-6003", parseJson(out.trim()).status)
         assertTrue(parseJson(out.trim()).msg.contains("not found"))
         return

@@ -185,14 +185,7 @@ Status Segment::_open_inverted_index() {
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
-    bool open_idx_file_cache = true;
-    auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                open_idx_file_cache);
-    if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
-        LOG(INFO) << st;
-        return Status::OK();
-    }
-    return st;
+    return Status::OK();
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -315,9 +308,10 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     DCHECK_EQ(bytes_read, 12);
 
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption("Bad segment file {}: magic number not match, cache_key: {}",
-                                  _file_reader->path().native(),
-                                  file_cache_key_str(_file_reader->path().native()));
+        return Status::Corruption(
+                "Bad segment file {}: file_size: {}, magic number not match, cache_key: {}",
+                _file_reader->path().native(), file_size,
+                file_cache_key_str(_file_reader->path().native()));
     }
 
     // read footer PB
@@ -339,17 +333,18 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-                "Bad segment file {}: footer checksum not match, actual={} vs expect={}, "
-                "cache_key: {}",
-                _file_reader->path().native(), actual_checksum, expect_checksum,
+                "Bad segment file {}: file_size = {}, footer checksum not match, actual={} "
+                "vs expect={}, cache_key: {}",
+                _file_reader->path().native(), file_size, actual_checksum, expect_checksum,
                 file_cache_key_str(_file_reader->path().native()));
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
         return Status::Corruption(
-                "Bad segment file {}: failed to parse SegmentFooterPB, cache_key: ",
-                _file_reader->path().native(), file_cache_key_str(_file_reader->path().native()));
+                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, cache_key: ",
+                _file_reader->path().native(), file_size,
+                file_cache_key_str(_file_reader->path().native()));
     }
     return Status::OK();
 }

@@ -24,6 +24,7 @@ suite("q32_spill") {
   sql """
     use regression_test_tpcds_sf1_unique_p1;
   """
+  sql "set enable_local_shuffle=false"
   qt_q32 """
 SELECT sum(cs_ext_discount_amt) 'excess discount amount'
 FROM

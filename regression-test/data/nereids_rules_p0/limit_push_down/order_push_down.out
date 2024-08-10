@@ -55,13 +55,12 @@ PhysicalResultSink
 
 -- !left_outer_join_order --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t2]
+--PhysicalTopN[GATHER_SORT]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalTopN[LOCAL_SORT]
+----------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
 
 -- !right_outer_join_order --
 PhysicalResultSink
@@ -365,13 +364,12 @@ PhysicalResultSink
 ------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------PhysicalOlapScan[t1]
 --------------PhysicalOlapScan[t2]
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t3]
---------------PhysicalOlapScan[t4]
+--------PhysicalTopN[GATHER_SORT]
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t4]
 
 -- !limit_union_window --
 PhysicalResultSink
@@ -588,17 +586,15 @@ PhysicalResultSink
 
 -- !limit_multiple_left_outer_join --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalTopN[LOCAL_SORT]
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalTopN[MERGE_SORT]
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t1]
---------------PhysicalOlapScan[t2]
---------PhysicalOlapScan[t3]
+--PhysicalTopN[GATHER_SORT]
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+------PhysicalTopN[GATHER_SORT]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+------PhysicalOlapScan[t3]
 
 -- !limit_multiple_right_outer_join --
 PhysicalResultSink

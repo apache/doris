@@ -15,27 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import java.util.concurrent.locks.ReentrantLock;
-
-/*
- * This Lock is for exposing the getOwner() method,
- * which is a protected method of ReentrantLock
- */
-public class QueryableReentrantLock extends ReentrantLock {
-    private static final long serialVersionUID = 1L;
-
-    public QueryableReentrantLock() {
-        super();
-    }
-
-    public QueryableReentrantLock(boolean fair) {
-        super(fair);
-    }
-
-    @Override
-    public Thread getOwner() {
-        return super.getOwner();
+suite("test_alter_table_after_empty_insert") {
+    def tableName = "test_alter_table_after_empty_insert"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            k BIGINT,
+            v SMALLINT NOT NULL,
+            t TEXT NOT NULL
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 4
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """ INSERT INTO ${tableName} SELECT * FROM ${tableName} """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN v BIGINT AFTER t """
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 }

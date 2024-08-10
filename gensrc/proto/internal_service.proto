@@ -707,9 +707,6 @@ message PFetchTableSchemaResult {
 }
 
 message POutfileWriteSuccessRequest {
-    // optional string file_path = 1;
-    // optional string success_file_name = 2;
-    // map<string, string> broker_properties = 4; // only for remote file
     optional bytes result_file_sink = 1;
 }
 
@@ -808,6 +805,7 @@ message FileCacheBlockMeta {
     required int64 size = 6;
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
+    optional int64 file_size = 9;
 }
 
 message PGetFileCacheMetaResponse {
