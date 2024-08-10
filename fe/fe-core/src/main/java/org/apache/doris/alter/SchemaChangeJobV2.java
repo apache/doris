@@ -198,8 +198,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     /**
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
-     * 2. After creating done, add the shadow indexes to catalog, user can not see this
-     *    shadow index, but internal load process will generate data for these indexes.
+     * 2. After creating done, add the shadow indexes to catalog, user can not see
+     * this
+     * shadow index, but internal load process will generate data for these indexes.
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
@@ -482,7 +483,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         this.jobState = JobState.RUNNING;
 
-        // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
+        // DO NOT write edit log here, tasks will be send again if FE restart or master
+        // changed.
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
     }
 
@@ -490,7 +492,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * runRunningJob()
      * 1. Wait all schema change tasks to be finished.
      * 2. Check the integrity of the newly created shadow indexes.
-     * 3. Replace the origin index with shadow index, and set shadow index's state as NORMAL to be visible to user.
+     * 3. Replace the origin index with shadow index, and set shadow index's state
+     * as NORMAL to be visible to user.
      * 4. Set job'state as FINISHED.
      */
     @Override
@@ -584,7 +587,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     } // end for tablets
                 }
             } // end for partitions
-            // all partitions are good
+              // all partitions are good
             onFinished(tbl);
         } finally {
             tbl.writeUnlock();
@@ -609,8 +612,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 long shadowIdxId = entry.getKey();
                 long originIdxId = entry.getValue();
                 // get index from catalog, not from 'partitionIdToRollupIndex'.
-                // because if this alter job is recovered from edit log, index in 'partitionIndexMap'
-                // is not the same object in catalog. So modification on that index can not reflect to the index
+                // because if this alter job is recovered from edit log, index in
+                // 'partitionIndexMap'
+                // is not the same object in catalog. So modification on that index can not
+                // reflect to the index
                 // in catalog.
                 MaterializedIndex shadowIdx = partition.getIndex(shadowIdxId);
                 Preconditions.checkNotNull(shadowIdx, shadowIdxId);
@@ -657,7 +662,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
-                        originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+                        originIdxId, shadowIdxId, maxColUniqueId, indexSchemaMap.get(shadowIdxId));
             }
 
             tbl.deleteIndexInfo(originIdxName);
@@ -704,12 +709,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
-
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-
+        jobState = JobState.CANCELLED;
+        Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
+        postProcessShadowIndex();
         return true;
     }
 
@@ -745,11 +750,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         }
-
-        jobState = JobState.CANCELLED;
     }
 
-    // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
+    // Check whether transactions of the given database which txnId is less than
+    // 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() throws AnalysisException {
         return Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
                 watershedTxnId, dbId, Lists.newArrayList(tableId));
@@ -808,7 +812,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             olapTable.writeUnlock();
         }
 
-        // should still be in WAITING_TXN state, so that the alter tasks will be resend again
+        // should still be in WAITING_TXN state, so that the alter tasks will be resend
+        // again
         this.jobState = JobState.WAITING_TXN;
         this.watershedTxnId = replayedJob.watershedTxnId;
         LOG.info("replay waiting txn schema change job: {} table id: {}", jobId, tableId);
