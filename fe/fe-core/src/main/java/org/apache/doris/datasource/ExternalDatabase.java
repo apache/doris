@@ -145,7 +145,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> listTableNames(),
                             tableName -> Optional.ofNullable(
                                     buildTableForInit(tableName,
