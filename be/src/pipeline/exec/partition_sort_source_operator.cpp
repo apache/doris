@@ -34,6 +34,8 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
+    _sorted_partition_output_rows_counter =
+            ADD_COUNTER(profile(), "SortedPartitionOutputRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -62,7 +64,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
             }
             if (!output_block->empty()) {
                 COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
-                COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
+                local_state._num_rows_returned += output_block->rows();
             }
             return Status::OK();
         }
@@ -84,7 +86,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     }
     if (!output_block->empty()) {
         COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
-        COUNTER_UPDATE(local_state.rows_returned_counter(), output_block->rows());
+        local_state._num_rows_returned += output_block->rows();
     }
     return Status::OK();
 }

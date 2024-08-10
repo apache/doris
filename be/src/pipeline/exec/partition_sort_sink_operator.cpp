@@ -53,6 +53,8 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
     _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
+    _sorted_partition_input_rows_counter =
+            ADD_COUNTER(_profile, "SortedPartitionInputRows", TUnit::UNIT);
     _partition_sort_info = std::make_shared<vectorized::PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
@@ -122,8 +124,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         } else {
             if (local_state._is_need_passthrough) {
                 {
-                    COUNTER_UPDATE(local_state._passthrough_rows_counter,
-                                   (int64_t)input_block->rows());
+                    COUNTER_UPDATE(local_state._passthrough_rows_counter, (int64_t)current_rows);
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
                     local_state._shared_state->blocks_buffer.push(std::move(*input_block));
                     // buffer have data, source could read this.
@@ -155,6 +156,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         }
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
+        COUNTER_SET(local_state._sorted_partition_input_rows_counter,
+                    local_state._sorted_partition_input_rows);
         //so all data from child have sink completed
         {
             std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
