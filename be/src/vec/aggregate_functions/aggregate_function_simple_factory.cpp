@@ -57,6 +57,7 @@ void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_regr_mixed(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
@@ -92,6 +93,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
+        register_aggregate_function_regr_mixed(instance);
         register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);
         register_aggregate_function_approx_count_distinct(instance);

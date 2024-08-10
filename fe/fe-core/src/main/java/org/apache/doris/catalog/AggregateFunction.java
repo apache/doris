@@ -55,6 +55,7 @@ public class AggregateFunction extends Function {
             "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT,
             "ndv_no_finalize", "percentile_array", "histogram",
             FunctionSet.SEQUENCE_COUNT, FunctionSet.MAP_AGG, FunctionSet.BITMAP_AGG, FunctionSet.ARRAY_AGG,
+            FunctionSet.REGR_SXX, FunctionSet.REGR_SYY, FunctionSet.REGR_SXY,
             FunctionSet.COLLECT_LIST, FunctionSet.COLLECT_SET, FunctionSet.GROUP_ARRAY_INTERSECT,
             FunctionSet.SUM0, FunctionSet.MULTI_DISTINCT_SUM0);
 
