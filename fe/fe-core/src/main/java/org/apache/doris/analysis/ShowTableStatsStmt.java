@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -58,17 +59,25 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("user_inject")
                     .build();
 
-    private final TableName tableName;
+    private static final ImmutableList<String> INDEX_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+            .add("table_name")
+            .add("index_name")
+            .add("row_count")
+            .build();
 
+    private final TableName tableName;
     private final PartitionNames partitionNames;
     private final boolean cached;
+    private final String indexName;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached, String indexName) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.cached = cached;
+        this.indexName = indexName;
     }
 
     public TableName getTableName() {
@@ -117,7 +126,13 @@ public class ShowTableStatsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        for (String title : TITLE_NAMES) {
+        ImmutableList<String> titles;
+        if (indexName != null) {
+            titles = INDEX_TITLE_NAMES;
+        } else {
+            titles = TITLE_NAMES;
+        }
+        for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -127,35 +142,11 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table;
     }
 
-    public long getPartitionId() {
-        if (partitionNames == null) {
-            return 0;
-        }
-        String partitionName = partitionNames.getPartitionNames().get(0);
-        return table.getPartition(partitionName).getId();
-    }
-
     public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        if (tableStatistic == null) {
-            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        if (indexName != null) {
+            return constructIndexResultSet(tableStatistic);
         }
-        List<List<String>> result = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(tableStatistic.updatedRows));
-        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
-        row.add(String.valueOf(tableStatistic.rowCount));
-        LocalDateTime dateTime =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
-                        java.time.ZoneId.systemDefault());
-        String formattedDateTime = dateTime.format(formatter);
-        row.add(formattedDateTime);
-        row.add(tableStatistic.analyzeColumns().toString());
-        row.add(tableStatistic.jobType.toString());
-        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
-        row.add(String.valueOf(tableStatistic.userInjected));
-        result.add(row);
-        return new ShowResultSet(getMetaData(), result);
+        return constructTableResultSet(tableStatistic);
     }
 
     public ShowResultSet constructResultSet(long rowCount) {
@@ -169,6 +160,51 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add("");
         row.add("");
         row.add("");
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructTableResultSet(TableStatsMeta tableStatistic) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (tableStatistic == null) {
+            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        }
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(tableStatistic.updatedRows));
+        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
+        row.add(String.valueOf(tableStatistic.rowCount));
+        LocalDateTime dateTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
+                java.time.ZoneId.systemDefault());
+        String formattedDateTime = dateTime.format(formatter);
+        row.add(formattedDateTime);
+        row.add(tableStatistic.analyzeColumns().toString());
+        row.add(tableStatistic.jobType.toString());
+        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
+        row.add(String.valueOf(tableStatistic.userInjected));
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructIndexResultSet(TableStatsMeta tableStatistic) {
+        List<List<String>> result = Lists.newArrayList();
+        if (!(table instanceof OlapTable)) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        OlapTable olapTable = (OlapTable) table;
+        Long indexId = olapTable.getIndexIdByName(indexName);
+        if (indexId == null) {
+            throw new RuntimeException(String.format("Index %s not exist.", indexName));
+        }
+        long rowCount = tableStatistic.getRowCount(olapTable.getIndexIdByName(indexName));
+        if (rowCount == -1) {
+            return new ShowResultSet(getMetaData(), result);
+        }
+        List<String> row = Lists.newArrayList();
+        row.add(table.getName());
+        row.add(indexName);
+        row.add(String.valueOf(rowCount));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

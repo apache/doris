@@ -566,20 +566,20 @@ public class QueryPlanTest extends TestWithFeService {
         // disable cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
-                "Invalid type cast of `id2` from HLL to VARCHAR(65533)"
+                "Invalid type cast of `id2` from hll to varchar(65533)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
-                "Invalid type cast of `id2` from BITMAP to VARCHAR(65533)"
+                "Invalid type cast of `id2` from bitmap to varchar(65533)"
         );
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
-                "No matching function with signature: length(HLL)"
+                "No matching function with signature: length(hll)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
-                "No matching function with signature: length(BITMAP)"
+                "No matching function with signature: length(bitmap)"
         );
     }
 
@@ -2064,7 +2064,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS int)\n" + "    CAST(<slot 5> <slot 3> 4 AS int)"));
     }
 
     @Test

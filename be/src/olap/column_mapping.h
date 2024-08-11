@@ -30,11 +30,11 @@ struct ColumnMapping {
     ColumnMapping() = default;
     virtual ~ColumnMapping() = default;
 
-    bool has_reference() const { return expr != nullptr || ref_column >= 0; }
+    bool has_reference() const { return expr != nullptr || ref_column_idx >= 0; }
 
     // <0: use default value
     // >=0: use origin column
-    int32_t ref_column = -1;
+    int32_t ref_column_idx = -1;
     // normally for default value. stores values for filters
     WrapperField* default_value = nullptr;
     std::shared_ptr<TExpr> expr;

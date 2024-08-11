@@ -124,6 +124,12 @@ cacheDataPath = "/data/regression/"
 
 s3Source="aliyun"
 
+// for multi cloud test case, eg. paimon_base_filesystem
+aliYunAk="***********"
+aliYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
+
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"

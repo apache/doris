@@ -301,6 +301,8 @@ struct TQueryOptions {
   112: optional i32 max_column_reader_num = 0
 
   113: optional bool enable_force_spill = false;
+
+  116: optional bool enable_no_need_read_data_opt = true;
   
   117: optional bool read_csv_empty_line_as_null = false;
 
@@ -309,6 +311,15 @@ struct TQueryOptions {
   119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
+  
+  //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
+  //by their ordinal position in the Hive table definition.  
+  123: optional bool hive_parquet_use_column_names = true;
+  124: optional bool hive_orc_use_column_names = true;
+
+  125: optional bool enable_match_without_inverted_index = true;
+  126: optional bool enable_fallback_on_missing_inverted_index = true;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

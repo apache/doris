@@ -105,6 +105,7 @@ protected:
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
     void _load_segment_to_cache();
+    int64_t merge_way_num();
 
 protected:
     // the root tracker for this compaction

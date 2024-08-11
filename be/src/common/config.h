@@ -434,6 +434,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
+DECLARE_mInt64(base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -464,6 +465,7 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
+DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -1095,8 +1097,6 @@ DECLARE_mInt64(max_tablet_io_errors);
 DECLARE_Int32(tablet_path_check_interval_seconds);
 DECLARE_mInt32(tablet_path_check_batch_size);
 
-// Page size of row column, default 4KB
-DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt32(s3_write_buffer_size);
 // The timeout config for S3 buffer allocation
@@ -1345,6 +1345,10 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
+
+DECLARE_mInt64(compaction_memory_bytes_limit);
+
+DECLARE_mInt64(compaction_batch_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 

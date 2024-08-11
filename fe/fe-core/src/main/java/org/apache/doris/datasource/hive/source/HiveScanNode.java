@@ -181,7 +181,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionItems = selectedPartitions.selectedPartitions.values();
             }
             Preconditions.checkNotNull(partitionItems);
-            this.readPartitionNum = partitionItems.size();
+            this.selectedPartitionNum = partitionItems.size();
 
             // get partitions from cache
             List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
@@ -198,7 +198,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
                     hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;
-            this.readPartitionNum = 1;
+            this.selectedPartitionNum = 1;
             resPartitions.add(dummyPartition);
         }
         if (ConnectContext.get().getExecutor() != null) {
@@ -320,10 +320,6 @@ public class HiveScanNode extends FileQueryScanNode {
             return;
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-            // This if branch is to support old splitter, will remove later.
-            if (fileCacheValue.getSplits() != null) {
-                allFiles.addAll(fileCacheValue.getSplits());
-            }
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -41,7 +40,6 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -221,11 +219,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (table.needReAnalyzeTable(tblStats)) {
             needRunColumns = table.getColumnIndexPairs(table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet()));
-        } else if (table instanceof OlapTable && tblStats.newPartitionLoaded.get()) {
-            OlapTable olapTable = (OlapTable) table;
-            Set<String> partitionNames = olapTable.getAllPartitions().stream()
-                    .map(Partition::getName).collect(Collectors.toSet());
-            needRunColumns = olapTable.getColumnIndexPairs(partitionNames);
         }
 
         if (needRunColumns == null || needRunColumns.isEmpty()) {

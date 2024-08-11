@@ -1443,7 +1443,7 @@ public class Coordinator implements CoordInterface {
     // We use a very conservative cancel strategy.
     // 0. If backends has zero process epoch, do not cancel. Zero process epoch usually arises in cluster upgrading.
     // 1. If process epoch is same, do not cancel. Means backends does not restart or die.
-    public boolean shouldCancel(List<Backend> currentBackends) {
+    public Status shouldCancel(List<Backend> currentBackends) {
         Map<Long, Backend> curBeMap = Maps.newHashMap();
         for (Backend be : currentBackends) {
             curBeMap.put(be.getId(), be);
@@ -1456,21 +1456,24 @@ public class Coordinator implements CoordInterface {
                 for (PipelineExecContext pipelineExecContext : pipelineExecContexts.values()) {
                     Backend be = curBeMap.get(pipelineExecContext.backend.getId());
                     if (be == null || !be.isAlive()) {
-                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend {} not exists or dead, query {} should be cancelled",
                                 pipelineExecContext.backend.toString(), DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     }
 
                     // Backend process epoch changed, indicates that this be restarts, query should be cancelled.
                     // Check zero since during upgrading, older version oplog will not persistent be start time
                     // so newer version follower will get zero epoch when replaying oplog or snapshot
                     if (pipelineExecContext.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
-                        LOG.warn("Backend process epoch changed, previous {} now {}, "
-                                        + "means this be has already restarted, should cancel this coordinator,"
-                                        + " query id {}",
-                                        pipelineExecContext.beProcessEpoch, be.getProcessEpoch(),
-                                        DebugUtil.printId(queryId));
-                        return true;
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend process epoch changed, previous {} now {}, "
+                                + "means this be has already restarted, should cancel this coordinator,"
+                                + "query id {}", pipelineExecContext.beProcessEpoch, be.getProcessEpoch(),
+                                DebugUtil.printId(queryId));
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     } else if (be.getProcessEpoch() == 0) {
                         LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?",
                                 be.toString());
@@ -1481,23 +1484,27 @@ public class Coordinator implements CoordInterface {
                 for (BackendExecStates beExecState : beToExecStates.values()) {
                     Backend be = curBeMap.get(beExecState.beId);
                     if (be == null || !be.isAlive()) {
-                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled.",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Backend {} not exists or dead, query {} should be cancelled.",
                                 beExecState.beId, DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     }
 
                     if (beExecState.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
-                        LOG.warn("Process epoch changed, previous {} now {}, means this be has already restarted, "
-                                        + "should cancel this coordinator, query id {}",
+                        Status errorStatus = new Status(TStatusCode.CANCELLED,
+                                "Process epoch changed, previous {} now {}, means this be has already restarted,"
+                                + "should cancel this coordinator, query id {}",
                                 beExecState.beProcessEpoch, be.getProcessEpoch(), DebugUtil.printId(queryId));
-                        return true;
+                        LOG.warn(errorStatus.getErrorMsg());
+                        return errorStatus;
                     } else if (be.getProcessEpoch() == 0) {
                         LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?", be.toString());
                     }
                 }
             }
 
-            return false;
+            return Status.OK;
         } finally {
             unlock();
         }
@@ -1507,14 +1514,14 @@ public class Coordinator implements CoordInterface {
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
     public void cancel() {
-        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, "user cancel");
         if (queueToken != null) {
             queueToken.signalForCancel();
         }
     }
 
     @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason, String errorMsg) {
         for (ScanNode scanNode : scanNodes) {
             scanNode.stop();
         }
@@ -1527,7 +1534,7 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), queryStatus.toString(),
                         new Exception("cancel failed"));
             } else {
-                queryStatus.updateStatus(TStatusCode.CANCELLED, "cancelled");
+                queryStatus.updateStatus(TStatusCode.CANCELLED, errorMsg);
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
                     DebugUtil.printId(queryId), cancelReason.toString());

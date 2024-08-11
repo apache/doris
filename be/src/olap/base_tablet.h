@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
@@ -103,6 +104,10 @@ public:
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
+
+    std::mutex sample_info_lock;
+    std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;

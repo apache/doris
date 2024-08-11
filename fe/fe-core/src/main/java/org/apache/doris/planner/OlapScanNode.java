@@ -164,10 +164,8 @@ public class OlapScanNode extends ScanNode {
     private boolean canTurnOnPreAggr = true;
     private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
-    private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
-    private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
 
@@ -297,14 +295,6 @@ public class OlapScanNode extends ScanNode {
 
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
         this.forceOpenPreAgg = forceOpenPreAgg;
-    }
-
-    public Integer getSelectedPartitionNum() {
-        return selectedPartitionNum;
-    }
-
-    public Long getSelectedTabletsNum() {
-        return selectedTabletsNum;
     }
 
     public SortInfo getSortInfo() {
@@ -1175,7 +1165,7 @@ public class OlapScanNode extends ScanNode {
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
-            selectedTabletsNum += tablets.size();
+            selectedSplitNum += tablets.size();
             addScanRangeLocations(partition, tablets);
         }
     }
@@ -1337,7 +1327,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.joining(","));
         output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions)).append("\n");
-        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedSplitNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1720,7 +1710,11 @@ public class OlapScanNode extends ScanNode {
                 : Sets.newTreeSet();
     }
 
-    @Override
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();

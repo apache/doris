@@ -99,8 +99,7 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
-    // Set default value to false to be compatible with older version meta data.
-    public static final boolean DEFAULT_USE_META_CACHE = false;
+    public static final boolean DEFAULT_USE_META_CACHE = true;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -240,7 +239,7 @@ public abstract class ExternalCatalog
                             Config.max_hive_table_cache_num,
                             ignored -> getFilteredDatabaseNames(),
                             dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genTableIdByName(dbName), logType)),
+                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -288,6 +287,12 @@ public abstract class ExternalCatalog
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
+        }
+
+        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+            useMetaCache = Optional.of(true);
         }
     }
 
@@ -497,7 +502,9 @@ public abstract class ExternalCatalog
         }
 
         if (useMetaCache.get()) {
-            return metaCache.getMetaObj(realDbName).orElse(null);
+            // must use full qualified name to generate id.
+            // otherwise, if 2 catalogs have the same db name, the id will be the same.
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -853,5 +860,9 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop a table", e);
             throw e;
         }
+    }
+
+    public String getQualifiedName(String dbName) {
+        return String.join(".", name, dbName);
     }
 }

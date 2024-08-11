@@ -390,6 +390,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -450,7 +451,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
     public static final String GROUP_COMMIT = "group_commit";
+
+    public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -529,10 +533,16 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
+            = "enable_dml_materialized_view_rewrite";
+
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
+            = "enable_dml_materialized_view_rewrite_when_base_table_unawareness";
+
     public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
             = "allow_modify_materialized_view_data";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
             = "materialized_view_rewrite_enable_contain_external_table";
 
     public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
@@ -551,6 +561,10 @@ public class SessionVariable implements Serializable, Writable {
             = "create_table_partition_max_num";
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
 
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
@@ -600,6 +614,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     // CLOUD_VARIABLES_BEGIN
+
+    public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
+    public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1426,6 +1443,11 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
 
+    // Whether enable no need read data opt in segment_iterator.
+    @VariableMgr.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = {
+            "是否启用no_need_read_data opt。", "Set whether to enable no_need_read_data opt."})
+    public boolean enableNoNeedReadDataOpt = true;
+
     // Whether enable pushdown minmax to scan node of unique table.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
         "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
@@ -1595,6 +1617,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";
 
+    @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
+    public boolean enablePreparedStmtAuditLog = false;
+
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
                     + "则使用跳表来优化交集操作。",
@@ -1724,15 +1749,26 @@ public class SessionVariable implements Serializable, Writable {
                     "Is it allowed to modify the data of the materialized view"})
     public boolean allowModifyMaterializedViewData = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
-            description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "Whether to use a materialized view that contains the foreign table "
-                            + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainExternalTable = false;
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"查询时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableMaterializedViewRewriteWhenBaseTableUnawareness = false;
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = {"DML 时, 是否开启基于结构信息的物化视图透明改写",
+                    "Whether to enable materialized view rewriting based on struct info"})
+    public boolean enableDmlMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"DML 时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableDmlMaterializedViewRewriteWhenBaseTableUnawareness = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
             description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
@@ -1758,10 +1794,24 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveParquetUseColumnNames = true;
+
+
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveOrcUseColumnNames = true;
+
     @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
+
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -1941,6 +1991,20 @@ public class SessionVariable implements Serializable, Writable {
         "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
     })
     public boolean enableESParallelScroll = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_MATCH_WITHOUT_INVERTED_INDEX, description = {
+        "开启无索引match查询功能，建议正式环境保持开启",
+        "Enable no-index match query functionality."
+                + " it is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableMatchWithoutInvertedIndex = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = {
+        "开启后在没有找到索引的情况下直接查询报错，建议正式环境保持开启",
+        "After enabling, it will directly query and report an error if no index is found."
+                + " It is recommended to keep this enabled in the production environment."
+    })
+    public boolean enableFallbackOnMissingInvertedIndex = true;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3122,6 +3186,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
     }
 
+    public boolean isEnableMemtableOnSinkNode() {
+        return enableMemtableOnSinkNode;
+    }
+
+    public void setEnableMemtableOnSinkNode(boolean enableMemtableOnSinkNode) {
+        this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
+    }
+
     public boolean isEnableRuntimeFilterPrune() {
         return enableRuntimeFilterPrune;
     }
@@ -3237,6 +3309,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePushDownCountOnIndex(boolean enablePushDownCountOnIndex) {
         this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
+    }
+
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
     }
 
     public int getMaxTableCountUseCascadesJoinReorder() {
@@ -3378,6 +3458,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
 
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
         }
@@ -3413,6 +3495,12 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
+
+        tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
+        tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
+
         tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }
@@ -3900,6 +3988,10 @@ public class SessionVariable implements Serializable, Writable {
         return groupCommit;
     }
 
+    public boolean isEnablePreparedStmtAuditLog() {
+        return enablePreparedStmtAuditLog;
+    }
+
     public boolean isEnableMaterializedViewRewrite() {
         return enableMaterializedViewRewrite;
     }
@@ -3908,12 +4000,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
+    public boolean isEnableDmlMaterializedViewRewrite() {
+        return enableDmlMaterializedViewRewrite;
+    }
+
+    public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
+    }
+
+
     public boolean isAllowModifyMaterializedViewData() {
         return allowModifyMaterializedViewData;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
-        return materializedViewRewriteEnableContainExternalTable;
+    public boolean isEnableMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableMaterializedViewRewriteWhenBaseTableUnawareness;
     }
 
     public int getMaterializedViewRewriteSuccessCandidateNum() {

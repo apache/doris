@@ -397,13 +397,18 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     Status result_status;
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
                     { status = Status::InternalError(""); });
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.load_error",
+                    { status = Status::InternalError("load_error"); });
     if (status.ok()) {
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
+                        { status = Status::InternalError(""); });
         // commit txn
         TLoadTxnCommitRequest request;
         request.__set_auth_code(0); // this is a fake, fe not check it now
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
+        request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
         request.__set_groupCommit(true);
         request.__set_receiveBytes(state->num_bytes_load_total());
         if (_exec_env->master_info()->__isset.backend_id) {
@@ -421,8 +426,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnCommit(result, request);
                 },
-                10000L);
+                config::txn_commit_rpc_timeout_ms);
         result_status = Status::create(result.status);
+        DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_success_and_rpc_error",
+                        { result_status = Status::InternalError("commit_success_and_rpc_error"); });
     } else {
         // abort txn
         TLoadTxnRollbackRequest request;
@@ -436,8 +443,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnRollback(result, request);
-                },
-                10000L);
+                });
         result_status = Status::create<false>(result.status);
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
             std ::string msg = "abort txn";
@@ -503,10 +509,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     }
     LOG(INFO) << ss.str();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
-        LOG(INFO) << "debug promise set: " << msg;
-        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
-                Status ::InternalError(msg));
+        if (dp->param<int64_t>("table_id", -1) == table_id) {
+            std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+            LOG(INFO) << "table_id" << std::to_string(table_id) << " set debug promise: " << msg;
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                    Status ::InternalError(msg));
+        }
     };);
     return st;
 }

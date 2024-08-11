@@ -2242,31 +2242,31 @@ doris3	20
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	2	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !ctas_desc --
-bigint_value	BIGINT	Yes	false	\N	NONE
-bit_value	BOOLEAN	Yes	false	\N	NONE
-bitn_value	TEXT	Yes	false	\N	NONE
-bitnv_value	TEXT	Yes	false	\N	NONE
-box_value	TEXT	Yes	false	\N	NONE
-char_value	TEXT	Yes	false	\N	NONE
-cidr_value	TEXT	Yes	false	\N	NONE
-circle_value	TEXT	Yes	false	\N	NONE
-date_value	DATE	Yes	false	\N	NONE
-decimal_value	DECIMAL(10, 3)	Yes	false	\N	NONE
-id	INT	No	true	\N	
-inet_value	TEXT	Yes	false	\N	NONE
-int_value	INT	Yes	false	\N	NONE
-jsonb_value	TEXT	Yes	false	\N	NONE
-line_value	TEXT	Yes	false	\N	NONE
-lseg_value	TEXT	Yes	false	\N	NONE
-macaddr_value	TEXT	Yes	false	\N	NONE
-path_value	TEXT	Yes	false	\N	NONE
-point_value	TEXT	Yes	false	\N	NONE
-polygon_value	TEXT	Yes	false	\N	NONE
-real_value	FLOAT	Yes	false	\N	NONE
-serial4_value	INT	No	false	\N	NONE
-smallint_value	SMALLINT	Yes	false	\N	NONE
-timestamp_value	DATETIME(6)	Yes	false	\N	NONE
-varchar_value	TEXT	Yes	false	\N	NONE
+bigint_value	bigint	Yes	false	\N	NONE
+bit_value	boolean	Yes	false	\N	NONE
+bitn_value	text	Yes	false	\N	NONE
+bitnv_value	text	Yes	false	\N	NONE
+box_value	text	Yes	false	\N	NONE
+char_value	text	Yes	false	\N	NONE
+cidr_value	text	Yes	false	\N	NONE
+circle_value	text	Yes	false	\N	NONE
+date_value	date	Yes	false	\N	NONE
+decimal_value	decimal(10,3)	Yes	false	\N	NONE
+id	int	No	true	\N	
+inet_value	text	Yes	false	\N	NONE
+int_value	int	Yes	false	\N	NONE
+jsonb_value	text	Yes	false	\N	NONE
+line_value	text	Yes	false	\N	NONE
+lseg_value	text	Yes	false	\N	NONE
+macaddr_value	text	Yes	false	\N	NONE
+path_value	text	Yes	false	\N	NONE
+point_value	text	Yes	false	\N	NONE
+polygon_value	text	Yes	false	\N	NONE
+real_value	float	Yes	false	\N	NONE
+serial4_value	int	No	false	\N	NONE
+smallint_value	smallint	Yes	false	\N	NONE
+timestamp_value	datetime(6)	Yes	false	\N	NONE
+varchar_value	text	Yes	false	\N	NONE
 
 -- !select_insert_all_types --
 1	abc	def	2022-10-11	1	2	3	2022-10-22T10:59:59	34.123	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id":1}	(1.0,1.0)	{1.0,1.0,1.0}	[(1.0,1.0),(2.0,2.0)]	(2.0,2.0),(1.0,1.0)	((1.0,1.0),(2.0,2.0),(2.0,1.0))	((1.0,1.0),(2.0,2.0),(2.0,1.0))	<(0.0,0.0),1.0>

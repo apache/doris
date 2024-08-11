@@ -124,13 +124,13 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -190,6 +190,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -208,7 +209,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
-    private QueryableReentrantLock lock = new QueryableReentrantLock(true);
+    private MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
     private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
@@ -1166,6 +1167,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        ConnectContext ctx = ConnectContext.get();
+        Objects.requireNonNull(ctx, "ConnectContext.get() can not be null.");
         try {
             DatabaseIf db = getDbOrDdlException(stmt.getExistedDbName());
             TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
@@ -1199,14 +1202,23 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
-                    createTableStmt.get(0), ConnectContext.get());
-            parsedCreateTableStmt.setTableName(stmt.getTableName());
-            parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
-            createTable(parsedCreateTableStmt);
+
+            try {
+                // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
+                // create_priv of newTable, and select_priv of existedTable, and priv check has done in
+                // CreateTableStmt/CreateTableCommand, so we skip it
+                ctx.setSkipAuth(true);
+                CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
+                        createTableStmt.get(0), ctx);
+                parsedCreateTableStmt.setTableName(stmt.getTableName());
+                parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
+                createTable(parsedCreateTableStmt);
+            } finally {
+                ctx.setSkipAuth(false);
+            }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
-                    + e.getMessage());
+                    + e.getMessage(), e);
         }
     }
 
@@ -1498,6 +1510,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                        Long.toString(olapTable.rowStorePageSize()));
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
@@ -1976,7 +1992,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.storeRowColumn(), binlogConfig, objectPool);
+                            tbl.storeRowColumn(), binlogConfig, objectPool, tbl.rowStorePageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
@@ -2334,6 +2350,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setCompressionType(compressionType);
+
+        // get row_store_page_size
+        long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        try {
+            rowStorePageSize = PropertyAnalyzer.analyzeRowStorePageSize(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        olapTable.setRowStorePageSize(rowStorePageSize);
 
         // check data sort properties
         int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnIds()) ? keysDesc.keysColumnSize() :

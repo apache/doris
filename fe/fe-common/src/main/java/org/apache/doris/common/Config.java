@@ -1012,6 +1012,19 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * if tablet loaded txn failed recently, it will get higher priority to repair.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_recent_load_failed_second = 30 * 60;
+
+    /**
+     * base time for higher tablet scheduler task,
+     * set this config value bigger if want the high priority effect last longer.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -2257,6 +2270,12 @@ public class Config extends ConfigBase {
     public static long stats_cache_size = 50_0000;
 
     /**
+     * This config used for ranger cache data mask/row policy
+     */
+    @ConfField
+    public static long ranger_cache_size = 10000;
+
+    /**
      * This configuration is used to enable the statistics of query information, which will record
      * the access status of databases, tables, and columns, and can be used to guide the
      * optimization of table structures
@@ -2714,9 +2733,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_cold_read_percent = 10; // 10%
 
-    @ConfField(mutable = true)
-    public static boolean enable_create_inverted_index_for_array = false;
-
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
@@ -2749,4 +2765,17 @@ public class Config extends ConfigBase {
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
+    //==========================================================================
+    //                      start of lock config
+    @ConfField(description = {"是否开启死锁检测",
+            "Whether to enable deadlock detection"})
+    public static boolean enable_deadlock_detection = false;
+
+    @ConfField(description = {"死锁检测间隔时间，单位分钟",
+            "Deadlock detection interval time, unit minute"})
+    public static long deadlock_detection_interval_minute = 5;
+
+    @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
+            "Maximum lock hold time; logs a warning if exceeded"})
+    public static long  max_lock_hold_threshold_seconds = 10;
 }

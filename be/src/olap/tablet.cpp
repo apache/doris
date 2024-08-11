@@ -969,6 +969,14 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
+        }
+    });
+
     return status;
 }
 
@@ -1997,8 +2005,11 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
     }
 
     permits = 0;
-    for (auto&& rowset : compaction->input_rowsets()) {
-        permits += rowset->rowset_meta()->get_compaction_score();
+    // Time series policy does not rely on permits, it uses goal size to control memory
+    if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+        for (auto&& rowset : compaction->input_rowsets()) {
+            permits += rowset->rowset_meta()->get_compaction_score();
+        }
     }
     return Status::OK();
 }
@@ -3224,27 +3235,56 @@ Status Tablet::generate_new_block_for_partial_update(
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
-    std::map<uint32_t, uint32_t> read_index_old;
-    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
-                                         old_block, &read_index_old));
+    auto get_delete_sign_column_data = [](vectorized::Block& block,
+                                          size_t rows) -> const signed char* {
+        if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                    block.try_get_by_name(DELETE_SIGN);
+            delete_sign_column != nullptr) {
+            const auto& delete_sign_col =
+                    reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+            if (delete_sign_col.size() >= rows) {
+                return delete_sign_col.get_data().data();
+            }
+        }
+        return nullptr;
+    };
 
+    // rowid in the final block(start from 0, increase continuously) -> rowid to read in update_block
     std::map<uint32_t, uint32_t> read_index_update;
+
+    // read current rowset first, if a row in the current rowset has delete sign mark
+    // we don't need to read values from old block
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
                                          rsid_to_rowset, update_block, &read_index_update));
 
-    const vectorized::Int8* delete_sign_column_data = nullptr;
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                old_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        delete_sign_column_data = delete_sign_col.get_data().data();
+    size_t update_rows = read_index_update.size();
+    for (auto i = 0; i < update_cids.size(); ++i) {
+        for (auto idx = 0; idx < update_rows; ++idx) {
+            full_mutable_columns[update_cids[i]]->insert_from(
+                    *update_block.get_columns_with_type_and_name()[i].column.get(),
+                    read_index_update[idx]);
+        }
     }
+
+    // if there is sequence column in the table, we need to read the sequence column,
+    // otherwise it may cause the merge-on-read based compaction policy to produce incorrect results
+    const auto* __restrict new_block_delete_signs =
+            rowset_schema->has_sequence_col()
+                    ? nullptr
+                    : get_delete_sign_column_data(update_block, update_rows);
+
+    // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
+    std::map<uint32_t, uint32_t> read_index_old;
+    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
+                                         old_block, &read_index_old, new_block_delete_signs));
+    size_t old_rows = read_index_old.size();
+    const auto* __restrict old_block_delete_signs =
+            get_delete_sign_column_data(old_block, old_rows);
 
     // build default value block
     auto default_value_block = old_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-    if (delete_sign_column_data != nullptr) {
+    if (old_block_delete_signs != nullptr || new_block_delete_signs != nullptr) {
         for (auto i = 0; i < missing_cids.size(); ++i) {
             const auto& column = rowset_schema->column(missing_cids[i]);
             if (column.has_default_value()) {
@@ -3257,22 +3297,26 @@ Status Tablet::generate_new_block_for_partial_update(
         }
     }
 
-    // build full block
-    CHECK(read_index_old.size() == read_index_update.size());
+    CHECK(update_rows >= old_rows);
 
+    // build full block
     for (auto i = 0; i < missing_cids.size(); ++i) {
         const auto& rs_column = rowset_schema->column(missing_cids[i]);
-        for (auto idx = 0; idx < read_index_old.size(); ++idx) {
-            // if the conflict update is a delete sign, which means that the key is
-            // not exist now, we should not read old values from the deleted data,
-            // and should use default value instead.
-            // NOTE: since now we are in the publishing phase, all data is commited
-            // before, even the `strict_mode` is true (which requires partial update
-            // load job can't insert new keys), this "new" key MUST be written into
-            // the new generated segment file.
-            if (delete_sign_column_data != nullptr &&
-                delete_sign_column_data[read_index_old[idx]] != 0) {
-                auto& mutable_column = full_mutable_columns[missing_cids[i]];
+        auto& mutable_column = full_mutable_columns[missing_cids[i]];
+        for (auto idx = 0; idx < update_rows; ++idx) {
+            // There are two cases we don't need to read values from old data:
+            //     1. if the conflicting new row's delete sign is marked, which means the value columns
+            //     of the row will not be read. So we don't need to read the missing values from the previous rows.
+            //     2. if the conflicting old row's delete sign is marked, which means that the key is not exist now,
+            //     we should not read old values from the deleted data, and should use default value instead.
+            //     NOTE: since now we are in the publishing phase, all data is commited
+            //         before, even the `strict_mode` is true (which requires partial update
+            //         load job can't insert new keys), this "new" key MUST be written into
+            //         the new generated segment file.
+            if (new_block_delete_signs != nullptr && new_block_delete_signs[idx]) {
+                mutable_column->insert_default();
+            } else if (old_block_delete_signs != nullptr &&
+                       old_block_delete_signs[read_index_old[idx]] != 0) {
                 if (rs_column.has_default_value()) {
                     mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (rs_column.is_nullable()) {
@@ -3281,18 +3325,11 @@ Status Tablet::generate_new_block_for_partial_update(
                 } else {
                     mutable_column->insert_default();
                 }
-                continue;
+            } else {
+                mutable_column->insert_from(
+                        *old_block.get_columns_with_type_and_name()[i].column.get(),
+                        read_index_old[idx]);
             }
-            full_mutable_columns[missing_cids[i]]->insert_from(
-                    *old_block.get_columns_with_type_and_name()[i].column.get(),
-                    read_index_old[idx]);
-        }
-    }
-    for (auto i = 0; i < update_cids.size(); ++i) {
-        for (auto idx = 0; idx < read_index_update.size(); ++idx) {
-            full_mutable_columns[update_cids[i]]->insert_from(
-                    *update_block.get_columns_with_type_and_name()[i].column.get(),
-                    read_index_update[idx]);
         }
     }
     output_block->set_columns(std::move(full_mutable_columns));
@@ -3307,7 +3344,8 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                                     const PartialUpdateReadPlan& read_plan,
                                     const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                     vectorized::Block& block,
-                                    std::map<uint32_t, uint32_t>* read_index) {
+                                    std::map<uint32_t, uint32_t>* read_index,
+                                    const signed char* __restrict skip_map) {
     bool has_row_column = tablet_schema->store_row_column();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
@@ -3316,9 +3354,12 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             auto rowset_iter = rsid_to_rowset.find(rs_it.first);
             CHECK(rowset_iter != rsid_to_rowset.end());
             std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                (*read_index)[id_and_pos.pos] = read_idx++;
+            for (auto [rid, pos] : seg_it.second) {
+                if (skip_map && skip_map[pos]) {
+                    continue;
+                }
+                rids.emplace_back(rid);
+                (*read_index)[pos] = read_idx++;
             }
             if (has_row_column) {
                 auto st = fetch_value_through_row_column(rowset_iter->second, *tablet_schema,
@@ -3506,7 +3547,9 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
     // When the new segment flush fails or the rowset build fails, the deletion marker for the
     // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
     // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+    bool is_partial_update =
+            txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update;
+    if (is_partial_update) {
         delete_bitmap = std::make_shared<DeleteBitmap>(*(txn_info->delete_bitmap));
     }
 
@@ -3539,6 +3582,37 @@ Status Tablet::update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id) {
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
     }
     auto t3 = watch.get_elapse_time_us();
+
+    // If a rowset is produced by compaction before the commit phase of the partial update load
+    // and is not included in txn_info->rowset_ids, we can skip the alignment process of that rowset
+    // because data remains the same before and after compaction. But we still need to calculate the
+    // the delete bitmap for that rowset.
+    std::vector<RowsetSharedPtr> rowsets_skip_alignment;
+    if (is_partial_update) {
+        int64_t max_version_in_flush_phase =
+                txn_info->partial_update_info->max_version_in_flush_phase;
+        DCHECK(max_version_in_flush_phase != -1);
+        std::vector<RowsetSharedPtr> remained_rowsets;
+        for (const auto& rowset : specified_rowsets) {
+            if (rowset->end_version() <= max_version_in_flush_phase &&
+                rowset->produced_by_compaction()) {
+                rowsets_skip_alignment.emplace_back(rowset);
+            } else {
+                remained_rowsets.emplace_back(rowset);
+            }
+        }
+        if (!rowsets_skip_alignment.empty()) {
+            specified_rowsets = std::move(remained_rowsets);
+        }
+    }
+
+    if (!rowsets_skip_alignment.empty()) {
+        auto token = _engine.calc_delete_bitmap_executor()->create_token();
+        // set rowset_writer to nullptr to skip the alignment process
+        RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, rowsets_skip_alignment, delete_bitmap,
+                                           cur_version - 1, token.get(), nullptr));
+        RETURN_IF_ERROR(token->wait());
+    }
 
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
@@ -3945,6 +4019,7 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 
 void Tablet::clear_cache() {
     std::shared_lock rlock(get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     static auto recycle_segment_cache = [](const auto& rowset_map) {
         for (auto& [_, rowset] : rowset_map) {
             rowset->clear_cache();
@@ -4103,6 +4178,42 @@ Status Tablet::calc_local_file_crc(uint32_t* crc_value, int64_t start_version, i
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }
+    return Status::OK();
+}
+
+Status Tablet::show_nested_index_file(std::string* json_meta) {
+    Version v(0, max_version_unlocked().second);
+    std::vector<RowsetSharedPtr> rowsets;
+    traverse_rowsets([&rowsets, &v](const auto& rs) {
+        // get all rowsets
+        if (v.contains(rs->version())) {
+            rowsets.emplace_back(rs);
+        }
+    });
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+    rapidjson::Value tabletIdValue(tablet_id());
+    doc.AddMember("tablet_id", tabletIdValue, allocator);
+
+    rapidjson::Value rowsets_value(rapidjson::kArrayType);
+
+    for (const auto& rs : rowsets) {
+        rapidjson::Value rowset_value(rapidjson::kObjectType);
+
+        auto rowset = std::static_pointer_cast<BetaRowset>(rs);
+        RETURN_IF_ERROR(rowset->show_nested_index_file(&rowset_value, allocator));
+        rowsets_value.PushBack(rowset_value, allocator);
+    }
+    doc.AddMember("rowsets", rowsets_value, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+    *json_meta = std::string(buffer.GetString());
+
     return Status::OK();
 }
 

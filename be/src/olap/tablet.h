@@ -486,7 +486,8 @@ public:
                                 const std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index);
+                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                const signed char* __restrict skip_map = nullptr);
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
@@ -605,6 +606,7 @@ public:
     void clear_cache();
     Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
                                int32_t* rowset_count, int64_t* file_count);
+    Status show_nested_index_file(std::string* json_meta);
 
 private:
     Status _init_once_action();

@@ -378,6 +378,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
+DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -408,6 +409,7 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
+DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
@@ -1033,11 +1035,11 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "true");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false");
+DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1051,8 +1053,6 @@ DEFINE_mInt64(max_tablet_io_errors, "-1");
 DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
 DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
-// Page size of row column, default 4KB
-DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
@@ -1256,10 +1256,14 @@ DEFINE_Int64(min_row_group_size, "134217728");
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 
+DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
+
+DEFINE_mInt64(compaction_batch_size, "-1");
+
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 

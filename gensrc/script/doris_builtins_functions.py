@@ -1580,6 +1580,7 @@ visible_functions = {
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
         [['quote'], 'VARCHAR', ['VARCHAR'], ''],
+        [['auto_partition_name'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1650,6 +1651,7 @@ visible_functions = {
         [['ltrim'], 'STRING', ['STRING','STRING'], ''],
         [['rtrim'], 'STRING', ['STRING'], ''],
         [['rtrim'], 'STRING', ['STRING','STRING'], ''],
+        [['auto_partition_name'], 'STRING', ['STRING', '...'], ''],
         [['ascii'], 'INT', ['STRING'], ''],
         [['instr'], 'INT', ['STRING', 'STRING'], ''],
         [['locate'], 'INT', ['STRING', 'STRING'], ''],
@@ -1735,6 +1737,11 @@ visible_functions = {
         [['jsonb_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
         [['jsonb_type'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
         [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING', '...'], 'ALWAYS_NULLABLE'],
@@ -2076,6 +2083,8 @@ visible_functions = {
         [['to_ipv6_or_default'], 'IPV6', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_ipv6_or_null'], 'IPV6', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['to_ipv6_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ipv4_to_ipv6'], 'IPV6', ['IPV4'], 'DEPEND_ON_ARGUMENT'],
+        [['cut_ipv6'], 'STRING', ['IPV6', 'TINYINT', 'TINYINT'], 'DEPEND_ON_ARGUMENT'],
     ],
 
     "NonNullalbe": [
@@ -2199,6 +2208,11 @@ visible_functions = {
         [['ignore'], 'BOOLEAN', ['ARRAY_DECIMAL128', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['ignore'], 'BOOLEAN', ['ARRAY_STRING', '...'], 'ALWAYS_NOT_NULLABLE']
+    ],
+
+    # multi match functions
+    "MultiMatch": [
+        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 

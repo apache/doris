@@ -18,6 +18,24 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
     def runTest = { indexTbName ->
         sql """ insert into ${indexTbName} values(1, "json love anny", "json", "anny",1); """
         sql "sync"
@@ -31,8 +49,9 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         assertEquals(show_result[3].Key_name, "index_k5")
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [indexes_count: 3])
+            GetDebugPoint().enableDebugPointForAllBEs("index_builder.update_inverted_index_info.drop_index", [indexes_count: 3])
             sql "DROP INDEX index_int ON ${indexTbName}"
+            wait_for_latest_op_on_table_finish(indexTbName, timeout)
             show_result = sql_return_maparray "show index from ${indexTbName}"
             logger.info("show index from " + indexTbName + " result: " + show_result)
             assertEquals(show_result.size(), 3)
@@ -44,8 +63,9 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         }
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [indexes_count: 2])
+            GetDebugPoint().enableDebugPointForAllBEs("index_builder.update_inverted_index_info.drop_index", [indexes_count: 2])
             sql "DROP INDEX index_str_k2 ON ${indexTbName}"
+            wait_for_latest_op_on_table_finish(indexTbName, timeout)
             show_result = sql_return_maparray "show index from ${indexTbName}"
             logger.info("show index from " + indexTbName + " result: " + show_result)
             assertEquals(show_result.size(), 2)
@@ -56,8 +76,9 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         }
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [indexes_count: 1])
+            GetDebugPoint().enableDebugPointForAllBEs("index_builder.update_inverted_index_info.drop_index", [indexes_count: 1])
             sql "DROP INDEX index_str_k4 ON ${indexTbName}"
+            wait_for_latest_op_on_table_finish(indexTbName, timeout)
             show_result = sql_return_maparray "show index from ${indexTbName}"
             logger.info("show index from " + indexTbName + " result: " + show_result)
             assertEquals(show_result.size(), 1)
@@ -67,8 +88,9 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         }
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [indexes_count: 0])
+            GetDebugPoint().enableDebugPointForAllBEs("index_builder.update_inverted_index_info.drop_index", [indexes_count: 0])
             sql "DROP INDEX index_k5 ON ${indexTbName}"
+            wait_for_latest_op_on_table_finish(indexTbName, timeout)
             show_result = sql_return_maparray "show index from ${indexTbName}"
             logger.info("show index from " + indexTbName + " result: " + show_result)
             assertEquals(show_result.size(), 0)

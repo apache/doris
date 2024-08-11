@@ -40,6 +40,7 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema_change.h"
@@ -118,7 +119,7 @@ void RowsetBuilder::_garbage_collection() {
 
 Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
-    int64_t cur_max_version = tablet()->max_version_unlocked().second;
+    _max_version_in_flush_phase = tablet()->max_version_unlocked().second;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TABLET_NOTREADY) {
@@ -130,12 +131,12 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
         }
         _rowset_ids.clear();
     } else {
-        RETURN_IF_ERROR(tablet()->all_rs_id(cur_max_version, &_rowset_ids));
+        RETURN_IF_ERROR(tablet()->all_rs_id(_max_version_in_flush_phase, &_rowset_ids));
         rowset_ptrs = tablet()->get_rowset_by_ids(&_rowset_ids);
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
-    mow_context = std::make_shared<MowContext>(cur_max_version, _req.txn_id, _rowset_ids,
-                                               rowset_ptrs, _delete_bitmap);
+    mow_context = std::make_shared<MowContext>(_max_version_in_flush_phase, _req.txn_id,
+                                               _rowset_ids, rowset_ptrs, _delete_bitmap);
     return Status::OK();
 }
 
@@ -325,10 +326,11 @@ Status RowsetBuilder::commit_txn() {
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
         RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
     }
+
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
-    Status res = _engine.txn_manager()->commit_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                                   _req.load_id, _rowset,
-                                                   std::move(_pending_rs_guard), false);
+    Status res = _engine.txn_manager()->commit_txn(
+            _req.partition_id, *tablet(), _req.txn_id, _req.load_id, _rowset,
+            std::move(_pending_rs_guard), false, _partial_update_info);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
@@ -402,7 +404,8 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
                                table_schema_param->partial_update_input_columns(),
                                table_schema_param->is_strict_mode(),
                                table_schema_param->timestamp_ms(), table_schema_param->timezone(),
-                               table_schema_param->auto_increment_coulumn());
+                               table_schema_param->auto_increment_coulumn(),
+                               _max_version_in_flush_phase);
 }
 
 } // namespace doris

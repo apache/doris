@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
@@ -203,8 +204,12 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        if (desc.getRef().getTableSnapshot() != null) {
-            queryInstant = desc.getRef().getTableSnapshot().getTime();
+        TableSnapshot tableSnapshot = getQueryTableSnapshot();
+        if (tableSnapshot != null) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            }
+            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
             snapshotTimestamp = Option.of(queryInstant);
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
@@ -280,7 +285,7 @@ public class HudiScanNode extends HiveScanNode {
                             partitionValues.getSingleColumnRangeMap(),
                             true);
                     Collection<Long> filteredPartitionIds = pruner.prune();
-                    this.readPartitionNum = filteredPartitionIds.size();
+                    this.selectedPartitionNum = filteredPartitionIds.size();
                     // 3. get partitions from cache
                     String dbName = hmsTable.getDbName();
                     String tblName = hmsTable.getName();
@@ -305,7 +310,7 @@ public class HudiScanNode extends HiveScanNode {
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
                 hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
         this.totalPartitionNum = 1;
-        this.readPartitionNum = 1;
+        this.selectedPartitionNum = 1;
         return Lists.newArrayList(dummyPartition);
     }
 
@@ -497,7 +502,7 @@ public class HudiScanNode extends HiveScanNode {
             return super.getNodeExplainString(prefix, detailLevel);
         } else {
             return super.getNodeExplainString(prefix, detailLevel)
-                    + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), inputSplitsNum);
+                    + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), selectedSplitNum);
         }
     }
 }

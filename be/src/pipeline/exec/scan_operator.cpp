@@ -1268,9 +1268,8 @@ Status ScanLocalState<Derived>::_start_scanners(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency,
             // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else if this operator is not file scan operator, we use config::doris_scanner_thread_pool_thread_num scanners to scan.
-            // 3. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() || !p.is_file_scan_operator()
+            // 2. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
+            p.ignore_data_distribution() && !p.is_file_scan_operator()
                     ? 1
                     : state()->query_parallel_instance_num());
     return Status::OK();
@@ -1499,7 +1498,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         if (local_state._scanner_ctx) {
             local_state._scanner_ctx->stop_scanners(state);
         }
-        return Status::Cancelled("Query cancelled in ScanOperator");
+        return Status::Cancelled(state->cancel_reason());
     }
 
     if (local_state._eos) {
