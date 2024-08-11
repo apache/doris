@@ -15,27 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+suite("test_move_column_with_cast") {
+    def tableName = "test_move_column_with_cast"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ 
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+        k BIGINT,
+        v SMALLINT NOT NULL
+    ) DUPLICATE KEY(`k`)
+      DISTRIBUTED BY HASH(k) BUCKETS 4
+      properties("replication_num" = "1");
+    """
 
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+    sql """ INSERT INTO ${tableName} VALUES(1, 1); """
+    sql """ ALTER TABLE ${tableName} ADD COLUMN t2 DATETIME DEFAULT NULL; """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN v BIGINT AFTER t2; """
 
-/*
- * This Lock is for exposing the getOwner() method,
- * which is a protected method of ReentrantLock
- */
-public class QueryableReentrantReadWriteLock extends ReentrantReadWriteLock {
-    private static final long serialVersionUID = 1L;
-
-    public QueryableReentrantReadWriteLock() {
-        super();
-    }
-
-    public QueryableReentrantReadWriteLock(boolean fair) {
-        super(fair);
-    }
-
-    @Override
-    public Thread getOwner() {
-        return super.getOwner();
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1"""
+        time 600
     }
 }

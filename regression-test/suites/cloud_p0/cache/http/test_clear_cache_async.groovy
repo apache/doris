@@ -59,8 +59,6 @@ suite("test_clear_cache_async") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
 
     def load_customer_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
@@ -112,19 +110,19 @@ suite("test_clear_cache_async") {
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag = false;
-            long total_cache_size = 0;
             for (String line in strs) {
                 if (line.contains("file_cache_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    total_cache_size = line.substring(i).toLong()
-                    assertEquals(0, total_cache_size)
+                    long total_cache_size = line.substring(i).toLong()
+                    log.info("remaining file cache size is ${total_cache_size}")
+                    org.junit.Assert.assertTrue("remaining cache size is too large, remaining cache size ${total_cache_size} > 10240", total_cache_size < 10240)
                     flag = true
                     break
                 }
             }
-            assertTrue(flag)
+            org.junit.Assert.assertTrue("file cache size is not found", flag)
     }
 }

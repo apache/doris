@@ -26,22 +26,22 @@ PhysicalResultSink
 ----------------------------filter((date_dim.d_moy <= 3) and (date_dim.d_moy >= 1) and (date_dim.d_year = 2002))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=() build RFs:RF2 c_current_cdemo_sk->[cd_demo_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=() build RFs:RF2 c_current_cdemo_sk->[cd_demo_sk]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF2
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
-------------------------------hashJoin[LEFT_ANTI_JOIN shuffle] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk)) otherCondition=()
+--------------------------hashJoin[LEFT_ANTI_JOIN shuffle] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk)) otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer] apply RFs: RF1
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_moy <= 3) and (date_dim.d_moy >= 1) and (date_dim.d_year = 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalProject
---------------------------------filter(ca_state IN ('IL', 'ME', 'TX'))
-----------------------------------PhysicalOlapScan[customer_address]
+----------------------------------filter(ca_state IN ('IL', 'ME', 'TX'))
+------------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy <= 3) and (date_dim.d_moy >= 1) and (date_dim.d_year = 2002))
+------------------------------------PhysicalOlapScan[date_dim]
 

@@ -56,7 +56,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         _exchanger->close(*this);
     }
     if (_shared_state) {
-        _shared_state->sub_running_source_operators();
+        _shared_state->sub_running_source_operators(*this);
     }
 
     return Base::close(state);
@@ -64,9 +64,12 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
 
 std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
-        deps.push_back(dep);
+    auto le_deps = _shared_state->get_dep_by_channel_id(_channel_id);
+    if (le_deps.size() > 1) {
+        // If this is a local merge exchange, we should use all dependencies here.
+        for (auto& dep : le_deps) {
+            deps.push_back(dep.get());
+        }
     }
     return deps;
 }

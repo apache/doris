@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,6 +90,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -903,6 +905,27 @@ public class Alter {
         } finally {
             olapTable.writeUnlock();
         }
+    }
+
+    public Set<Long> getUnfinishedAlterTableIds() {
+        Set<Long> unfinishedTableIds = Sets.newHashSet();
+        for (AlterJobV2 job : schemaChangeHandler.getAlterJobsV2().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+        for (IndexChangeJob job : ((SchemaChangeHandler) schemaChangeHandler).getIndexChangeJobs().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+        for (AlterJobV2 job : materializedViewHandler.getAlterJobsV2().values()) {
+            if (!job.isDone()) {
+                unfinishedTableIds.add(job.getTableId());
+            }
+        }
+
+        return unfinishedTableIds;
     }
 
     public AlterHandler getSchemaChangeHandler() {
