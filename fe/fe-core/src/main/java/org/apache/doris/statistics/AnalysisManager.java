@@ -726,7 +726,9 @@ public class AnalysisManager implements Writable {
         }
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        boolean allColumn = false;
         if (columns == null) {
+            allColumn = true;
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
@@ -776,6 +778,9 @@ public class AnalysisManager implements Writable {
                     }
                 }
             }
+        }
+        if (allColumn && allPartition) {
+            tableStats.removeAllColumn();
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
@@ -834,8 +839,12 @@ public class AnalysisManager implements Writable {
         //        count, ndv, null_count, min, max, data_size, update_time]
         StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
         for (ResultRow row : resultRows) {
-            cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
-                    PartitionColumnStatistic.fromResultRow(row));
+            try {
+                cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
+                        PartitionColumnStatistic.fromResultRow(row));
+            } catch (Exception e) {
+                cache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName);
+            }
         }
     }
 

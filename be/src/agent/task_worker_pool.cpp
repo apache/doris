@@ -2052,6 +2052,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_report_version(s_report_version);
     finish_task_request.__set_error_tablet_ids(error_tablet_ids);
+    finish_task_request.__set_resp_partitions(calc_delete_bitmap_req.partitions);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

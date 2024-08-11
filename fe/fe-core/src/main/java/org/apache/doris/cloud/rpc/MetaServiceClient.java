@@ -361,6 +361,16 @@ public class MetaServiceClient {
         return blockingStub.getRlTaskCommitAttach(request);
     }
 
+    public Cloud. ResetRLProgressResponse resetRLProgress(Cloud. ResetRLProgressRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud. ResetRLProgressRequest.Builder builder =
+                    Cloud. ResetRLProgressRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.resetRlProgress(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -381,16 +391,5 @@ public class MetaServiceClient {
             return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.abortTxnWithCoordinator(request);
-    }
-
-    public Cloud.FinishTabletJobResponse
-            finishTabletJob(Cloud.FinishTabletJobRequest request) {
-        if (!request.hasCloudUniqueId()) {
-            Cloud.FinishTabletJobRequest.Builder builder =
-                    Cloud.FinishTabletJobRequest.newBuilder();
-            builder.mergeFrom(request);
-            return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
-        }
-        return blockingStub.finishTabletJob(request);
     }
 }

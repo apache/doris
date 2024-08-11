@@ -497,22 +497,22 @@ public class MetaServiceProxy {
         }
     }
 
-    public Cloud.FinishTabletJobResponse finishTabletJob(Cloud.FinishTabletJobRequest request)
-            throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.finishTabletJob(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
-    }
-
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
         try {
             final MetaServiceClient client = getProxy();
             return client.getRLTaskCommitAttach(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    public Cloud.ResetRLProgressResponse resetRLProgress(Cloud.ResetRLProgressRequest request)
+            throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.resetRLProgress(request);
         } catch (Exception e) {
             throw new RpcException("", e.getMessage(), e);
         }

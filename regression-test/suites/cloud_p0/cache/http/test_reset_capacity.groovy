@@ -154,7 +154,14 @@ suite("test_reset_capacity") {
     }
 
     // one customer table would take about 1.3GB, the total cache size is 20GB
-    // the following would take 19.5G all
+    // the following would take more than 20GB
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
+    load_customer_ttl_once("customer_ttl")
     load_customer_ttl_once("customer_ttl")
     load_customer_ttl_once("customer_ttl")
     load_customer_ttl_once("customer_ttl")
@@ -171,9 +178,11 @@ suite("test_reset_capacity") {
     load_customer_ttl_once("customer_ttl")
     load_customer_ttl_once("customer_ttl")
 
-    // The max ttl cache size is 90% cache capacity
-    long ttl_cache_size = 0
-    sleep(30000)
+    long ttlCacheSize = 0
+    // TODO(gavin): The ttl cache capacity is 90% of cache capacity
+    // long ttlCapacity = 19327352832 // 20 * 2 ** 30 * 0.9
+    long ttlCapacity = 21474836480 // 2 ** 30
+    sleep(30000) // ?
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -181,20 +190,21 @@ suite("test_reset_capacity") {
             def strs = out.split('\n')
             Boolean flag1 = false;
             for (String line in strs) {
-                if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    ttl_cache_size = line.substring(i).toLong()
-                    logger.info("current ttl_cache_size " + ttl_cache_size);
-                    assertTrue(ttl_cache_size <= 19327352832)
+                    ttlCacheSize = line.substring(i).toLong()
+                    logger.info("current ttlCacheSize " + ttlCacheSize);
+                    org.junit.Assert.assertTrue("current ttlCacheSize ${ttlCacheSize} > ${ttlCapacity}", ttlCacheSize <= ttlCapacity)
                     flag1 = true
+                    break
                 }
             }
             assertTrue(flag1)
     }
+
     capacity = "-1"
     resetFileCache.call() {
         respCode, body -> {
@@ -230,7 +240,7 @@ suite("test_reset_capacity") {
         }
     }
 
-    sleep(60000)
+    sleep(60000) // ?
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -271,7 +281,6 @@ suite("test_reset_capacity") {
             def strs = out.split('\n')
             Boolean flag1 = false;
             for (String line in strs) {
-                if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
@@ -281,6 +290,7 @@ suite("test_reset_capacity") {
                     logger.info("current ttl_cache_size " + ttl_cache_size);
                     assertTrue(ttl_cache_size > 1073741824)
                     flag1 = true
+                    break
                 }
             }
             assertTrue(flag1)

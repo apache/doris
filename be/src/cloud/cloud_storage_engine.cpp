@@ -38,6 +38,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -181,8 +182,8 @@ Status CloudStorageEngine::open() {
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    // TODO(plat1ko): Use file cache disks number?
-    _memtable_flush_executor->init(1);
+    // Use file cache disks number
+    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -558,21 +559,21 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     std::function<bool(CloudTablet*)> filter_out;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         filter_out = [&submitted_base_compactions, &submitted_full_compactions](CloudTablet* t) {
-            return submitted_base_compactions.contains(t->tablet_id()) ||
-                   submitted_full_compactions.contains(t->tablet_id()) ||
+            return !!submitted_base_compactions.count(t->tablet_id()) ||
+                   !!submitted_full_compactions.count(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
-            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
+                   t->tablet_state() != TABLET_RUNNING;
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
-            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
-                   submitted_cumu_compactions.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
+                   !!submitted_cumu_compactions.count(t->tablet_id()) ||
+                   t->tablet_state() != TABLET_RUNNING;
         };
     }
 

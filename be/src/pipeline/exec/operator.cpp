@@ -452,7 +452,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
             _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
 
-            _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
+            auto deps = _shared_state->get_dep_by_channel_id(info.task_idx);
+            if (deps.size() == 1) {
+                _dependency = deps.front().get();
+            }
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {
@@ -621,10 +624,10 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency =
-            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
+    _async_writer_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                         "AsyncWriterDependency", true);
+    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs, _async_writer_dependency,
+                             _finish_dependency));
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);

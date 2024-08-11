@@ -77,10 +77,14 @@ Status LoadStreamMap::for_each_st(std::function<Status(int64_t, const Streams&)>
         std::lock_guard<std::mutex> lock(_mutex);
         snapshot = _streams_for_node;
     }
+    Status status = Status::OK();
     for (auto& [dst_id, streams] : snapshot) {
-        RETURN_IF_ERROR(fn(dst_id, *streams));
+        auto st = fn(dst_id, *streams);
+        if (!st.ok() && status.ok()) {
+            status = st;
+        }
     }
-    return Status::OK();
+    return status;
 }
 
 void LoadStreamMap::save_tablets_to_commit(int64_t dst_id,
@@ -103,8 +107,8 @@ bool LoadStreamMap::release() {
     return false;
 }
 
-Status LoadStreamMap::close_load(bool incremental) {
-    return for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
+void LoadStreamMap::close_load(bool incremental) {
+    auto st = for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
         std::vector<PTabletID> tablets_to_commit;
         const auto& tablets = _tablets_to_commit[dst_id];
         tablets_to_commit.reserve(tablets.size());
@@ -112,20 +116,31 @@ Status LoadStreamMap::close_load(bool incremental) {
             tablets_to_commit.push_back(tablet);
             tablets_to_commit.back().set_num_segments(_segments_for_tablet[tablet_id]);
         }
+        Status status = Status::OK();
         bool first = true;
         for (auto& stream : streams) {
             if (stream->is_incremental() != incremental) {
                 continue;
             }
             if (first) {
-                RETURN_IF_ERROR(stream->close_load(tablets_to_commit));
+                auto st = stream->close_load(tablets_to_commit);
+                if (!st.ok() && status.ok()) {
+                    status = st;
+                }
                 first = false;
             } else {
-                RETURN_IF_ERROR(stream->close_load({}));
+                auto st = stream->close_load({});
+                if (!st.ok() && status.ok()) {
+                    status = st;
+                }
             }
         }
-        return Status::OK();
+        return status;
     });
+    if (!st.ok()) {
+        LOG(WARNING) << "close_load for " << (incremental ? "incremental" : "non-incremental")
+                     << " streams failed: " << st << ", load_id=" << _load_id;
+    }
 }
 
 LoadStreamMapPool::LoadStreamMapPool() = default;

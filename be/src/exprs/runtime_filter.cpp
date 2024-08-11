@@ -694,8 +694,10 @@ public:
         case TYPE_CHAR:
         case TYPE_STRING: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
-                const auto& string_val_ref = column.stringval();
-                set->insert(&string_val_ref);
+                const std::string& string_value = column.stringval();
+                // string_value is std::string, call insert(data, size) function in StringSet will not cast as StringRef
+                // so could avoid some cast error at different class object.
+                set->insert((void*)string_value.data(), string_value.size());
             });
             break;
         }
@@ -1289,6 +1291,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
                                                    : 0;
+    params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
+                                                   ? options->runtime_bloom_filter_max_size
+                                                   : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
@@ -1627,8 +1632,10 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<std::string>(filter, it, [](PColumnValue* column, const std::string* value) {
-            column->set_stringval(*value);
+        //const void* void_value = it->get_value();
+        //Now the get_value return void* is StringRef
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(value->to_string());
         });
         return;
     }

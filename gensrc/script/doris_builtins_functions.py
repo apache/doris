@@ -178,6 +178,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
+        [['array_contains_all'], 'BOOLEAN', ['ARRAY<T>', 'ARRAY<T>'], '', ['T']],
 
         [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
@@ -1626,6 +1627,7 @@ visible_functions = {
         [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], ''],
         [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'], ''],
         [['quote'], 'VARCHAR', ['VARCHAR'], ''],
+        [['auto_partition_name'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['initcap'], 'VARCHAR', ['VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
         [['trim'], 'VARCHAR', ['VARCHAR'], ''],
@@ -1701,6 +1703,7 @@ visible_functions = {
         [['ltrim'], 'STRING', ['STRING','STRING'], ''],
         [['rtrim'], 'STRING', ['STRING'], ''],
         [['rtrim'], 'STRING', ['STRING','STRING'], ''],
+        [['auto_partition_name'], 'STRING', ['STRING', '...'], ''],
         [['ascii'], 'INT', ['STRING'], ''],
         [['instr'], 'INT', ['STRING', 'STRING'], ''],
         [['locate'], 'INT', ['STRING', 'STRING'], ''],
