@@ -95,6 +95,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DATETIMEV2:
         return TYPE_DATETIMEV2;
 
+    case TPrimitiveType::TIMESTAMP:
+        return TYPE_DATETIMEV2;
+
     case TPrimitiveType::TIMEV2:
         return TYPE_TIMEV2;
 

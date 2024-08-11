@@ -1018,7 +1018,7 @@ public enum PrimitiveType {
                 }
             }
             case TIMESTAMP:
-                return MysqlColType.MYSQL_TYPE_TIMESTAMP;
+                return MysqlColType.MYSQL_TYPE_TIMESTAMP2;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
