@@ -23,6 +23,11 @@ import java.util.concurrent.CompletableFuture
 
 // test update and delete command
 suite("txn_insert_concurrent_insert_ud") {
+    if (isCloudMode()) {
+        logger.info("cloud txn load does not support mow")
+        return
+    }
+
     def tableName = "txn_insert_concurrent_insert_ud"
     List<String> errors = new ArrayList<>()
 
