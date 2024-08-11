@@ -123,6 +123,15 @@ public class UserPropertyTest {
         Assert.assertEquals(500, userProperty.getQueryTimeout());
         Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
 
+        properties.add(Pair.of("max_user_ip_connections", "120"));
+        try {
+            userProperty.update(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("max_user_ip_connections should not be larger than max_user_connections"));
+        }
+
+
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
         for (List<String> row : rows) {
