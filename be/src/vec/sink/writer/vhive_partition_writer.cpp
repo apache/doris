@@ -117,24 +117,26 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
 }
 
 Status VHivePartitionWriter::close(const Status& status) {
+    Status result_status;
     if (_file_format_transformer != nullptr) {
-        Status st = _file_format_transformer->close();
-        if (!st.ok()) {
+        result_status = _file_format_transformer->close();
+        if (!result_status.ok()) {
             LOG(WARNING) << fmt::format("_file_format_transformer close failed, reason: {}",
-                                        st.to_string());
+                                        result_status.to_string());
         }
     }
-    if (!status.ok() && _fs != nullptr) {
+    bool status_ok = result_status.ok() && status.ok();
+    if (!status_ok && _fs != nullptr) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    if (status.ok()) {
+    if (status_ok) {
         _state->hive_partition_updates().emplace_back(_build_partition_update());
     }
-    return Status::OK();
+    return result_status;
 }
 
 Status VHivePartitionWriter::write(vectorized::Block& block) {
