@@ -25,7 +25,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "mv_contain_external_table," + // run on external pipeline
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
-    "test_bitmap_filter," +
     "test_compaction_uniq_cluster_keys_with_delete," +
     "test_compaction_uniq_keys_cluster_key," +
     "test_dump_image," +
