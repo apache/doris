@@ -74,6 +74,8 @@ suite("test_auth_compatibility", "account") {
 
     sql """SET PROPERTY FOR '${user}' 'max_user_connections'= '2048'"""
 
+    sql """SET PROPERTY FOR '${user}' 'max_user_ip_connections'= '10'"""
+
     sql """SET PROPERTY FOR '${user}'
     'load_cluster.cluster1.hadoop_palo_path' = '/user/doris/doris_path',
     'load_cluster.cluster1.hadoop_configs' = 'fs.default.name=hdfs://dpp.cluster.com:port;mapred.job.tracker=dpp.cluster.com:port;hadoop.job.ugi=user,password;mapred.job.queue.name=job_queue_name_in_hadoop;mapred.job.priority=HIGH;';
@@ -82,6 +84,9 @@ suite("test_auth_compatibility", "account") {
 
     def result = getProperty("max_user_connections", "${user}")
     assertEquals(result.Value as String, "2048" as String)
+
+    result = getProperty("max_user_ip_connections", "${user}")
+    assertEquals(result.Value as String, "10" as String)
 
     result = getProperty("default_load_cluster", "${user}")
     assertEquals(result.Value as String, "cluster1" as String)
