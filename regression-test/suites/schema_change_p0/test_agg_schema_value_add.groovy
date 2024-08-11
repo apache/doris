@@ -51,31 +51,88 @@ suite("test_agg_schema_value_add", "p0") {
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
     def insertSql = ""
-    errorMessage = "errCode = 2, detailMessage = AGG_KEYS table should specify aggregate type for non-key column[province]"
-    expectException({
-        sql initTable
-        sql initTableData
-        sql """ alter  table ${tbName1} add  column province VARCHAR(20)  REPLACE_IF_NOT_NULL DEFAULT "广东省" AFTER username """
-        insertSql = "insert into ${tbName1} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
-        waitForSchemaChangeDone({
-            sql getTableStatusSql
-            time 600
-        }, insertSql, true, "${tbName1}")
-    }, errorMessage)
+    sql initTable
+    sql initTableData
+    sql """ alter  table ${tbName1} add  column province VARCHAR(20)  REPLACE_IF_NOT_NULL DEFAULT "广东省" AFTER username """
+    insertSql = "insert into ${tbName1} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
 
+    sql """ DROP TABLE IF EXISTS ${tbName2} """
+    initTable1 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+            "          (\n" +
+            "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+            "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+            "              `province` VARCHAR(20) REPLACE_IF_NOT_NULL COMMENT \"省份\",\n" +
+            "              `city` VARCHAR(20) REPLACE_IF_NOT_NULL DEFAULT \"广州\" COMMENT \"用户所在城市\",\n" +
+            "              `age` SMALLINT SUM  COMMENT \"用户年龄\",\n" +
+            "              `sex` TINYINT MAX  COMMENT \"用户性别\",\n" +
+            "              `phone` LARGEINT MAX  COMMENT \"用户电话\",\n" +
+            "              `address` VARCHAR(500)  REPLACE DEFAULT \"青海省西宁市城东区\"COMMENT \"用户地址\",\n" +
+            "              `register_time` DATETIME REPLACE DEFAULT \"1970-01-01 00:00:00\" COMMENT \"用户注册时间\"\n" +
+            "          )\n" +
+            "          AGGREGATE KEY(`user_id`, `username`)\n" +
+            "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+            "          PROPERTIES (\n" +
+            "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
+            "          );"
+
+    initTableData1 = "insert into ${tbName2} values(123456789, 'Alice', '广东省', 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+            "               (234567890, 'Bob', '广东省', 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00')," +
+            "               (345678901, 'Carol', '广东省', 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00')," +
+            "               (456789012, 'Dave', '广东省', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
+            "               (567890123, 'Eve', '广东省', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
+            "               (678901234, 'Frank', '广东省', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
+            "               (923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+            "               (789012345, 'Grace', '广东省', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
+    sql initTable1
+    sql initTableData1
+    checkTableData("${tbName1}", "${tbName2}", "province")
+    sql """ DROP TABLE IF EXISTS ${tbName1} """
 
     //Test the AGGREGATE model by adding a value column with BOOLEAN
-    errorMessage = "errCode = 2, detailMessage = Column count doesn't match value count"
-    expectException({
-        sql initTable
-        sql initTableData
-        sql """ alter  table ${tbName1} add  column special_area BOOLEAN  REPLACE DEFAULT "0" AFTER username """
-        insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-        waitForSchemaChangeDone({
-            sql getTableStatusSql
-            time 600
-        }, insertSql, true, "${tbName1}")
-    }, errorMessage)
+    sql initTable
+    sql initTableData
+    sql """ alter  table ${tbName1} add  column special_area BOOLEAN  REPLACE DEFAULT "0" AFTER username """
+    insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
+
+    sql """ DROP TABLE IF EXISTS ${tbName2} """
+    initTable1 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+            "          (\n" +
+            "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+            "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+            "              `special_area` BOOLEAN REPLACE_IF_NOT_NULL COMMENT \"特区\",\n" +
+            "              `city` VARCHAR(20) REPLACE_IF_NOT_NULL DEFAULT \"广州\" COMMENT \"用户所在城市\",\n" +
+            "              `age` SMALLINT SUM  COMMENT \"用户年龄\",\n" +
+            "              `sex` TINYINT MAX  COMMENT \"用户性别\",\n" +
+            "              `phone` LARGEINT MAX  COMMENT \"用户电话\",\n" +
+            "              `address` VARCHAR(500)  REPLACE DEFAULT \"青海省西宁市城东区\"COMMENT \"用户地址\",\n" +
+            "              `register_time` DATETIME REPLACE DEFAULT \"1970-01-01 00:00:00\" COMMENT \"用户注册时间\"\n" +
+            "          )\n" +
+            "          AGGREGATE KEY(`user_id`, `username`)\n" +
+            "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+            "          PROPERTIES (\n" +
+            "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
+            "          );"
+
+    initTableData1 = "insert into ${tbName2} values(123456789, 'Alice', '0', 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+            "               (234567890, 'Bob', '0', 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00')," +
+            "               (345678901, 'Carol', '0', 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00')," +
+            "               (456789012, 'Dave', '0', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
+            "               (567890123, 'Eve', '0', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
+            "               (678901234, 'Frank', '0', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
+            "               (923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+            "               (789012345, 'Grace', '0', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
+    sql initTable1
+    sql initTableData1
+    checkTableData("${tbName1}", "${tbName2}", "special_area")
+    sql """ DROP TABLE IF EXISTS ${tbName1} """
 
     //Test the AGGREGATE model by adding a value column with TINYINT
     sql initTable
@@ -510,7 +567,7 @@ suite("test_agg_schema_value_add", "p0") {
 
 
     //TODO Test the AGGREGATE model by adding a value column with HLL
-    errorMessage = "errCode = 2, detailMessage = Column's type is HLL, SelectList must contains HLL or hll_hash or hll_empty function's result"
+    errorMessage = "errCode = 2, detailMessage = can not cast from origin type VARCHAR(1) to target type=HLL"
     expectException({
         sql initTable
         sql initTableData
