@@ -2099,7 +2099,7 @@ public class Auth implements Writable {
             for (List<User> users : nameToUsers.values()) {
                 for (User user : users) {
                     if (!user.isSetByDomainResolver()) {
-                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(33, ""));
+                        List<String> userInfo = Lists.newArrayList(Collections.nCopies(32, ""));
                         UserIdentity userIdent = user.getUserIdentity();
                         userInfo.set(0, userIdent.getHost());
                         userInfo.set(1, userIdent.getQualifiedUser());
