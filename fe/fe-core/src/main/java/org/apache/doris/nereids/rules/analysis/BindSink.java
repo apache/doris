@@ -337,7 +337,7 @@ public class BindSink implements AnalysisRuleFactory {
                 } else if (column.getDefaultValue() == null) {
                     // throw exception if explicitly use Default value but no default value present
                     // insert into table t values(DEFAULT)
-                    if (columnToChildOutput.get(column) instanceof DefaultValueSlot) {
+                    if (columnToChildOutput.get(column) instanceof DefaultValueSlot && !column.isAllowNull()) {
                         throw new AnalysisException("Column has no default value,"
                                 + " column=" + column.getName());
                     }
