@@ -135,6 +135,10 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     return st;
 }
 
+bool VExprContext::all_expr_inverted_index_evaluated() {
+    return has_inverted_index_result_for_expr(_root.get());
+}
+
 Status VExprContext::evaluate_inverted_index(const VExprContextSPtrs& conjuncts,
                                              uint32_t segment_num_rows) {
     for (const auto& conjunct : conjuncts) {

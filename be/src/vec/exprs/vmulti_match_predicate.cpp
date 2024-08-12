@@ -79,16 +79,19 @@ Status VMultiMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& d
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
-    for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
-        child_expr_name.emplace_back(child->expr_name());
-    }
+    DCHECK(_children.size() == 4);
+    argument_template.emplace_back(nullptr, _children[0]->data_type(), _children[0]->expr_name());
+    child_expr_name.emplace_back(_children[0]->expr_name());
+    argument_template.emplace_back(nullptr, _children[3]->data_type(), _children[3]->expr_name());
+    child_expr_name.emplace_back(_children[3]->expr_name());
+    //NOTE: set function name to match_phrase_prefix currently
+    _function_name = "match_phrase_prefix";
     // result column always not null
     if (_data_type->is_nullable()) {
         _function = SimpleFunctionFactory::instance().get_function(
                 _fn.name.function_name, argument_template, remove_nullable(_data_type));
     } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+        _function = SimpleFunctionFactory::instance().get_function(_function_name,
                                                                    argument_template, _data_type);
     }
     if (_function == nullptr) {
@@ -99,12 +102,11 @@ Status VMultiMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& d
         return Status::NotSupported(
                 "Function {} is not implemented, input param type is {}, "
                 "and return type is {}.",
-                _fn.name.function_name, type_str, _data_type->get_name());
+                _function_name, type_str, _data_type->get_name());
     }
 
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
-    _function_name = "match_phrase_prefix";
+    _expr_name = fmt::format("{}({})", _function_name, child_expr_name);
     _prepare_finished = true;
     return Status::OK();
 }
@@ -212,7 +214,7 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
                 "literal, but we got {}",
                 get_child(3)->expr_name());
     }
-    for (auto& col_name : columns_names) {
+    for (const auto& col_name : columns_names) {
         auto result = DORIS_TRY(
                 _evaluate_inverted_index_by_field(context, arguments, segment_num_rows, col_name));
         if (ret.is_empty()) {
@@ -228,6 +230,23 @@ Status VMultiMatchPredicate::evaluate_inverted_index(VExprContext* context,
 }
 
 Status VMultiMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
+    if (context->get_inverted_index_result_column().contains(this)) {
+        size_t num_columns_without_result = block->columns();
+        // prepare a column to save result
+        auto result_column = context->get_inverted_index_result_column()[this];
+        LOG(WARNING) << "hit result expr name:" << _expr_name
+                     << " result:" << result_column->dump_structure();
+        if (_data_type->is_nullable()) {
+            block->insert(
+                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
+                     _data_type, _expr_name});
+        } else {
+            block->insert({result_column, _data_type, _expr_name});
+        }
+        *result_column_id = num_columns_without_result;
+        return Status::OK();
+    }
     return Status::NotSupported("not support for VMultiMatchPredicate::execute");
 }
 

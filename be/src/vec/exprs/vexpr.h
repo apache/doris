@@ -78,6 +78,12 @@ public:
     }
 
     static bool is_acting_on_a_slot(const VExpr& expr);
+    static bool is_directly_action_on_a_slot(const VExpr& expr) {
+        return std::any_of(expr.children().begin(), expr.children().end(),
+                           [](const VExprSPtr& child) {
+                               return child->node_type() == TExprNodeType::SLOT_REF;
+                           });
+    }
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);

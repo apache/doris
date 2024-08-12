@@ -173,6 +173,7 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
                                                            segment_num_rows, result_bitmap));
         result_bitmap.mask_out_null();
         context->set_inverted_index_result_for_expr(this, result_bitmap);
+        context->set_true_for_inverted_index_status(this, column_slot_ref->expr_name());
         LOG(ERROR) << "expr " << _expr_name << " " << this << " evaluate_inverted_index result:"
                    << result_bitmap.get_data_bitmap()->cardinality();
     } else {

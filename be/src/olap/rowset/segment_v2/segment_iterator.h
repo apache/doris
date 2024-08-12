@@ -204,17 +204,10 @@ private:
             ColumnId column_id, MutilColumnBlockPredicate* pred,
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
-    [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_index_expr_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
-            ColumnPredicate* pred, roaring::Roaring* output_result);
+    [[nodiscard]] Status _apply_index_expr();
     bool _column_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
-    bool _can_filter_by_preds_except_leafnode_of_andnode();
-    [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(
-            const vectorized::VExprSPtr& expr);
-    [[nodiscard]] Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
@@ -299,7 +292,6 @@ private:
 
     [[nodiscard]] Status _extract_common_expr_columns(const vectorized::VExprSPtr& expr);
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
-    [[nodiscard]] Status _extract_common_expr_columns_for_index(const vectorized::VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
@@ -331,8 +323,6 @@ private:
     // return true means one column's predicates all pushed down
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
                                           bool is_match = false);
-    void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
-    void _calculate_func_in_remaining_conjunct_root();
     Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
@@ -416,9 +406,12 @@ private:
     void _initialize_predicate_results();
     bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
+    bool _check_all_exprs_passed_inverted_index_for_column(ColumnId cid,
+                                                           bool default_return = false);
 
     Status execute_func_expr(const vectorized::VExprSPtr& expr,
                              std::shared_ptr<roaring::Roaring>& result);
+    void _calculate_expr_in_remaining_conjunct_root();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -489,10 +482,6 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
-
-    std::vector<vectorized::VExprSPtr> no_compound_func_exprs;
-    std::vector<vectorized::VExprSPtr> compound_func_exprs;
-
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     vectorized::VExprContextSPtrs _compound_expr_ctxs;
     bool _enable_common_expr_pushdown = false;
@@ -537,8 +526,11 @@ private:
 
     std::vector<uint8_t> _ret_flags;
 
-    std::unordered_map<int, std::unordered_map<std::string, bool>>
+    std::unordered_map<int, std::unordered_map<ColumnPredicate*, bool>>
             _column_predicate_inverted_index_status;
+
+    std::unordered_map<std::string, std::unordered_map<const vectorized::VExpr*, bool>>
+            _common_expr_inverted_index_status;
 };
 
 } // namespace segment_v2

@@ -59,7 +59,7 @@ public:
     void set_storage_name_and_type(
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     storage_name_and_type) {
-        _storage_name_and_type_by_col_name = std::move(storage_name_and_type);
+        _storage_name_and_type_by_col_name = storage_name_and_type;
     }
 
     segment_v2::InvertedIndexIterator* get_inverted_index_iterators_by_column_name(
@@ -98,6 +98,34 @@ public:
             return {};
         }
         return iter->second;
+    }
+
+    void set_inverted_index_expr_status(
+            const std::unordered_map<std::string,
+                                     std::unordered_map<const vectorized::VExpr*, bool>>& status) {
+        _expr_inverted_index_status = status;
+    }
+
+    segment_v2::InvertedIndexResultBitmap get_inverted_index_result_for_root() {
+        auto iter = _inverted_index_result_bitmap.find(_root.get());
+        if (iter == _inverted_index_result_bitmap.end()) {
+            return {};
+        }
+        return iter->second;
+    }
+
+    std::unordered_map<std::string, std::unordered_map<const vectorized::VExpr*, bool>>
+    get_expr_inverted_index_status() {
+        return _expr_inverted_index_status;
+    }
+
+    void set_true_for_inverted_index_status(const vectorized::VExpr* expr,
+                                            const std::string& column_name) {
+        if (_expr_inverted_index_status.contains(column_name)) {
+            if (_expr_inverted_index_status[column_name].contains(expr)) {
+                _expr_inverted_index_status[column_name][expr] = true;
+            }
+        }
     }
 
     std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>
@@ -151,6 +179,8 @@ public:
                                                         uint32_t segment_num_rows);
 
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+
+    bool all_expr_inverted_index_evaluated();
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
@@ -269,5 +299,7 @@ private:
     // storage type schema related to _schema, since column in segment may be different with type in _schema
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
             _storage_name_and_type_by_col_name;
+    std::unordered_map<std::string, std::unordered_map<const vectorized::VExpr*, bool>>
+            _expr_inverted_index_status;
 };
 } // namespace doris::vectorized
