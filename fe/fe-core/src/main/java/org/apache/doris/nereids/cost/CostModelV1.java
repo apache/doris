@@ -271,6 +271,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics childStatistics = context.getChildStatistics(0);
         double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
+        // cost model is trained by clusters with more than 3 BE.
         int beNumForDist = Math.max(3, beNumber);
         // shuffle
         if (spec instanceof DistributionSpecHash) {
