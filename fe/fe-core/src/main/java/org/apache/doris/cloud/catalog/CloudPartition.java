@@ -125,7 +125,7 @@ public class CloudPartition extends Partition {
                 .build();
 
         try {
-            Cloud.GetVersionResponse resp = getVersionFromMeta(request);
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
             long version = -1;
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
@@ -238,7 +238,7 @@ public class CloudPartition extends Partition {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", partitionIds.toString());
         }
-        Cloud.GetVersionResponse resp = getVersionFromMeta(req);
+        Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(req);
         if (resp.getStatus().getCode() != MetaServiceCode.OK) {
             throw new RpcException("get visible version", "unexpected status " + resp.getStatus());
         }
@@ -337,19 +337,6 @@ public class CloudPartition extends Partition {
         }
 
         return getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
-    }
-
-    private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
-            throws RpcException {
-        long startAt = System.nanoTime();
-        try {
-            return VersionHelper.getVisibleVersion(req);
-        } finally {
-            SummaryProfile profile = getSummaryProfile();
-            if (profile != null) {
-                profile.addGetPartitionVersionTime(System.nanoTime() - startAt);
-            }
-        }
     }
 
     private static boolean isEmptyPartitionPruneDisabled() {

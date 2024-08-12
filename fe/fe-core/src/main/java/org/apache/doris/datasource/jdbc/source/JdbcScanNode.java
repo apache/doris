@@ -64,6 +64,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
+    private final List<Expr> pushedDownConjuncts = new ArrayList<>();
     private String tableName;
     private TOdbcTableType jdbcType;
     private String graphQueryString = "";
@@ -131,7 +132,7 @@ public class JdbcScanNode extends ExternalScanNode {
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
             filters.add(filter);
-            conjuncts.remove(individualConjunct);
+            pushedDownConjuncts.add(individualConjunct);
         }
     }
 
@@ -168,7 +169,7 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private boolean shouldPushDownLimit() {
-        return limit != -1 && conjuncts.isEmpty();
+        return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
     private String getJdbcQueryStr() {
