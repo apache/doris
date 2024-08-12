@@ -25,6 +25,8 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -36,8 +38,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.util.Map;
 
 public class MetaHelper {
+    public static final Logger LOG = LogManager.getLogger(MetaHelper.class);
     private static final String PART_SUFFIX = ".part";
     public static final String X_IMAGE_SIZE = "X-Image-Size";
     public static final String X_IMAGE_MD5 = "X-Image-Md5";
@@ -74,7 +78,9 @@ public class MetaHelper {
     }
 
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
-        String response = HttpUtils.doGet(url, HttpURLUtil.getNodeIdentHeaders(), timeout);
+        Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
+        LOG.info("meta helper, url: {}, timeout{}, headers: {}", url, timeout, headers);
+        String response = HttpUtils.doGet(url, headers, timeout);
         return parseResponse(response, clazz);
     }
 

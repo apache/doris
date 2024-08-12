@@ -16,6 +16,7 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
 
 suite("test_compaction_uniq_keys") {
     def tableName = "compaction_uniq_keys_regression_test"
@@ -121,9 +122,7 @@ suite("test_compaction_uniq_keys") {
 
         // wait for all compactions done
         for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
+            Awaitility.await().untilAsserted(() -> {
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
                 (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -131,8 +130,8 @@ suite("test_compaction_uniq_keys") {
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
                 assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
+                return compactionStatus.run_status;
+            });
         }
 
         def replicaNum = get_table_replica_num(tableName)

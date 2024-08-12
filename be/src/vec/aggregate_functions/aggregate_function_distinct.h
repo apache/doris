@@ -67,7 +67,7 @@ struct AggregateFunctionDistinctSingleNumericData {
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
         const auto& vec = assert_cast<const ColumnVector<T>&>(*columns[0]).get_data();
         if constexpr (stable) {
-            data.insert_or_assign(vec[row_num], data.size());
+            data.emplace(vec[row_num], data.size());
         } else {
             data.insert(vec[row_num]);
         }
@@ -170,7 +170,7 @@ struct AggregateFunctionDistinctSingleGenericData
         key.data = arena->insert(key.data, key.size);
 
         if constexpr (stable) {
-            data.insert_or_assign(key, data.size());
+            data.emplace(key, data.size());
         } else {
             typename Base::Container::LookupResult it;
             bool inserted;
@@ -214,7 +214,7 @@ struct AggregateFunctionDistinctMultipleGenericData
         }
 
         if constexpr (stable) {
-            data.insert_or_assign(key, data.size());
+            data.emplace(key, data.size());
         } else {
             typename Base::Container::LookupResult it;
             bool inserted;

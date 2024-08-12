@@ -63,7 +63,6 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
@@ -139,6 +138,12 @@ es_8_port=39200
 cacheDataPath = "/data/regression/"
 
 s3Source="aliyun"
+
+// for multi cloud test case, eg. paimon_base_filesystem
+aliYunAk="***********"
+aliYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
 
 max_failure_num=50
 

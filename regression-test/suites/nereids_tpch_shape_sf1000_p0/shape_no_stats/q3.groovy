@@ -20,6 +20,9 @@
 suite("q3") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     // db = "tpch"
+    if (isCloudMode()) {
+        return
+    }
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'

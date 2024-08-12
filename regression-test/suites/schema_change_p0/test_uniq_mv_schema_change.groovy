@@ -44,21 +44,6 @@ suite ("test_uniq_mv_schema_change") {
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
@@ -95,7 +80,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
+    sql "create materialized view ${mvName} as select user_id, date, city, age, sex from ${tableName};"
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
@@ -105,7 +90,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
+    sql "create materialized view ${mvName2} as select user_id, date, city, age, sex, cost from ${tableName};"
     waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES

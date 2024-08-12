@@ -65,7 +65,6 @@ DECLARE_mInt32(tablet_sync_interval_s);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
-DECLARE_mBool(enable_new_tablet_do_compaction);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(cu_compaction_freeze_interval_s);
@@ -80,6 +79,7 @@ DECLARE_mDouble(cumu_compaction_thread_num_factor);
 DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
+DECLARE_mInt32(compaction_max_rowset_count);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);

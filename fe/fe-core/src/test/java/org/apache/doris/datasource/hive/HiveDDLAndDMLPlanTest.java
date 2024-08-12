@@ -610,7 +610,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(exPlan instanceof UnboundLogicalSink);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        return planner.plan((UnboundLogicalSink<?>) exPlan, physicalProperties);
+        return planner.planWithLock((UnboundLogicalSink<?>) exPlan, physicalProperties);
     }
 
     @Test
