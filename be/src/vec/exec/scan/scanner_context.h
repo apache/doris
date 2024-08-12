@@ -50,7 +50,6 @@ namespace vectorized {
 
 class VScanner;
 class ScannerDelegate;
-class VScanNode;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
 
@@ -188,7 +187,6 @@ protected:
     void _try_to_scale_up();
 
     RuntimeState* _state = nullptr;
-    VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
