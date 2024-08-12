@@ -974,7 +974,7 @@ public:
         output->resize(total_out);
         bzres = BZ2_bzCompressEnd(&bzstrm);
         if (bzres != BZ_OK) {
-            return Status::InternalError("Fail to do deflateEnd on ZLib stream, res={}", bzres);
+            return Status::InternalError("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
         }
         return Status::OK();
     }
@@ -1528,6 +1528,9 @@ Status get_block_compression_codec(TFileCompressType::type type, BlockCompressio
     switch (type) {
     case TFileCompressType::PLAIN:
         *codec = nullptr;
+        break;
+    case TFileCompressType::ZLIB:
+        *codec = ZlibBlockCompression::instance();
         break;
     case TFileCompressType::GZ:
         *codec = GzipBlockCompression::instance();
