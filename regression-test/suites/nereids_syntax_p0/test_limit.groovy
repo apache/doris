@@ -36,4 +36,16 @@ suite("test_limit") {
         sql "select * from test1 limit 2 offset 1"
         result([[1]])
     }
+
+    test {
+        sql "select * from test1 offset 1 limit 2"
+        result([[1]])
+    }
+
+    test {
+        sql "select * from test1 limit 1,2"
+        result([[1]])
+    }
+
+
 }

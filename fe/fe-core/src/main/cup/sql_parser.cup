@@ -6804,6 +6804,8 @@ limit_clause ::=
   {: RESULT = new LimitElement(offset.longValue(), limit.longValue()); :}
   | KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
   {: RESULT = new LimitElement(offset.longValue(), limit.longValue()); :}
+  | KW_OFFSET INTEGER_LITERAL:offset KW_LIMIT INTEGER_LITERAL:limit
+  {: RESULT = new LimitElement(offset.longValue(), limit.longValue()); :}
   ;
 
 type ::=
@@ -8257,8 +8259,6 @@ keyword ::=
     | KW_NULLS:id
     {: RESULT = id; :}
     | KW_OF:id
-    {: RESULT = id; :}
-    | KW_OFFSET:id
     {: RESULT = id; :}
     | KW_ONLY:id
     {: RESULT = id; :}
