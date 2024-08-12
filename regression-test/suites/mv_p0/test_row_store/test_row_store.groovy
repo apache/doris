@@ -29,4 +29,20 @@ suite ("test_row_store") {
         sql "create materialized view kavg as select k1,k4,avg(k2) from d_table group by k1,k4;"
         exception "RowStore table can't create materialized view"
     }
+
+    // test ip type with row store
+    sql """ DROP TABLE IF EXISTS ipv6_row; """
+    sql """ CREATE TABLE ipv6_row (
+             `id` int,
+             `ip_v6` ipv6
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`id`) BUCKETS 4
+            PROPERTIES (
+                 "store_row_column"="true",
+                 "replication_allocation" = "tag.location.default: 1"
+            ); """
+
+    // rowstore column can't  make inde
+    sql """ insert into ipv6_row values(2, '2001:16a0:2:200a::2');"""
+    qt_sql """select * from ipv6_row;"""
 }
