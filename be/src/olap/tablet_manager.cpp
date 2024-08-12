@@ -1620,7 +1620,6 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
         if (UNLIKELY(nullptr == tablet)) {
             return;
         }
-        std::shared_lock rdlock(tablet->get_header_lock());
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
         if (!skip_tablet(tablet) &&
