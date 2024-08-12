@@ -540,6 +540,16 @@ public class SchemaTable extends Table {
                                     .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
                                     .build())
             )
+            .put("workload_group_resource_usage",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_resource_usage", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MEMORY_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;
