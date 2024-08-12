@@ -310,6 +310,7 @@ private:
     std::atomic<int64_t> _spill_threshold {0};
 
     std::mutex _profile_mutex;
+    timespec _query_arrival_timestamp;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
@@ -336,6 +337,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
 
+    void _async_report_debug_info_if_necessary(const Status& status);
+
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     void add_fragment_profile(
@@ -348,6 +351,8 @@ public:
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
+
+    timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
 };
 
 } // namespace doris
