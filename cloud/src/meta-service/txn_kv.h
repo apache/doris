@@ -323,11 +323,17 @@ public:
     ~FdbTxnKv() override = default;
 
     TxnErrorCode create_txn(std::unique_ptr<Transaction>* txn) override;
+    TxnErrorCode create_txn_with_system_access(std::unique_ptr<Transaction>* txn);
 
     int init() override;
 
     std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
                                                          FullRangeGetIteratorOptions opts) override;
+
+    // Return the partition boundaries of the database.
+    TxnErrorCode get_partition_boundaries(std::vector<std::string>* boundaries);
+
+    static std::string_view boundary_prefix() { return "\xff/keyServers"; }
 
 private:
     std::shared_ptr<fdb::Network> network_;
@@ -478,6 +484,7 @@ public:
      * @return TxnErrorCode for success otherwise false
      */
     TxnErrorCode init();
+    TxnErrorCode enable_access_system_keys();
 
     void put(std::string_view key, std::string_view val) override;
 
