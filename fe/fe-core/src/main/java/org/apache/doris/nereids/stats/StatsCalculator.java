@@ -1199,8 +1199,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(rowCount, 1, slotToColumnStats);
-        // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
+        Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
+        aggOutputStats.enforceValid();
+        return aggOutputStats;
     }
 
     private Statistics computeRepeat(Repeat<? extends Plan> repeat) {
