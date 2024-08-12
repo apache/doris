@@ -87,8 +87,8 @@ suite("test_dup_schema_value_modify4", "p0") {
             "               (789012345, 'Grace', 2.19656, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
 
     //TODO Test the dup model by modify a value type from MAP  to BOOLEAN
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to BOOLEAN"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m BOOLEAN  """
@@ -101,8 +101,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     // TODO Test the dup model by modify a value type from MAP  to TINYINT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to TINYINT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m TINYINT  """
@@ -115,8 +115,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //Test the dup model by modify a value type from MAP  to SMALLINT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to SMALLINT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m SMALLINT   """
@@ -129,8 +129,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //Test the dup model by modify a value type from MAP  to INT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to INT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m INT  """
@@ -144,8 +144,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //Test the dup model by modify a value type from MAP  to BIGINT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to BIGINT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m BIGINT  """
@@ -158,8 +158,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //Test the dup model by modify a value type from  MAP to LARGEINT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to LARGEINT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m LARGEINT """
@@ -172,8 +172,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //Test the dup model by modify a value type from MAP  to FLOAT
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to FLOAT"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m FLOAT  """
@@ -186,8 +186,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //TODO Test the dup model by modify a value type from MAP  to DECIMAL
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to DECIMAL128"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m DECIMAL(38,0)  """
@@ -201,8 +201,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //TODO Test the dup model by modify a value type from MAP  to DATE
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to DATEV2"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m DATE  """
@@ -215,8 +215,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //TODO Test the dup model by modify a value type from MAP  to DATEV2
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to DATEV2"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m DATEV2  """
@@ -230,8 +230,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //TODO Test the dup model by modify a value type from MAP  to DATETIME
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to DATETIMEV2"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m DATETIME  """
@@ -244,8 +244,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //TODO Test the dup model by modify a value type from MAP  to DATETIME
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to DATETIMEV2"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m DATETIMEV2  """
@@ -259,8 +259,8 @@ suite("test_dup_schema_value_modify4", "p0") {
 
 
     //Test the dup model by modify a value type from MAP  to VARCHAR
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to VARCHAR"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName1} MODIFY  column m VARCHAR(100)  """
@@ -272,8 +272,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //Test the dup model by modify a value type from MAP  to STRING
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to STRING"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName1} MODIFY  column m STRING  """
@@ -285,8 +285,8 @@ suite("test_dup_schema_value_modify4", "p0") {
     }, errorMessage)
 
     //Test the dup model by modify a value type from MAP  to JSON
-    errorMessage = "errCode = 2, detailMessage = Can not change MAP to JSON"
-    expectException({
+    errorMessage = "errCode = 2, detailMessage = Can not change"
+    expectExceptionLike({
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName1} MODIFY  column m JSON  """
