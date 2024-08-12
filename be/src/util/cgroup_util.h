@@ -18,50 +18,74 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <utility>
 
 #include "common/status.h"
 namespace doris {
+
+#if defined(OS_LINUX)
+// I think it is possible to mount the cgroups hierarchy somewhere else (e.g. when in containers).
+// /sys/fs/cgroup was still symlinked to the actual mount in the cases that I have seen.
+static inline const std::filesystem::path default_cgroups_mount = "/sys/fs/cgroup";
+#endif
+
 class CGroupUtil {
 public:
-    // Determines the CGroup memory limit from the current processes' cgroup.
-    // If the limit is more than INT64_MAX, INT64_MAX is returned (since that is
-    // effectively unlimited anyway). Does not take into account memory limits
-    // set on any ancestor CGroups.
-    static Status find_cgroup_mem_limit(int64_t* bytes);
+    enum class CgroupsVersion : uint8_t { V1, V2 };
 
-    // memory.usage_in_bytes ~= free.used + free.(buff/cache) - (buff)
-    // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
-    static Status find_cgroup_mem_usage(int64_t* bytes);
-    static Status find_cgroup_mem_info(std::string* file_path);
+    // Inherited by cgroup v1 and v2
+    struct ICgroupsReader {
+        virtual ~ICgroupsReader() = default;
 
-    // Determines the CGroup cpu cores limit from the current processes' cgroup.
-    static Status find_cgroup_cpu_limit(float* cpu_count);
+        virtual uint64_t read_memory_limit() = 0;
 
-    // Returns a human-readable string with information about CGroups.
-    static std::string debug_string();
+        virtual uint64_t read_memory_usage() = 0;
+    };
 
     // detect if cgroup is enabled
-    static bool enable();
+    static bool cgroupsv1_enable();
+    static bool cgroupsv2_enable();
 
-private:
     // return the global cgroup path of subsystem like 12:memory:/user.slice -> user.slice
-    static Status find_global_cgroup(const std::string& subsystem, std::string* path);
+    static Status find_global_cgroupv1(const std::string& subsystem, std::string* path);
 
     // Returns the absolute path to the CGroup from inside the container.
     // E.g. if this process belongs to
     // /sys/fs/cgroup/memory/kubepods/burstable/pod-<long unique id>, which is mounted at
     // /sys/fs/cgroup/memory inside the container, this function returns
     // "/sys/fs/cgroup/memory".
-    static Status find_abs_cgroup_path(const std::string& subsystem, std::string* path);
+    static Status find_abs_cgroupv1_path(const std::string& subsystem, std::string* path);
 
     // Figures out the mapping of the cgroup root from the container's point of view to
     // the full path relative to the system-wide cgroups outside of the container.
     // E.g. /sys/fs/cgroup/memory/kubepods/burstable/pod-<long unique id> may be mounted at
     // /sys/fs/cgroup/memory inside the container. In that case this function would return
     // ("/sys/fs/cgroup/memory", "kubepods/burstable/pod-<long unique id>").
-    static Status find_cgroup_mounts(const std::string& subsystem,
-                                     std::pair<std::string, std::string>* result);
+    static Status find_cgroupv1_mounts(const std::string& subsystem,
+                                       std::pair<std::string, std::string>* result);
+
+    // Which cgroup does the process belong to?
+    // Returns an empty string if the cgroup cannot be determined.
+    // Assumes that cgroupsV2Enabled() is enabled.
+    static std::string cgroupv2_of_process();
+
+    // Caveats:
+    // - All of the logic in this file assumes that the current process is the only process in the
+    //   containing cgroup (or more precisely: the only process with significant memory consumption).
+    //   If this is not the case, then other processe's memory consumption may affect the internal
+    //   memory tracker ...
+    // - Cgroups v1 and v2 allow nested cgroup hierarchies. As v1 is deprecated for over half a
+    //   decade and will go away at some point, hierarchical detection is only implemented for v2.
+    // - I did not test what happens if a host has v1 and v2 simultaneously enabled. I believe such
+    //   systems existed only for a short transition period.
+    static std::optional<std::string> get_cgroupsv2_path(const std::string& subsystem);
+
+    static Status read_int_line_from_cgroup_file(const std::filesystem::path& file_path,
+                                                 int64_t* val);
+    static void read_int_metric_from_cgroup_file(
+            const std::filesystem::path& file_path,
+            std::unordered_map<std::string, int64_t>& metrics_map);
 };
 } // namespace doris

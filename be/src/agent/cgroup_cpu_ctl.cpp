@@ -20,8 +20,10 @@
 #include <fmt/format.h>
 #include <sys/stat.h>
 
+#include <cfloat>
 #include <filesystem>
 
+#include "util/cgroup_util.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -238,6 +240,42 @@ Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids
                                             failed_count);
     }
     return Status::OK();
+}
+
+Status CgroupV1CpuCtl::find_cgroup_cpu_limit(float* cpu_count) {
+    if (!CGroupUtil::cgroupsv1_enable()) {
+        return Status::InvalidArgument("cgroup is not enabled!");
+    }
+    int64_t quota;
+    int64_t period;
+    std::string cgroup_path;
+    if (!CGroupUtil::find_abs_cgroupv1_path("cpu", &cgroup_path).ok()) {
+        RETURN_IF_ERROR(CGroupUtil::find_abs_cgroupv1_path("cpuacct", &cgroup_path));
+    }
+    std::filesystem::path cfs_quota_filename = cgroup_path + "/cpu.cfs_quota_us";
+    RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(cfs_quota_filename, &quota));
+    if (quota <= 0) {
+        *cpu_count = -1;
+        return Status::OK();
+    }
+    std::filesystem::path cfs_period_filename = cgroup_path + "/cpu.cfs_period_us";
+    RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(cfs_period_filename, &period));
+    if (quota <= period) {
+        return Status::InvalidArgument("quota <= period");
+    }
+    *cpu_count = float(quota) / float(period);
+    if (*cpu_count >= FLT_MAX) {
+        return Status::InvalidArgument("unknown");
+    }
+    return Status::OK();
+}
+
+std::string CgroupV1CpuCtl::debug_string() {
+    float cpu_limit;
+    auto cpu_limit_st = find_cgroup_cpu_limit(&cpu_limit);
+    return fmt::format("Process CGroup Memory Info: memory limit: {}, memory usage: {}",
+                       cpu_limit_st.ok() ? (cpu_limit > 0 ? std::to_string(cpu_limit) : "unlimited")
+                                         : cpu_limit_st.to_string());
 }
 
 } // namespace doris

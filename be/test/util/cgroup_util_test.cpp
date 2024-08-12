@@ -23,6 +23,7 @@
 
 #include <fstream>
 
+#include "common/cgroup_memory_ctl.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -30,16 +31,16 @@ namespace doris {
 class CGroupUtilTest : public ::testing::Test {
 protected:
     CGroupUtilTest() {}
-    virtual ~CGroupUtilTest() {}
+    ~CGroupUtilTest() override = default;
 };
+
 TEST_F(CGroupUtilTest, memlimit) {
-    int64_t bytes;
-    float cpu_counts;
-    CGroupUtil cgroup_util;
-    LOG(INFO) << cgroup_util.debug_string();
-    Status status1 = cgroup_util.find_cgroup_mem_limit(&bytes);
-    Status status2 = cgroup_util.find_cgroup_cpu_limit(&cpu_counts);
-    if (cgroup_util.enable()) {
+    LOG(INFO) << CGroupMemoryCtl::debug_string();
+    int64_t mem_limit;
+    int64_t mem_usage;
+    auto status1 = CGroupMemoryCtl::find_cgroup_mem_limit(&mem_limit);
+    auto status2 = CGroupMemoryCtl::find_cgroup_mem_usage(&mem_usage);
+    if (CGroupUtil::cgroupsv1_enable() || CGroupUtil::cgroupsv2_enable()) {
         std::ifstream file("/proc/self/cgroup");
         if (file.peek() == std::ifstream::traits_type::eof()) {
             EXPECT_FALSE(status1.ok());
