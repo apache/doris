@@ -17,40 +17,33 @@
 
 #pragma once
 
-#include <bvar/bvar.h>
-#include <stdint.h>
+#include <vector>
 
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-class IOThrottle {
+class SchemaBackendWorkloadGroupResourceUsage : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaBackendWorkloadGroupResourceUsage);
+
 public:
-    IOThrottle(std::string prefix, std::string name);
+    SchemaBackendWorkloadGroupResourceUsage();
+    ~SchemaBackendWorkloadGroupResourceUsage() override;
 
-    ~IOThrottle() = default;
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
-    bool acquire(int64_t block_timeout_ms);
-
-    // non-block acquire
-    bool try_acquire();
-
-    void update_next_io_time(int64_t bytes);
-
-    void set_io_bytes_per_second(int64_t read_bytes_per_second);
-
-    size_t get_bvar_io_per_second() { return _io_adder_per_second->get_value(); }
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    std::mutex _mutex;
-    std::condition_variable wait_condition;
-    int64_t _next_io_time_micros {0};
-    std::atomic<int64_t> _io_bytes_per_second_limit {10485760};
-
-    // bvar monitor
-    std::unique_ptr<bvar::Adder<size_t>> _io_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _io_adder_per_second;
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<vectorized::Block> _block = nullptr;
 };
 }; // namespace doris
