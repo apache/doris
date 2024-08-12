@@ -112,7 +112,7 @@ Adjust the base image name used by the Dockerfile of the doris component and rep
 ```dockerfile
 ...
 # Adjust the base image here
-FROM selectdb/base:latest
+FROM doris-base:latest:latest
 
 ARG TARGETARCH
 
