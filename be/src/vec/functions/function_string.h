@@ -3144,6 +3144,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        // We need a local variable to hold a reference to the converted column.
+        // So that the converted column will not be released before we use it.
         auto col_origin =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto col_origin_str = assert_cast<const ColumnString*>(col_origin.get());
