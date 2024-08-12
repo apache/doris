@@ -185,16 +185,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-<<<<<<< HEAD
-        String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
-        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
-        Map<String, String> invertedIndexCharFilter = new HashMap<>();
-        SlotRef left = (SlotRef) match.left().accept(this, context);
-=======
         Index invertedIndex = null;
-        // Get the first slot from match's left expr
-        SlotRef left = (SlotRef) match.left().getInputSlots().stream().findFirst().get().accept(this, context);
->>>>>>> 17ab60fe5a (fix)
+        SlotRef left = (SlotRef) match.left().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
 
