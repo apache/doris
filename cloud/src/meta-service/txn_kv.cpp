@@ -87,6 +87,7 @@ TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction
     }
     if (code != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to init txn, ret=" << code;
+        return code;
     }
 
     *txn = std::move(t);
