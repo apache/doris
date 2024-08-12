@@ -23,6 +23,7 @@ suite("test_user_var") {
     sql "SET @c1='H', @c2=''"
     sql "SET @d1=true, @d2=false"
     sql "SET @f1=null"
+    sql "set @dt1 = from_unixtime(1196440219);"
     sql "set @func_1=(abs(1) + 1) * 2"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
@@ -33,6 +34,7 @@ suite("test_user_var") {
     qt_boolean 'select @d1, @d2;'
     qt_null_literal 'select @f1, @f2;'
     qt_function 'select @func_1'
+    qt_datetime 'select @dt1'
 
     multi_sql(
         """
