@@ -20,7 +20,9 @@
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
-#include "recycler/s3_accessor.h"
+#include "common/stopwatch.h"
+#include "recycler/util.h"
+
 #ifdef USE_HADOOP_HDFS
 #include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
 #else
