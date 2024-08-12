@@ -20,10 +20,10 @@ const char Bits::num_bits[] = {
         5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5, 6,
         4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
 
-int Bits::Count(const void* m, int num_bytes) {
+int Bits::Count(const void* m, int64_t num_bytes) {
     int nbits = 0;
     const uint8* s = (const uint8*)m;
-    for (int i = 0; i < num_bytes; i++) nbits += num_bits[*s++];
+    for (int64_t i = 0; i < num_bytes; i++) nbits += num_bits[*s++];
     return nbits;
 }
 

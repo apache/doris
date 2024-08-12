@@ -19,6 +19,10 @@
 // and modified by Doris
 
 #pragma once
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
@@ -401,3 +405,6 @@ struct std::hash<std::pair<First, Second>> {
         return util_hash::HashLen16(h1, h2);
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif

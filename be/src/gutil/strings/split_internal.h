@@ -17,6 +17,8 @@
 #pragma once
 
 #include <iterator>
+
+#include "common/cast_set.h"
 using std::back_insert_iterator;
 using std::iterator_traits;
 #include <map>
@@ -106,8 +108,9 @@ public:
             // found_delimiter is allowed to be empty.
             // Sets curr_piece_ to all text up to but excluding the delimiter itself.
             // Sets text_ to remaining data after the delimiter.
-            curr_piece_.set(text_.begin(), found_delimiter.begin() - text_.begin());
-            text_.remove_prefix(found_delimiter.end() - text_.begin());
+            curr_piece_.set(text_.begin(),
+                            doris::cast_set<int>(found_delimiter.begin() - text_.begin()));
+            text_.remove_prefix(doris::cast_set<int>(found_delimiter.end() - text_.begin()));
         } while (!predicate_(curr_piece_));
         return *this;
     }
@@ -187,7 +190,7 @@ using small_ = char;
 struct big_ {
     char dummy[2];
 };
-}
+} // namespace base
 
 // This class implements the behavior of the split API by giving callers access
 // to the underlying split substrings in various convenient ways, such as

@@ -26,6 +26,7 @@
 #include <functional>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/murmur_hash3.h"
@@ -114,7 +115,7 @@ public:
         } else {
             return Status::InvalidArgument("invalid strategy:{}", strategy);
         }
-        _num_bytes = filter_size;
+        cast_set(_num_bytes, filter_size);
         DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _size = _num_bytes + 1;
         // reserve last byte for null flag

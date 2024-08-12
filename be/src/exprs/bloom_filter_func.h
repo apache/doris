@@ -143,9 +143,9 @@ public:
         }
         DCHECK(bloom_filter_length >= 0);
         DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
-        _bloom_filter_alloced = bloom_filter_length;
+        cast_set(_bloom_filter_alloced, bloom_filter_length);
         _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
-        RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
+        RETURN_IF_ERROR(_bloom_filter->init(cast_set<int>(bloom_filter_length)));
         _inited = true;
         return Status::OK();
     }
@@ -187,14 +187,14 @@ public:
             _bloom_filter->set_contain_null();
         }
 
-        _bloom_filter_alloced = data_size;
+        _bloom_filter_alloced = cast_set<int32_t>(data_size);
         _inited = true;
         return _bloom_filter->init(data, data_size);
     }
 
     void get_data(char** data, int* len) {
         *data = _bloom_filter->data();
-        *len = _bloom_filter->size();
+        *len = cast_set<int>(_bloom_filter->size());
     }
 
     bool contain_null() const {

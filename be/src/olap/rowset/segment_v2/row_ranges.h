@@ -198,10 +198,10 @@ public:
     bool contain(rowid_t from, rowid_t to) {
         // binary search
         RowRange tmp_range = RowRange(from, to);
-        int32_t start = 0;
-        int32_t end = _ranges.size();
+        int64_t start = 0;
+        int64_t end = _ranges.size();
         while (start <= end) {
-            int32_t mid = (start + end) / 2;
+            int64_t mid = (start + end) / 2;
             if (_ranges[mid].is_before(tmp_range)) {
                 start = mid;
             } else if (_ranges[mid].is_after(tmp_range)) {
@@ -247,7 +247,7 @@ public:
             return;
         }
         RowRange range_to_add = range;
-        for (int i = _ranges.size() - 1; i >= 0; --i) {
+        for (int64_t i = _ranges.size() - 1; i >= 0; --i) {
             const RowRange last = _ranges[i];
             DCHECK(!last.is_after(range));
             RowRange u;

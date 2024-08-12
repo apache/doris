@@ -513,8 +513,8 @@ struct SpillSortSharedState : public BasicSharedState,
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
             avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
-            spill_block_batch_row_count =
-                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+            spill_block_batch_row_count = cast_set<int>(
+                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes);
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }

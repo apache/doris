@@ -814,7 +814,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
 }
 
 void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
-                                  uint32_t column_to_keep) {
+                                  uint64_t column_to_keep) {
     std::vector<uint32_t> columns_to_filter;
     columns_to_filter.resize(column_to_keep);
     for (uint32_t i = 0; i < column_to_keep; ++i) {

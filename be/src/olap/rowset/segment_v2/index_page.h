@@ -95,13 +95,13 @@ public:
         return _footer.type() == IndexPageFooterPB::LEAF;
     }
 
-    const Slice& get_key(int idx) const {
+    const Slice& get_key(int64_t idx) const {
         DCHECK(_parsed);
         DCHECK(idx >= 0 && idx < _footer.num_entries());
         return _keys[idx];
     }
 
-    const PagePointer& get_value(int idx) const {
+    const PagePointer& get_value(int64_t idx) const {
         DCHECK(_parsed);
         DCHECK(idx >= 0 && idx < _footer.num_entries());
         return _values[idx];

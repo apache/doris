@@ -289,7 +289,7 @@ public:
                                       const IColumn::Filter& filter);
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter,
-                                      uint32_t column_to_keep);
+                                      uint64_t column_to_keep);
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 

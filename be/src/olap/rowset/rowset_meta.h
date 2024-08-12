@@ -95,7 +95,7 @@ public:
     int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
     void set_tablet_schema_hash(int64_t tablet_schema_hash) {
-        _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
+        _rowset_meta_pb.set_tablet_schema_hash(cast_set<int32_t>(tablet_schema_hash));
     }
 
     RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
@@ -269,7 +269,7 @@ public:
         if (!is_segments_overlapping()) {
             score = 1;
         } else {
-            score = num_segments();
+            cast_set(score, num_segments());
             CHECK(score > 0);
         }
         return score;
@@ -284,7 +284,7 @@ public:
                 way_num = 1;
             }
         } else {
-            way_num = num_segments();
+            cast_set(way_num, num_segments());
             CHECK(way_num > 0);
         }
         return way_num;

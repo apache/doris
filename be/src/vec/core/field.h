@@ -165,7 +165,7 @@ class JsonbField {
 public:
     JsonbField() = default;
 
-    JsonbField(const char* ptr, uint32_t len) : size(len) {
+    JsonbField(const char* ptr, uint64_t len) : size(len) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -213,7 +213,7 @@ public:
     }
 
     const char* get_value() const { return data; }
-    uint32_t get_size() const { return size; }
+    uint64_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
@@ -252,7 +252,7 @@ public:
 
 private:
     char* data = nullptr;
-    uint32_t size = 0;
+    uint64_t size = 0;
 };
 
 template <typename T>

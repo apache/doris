@@ -24,6 +24,8 @@
 #include <iostream>
 #include <string>
 
+#include "common/cast_set.h"
+
 namespace doris {
 
 inline const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
@@ -32,7 +34,7 @@ inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 class LargeIntValue {
 public:
     static int32_t to_buffer(__int128 value, char* buffer) {
-        return fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer;
+        return cast_set<int32_t>(fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer);
     }
 
     static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }

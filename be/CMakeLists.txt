@@ -293,15 +293,13 @@ if (COMPILER_CLANG)
                         -Wunused-volatile-lvalue
                         -Wunused-template
                         -Wunused-member-function
-                        -Wunused-macros
-                        -Wconversion)
+                        -Wunused-macros)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion
                         -Wno-missing-field-initializers
-                        -Wno-unused-const-variable
-                        -Wno-shorten-64-to-32)
+                        -Wno-unused-const-variable)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -415,6 +413,9 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
+
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=shorten-64-to-32")
+
 
 # Add flags that are common across build types
 set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")

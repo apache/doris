@@ -92,16 +92,16 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // The interval format is that with no delimiters
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
-bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
+bool VecDateTimeValue::from_date_str(const char* date_str, int64_t len) {
     return from_date_str_base(date_str, len, nullptr);
 }
 //parse timezone to get offset
-bool VecDateTimeValue::from_date_str(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str(const char* date_str, int64_t len,
                                      const cctz::time_zone& local_time_zone) {
     return from_date_str_base(date_str, len, &local_time_zone);
 }
 
-bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str_base(const char* date_str, size_t len,
                                           const cctz::time_zone* local_time_zone) {
     const char* ptr = date_str;
     const char* end = date_str + len;
@@ -683,7 +683,7 @@ char* write_four_digits_to_string(int number, char* dst) {
     return dst + 4;
 }
 
-bool VecDateTimeValue::to_format_string_conservative(const char* format, int len, char* to,
+bool VecDateTimeValue::to_format_string_conservative(const char* format, size_t len, char* to,
                                                      int max_valid_length) const {
     if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
         return false;
@@ -1203,8 +1203,9 @@ static int check_word(const char* lib[], const char* str, const char* end, const
 
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
-bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
-                                            int value_len, const char** sub_val_end) {
+bool VecDateTimeValue::from_date_format_str(const char* format, size_t format_len,
+                                            const char* value, size_t value_len,
+                                            const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -2253,8 +2254,8 @@ void DateV2Value<T>::set_zero() {
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 template <typename T>
-bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, const char* value,
-                                          int value_len, const char** sub_val_end) {
+bool DateV2Value<T>::from_date_format_str(const char* format, size_t format_len, const char* value,
+                                          size_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -3449,7 +3450,7 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, char* to,
+bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
                                                    int max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;

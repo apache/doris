@@ -25,3 +25,6 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp *.cc)
 add_library(Exprs STATIC ${SRC_FILES})
 
 pch_reuse(Exprs)
+if (COMPILER_CLANG)
+    target_compile_options(Exprs PRIVATE -Wshorten-64-to-32)
+endif ()

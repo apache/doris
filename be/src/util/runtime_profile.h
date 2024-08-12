@@ -380,7 +380,7 @@ public:
     void get_all_children(std::vector<RuntimeProfile*>* children);
 
     // Returns the number of counters in this profile
-    int num_counters() const { return _counter_map.size(); }
+    int64_t num_counters() const { return _counter_map.size(); }
 
     // Returns name of this profile
     const std::string& name() const { return _name; }

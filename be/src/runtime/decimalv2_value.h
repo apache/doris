@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "util/hash_util.hpp"
 #include "vec/core/wide_integer.h"
 
@@ -175,7 +176,7 @@ public:
     // NOTE: return a negative value if decimal is negative.
     // ATTN: the max length of fraction part in OLAP is 9, so the 'big digits' except the first one
     // will be truncated.
-    int32_t frac_value() const { return static_cast<int64_t>(_value % ONE_BILLION); }
+    int32_t frac_value() const { return cast_set<int32_t>(_value % ONE_BILLION); }
 
     bool operator==(const DecimalV2Value& other) const { return _value == other.value(); }
 
@@ -211,7 +212,7 @@ public:
     // (to make error handling easier)
     //
     // e.g. "1.2"  ".2"  "1.2e-3"  "1.2e3"
-    int parse_from_str(const char* decimal_str, int32_t length);
+    int parse_from_str(const char* decimal_str, int64_t length);
 
     std::string get_debug_info() const { return to_string(); }
 

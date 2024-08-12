@@ -237,7 +237,7 @@ const uint8_t* BitPacking::Unpack32Values(const uint8_t* __restrict__ in, int64_
     static_assert(BIT_WIDTH >= 0, "BIT_WIDTH too low");
     static_assert(BIT_WIDTH <= MAX_BITWIDTH, "BIT_WIDTH too high");
     DCHECK_LE(BIT_WIDTH, sizeof(OutType) * CHAR_BIT) << "BIT_WIDTH too high for output";
-    constexpr int BYTES_TO_READ = BitUtil::RoundUpNumBytes(32 * BIT_WIDTH);
+    constexpr auto BYTES_TO_READ = BitUtil::RoundUpNumBytes(32 * BIT_WIDTH);
     DCHECK_GE(in_bytes, BYTES_TO_READ);
 
     // Call UnpackValue for 0 <= i < 32.
@@ -275,7 +275,7 @@ const uint8_t* BitPacking::UnpackAndDecode32Values(const uint8_t* __restrict__ i
                                                    bool* __restrict__ decode_error) {
     static_assert(BIT_WIDTH >= 0, "BIT_WIDTH too low");
     static_assert(BIT_WIDTH <= MAX_BITWIDTH, "BIT_WIDTH too high");
-    constexpr int BYTES_TO_READ = BitUtil::RoundUpNumBytes(32 * BIT_WIDTH);
+    constexpr auto BYTES_TO_READ = BitUtil::RoundUpNumBytes(32 * BIT_WIDTH);
     DCHECK_GE(in_bytes, BYTES_TO_READ);
     // TODO: this could be optimised further by using SIMD instructions.
     // https://lemire.me/blog/2016/08/25/faster-dictionary-decoding-with-simd-instructions/
@@ -303,7 +303,7 @@ const uint8_t* BitPacking::UnpackUpTo31Values(const uint8_t* __restrict__ in, in
     static_assert(BIT_WIDTH <= MAX_BITWIDTH, "BIT_WIDTH too high");
     DCHECK_LE(BIT_WIDTH, sizeof(OutType) * CHAR_BIT) << "BIT_WIDTH too high for output";
     constexpr int MAX_BATCH_SIZE = 31;
-    const int BYTES_TO_READ = BitUtil::RoundUpNumBytes(num_values * BIT_WIDTH);
+    const auto BYTES_TO_READ = BitUtil::RoundUpNumBytes(num_values * BIT_WIDTH);
     DCHECK_GE(in_bytes, BYTES_TO_READ);
     DCHECK_LE(num_values, MAX_BATCH_SIZE);
 
@@ -347,7 +347,7 @@ const uint8_t* BitPacking::UnpackAndDecodeUpTo31Values(const uint8_t* __restrict
     static_assert(BIT_WIDTH >= 0, "BIT_WIDTH too low");
     static_assert(BIT_WIDTH <= MAX_BITWIDTH, "BIT_WIDTH too high");
     constexpr int MAX_BATCH_SIZE = 31;
-    const int BYTES_TO_READ = BitUtil::RoundUpNumBytes(num_values * BIT_WIDTH);
+    const auto BYTES_TO_READ = BitUtil::RoundUpNumBytes(num_values * BIT_WIDTH);
     DCHECK_GE(in_bytes, BYTES_TO_READ);
     DCHECK_LE(num_values, MAX_BATCH_SIZE);
 

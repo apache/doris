@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
@@ -584,7 +585,7 @@ public:
     }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
+        cast_set(_current_rowid, ord_idx);
         return Status::OK();
     }
 
@@ -595,7 +596,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            rowid_t row_id = _current_rowid + i;
+            auto row_id = cast_set<rowid_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
         }

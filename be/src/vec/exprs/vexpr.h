@@ -153,7 +153,7 @@ public:
 
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
     VExprSPtr get_child(int i) const { return _children[i]; }
-    int get_num_children() const { return _children.size(); }
+    size_t get_num_children() const { return _children.size(); }
 
     virtual bool need_judge_selectivity() {
         return std::ranges::any_of(_children.begin(), _children.end(),

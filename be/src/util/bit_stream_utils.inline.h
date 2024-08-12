@@ -279,7 +279,7 @@ inline bool BatchedBitReader::SkipBatch(int bit_width, int num_values_to_skip) {
     DCHECK_LE(bit_width, MAX_BITWIDTH);
     DCHECK_GE(num_values_to_skip, 0);
 
-    int skip_bytes = BitUtil::RoundUpNumBytes(bit_width * num_values_to_skip);
+    auto skip_bytes = BitUtil::RoundUpNumBytes(bit_width * num_values_to_skip);
     if (skip_bytes > buffer_end_ - buffer_pos_) {
         return false;
     }

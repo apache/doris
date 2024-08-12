@@ -67,7 +67,7 @@ inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
 
 // Swap bytes of a 24-bit value.
 inline uint32_t bswap_24(uint32_t x) {
-    return ((x & 0x0000ffULL) << 16) | ((x & 0x00ff00ULL)) | ((x & 0xff0000ULL) >> 16);
+    return ((x & 0x0000ffU) << 16) | ((x & 0x00ff00U)) | ((x & 0xff0000U) >> 16);
 }
 
 #ifdef IS_LITTLE_ENDIAN

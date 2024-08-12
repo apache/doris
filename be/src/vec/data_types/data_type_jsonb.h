@@ -69,7 +69,7 @@ public:
 
     virtual Field get_default() const override {
         std::string default_json = "{}";
-        JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
+        JsonBinaryValue binary_val(default_json.c_str(), cast_set<int>(default_json.size()));
         return JsonbField(binary_val.value(), binary_val.size());
     }
 

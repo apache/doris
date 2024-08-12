@@ -283,9 +283,9 @@ public:
         }
     }
 
-    int32_t find_code(const StringRef& value) const { return _dict.find_code(value); }
+    int64_t find_code(const StringRef& value) const { return _dict.find_code(value); }
 
-    int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
+    int64_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
@@ -364,7 +364,7 @@ public:
             _total_str_len += value.size;
         }
 
-        int32_t find_code(const StringRef& value) const {
+        int64_t find_code(const StringRef& value) const {
             for (size_t i = 0; i < _dict_data->size(); i++) {
                 if ((*_dict_data)[i] == value) {
                     return i;
@@ -402,11 +402,11 @@ public:
 
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
+                int64_t len = sv.size;
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     len = strnlen(sv.data, sv.size);
                 }
-                uint32_t hash_val = HashUtil::crc_hash(sv.data, len, 0);
+                uint32_t hash_val = HashUtil::crc_hash(sv.data, cast_set<int32_t>(len), 0);
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];
@@ -430,7 +430,7 @@ public:
         //  so upper_bound is the code 0 of b, then evaluate code < 0 and returns empty
         // If the predicate is col <= 'a' and upper_bound-1 is -1,
         //  then evaluate code <= -1 and returns empty
-        int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
+        int64_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;

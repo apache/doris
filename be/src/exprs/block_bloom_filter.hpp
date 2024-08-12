@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
@@ -75,7 +76,7 @@ public:
     // Same as above with convenience of hashing the key.
     void insert(const StringRef& key) noexcept {
         if (key.data) {
-            insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+            insert(HashUtil::crc_hash(key.data, cast_set<int32_t>(key.size), _hash_seed));
         }
     }
 
@@ -119,7 +120,7 @@ public:
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
-            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
+            return find(HashUtil::crc_hash(key.data, cast_set<int32_t>(key.size), _hash_seed));
         }
         return false;
     }

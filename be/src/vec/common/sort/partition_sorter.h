@@ -66,7 +66,7 @@ public:
         }
         return true;
     }
-    int row = 0;
+    int64_t row = 0;
     MergeSortCursorImpl* impl = nullptr;
 };
 

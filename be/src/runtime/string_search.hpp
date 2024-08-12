@@ -42,7 +42,7 @@ public:
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
-    int search(const StringRef* str) const {
+    int64_t search(const StringRef* str) const {
         auto it = search(str->data, str->size);
         if (it == str->data + str->size) {
             return -1;
@@ -51,7 +51,7 @@ public:
         }
     }
 
-    int search(const StringRef& str) const {
+    int64_t search(const StringRef& str) const {
         auto it = search(str.data, str.size);
         if (it == str.data + str.size) {
             return -1;

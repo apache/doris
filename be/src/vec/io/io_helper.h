@@ -440,7 +440,7 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 
 template <typename T>
 const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
-    const int len = end - pos;
+    const auto len = end - pos;
     int i = 0;
     while (i < len) {
         if (pos[i] >= '0' && pos[i] <= '9') {

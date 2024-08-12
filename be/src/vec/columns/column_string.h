@@ -216,7 +216,7 @@ public:
 
         const char* ptr = strings[0].data;
         for (size_t i = 0; i != num; i++) {
-            uint32_t len = strings[i].size;
+            auto len = strings[i].size;
             length += len;
             offset += len;
             offsets.push_back(offset);
@@ -301,7 +301,7 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            auto len = strings[i].size;
             if (len) {
                 memcpy(data + offset, strings[i].data, len);
                 offset += len;
@@ -324,7 +324,7 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            auto len = strings[i].size;
             if (len) {
                 memcpy(data + offset, strings[i].data, copy_length);
                 offset += len;
@@ -361,7 +361,7 @@ public:
         for (size_t i = 0; i < num; i++) {
             int32_t codeword = data_array[i + start_index];
             new_size += dict[codeword].size;
-            offsets[offset_size + i] = new_size;
+            offsets[offset_size + i] = cast_set<T>(new_size);
         }
 
         check_chars_length(new_size, offsets.size());
@@ -425,13 +425,15 @@ public:
             for (size_t i = start; i < end; ++i) {
                 if (null_data[i] == 0) {
                     auto data_ref = get_data_at(i);
-                    hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                    hash = HashUtil::zlib_crc_hash(data_ref.data, cast_set<int32_t>(data_ref.size),
+                                                   hash);
                 }
             }
         } else {
             for (size_t i = start; i < end; ++i) {
                 auto data_ref = get_data_at(i);
-                hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                hash = HashUtil::zlib_crc_hash(data_ref.data, cast_set<int32_t>(data_ref.size),
+                                               hash);
             }
         }
     }
@@ -492,7 +494,7 @@ public:
     void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
-        offsets.resize_fill(offsets.size() + length, chars.size());
+        offsets.resize_fill(offsets.size() + length, cast_set<T>(chars.size()));
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
