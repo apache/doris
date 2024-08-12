@@ -406,7 +406,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
 void internal_create_tablet(MetaServiceCode& code, std::string& msg,
                             const doris::TabletMetaCloudPB& meta, std::shared_ptr<TxnKv> txn_kv,
                             const std::string& instance_id,
-                            std::set<std::pair<int64_t, int32_t>>& saved_schema) {
+                            std::set<std::pair<int64_t, int32_t>>& saved_schema, int64_t db_id) {
     doris::TabletMetaCloudPB tablet_meta(meta);
     bool has_first_rowset = tablet_meta.rs_metas_size() > 0;
 
@@ -496,7 +496,7 @@ void internal_create_tablet(MetaServiceCode& code, std::string& msg,
     MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
     meta_tablet_idx_key(key_info1, &key1);
     TabletIndexPB tablet_table;
-    // tablet_table.set_db_id(db_id);
+    tablet_table.set_db_id(db_id);
     tablet_table.set_table_id(table_id);
     tablet_table.set_index_id(index_id);
     tablet_table.set_partition_id(partition_id);
@@ -618,11 +618,13 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         msg = fmt::format("failed to get vault id, vault name={}", name);
         return;
     }
+    DCHECK(request->has_db_id());
     // [index_id, schema_version]
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
-        internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
+        internal_create_tablet(code, msg, tablet_meta, txn_kv_, instance_id, saved_schema,
+                               request->db_id());
         if (code != MetaServiceCode::OK) {
             return;
         }

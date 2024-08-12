@@ -592,7 +592,8 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }));
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::repair_tablet_index(); }));
         bool finished = true;
         std::vector<int> rets = sync_executor.when_all(&finished);
         for (int ret : rets) {
@@ -2642,6 +2643,167 @@ bool InstanceRecycler::check_recycle_tasks() {
     }
 
     return found;
+}
+
+int InstanceRecycler::repair_tablet_index() {
+    const std::string task_name = "repair_tablet_index";
+    int num_partition_scanned = 0;
+    int num_tablet_scanned = 0;
+    int num_tablet_repaired = 0;
+
+    std::string begin_partition_ver_key = partition_version_key({instance_id_, 0, 0, 0});
+    std::string end_partition_ver_key =
+            partition_version_key({instance_id_, INT64_MAX, INT64_MAX, INT64_MAX});
+
+    LOG_INFO("begin to repaire tablet index").tag("instance_id", instance_id_);
+
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
+
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        LOG_INFO("end to repaire tablet index, cost={}s", cost)
+                .tag("instance_id", instance_id_)
+                .tag("num_partition_scanned", num_partition_scanned)
+                .tag("num_tablet_scanned", num_tablet_scanned)
+                .tag("num_tablet_repaired", num_tablet_repaired);
+    });
+
+    auto handle_partition_ver_kv = [&num_partition_scanned, &num_tablet_scanned,
+                                    &num_tablet_repaired,
+                                    this](std::string_view key, std::string_view val) -> int {
+        ++num_partition_scanned;
+
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        auto key1 = key;
+        // PartitionVersionKeyInfo 0:instance_id  1:db_id  2:tbl_id  3:partition_id
+        key1.remove_prefix(1); // Remove key space
+        if (decode_key(&key1, &out) != 0) {
+            LOG_ERROR("failed to decode key").tag("instance_id", instance_id_).tag("key", hex(key));
+            return -1;
+        }
+
+        int64_t db_id = std::get<int64_t>(std::get<0>(out[3]));
+        int64_t table_id = std::get<int64_t>(std::get<0>(out[4]));
+        int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
+        VLOG_DEBUG << "instance_id=" << instance_id_ << " db_id=" << db_id
+                   << " table_id=" << table_id << " partition_id=" << partition_id;
+
+        DCHECK(db_id > 0);
+        DCHECK(table_id > 0);
+        DCHECK(partition_id > 0);
+
+        std::string begin = meta_tablet_key({instance_id_, table_id, 0, 0, 0});
+        std::string end =
+                meta_tablet_key({instance_id_, table_id, INT64_MAX, INT64_MAX, INT64_MAX});
+
+        bool need_commit = false;
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_ERROR("failed to create txn err={}", err)
+                        .tag("instance_id", instance_id_)
+                        .tag("key", hex(key));
+                return -1;
+            }
+
+            // cannot snapshot scan, so batch get limit set 100
+            // to avoid large fdb txn
+            err = txn->get(begin, end, &it, false, 100);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_ERROR("failed to get range tablet meta err={}", err)
+                        .tag("instance_id", instance_id_)
+                        .tag("begin", hex(begin));
+                return -1;
+            }
+
+            VLOG_DEBUG << "fetch " << it->size() << " kv";
+            if (!it->has_next()) {
+                VLOG_DEBUG << "no keys in the given range, begin=" << hex(begin)
+                           << " end=" << hex(end);
+                break;
+            }
+
+            while (it->has_next()) {
+                auto [k, v] = it->next();
+                ++num_tablet_scanned;
+                if (!it->has_next()) {
+                    begin = k;
+                    VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
+                }
+
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out2;
+                auto k1 = k;
+                // MetaTabletKeyInfo 0:instance_id 1:tbl_id 2:index_id 3:partition_id 4:tablet_id
+                k1.remove_prefix(1); // Remove key space
+                if (decode_key(&k1, &out2) != 0) {
+                    LOG_ERROR("failed to decode key")
+                            .tag("instance_id", instance_id_)
+                            .tag("key", hex(k));
+                    return -1;
+                }
+                int64_t table_id_ = std::get<int64_t>(std::get<0>(out2[3]));
+                int64_t partition_id_ = std::get<int64_t>(std::get<0>(out2[5]));
+                int64_t tablet_id_ = std::get<int64_t>(std::get<0>(out2[6]));
+                VLOG_DEBUG << "instance_id=" << instance_id_ << " table_id=" << table_id_
+                           << " partition_id=" << partition_id_ << " tablet=" << tablet_id_;
+                DCHECK_EQ(table_id, table_id_);
+                if (partition_id == partition_id_) {
+                    std::string idx_key = meta_tablet_idx_key({instance_id_, tablet_id_});
+                    std::string idx_val;
+                    err = txn->get(idx_key, &idx_val);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        LOG_ERROR("failed to get tablet index err={}", err)
+                                .tag("instance_id", instance_id_)
+                                .tag("idx_key", hex(idx_key));
+                        return -1;
+                    }
+                    TabletIndexPB tablet_idx_pb;
+                    if (!tablet_idx_pb.ParseFromString(idx_val)) {
+                        LOG_ERROR("malformed tablet index value")
+                                .tag("instance_id", instance_id_)
+                                .tag("idx_key", hex(idx_key));
+                        return -1;
+                    }
+                    DCHECK_EQ(tablet_idx_pb.table_id(), table_id);
+                    DCHECK_EQ(tablet_idx_pb.tablet_id(), tablet_id_);
+                    if (!tablet_idx_pb.has_db_id() && (tablet_idx_pb.table_id() == table_id)) {
+                        tablet_idx_pb.set_db_id(db_id);
+                        idx_val.clear();
+                        if (!tablet_idx_pb.SerializeToString(&idx_val)) {
+                            LOG_ERROR("failed to serilize tablet index value")
+                                    .tag("instance_id", instance_id_)
+                                    .tag("idx_key", hex(idx_key));
+                            return -1;
+                        }
+                        txn->put(idx_key, idx_val);
+                        need_commit = true;
+                        ++num_tablet_repaired;
+                    }
+                }
+            }
+
+            if (need_commit) {
+                err = txn->commit();
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG_ERROR("failed to commit txn err={}", err)
+                            .tag("instance_id", instance_id_)
+                            .tag("begin", hex(begin));
+                    return -1;
+                }
+                need_commit = false;
+            }
+            begin.push_back('\x00'); // Update to next smallest key for iteration
+        } while (it->more() && !stopped());
+        return 0;
+    };
+
+    return scan_and_recycle(begin_partition_ver_key, end_partition_ver_key,
+                            std::move(handle_partition_ver_kv));
 }
 
 } // namespace doris::cloud

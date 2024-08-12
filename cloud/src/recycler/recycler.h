@@ -181,6 +181,9 @@ public:
 
     bool check_recycle_tasks();
 
+    // repaire TabletIndexPB missing db_id
+    int repair_tablet_index();
+
 private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors();

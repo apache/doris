@@ -168,6 +168,7 @@ void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id
                    bool not_ready = false) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
+    req.set_db_id(1000);
     CreateTabletsResponse res;
     auto tablet = req.add_tablet_metas();
     tablet->set_tablet_state(not_ready ? doris::TabletStatePB::PB_NOTREADY

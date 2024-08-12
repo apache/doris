@@ -2642,4 +2642,74 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 }
 
+static int create_tablet_with_out_set_db_id(TxnKv* txn_kv, int64_t table_id, int64_t index_id,
+                                            int64_t partition_id, int64_t tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    doris::TabletMetaCloudPB tablet_meta;
+    tablet_meta.set_tablet_id(tablet_id);
+    auto val = tablet_meta.SerializeAsString();
+    txn->put(key, val);
+    key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val); // val is not necessary
+    key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val); // val is not necessary
+
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    auto idx_val = tablet_idx_pb.SerializeAsString();
+    key = meta_tablet_idx_key({instance_id, tablet_id});
+    txn->put(key, idx_val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+TEST(RecyclerTest, repair_tablet_index) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::vector<int64_t> index_ids {20001, 20002, 20003, 20004, 20005};
+    std::vector<int64_t> partition_ids {30001, 30002, 30003, 30004, 30005, 30006};
+    constexpr int64_t table_id = 123414131;
+    int64_t tablet_base = 4031234133;
+    int64_t tablet_id = tablet_base;
+    for (auto index_id : index_ids) {
+        for (auto partition_id : partition_ids) {
+            create_tablet_with_out_set_db_id(txn_kv.get(), table_id, index_id, partition_id,
+                                             ++tablet_id);
+        }
+    }
+    for (auto partition_id : partition_ids) {
+        create_partition_version_kv(txn_kv.get(), table_id, partition_id);
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.repair_tablet_index(), 0);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    tablet_id = tablet_base;
+    for ([[maybe_unused]] auto index_id : index_ids) {
+        for ([[maybe_unused]] auto partition_id : partition_ids) {
+            std::string key = meta_tablet_idx_key({instance_id, ++tablet_id});
+            std::string val;
+            ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+            TabletIndexPB tablet_idx_pb;
+            tablet_idx_pb.ParseFromString(val);
+            ASSERT_EQ(tablet_idx_pb.db_id(), db_id);
+        }
+    }
+}
+
 } // namespace doris::cloud

@@ -895,6 +895,7 @@ message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
+    optional int64 db_id = 4;
 }
 
 message CreateTabletsResponse {

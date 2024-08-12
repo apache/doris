@@ -129,6 +129,7 @@ static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
+    req.set_db_id(1000);
     CreateTabletsResponse res;
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
@@ -7056,6 +7057,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     {
         CreateTabletsRequest request;
         request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000);
 
         brpc::Controller cntl;
         CreateTabletsResponse response;
@@ -7069,6 +7071,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(1000);
         req.set_storage_vault_name("");
         req.add_tablet_metas();
 
@@ -7132,6 +7135,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(1000);
         req.set_storage_vault_name("");
         req.add_tablet_metas();
 
@@ -7155,6 +7159,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     {
         CreateTabletsRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(1000);
         req.set_storage_vault_name("non-existent");
         req.add_tablet_metas();
 

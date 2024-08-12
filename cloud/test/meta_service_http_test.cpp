@@ -261,6 +261,7 @@ static void create_tablet(MetaService* meta_service, int64_t table_id, int64_t i
                           int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
+    req.set_db_id(1000);
     CreateTabletsResponse res;
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);

@@ -361,6 +361,7 @@ static int create_tablet(MetaService* meta_service, const std::string& instance_
     cloud::CreateTabletsRequest req;
     cloud::CreateTabletsResponse resp;
     req.set_cloud_unique_id(cloud_unique_id(instance_id));
+    req.set_db_id(1000);
     req.add_tablet_metas()->CopyFrom(add_tablet(table_id, index_id, partition_id, tablet_id));
     meta_service->create_tablets(&ctrl, &req, &resp, nullptr);
     if (ctrl.Failed()) {

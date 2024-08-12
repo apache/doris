@@ -180,6 +180,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
                 requestBuilder.setStorageVaultName(storageVaultName);
             }
+            requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}, vault name {}",

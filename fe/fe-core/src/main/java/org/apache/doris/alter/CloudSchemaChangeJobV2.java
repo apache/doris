@@ -235,6 +235,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.rowStorePageSize());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
+                requestBuilder.setDbId(dbId);
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                         .sendCreateTabletsRpc(requestBuilder);
             }
