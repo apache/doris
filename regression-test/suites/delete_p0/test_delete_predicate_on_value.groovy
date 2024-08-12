@@ -15,11 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_delete_on_value") {
+suite("test_delete_predicate_on_value") {
 
-    sql "set skip_storage_engine_merge=false;"
-    sql "set skip_delete_bitmap=false;"
-    sql "set skip_delete_predicate=false;"
     def tableName = "test_delete_on_value"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
@@ -33,25 +30,27 @@ suite("test_delete_on_value") {
             PROPERTIES (
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "true"
             );"""
     sql """ insert into ${tableName} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6),(7,7,7),(8,8,8),(9,9,9); """
-    qt_sql "select * from ${tableName} order by x,y,z;"
+    qt_sql_1 "select * from ${tableName} order by x,y,z;"
     sql "delete from ${tableName} where y=4;"
-    qt_sql "select * from ${tableName} order by x,y,z;"
+    qt_sql_1 "select * from ${tableName} order by x,y,z;"
     sql "delete from ${tableName} where z>=3 and z<=7;"
-    qt_sql "select * from ${tableName} order by x,y,z;"
+    qt_sql_1 "select * from ${tableName} order by x,y,z;"
     sql "set skip_delete_predicate=true;"
-    qt_sql "select x,y,z,__DORIS_DELETE_SIGN__ from ${tableName} order by x,y,z,__DORIS_DELETE_SIGN__;"
+    qt_skip_delete_predicate_sql_1 "select x,y,z,__DORIS_DELETE_SIGN__ from ${tableName} order by x,y,z,__DORIS_DELETE_SIGN__;"
     sql "set skip_delete_predicate=false;"
     sql "insert into ${tableName} values(4,4,4),(5,5,5);"
-    qt_sql "select * from ${tableName} order by x,y,z;"
+    qt_sql_1 "select * from ${tableName} order by x,y,z;"
     sql "delete from ${tableName} where y=5;"
-    qt_sql "select * from ${tableName} order by x,y,z;"
-    sql "set skip_storage_engine_merge=true;"
-    sql "set skip_delete_bitmap=true;"
+    qt_sql_1 "select * from ${tableName} order by x,y,z;"
+
     sql "set skip_delete_predicate=true;"
-    qt_sql "select x,y,z,__DORIS_DELETE_SIGN__ from ${tableName} order by x,y,z,__DORIS_DELETE_SIGN__;"
+    qt_skip_delete_predicate_sql_1 "select x,y,z,__DORIS_DELETE_SIGN__ from ${tableName} order by x,y,z,__DORIS_DELETE_SIGN__;"
+    sql "set skip_storage_engine_merge=false;"
+
     sql "DROP TABLE IF EXISTS ${tableName};"
 
 
@@ -75,9 +74,6 @@ suite("test_delete_on_value") {
         exception "delete predicate on value column only supports Unique table with merge-on-write enabled and Duplicate table, but Table[test_delete_on_value2] is an Aggregate table."
     }
 
-    sql "set skip_storage_engine_merge=false;"
-    sql "set skip_delete_bitmap=false;"
-    sql "set skip_delete_predicate=false;"
     def tableName3 = "test_delete_on_value_with_seq_col"
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ CREATE TABLE ${tableName3} (
@@ -92,29 +88,34 @@ suite("test_delete_on_value") {
                 "disable_auto_compaction" = "true",
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "true",
                 "function_column.sequence_col" = "z"
             );"""
     sql "insert into ${tableName3} values(1,1,10);"
     sql "insert into ${tableName3} values(1,1,5);"
-    qt_sql "select * from ${tableName3} order by x,y,z;"
+    qt_sql_3 "select * from ${tableName3} order by x,y,z;"
+
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     sql "set skip_delete_predicate=true;"
-    qt_sql "select * from ${tableName3} order by x,y,z;"
+    qt_skip_delete_predicate_sql_3 "select * from ${tableName3} order by x,y,z;"
     sql "set skip_storage_engine_merge=false;"
     sql "set skip_delete_bitmap=false;"
     sql "set skip_delete_predicate=false;"
+
     sql "delete from ${tableName3} where z>=10;"
-    qt_sql "select * from ${tableName3} order by x,y,z;"
+    qt_sql_3 "select * from ${tableName3} order by x,y,z;"
+
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     sql "set skip_delete_predicate=true;"
-    qt_sql "select * from ${tableName3} order by x,y,z;"
+    qt_skip_delete_predicate_sql_3 "select * from ${tableName3} order by x,y,z;"
+    sql "set skip_storage_engine_merge=false;"
+    sql "set skip_delete_bitmap=false;"
+    sql "set skip_delete_predicate=false;"
     sql "DROP TABLE IF EXISTS ${tableName3}"
 
-    sql "set skip_storage_engine_merge=false;"
-    sql "set skip_delete_bitmap=false;"
-    sql "set skip_delete_predicate=false;"
+
     def tableName4 = "test_delete_on_value_with_seq_col_mor"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ CREATE TABLE ${tableName4} (
@@ -134,23 +135,17 @@ suite("test_delete_on_value") {
     // test mor table
     sql "insert into ${tableName4} values(1,1,10);"
     sql "insert into ${tableName4} values(1,1,5);"
-    qt_sql "select * from ${tableName4} order by x,y,z;"
-    sql "set skip_storage_engine_merge=true;"
-    sql "set skip_delete_bitmap=true;"
-    sql "set skip_delete_predicate=true;"
-    qt_sql "select * from ${tableName4} order by x,y,z;"
-    sql "set skip_storage_engine_merge=false;"
-    sql "set skip_delete_bitmap=false;"
-    sql "set skip_delete_predicate=false;"
+    qt_sql_4 "select * from ${tableName4} order by x,y,z;"
     sql "delete from ${tableName4} where z>=10;"
-    qt_sql "select * from ${tableName4} order by x,y,z;"
+    qt_sql_4 "select * from ${tableName4} order by x,y,z;"
+
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     sql "set skip_delete_predicate=true;"
-    qt_sql "select * from ${tableName4} order by x,y,z;"
-    sql "DROP TABLE IF EXISTS ${tableName4};"
-
+    qt_skip_delete_predicate_sql_4 "select * from ${tableName4} order by x,y,z;"
     sql "set skip_storage_engine_merge=false;"
     sql "set skip_delete_bitmap=false;"
     sql "set skip_delete_predicate=false;"
+
+    sql "DROP TABLE IF EXISTS ${tableName4};"
 }
