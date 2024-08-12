@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.mtmv.MTMVRefreshPartitionRange;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -34,14 +35,19 @@ public class MTMVTaskContext {
     @SerializedName(value = "isComplete")
     private boolean isComplete;
 
+    @SerializedName(value = "range")
+    private MTMVRefreshPartitionRange range;
+
     public MTMVTaskContext(MTMVTaskTriggerMode triggerMode) {
         this.triggerMode = triggerMode;
     }
 
-    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions, boolean isComplete) {
+    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions, boolean isComplete,
+            MTMVRefreshPartitionRange range) {
         this.triggerMode = triggerMode;
         this.partitions = partitions;
         this.isComplete = isComplete;
+        this.range = range;
     }
 
     public List<String> getPartitions() {
@@ -56,12 +62,17 @@ public class MTMVTaskContext {
         return isComplete;
     }
 
+    public MTMVRefreshPartitionRange getRange() {
+        return range;
+    }
+
     @Override
     public String toString() {
         return "MTMVTaskContext{"
                 + "triggerMode=" + triggerMode
                 + ", partitions=" + partitions
                 + ", isComplete=" + isComplete
+                + ", range=" + range
                 + '}';
     }
 }
