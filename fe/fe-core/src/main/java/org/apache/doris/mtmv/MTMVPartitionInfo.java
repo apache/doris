@@ -19,9 +19,8 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.datasource.CatalogMgr;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -32,7 +31,7 @@ import java.util.List;
 /**
  * MTMVPartitionInfo
  */
-public class MTMVPartitionInfo implements GsonPostProcessable {
+public class MTMVPartitionInfo {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionInfo.class);
 
     public enum MTMVPartitionType {
@@ -163,20 +162,18 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
      * but when the catalog is deleted, the ID will change, so name is used instead.
      * The logic here is to be compatible with older versions by converting ID to name
      */
-    @Override
-    public void gsonPostProcess() {
+    public void compatible(CatalogMgr catalogMgr) {
         if (relatedTableId == null) {
             return;
         }
         try {
-            TableIf table = MTMVUtil.getTable(relatedTableId);
-            relatedTable = new BaseTableNameInfo(table);
+            relatedTable = MTMVUtil.transferIdToName(relatedTableId, catalogMgr);
         } catch (Throwable e) {
             relatedTable = new BaseTableNameInfo("dummyCatalog", "dummyDatabase", "dummyTable");
             LOG.warn(
                     "can not transfer relatedTableId to relatedTable: {}, "
                             + "may be cause by catalog/db/table dropped, we need rebuild MTMV",
-                    relatedTableId, e.getMessage());
+                    relatedTableId, e);
         } finally {
             relatedTableId = null;
         }

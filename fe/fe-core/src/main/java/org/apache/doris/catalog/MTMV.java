@@ -25,6 +25,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
@@ -503,5 +504,14 @@ public class MTMV extends OlapTable {
         sb.append(", comment='").append(comment).append('\'');
         sb.append('}');
         return sb.toString();
+    }
+
+    public void compatible(CatalogMgr catalogMgr) {
+        if (mvPartitionInfo != null) {
+            mvPartitionInfo.compatible(catalogMgr);
+        }
+        if (refreshSnapshot != null) {
+            refreshSnapshot.compatible(catalogMgr, this);
+        }
     }
 }

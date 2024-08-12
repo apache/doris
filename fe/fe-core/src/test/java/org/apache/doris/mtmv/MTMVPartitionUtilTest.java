@@ -107,7 +107,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = refreshSnapshot;
 
-                refreshSnapshot.equalsWithBaseTable(anyString, anyLong, (MTMVSnapshotIf) any);
+                refreshSnapshot.equalsWithBaseTable(anyString, (BaseTableNameInfo) any, (MTMVSnapshotIf) any);
                 minTimes = 0;
                 result = true;
 
@@ -148,7 +148,7 @@ public class MTMVPartitionUtilTest {
     public void testIsMTMVSyncNotSync() {
         new Expectations() {
             {
-                refreshSnapshot.equalsWithBaseTable(anyString, anyLong, (MTMVSnapshotIf) any);
+                refreshSnapshot.equalsWithBaseTable(anyString, (BaseTableNameInfo) any, (MTMVSnapshotIf) any);
                 minTimes = 0;
                 result = false;
             }

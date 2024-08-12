@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -27,6 +28,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -79,6 +82,14 @@ public class MTMVUtil {
                     "base table for partitioning only can be OlapTable or HMSTable");
         }
         return (MTMVRelatedTableIf) relatedTable;
+    }
+
+    public static BaseTableNameInfo transferIdToName(BaseTableInfo baseTableInfo, CatalogMgr catalogMgr)
+            throws AnalysisException {
+        CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(baseTableInfo.getCtlId());
+        DatabaseIf db = catalog.getDbOrAnalysisException(baseTableInfo.getDbId());
+        TableIf table = db.getTableOrAnalysisException(baseTableInfo.getTableId());
+        return new BaseTableNameInfo(table.getName(), db.getFullName(), catalog.getName());
     }
 
     public static MTMVRelatedTableIf getRelatedTable(BaseTableNameInfo baseTableInfo) {
@@ -170,6 +181,18 @@ public class MTMVUtil {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
                 throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
+    }
+
+    public static void compatibleMTMV(CatalogMgr catalogMgr) {
+        List<Database> dbs = catalogMgr.getInternalCatalog().getDbs();
+        for (Database database : dbs) {
+            List<Table> tables = database.getTables();
+            for (Table table : tables) {
+                if (table instanceof MTMV) {
+                    ((MTMV) table).compatible(catalogMgr);
+                }
             }
         }
     }
