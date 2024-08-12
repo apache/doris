@@ -66,7 +66,8 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
             DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES (
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true" 
+                "enable_unique_key_merge_on_write" = "true",
+                "enable_mow_light_delete" = "true"
             );
         """
 

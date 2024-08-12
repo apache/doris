@@ -178,6 +178,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
+
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
                                        segment);
     if (!s.ok()) {

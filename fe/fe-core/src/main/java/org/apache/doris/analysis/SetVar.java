@@ -179,12 +179,22 @@ public class SetVar {
             this.result = (LiteralExpr) this.value;
         }
 
-        if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
-            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
+        if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)
+                || getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)) {
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolume(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;
         }
-        if (getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)) {
-            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
+        if (getVariable().equalsIgnoreCase(SessionVariable.FILE_SPLIT_SIZE)) {
+            try {
+                this.value = new StringLiteral(
+                        Long.toString(ParseUtil.analyzeDataVolume(getResult().getStringValue())));
+            } catch (Throwable t) {
+                // The way of handling file_split_size should be same as exec_mem_limit or scan_queue_mem_limit.
+                // But ParseUtil.analyzeDataVolume() does not accept 0 as a valid value.
+                // So for compatibility, we set origin value to file_split_size
+                // when the value is 0 or other invalid value.
+                this.value = new StringLiteral(getResult().getStringValue());
+            }
             this.result = (LiteralExpr) this.value;
         }
         if (getVariable().equalsIgnoreCase("is_report_success")) {

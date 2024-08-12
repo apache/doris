@@ -694,8 +694,10 @@ public:
         case TYPE_CHAR:
         case TYPE_STRING: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
-                const auto& string_val_ref = column.stringval();
-                set->insert(&string_val_ref);
+                const std::string& string_value = column.stringval();
+                // string_value is std::string, call insert(data, size) function in StringSet will not cast as StringRef
+                // so could avoid some cast error at different class object.
+                set->insert((void*)string_value.data(), string_value.size());
             });
             break;
         }
@@ -1005,7 +1007,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
-    RuntimeFilterContextSPtr _rf_context;
+    // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
+    // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
+    // after query context because the rpc is not returned.
+    std::weak_ptr<RuntimeFilterContext> _rf_context;
     std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
@@ -1021,7 +1026,13 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            _rf_context->ignored = true;
+            auto ctx = _rf_context.lock();
+            if (ctx) {
+                ctx->ignored = true;
+            } else {
+                LOG(WARNING) << "sync filter size returned but context is released, filter="
+                             << _rf_debug_info;
+            }
         } else {
             LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
             Base::_process_if_meet_error_status(status);
@@ -1279,6 +1290,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.max_in_num = options->runtime_filter_max_in_num;
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
+                                                   : 0;
+    params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
+                                                   ? options->runtime_bloom_filter_max_size
                                                    : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
@@ -1618,8 +1632,10 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<std::string>(filter, it, [](PColumnValue* column, const std::string* value) {
-            column->set_stringval(*value);
+        //const void* void_value = it->get_value();
+        //Now the get_value return void* is StringRef
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(value->to_string());
         });
         return;
     }

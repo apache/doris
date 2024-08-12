@@ -56,7 +56,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         _exchanger->close(*this);
     }
     if (_shared_state) {
-        _shared_state->sub_running_source_operators();
+        _shared_state->sub_running_source_operators(*this);
     }
 
     return Base::close(state);
@@ -64,9 +64,12 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
 
 std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
-        deps.push_back(dep);
+    auto le_deps = _shared_state->get_dep_by_channel_id(_channel_id);
+    if (le_deps.size() > 1) {
+        // If this is a local merge exchange, we should use all dependencies here.
+        for (auto& dep : le_deps) {
+            deps.push_back(dep.get());
+        }
     }
     return deps;
 }
@@ -75,11 +78,13 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
-                   "_running_sink_operators: {}, _running_source_operators: {}, mem_usage: {}",
+                   "_running_sink_operators: {}, _running_source_operators: {}, mem_usage: {}, "
+                   "data queue info: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
                    _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
-                   _shared_state->mem_usage.load());
+                   _shared_state->mem_usage.load(),
+                   _exchanger->data_queue_debug_string(_channel_id));
     size_t i = 0;
     fmt::format_to(debug_string_buffer, ", MemTrackers: ");
     for (auto* mem_tracker : _shared_state->mem_trackers) {

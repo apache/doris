@@ -957,18 +957,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TShowVariableResult showVariables(TShowVariableRequest params) throws TException {
         TShowVariableResult result = new TShowVariableResult();
-        Map<String, String> map = Maps.newHashMap();
-        result.setVariables(map);
+        List<List<String>> vars = Lists.newArrayList();
+        result.setVariables(vars);
         // Find connect
         ConnectContext ctx = exeEnv.getScheduler().getContext((int) params.getThreadId());
         if (ctx == null) {
             return result;
         }
-        List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
-        for (List<String> row : rows) {
-            map.put(row.get(0), row.get(1));
-        }
+        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(), null);
+        result.setVariables(vars);
         return result;
     }
 
@@ -1682,7 +1679,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
                     + " fullDbName: " + fullDbName);
         }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
+                : Config.try_commit_lock_timeout_seconds * 1000;
         List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
@@ -1798,7 +1796,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 4: get timeout
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
+                : Config.try_commit_lock_timeout_seconds * 1000;
 
         // Step 5: commit and publish
         if (request.isSetTxnInsert() && request.isTxnInsert()) {
@@ -1843,6 +1842,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         try {
+            if (DebugPointUtil.isEnable("FrontendServiceImpl.loadTxnRollback.error")) {
+                throw new UserException("FrontendServiceImpl.loadTxnRollback.error");
+            }
             loadTxnRollbackImpl(request);
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);

@@ -62,14 +62,12 @@ suite("sync_insert") {
         }
     }
 
-    clearFileCache.call(ipList[0], httpPortList[0]);
-    clearFileCache.call(ipList[1], httpPortList[1]);
-
-    sql "use @regression_cluster_name0"
-
     def table1 = "test_dup_tab_basic_int_tab_nullable"
     sql """ drop table if exists ${table1} """
-    sql """ set enable_multi_cluster_sync_load = true """
+
+    // clear all file cache on all BEs of all clusters
+    clearFileCache.call(ipList[0], httpPortList[0]);
+    clearFileCache.call(ipList[1], httpPortList[1]);
 
     sql """
 CREATE TABLE IF NOT EXISTS `${table1}` (
@@ -82,30 +80,38 @@ DUPLICATE KEY(`siteid`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
 """
-    sleep(10000) // wait for rebalance
-    sql """insert into test_dup_tab_basic_int_tab_nullable values
-        (9,10,11,12),
-        (9,10,11,12),
-        (21,null,23,null),
-        (1,2,3,4),
-        (1,2,3,4),
-        (13,14,15,16),
-        (13,21,22,16),
-        (13,14,15,16),
-        (13,21,22,16),
-        (17,18,19,20),
-        (17,18,19,20),
-        (null,21,null,23),
-        (22,null,24,25),
-        (26,27,null,29),
-        (5,6,7,8),
-        (5,6,7,8)
-"""
-    sleep(30000)
 
-    sql "use @regression_cluster_name1"
+    long insertedSizeBytes = 795
+    connect('root') {
+        sql "use @regression_cluster_name0"
+        sql "use regression_test_cloud_p0_cache_multi_cluster_read_write"
+        sql """ set enable_multi_cluster_sync_load = true """
+        // all the inserted values will result in insertedSizeBytes bytes of size
+        sql """insert into test_dup_tab_basic_int_tab_nullable values
+            (9,10,11,12),
+            (9,10,11,12),
+            (21,null,23,null),
+            (1,2,3,4),
+            (1,2,3,4),
+            (13,14,15,16),
+            (13,21,22,16),
+            (13,14,15,16),
+            (13,21,22,16),
+            (17,18,19,20),
+            (17,18,19,20),
+            (null,21,null,23),
+            (22,null,24,25),
+            (26,27,null,29),
+            (5,6,7,8),
+            (5,6,7,8)
+        """
+        sql """ set enable_multi_cluster_sync_load = false """
+    }
 
-    long file_cache_Size = 0
+    sleep(30000) // wait for download from remote
+
+    // get insert size of first cluster, may contain system tables
+    long srcClusterSize = 0
     getMetricsMethod.call(ipList[0], brpcPortList[0]) {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -118,7 +124,7 @@ DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
                         continue
                     }
                     def i = line.indexOf(' ')
-                    file_cache_Size = line.substring(i).toLong()
+                    srcClusterSize = line.substring(i).toLong()
                     flag = true
                     break
                 }
@@ -126,6 +132,8 @@ DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
             assertTrue(flag)
     }
 
+    // get synced insert size of first cluster
+    long dstClusterSize = 0
     getMetricsMethod.call(ipList[1], brpcPortList[1]) {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -138,13 +146,17 @@ DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
                         continue
                     }
                     def i = line.indexOf(' ')
-                    assertEquals(file_cache_Size, line.substring(i).toLong())
+                    dstClusterSize = line.substring(i).toLong()
                     flag = true
                     break
                 }
             }
             assertTrue(flag)
     }
+    // FIXME(gavin): this is a strong assertion, make it weaker and robuster
+    assertEquals(insertedSizeBytes, dstClusterSize)
+    org.junit.Assert.assertTrue("insertedSizeBytes ${insertedSizeBytes} <= dstClusterSize ${dstClusterSize}", insertedSizeBytes <= dstClusterSize)
+    org.junit.Assert.assertTrue("insertedSizeBytes ${insertedSizeBytes} <= srcClusterSize ${dstClusterSize}", insertedSizeBytes <= srcClusterSize)
+    org.junit.Assert.assertTrue("dstClusterSize ${insertedSizeBytes} <= srcClusterSize ${dstClusterSize}", dstClusterSize <= srcClusterSize)
     sql "drop table if exists ${table1}"
-    sql """ set enable_multi_cluster_sync_load = false """
 }

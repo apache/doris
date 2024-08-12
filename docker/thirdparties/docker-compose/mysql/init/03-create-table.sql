@@ -343,3 +343,12 @@ CREATE TABLE Doris.Doris (
 CREATE TABLE Doris.doris (
   id varchar(128)
 );
+
+create table doris_test.compoundpredicate_test (
+pk int,
+col_int_undef_signed int,
+col_int_undef_signed2 int
+);
+
+create table doris_test.text_push (pk varchar(10));
+

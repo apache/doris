@@ -729,9 +729,11 @@ private:
     std::string _s3_error_log_file_path;
 };
 
-#define RETURN_IF_CANCELLED(state)                                                    \
-    do {                                                                              \
-        if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
+#define RETURN_IF_CANCELLED(state)               \
+    do {                                         \
+        if (UNLIKELY((state)->is_cancelled())) { \
+            return (state)->cancel_reason();     \
+        }                                        \
     } while (false)
 
 } // namespace doris
