@@ -104,7 +104,7 @@ public class MTMVRewriteUtilTest {
                 result = true;
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
-                        (Set<BaseTableInfo>) any,
+                        (Set<BaseTableNameInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
                 result = true;
@@ -125,7 +125,7 @@ public class MTMVRewriteUtilTest {
                 result = 2L;
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
-                        (Set<BaseTableInfo>) any,
+                        (Set<BaseTableNameInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
                 result = false;
@@ -155,7 +155,7 @@ public class MTMVRewriteUtilTest {
                 result = 2L;
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
-                        (Set<BaseTableInfo>) any,
+                        (Set<BaseTableNameInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
                 result = false;
@@ -176,7 +176,7 @@ public class MTMVRewriteUtilTest {
                 result = 1L;
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
-                        (Set<BaseTableInfo>) any,
+                        (Set<BaseTableNameInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
                 result = false;
@@ -209,7 +209,7 @@ public class MTMVRewriteUtilTest {
         new Expectations() {
             {
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyString, (Set<String>) any,
-                        (Set<BaseTableInfo>) any,
+                        (Set<BaseTableNameInfo>) any,
                         (Set<String>) any);
                 minTimes = 0;
                 result = false;

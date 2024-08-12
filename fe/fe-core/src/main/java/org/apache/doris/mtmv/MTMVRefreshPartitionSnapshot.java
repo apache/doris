@@ -77,7 +77,7 @@ public class MTMVRefreshPartitionSnapshot {
         for (Entry<Long, MTMVSnapshotIf> entry : tablesId.entrySet()) {
             try {
                 Optional<BaseTableNameInfo> tableInfo = getByTableId(entry.getKey(), catalogMgr,
-                        relation.getBaseTablesOneLevel());
+                        relation.getBaseTablesOneLevelId());
                 if (tableInfo.isPresent()) {
                     tables.put(tableInfo.get(), entry.getValue());
                 }

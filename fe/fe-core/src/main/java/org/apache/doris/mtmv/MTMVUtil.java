@@ -111,6 +111,11 @@ public class MTMVUtil {
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
+    public static MTMV getMTMV(String dbName, String mtmvName) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        return (MTMV) db.getTableOrMetaException(mtmvName, TableType.MATERIALIZED_VIEW);
+    }
+
     /**
      * if base tables of mtmv contains external table
      *
@@ -118,9 +123,9 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
-        for (BaseTableInfo baseTableInfo : baseTables) {
-            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+        Set<BaseTableNameInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        for (BaseTableNameInfo baseTableInfo : baseTables) {
+            if (!baseTableInfo.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 return true;
             }
         }

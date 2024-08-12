@@ -29,10 +29,10 @@ public class MTMVRelationManagerTest {
     public void testGetMtmvsByBaseTableOneLevel() {
         // mock mv2==>mv1,t3; mv1==>t4
         MTMVRelationManager manager = new MTMVRelationManager();
-        BaseTableInfo mv1 = new BaseTableInfo(0L, 1L);
-        BaseTableInfo mv2 = new BaseTableInfo(0L, 2L);
-        BaseTableInfo t3 = new BaseTableInfo(0L, 3L);
-        BaseTableInfo t4 = new BaseTableInfo(0L, 4L);
+        BaseTableNameInfo mv1 = new BaseTableNameInfo("0L", "1L");
+        BaseTableNameInfo mv2 = new BaseTableNameInfo("0L", "2L");
+        BaseTableNameInfo t3 = new BaseTableNameInfo("0L", "3L");
+        BaseTableNameInfo t4 = new BaseTableNameInfo("0L", "4L");
         MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
                 Sets.newHashSet());
         MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
@@ -40,13 +40,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv2Relation, mv2);
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
-        Set<BaseTableInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevel(mv1);
+        Set<BaseTableNameInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevel(mv1);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1OneLevel));
         // should return mv2
-        Set<BaseTableInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevel(t3);
+        Set<BaseTableNameInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevel(t3);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
         // should return mv1
-        Set<BaseTableInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevel(t4);
+        Set<BaseTableNameInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevel(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
 
         // update mv2 only use t3,remove mv1
@@ -68,10 +68,10 @@ public class MTMVRelationManagerTest {
     public void testGetMtmvsByBaseTable() {
         // mock mv2==>mv1,t3; mv1==>t4
         MTMVRelationManager manager = new MTMVRelationManager();
-        BaseTableInfo mv1 = new BaseTableInfo(0L, 1L);
-        BaseTableInfo mv2 = new BaseTableInfo(0L, 2L);
-        BaseTableInfo t3 = new BaseTableInfo(0L, 3L);
-        BaseTableInfo t4 = new BaseTableInfo(0L, 4L);
+        BaseTableNameInfo mv1 = new BaseTableNameInfo("0L", "1L");
+        BaseTableNameInfo mv2 = new BaseTableNameInfo("0L", "2L");
+        BaseTableNameInfo t3 = new BaseTableNameInfo("0L", "3L");
+        BaseTableNameInfo t4 = new BaseTableNameInfo("0L", "4L");
         MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
                 Sets.newHashSet());
         MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
@@ -79,13 +79,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv2Relation, mv2);
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
-        Set<BaseTableInfo> mv1All = manager.getMtmvsByBaseTable(mv1);
+        Set<BaseTableNameInfo> mv1All = manager.getMtmvsByBaseTable(mv1);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1All));
         // should return mv2
-        Set<BaseTableInfo> t3All = manager.getMtmvsByBaseTable(t3);
+        Set<BaseTableNameInfo> t3All = manager.getMtmvsByBaseTable(t3);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
         // should return mv1
-        Set<BaseTableInfo> t4All = manager.getMtmvsByBaseTable(t4);
+        Set<BaseTableNameInfo> t4All = manager.getMtmvsByBaseTable(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1, mv2), t4All));
 
         // update mv2 only use t3,remove mv1

@@ -81,7 +81,7 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static boolean isMTMVPartitionSync(MTMV mtmv, String partitionName, Set<String> relatedPartitionNames,
-            Set<BaseTableInfo> tables,
+            Set<BaseTableNameInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
@@ -219,7 +219,7 @@ public class MTMVPartitionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables,
+    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableNameInfo> tables, Set<String> excludeTables,
             Map<String, Set<String>> partitionMappings)
             throws AnalysisException {
         Set<String> partitionNames = mtmv.getPartitionNames();
@@ -255,7 +255,7 @@ public class MTMVPartitionUtil {
             Set<String> relatedPartitionNames)
             throws AnalysisException {
         List<String> res = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
+        for (BaseTableNameInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
             TableIf table = MTMVUtil.getTable(baseTableInfo);
             if (!(table instanceof MTMVRelatedTableIf)) {
                 continue;
@@ -292,7 +292,7 @@ public class MTMVPartitionUtil {
      * @param baseTables
      * @return
      */
-    public static List<String> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables,
+    public static List<String> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableNameInfo> baseTables,
             Map<String, Set<String>> partitionMappings) {
         Set<String> partitionNames = mtmv.getPartitionNames();
         List<String> res = Lists.newArrayList();
@@ -407,9 +407,9 @@ public class MTMVPartitionUtil {
      * @param excludedTriggerTables
      * @return
      */
-    private static boolean isSyncWithAllBaseTables(MTMV mtmv, String mtmvPartitionName, Set<BaseTableInfo> tables,
+    private static boolean isSyncWithAllBaseTables(MTMV mtmv, String mtmvPartitionName, Set<BaseTableNameInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
-        for (BaseTableInfo baseTableInfo : tables) {
+        for (BaseTableNameInfo baseTableInfo : tables) {
             TableIf table = null;
             try {
                 table = MTMVUtil.getTable(baseTableInfo);
@@ -428,7 +428,7 @@ public class MTMVPartitionUtil {
         return true;
     }
 
-    private static boolean isSyncWithBaseTable(MTMV mtmv, String mtmvPartitionName, BaseTableInfo baseTableInfo)
+    private static boolean isSyncWithBaseTable(MTMV mtmv, String mtmvPartitionName, BaseTableNameInfo baseTableInfo)
             throws AnalysisException {
         TableIf table = null;
         try {
@@ -463,7 +463,7 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv,
-            Set<BaseTableInfo> baseTables, Set<String> partitionNames,
+            Set<BaseTableNameInfo> baseTables, Set<String> partitionNames,
             Map<String, Set<String>> partitionMappings)
             throws AnalysisException {
         Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMap();
@@ -476,7 +476,7 @@ public class MTMVPartitionUtil {
 
 
     private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMV mtmv,
-            Set<BaseTableInfo> baseTables, Set<String> relatedPartitionNames)
+            Set<BaseTableNameInfo> baseTables, Set<String> relatedPartitionNames)
             throws AnalysisException {
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
@@ -488,7 +488,7 @@ public class MTMVPartitionUtil {
                         .put(relatedPartitionName, partitionSnapshot);
             }
         }
-        for (BaseTableInfo baseTableInfo : baseTables) {
+        for (BaseTableNameInfo baseTableInfo : baseTables) {
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 continue;

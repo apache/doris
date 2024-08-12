@@ -17,8 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -177,12 +179,21 @@ public class MTMVService implements EventListener {
         }
         TableEvent tableEvent = (TableEvent) event;
         LOG.info("processEvent, Event: {}", event);
-        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
-                new BaseTableInfo(tableEvent.getTableId(), tableEvent.getDbId(), tableEvent.getCtlId()));
-        for (BaseTableInfo baseTableInfo : mtmvs) {
+        TableIf table;
+        try {
+            table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(tableEvent.getCtlId())
+                    .getDbOrAnalysisException(tableEvent.getDbId())
+                    .getTableOrAnalysisException(tableEvent.getTableId());
+        } catch (AnalysisException e) {
+            throw new EventException(e);
+        }
+        Set<BaseTableNameInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
+                new BaseTableNameInfo(table));
+        for (BaseTableNameInfo baseTableInfo : mtmvs) {
             try {
                 // check if mtmv should trigger by event
-                MTMV mtmv = MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId());
+                MTMV mtmv = MTMVUtil.getMTMV(baseTableInfo.getDbName(), baseTableInfo.getTableName());
                 if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT)) {
                     jobManager.onCommit(mtmv);
                 }

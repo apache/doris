@@ -26,7 +26,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -114,8 +114,8 @@ public class InitMaterializationContextHook implements PlannerHook {
     }
 
     protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
-        List<BaseTableInfo> usedBaseTables =
-                usedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
+        List<BaseTableNameInfo> usedBaseTables =
+                usedTables.stream().map(BaseTableNameInfo::new).collect(Collectors.toList());
         return Env.getCurrentEnv().getMtmvService().getRelationManager()
                 .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext(),
                         false, ((connectContext, mtmv) -> {

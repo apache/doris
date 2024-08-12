@@ -121,7 +121,7 @@ public class MTMVPlanUtil {
         return new MTMVRelation(getBaseTables(plan, true), getBaseTables(plan, false), getBaseViews(plan));
     }
 
-    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand) {
+    private static Set<BaseTableNameInfo> getBaseTables(Plan plan, boolean expand) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
@@ -131,14 +131,14 @@ public class MTMVPlanUtil {
         return transferTableIfToInfo(collectedTables);
     }
 
-    private static Set<BaseTableInfo> getBaseViews(Plan plan) {
+    private static Set<BaseTableNameInfo> getBaseViews(Plan plan) {
         return Sets.newHashSet();
     }
 
-    private static Set<BaseTableInfo> transferTableIfToInfo(Set<TableIf> tables) {
-        Set<BaseTableInfo> result = com.google.common.collect.Sets.newHashSet();
+    private static Set<BaseTableNameInfo> transferTableIfToInfo(Set<TableIf> tables) {
+        Set<BaseTableNameInfo> result = com.google.common.collect.Sets.newHashSet();
         for (TableIf table : tables) {
-            result.add(new BaseTableInfo(table));
+            result.add(new BaseTableNameInfo(table));
         }
         return result;
     }

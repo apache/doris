@@ -33,7 +33,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -288,7 +288,7 @@ public class MTMVTask extends AbstractTask {
      * @throws DdlException
      */
     private void refreshHmsTable() throws AnalysisException, DdlException {
-        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
+        for (BaseTableNameInfo tableInfo : relation.getBaseTablesOneLevel()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) tableIf;

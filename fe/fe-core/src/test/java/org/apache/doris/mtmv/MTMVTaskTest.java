@@ -84,7 +84,7 @@ public class MTMVTaskTest {
                 // minTimes = 0;
                 // result = poneId;
 
-                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
+                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableNameInfo>) any, (Set<String>) any,
                         (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = true;
@@ -143,7 +143,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
         new Expectations() {
             {
-                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any,
+                mtmvPartitionUtil.isMTMVSync(mtmv, (Set<BaseTableNameInfo>) any, (Set<String>) any,
                         (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = false;
@@ -160,7 +160,8 @@ public class MTMVTaskTest {
         new Expectations() {
             {
                 mtmvPartitionUtil
-                        .isMTMVSync(mtmv, (Set<BaseTableInfo>) any, (Set<String>) any, (Map<String, Set<String>>) any);
+                        .isMTMVSync(mtmv, (Set<BaseTableNameInfo>) any, (Set<String>) any,
+                                (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = false;
 
@@ -169,7 +170,8 @@ public class MTMVTaskTest {
                 result = RefreshMethod.AUTO;
 
                 mtmvPartitionUtil
-                        .getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableInfo>) any, (Map<String, Set<String>>) any);
+                        .getMTMVNeedRefreshPartitions(mtmv, (Set<BaseTableNameInfo>) any,
+                                (Map<String, Set<String>>) any);
                 minTimes = 0;
                 result = Lists.newArrayList(ptwoName);
             }
