@@ -48,11 +48,14 @@ namespace doris::segment_v2 {
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
+    // Currently two types of read, merge sparse columns with root columns, or read directly
+    enum class ReadType { MERGE_SPARSE, READ_DIRECT };
+
     HierarchicalDataReader(const vectorized::PathInData& path) : _path(path) {}
 
     static Status create(std::unique_ptr<ColumnIterator>* reader, vectorized::PathInData path,
                          const SubcolumnColumnReaders::Node* target_node,
-                         const SubcolumnColumnReaders::Node* root);
+                         const SubcolumnColumnReaders::Node* root, ReadType read_type);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -99,7 +102,9 @@ private:
 
         // read data
         // read root first if it is not read before
-        RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
+        if (_root_reader) {
+            RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
+        }
 
         // read container columns
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
@@ -112,7 +117,7 @@ private:
         auto& container_variant = assert_cast<ColumnObject&>(*container);
 
         // add root first
-        if (_path.get_parts().size() == 1) {
+        if (_path.get_parts().size() == 1 && _root_reader) {
             auto& root_var = _root_reader->column->is_nullable()
                                      ? assert_cast<ColumnObject&>(
                                                assert_cast<ColumnNullable&>(*_root_reader->column)
@@ -129,11 +134,13 @@ private:
             MutableColumnPtr column = node.data.column->get_ptr();
             PathInData real_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
-            if (node.parent->is_nested()) {
+            if (node.path.has_nested_part()) {
                 CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
                          getTypeName(TypeIndex::Array));
-                nested_subcolumns[real_path.copy_pop_back()].emplace_back(
-                        real_path, column->get_ptr(), node.data.type);
+                PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
+                        _path.get_parts().size());
+                nested_subcolumns[parent_path].emplace_back(real_path, column->get_ptr(),
+                                                            node.data.type);
             } else {
                 non_nested_subcolumns.emplace_back(real_path, column->get_ptr(), node.data.type);
             }
@@ -141,6 +148,7 @@ private:
         }));
 
         for (auto& entry : non_nested_subcolumns) {
+            DCHECK(!entry.path.has_nested_part());
             bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
                                                         entry.type);
             if (!add) {
@@ -177,7 +185,7 @@ private:
                 DataTypePtr flattend_type =
                         check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                                 ->get_nested_type();
-                // add path without parent prefix
+                // add sub path without parent prefix
                 nested_object_ptr->add_sub_column(
                         subcolumn.path.copy_pop_nfront(entry.first.get_parts().size()),
                         std::move(flattend_column), std::move(flattend_type));
@@ -185,8 +193,14 @@ private:
             nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
             auto array =
                     make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
-            PathInData path_without_nested(entry.first.get_path());
-            container_variant.add_sub_column(path_without_nested, array->assume_mutable(),
+            PathInDataBuilder builder;
+            // add parent prefix
+            builder.append(entry.first.get_parts(), false);
+            PathInData parent_path = builder.build();
+            // unset nested parts
+            parent_path.unset_nested();
+            DCHECK(!parent_path.has_nested_part());
+            container_variant.add_sub_column(parent_path, array->assume_mutable(),
                                              ColumnObject::NESTED_TYPE);
         }
 
@@ -206,22 +220,34 @@ private:
             return Status::OK();
         }));
         container->clear();
-        if (_root_reader->column->is_nullable()) {
-            // fill nullmap
-            DCHECK(dst->is_nullable());
-            ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
-            ColumnUInt8& src_null_map =
-                    assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
-            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
-            // clear nullmap and inner data
-            src_null_map.clear();
-            assert_cast<ColumnObject&>(
-                    assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
-                    .clear_subcolumns_data();
+        if (_root_reader) {
+            if (_root_reader->column->is_nullable()) {
+                // fill nullmap
+                DCHECK(dst->is_nullable());
+                ColumnUInt8& dst_null_map =
+                        assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                ColumnUInt8& src_null_map =
+                        assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
+                dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+                // clear nullmap and inner data
+                src_null_map.clear();
+                assert_cast<ColumnObject&>(
+                        assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
+                        .clear_subcolumns_data();
+            } else {
+                ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
+                root_column.clear_subcolumns_data();
+            }
         } else {
-            ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
-            root_column.clear_subcolumns_data();
+            if (dst->is_nullable()) {
+                // No nullable info exist in hirearchical data, fill nullmap with all none null
+                ColumnUInt8& dst_null_map =
+                        assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
+                dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+            }
         }
+
         return Status::OK();
     }
 };

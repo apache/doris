@@ -77,7 +77,9 @@ public:
     bool is_nested(size_t i) const { return parts[i].is_nested; }
     bool set_nested(size_t i) { return parts[i].is_nested = true; }
     bool has_nested_part() const { return has_nested; }
+    void unset_nested();
     bool operator==(const PathInData& other) const { return parts == other.parts; }
+    PathInData get_nested_prefix_path() const;
     struct Hash {
         size_t operator()(const PathInData& value) const;
     };

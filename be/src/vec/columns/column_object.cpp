@@ -777,10 +777,7 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
         : type(std::move(type_)),
           base_type(get_base_type_of_array(type)),
           num_dimensions(get_number_of_dimensions(*type)) {
-    if (!WhichDataType(type).is_nothing() &&
-        !WhichDataType(vectorized::remove_nullable(base_type)).is_nothing()) {
-        least_common_type_serder = type->get_serde();
-    }
+    least_common_type_serder = type->get_serde();
     type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
                                             ->get_nested_type()
                                             ->get_type_id()
@@ -1258,16 +1255,6 @@ PathsInData ColumnObject::getKeys() const {
     return keys;
 }
 
-void ColumnObject::remove_subcolumns(const std::unordered_set<std::string>& keys) {
-    Subcolumns new_subcolumns;
-    for (auto& entry : subcolumns) {
-        if (keys.count(entry->path.get_path()) == 0) {
-            new_subcolumns.add(entry->path, entry->data);
-        }
-    }
-    std::swap(subcolumns, new_subcolumns);
-}
-
 bool ColumnObject::is_finalized() const {
     return std::all_of(subcolumns.begin(), subcolumns.end(),
                        [](const auto& entry) { return entry->data.is_finalized(); });
@@ -1605,7 +1592,7 @@ void ColumnObject::finalize(FinalizeMode mode) {
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs
-        if (is_nothing(get_base_type_of_array(least_common_type))) {
+        if (is_nothing(remove_nullable(get_base_type_of_array(least_common_type)))) {
             continue;
         }
 

@@ -810,6 +810,20 @@ struct ConvertImplGenericToJsonb {
     }
 };
 
+struct ConvertNothingToJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        size_t size = col_from.size();
+        auto col_to = col_from.clone_resized(size);
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 1);
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+        return Status::OK();
+    }
+};
+
 template <TypeIndex type_index, typename ColumnType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -2002,6 +2016,8 @@ private:
             } else {
                 return &ConvertImplGenericFromString::execute;
             }
+        case TypeIndex::Nothing:
+            return &ConvertNothingToJsonb::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }

@@ -174,6 +174,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         return Status::OK();
     }
 
+    if (WhichDataType(arg.type).is_nothing()) {
+        // cast from nothing to any type should result in nulls
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
+        return Status::OK();
+    }
+
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
     // each line in original string column.
     ctx->set_string_as_jsonb_string(true);

@@ -158,7 +158,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v");
     """
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     set_be_config.call("variant_enable_flatten_nested", "true")
@@ -186,7 +186,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         assertEquals("FINISHED", state)
     }
    
-    // add bloom filter at the end of loading data 
+    // // add bloom filter at the end of loading data 
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
@@ -224,7 +224,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             k bigint,
             v variant not null
         )
-        DUPLICATE KEY(`k`)
+        UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
         """

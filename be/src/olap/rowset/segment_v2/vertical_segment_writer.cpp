@@ -650,6 +650,13 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
                 // already handled by parent column
                 continue;
             }
+            if (entry->path.get_path().find("xx") != std::string::npos &&
+                entry->path.get_path().find("nested") == std::string::npos) {
+                LOG(WARNING) << "path contains xx: " << entry->path.get_path();
+            }
+            VLOG_DEBUG << "dump column " << entry->path.get_path()
+                       << vectorized::Block::dump_column(entry->data.get_finalized_column_ptr(),
+                                                         entry->data.get_least_common_type());
             CHECK(entry->data.is_finalized());
             int current_column_id = column_id++;
             TabletColumn tablet_column = generate_column_info(entry);

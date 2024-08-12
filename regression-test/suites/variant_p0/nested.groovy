@@ -29,6 +29,7 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
 
     try {
         set_be_config.call("variant_enable_flatten_nested", "true")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
  
         def table_name = "var_nested"
         sql "DROP TABLE IF EXISTS ${table_name}"
@@ -155,17 +156,21 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
         triger_compaction.call()
         qt_sql """select * from var_nested where v['k2'] = 'nested'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
         sql """select * from var_nested where v['k2'] = 'some' or v['k3'] = 'nice' limit 100;"""
+
+        // insert into select
+        sql "DROP TABLE IF EXISTS var_nested2"
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested2 (
                     k bigint,
                     v variant
                 )
                 UNIQUE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 4
+                DISTRIBUTED BY HASH(k) BUCKETS 1
                 properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
             """
         sql """insert into var_nested2 select * from var_nested"""
         qt_sql """select * from var_nested2 order by k limit 10;"""
+        qt_sql """select v['nested'] from var_nested2 where k < 10 order by k limit 10;"""
     } finally {
         // reset flags
         set_be_config.call("variant_enable_flatten_nested", "false")

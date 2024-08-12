@@ -282,6 +282,8 @@ public:
     void ensure_root_node_type(const DataTypePtr& type);
 
     // create jsonb root if missing
+    // notice: should only using in VariantRootColumnIterator
+    // since some datastructures(sparse columns are schema on read
     void create_root();
 
     // create root with type and column if missing
@@ -315,9 +317,6 @@ public:
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint);
 
-    // return null if not found
-    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
-
     void incr_num_rows() { ++num_rows; }
 
     void incr_num_rows(size_t n) { num_rows += n; }
@@ -339,8 +338,6 @@ public:
     /// an array with default values with consistent sizes as in Nested type.
     bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
     bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
-    /// It's used to get shared sized of Nested to insert correct default values.
-    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
@@ -349,23 +346,6 @@ public:
     Subcolumns& get_subcolumns() { return subcolumns; }
 
     PathsInData getKeys() const;
-
-    std::string get_keys_str() const {
-        std::stringstream ss;
-        bool first = true;
-        for (auto& k : getKeys()) {
-            if (first) {
-                first = false;
-            } else {
-                ss << ", ";
-            }
-            ss << k.get_path();
-        }
-
-        return ss.str();
-    }
-
-    void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     void finalize(FinalizeMode mode);
@@ -423,9 +403,6 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    // May throw execption
-    void try_insert(const Field& field);
-
     void insert_from(const IColumn& src, size_t n) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -454,8 +431,6 @@ public:
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
-
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
 
     // Extract path from root column and output to dst
     Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
@@ -610,6 +585,18 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "replace_column_data" + std::string(get_family_name()));
     }
+
+private:
+    // May throw execption
+    void try_insert(const Field& field);
+
+    /// It's used to get shared sized of Nested to insert correct default values.
+    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
+
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+
+    // return null if not found
+    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
 };
 
 } // namespace doris::vectorized

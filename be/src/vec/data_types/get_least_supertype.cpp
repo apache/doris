@@ -175,6 +175,21 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
 }
 
 void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
+    // If there are Nothing types, skip them
+    {
+        DataTypes non_nothing_types;
+        non_nothing_types.reserve(types.size());
+
+        for (const auto& type : types) {
+            if (!WhichDataType(type).is_nothing()) {
+                non_nothing_types.emplace_back(type);
+            }
+        }
+
+        if (non_nothing_types.size() < types.size()) {
+            return get_least_supertype_jsonb(non_nothing_types, type);
+        }
+    }
     // For Nullable
     {
         bool have_nullable = false;

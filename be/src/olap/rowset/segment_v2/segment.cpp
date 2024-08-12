@@ -48,6 +48,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
+#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -614,7 +615,17 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                        << " parent " << (parent ? parent->path.get_path() : "nullptr") << ", type "
                        << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
                        << TabletColumn::get_string_by_field_type(tablet_column.type());
-            if (parent && parent->is_nested()) {
+            // find it's common parent with nested part
+            // why not use parent->path->has_nested_part? because parent may not be a leaf node
+            // none leaf node may not contain path info
+            // Example:
+            // {"payload" : {"commits" : [{"issue" : {"id" : 123, "email" : "a@b"}}]}}
+            // nested node path          : payload.commits(NESTED)
+            // tablet_column path_info   : payload.commits.issue.id(SCALAR
+            // parent path node          : payload.commits.issue(TUPLE)
+            // leaf path_info            : payload.commits.issue.email(SCALAR)
+            if (parent && SubcolumnColumnReaders::find_parent(
+                                  parent, [](const auto& node) { return node.is_nested(); })) {
                 /// Find any leaf of Nested subcolumn.
                 const auto* leaf = SubcolumnColumnReaders::find_leaf(
                         parent, [](const auto& node) { return node.path.has_nested_part(); });
@@ -626,9 +637,19 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                 *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                       leaf->data.file_column_type);
             } else {
+                if (tablet_column.path_info_ptr()->get_path().find("uploader.node_id") !=
+                    std::string::npos) {
+                    VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
+                               << ", fuck1 in default iter";
+                }
                 *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
             }
             return Status::OK();
+        }
+        if (tablet_column.path_info_ptr()->get_path().find("uploader.node_id") !=
+            std::string::npos) {
+            VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
+                       << ", fuck2 in default iter";
         }
         return new_default_iterator(tablet_column, iter);
     };
@@ -664,9 +685,14 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             iter->reset(it);
         } else {
             // Node contains column with children columns or has correspoding sparse columns
-            // Create reader with hirachical data
+            // Create reader with hirachical data.
+            // If sparse column exists or read the full path of variant read in MERGE_SPARSE, otherwise READ_DIRECT
+            HierarchicalDataReader::ReadType read_type =
+                    (*tablet_column.path_info_ptr() == root->path) || sparse_node != nullptr
+                            ? HierarchicalDataReader::ReadType::MERGE_SPARSE
+                            : HierarchicalDataReader::ReadType::READ_DIRECT;
             RETURN_IF_ERROR(HierarchicalDataReader::create(iter, *tablet_column.path_info_ptr(),
-                                                           node, root));
+                                                           node, root, read_type));
         }
     } else {
         // No such node, read from either sparse column or default column

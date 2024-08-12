@@ -34,7 +34,8 @@ namespace segment_v2 {
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
                                       vectorized::PathInData path,
                                       const SubcolumnColumnReaders::Node* node,
-                                      const SubcolumnColumnReaders::Node* root) {
+                                      const SubcolumnColumnReaders::Node* root,
+                                      ReadType read_type) {
     // None leave node need merge with root
     auto* stream_iter = new HierarchicalDataReader(path);
     std::vector<const SubcolumnColumnReaders::Node*> leaves;
@@ -51,12 +52,15 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
     // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
     // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-    ColumnIterator* it;
-    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-    stream_iter->set_root(std::make_unique<StreamReader>(
-            root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
-            root->data.file_column_type));
+    if (read_type == ReadType::MERGE_SPARSE) {
+        ColumnIterator* it;
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        stream_iter->set_root(std::make_unique<StreamReader>(
+                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
+                root->data.file_column_type));
+    }
     reader->reset(stream_iter);
+
     return Status::OK();
 }
 
