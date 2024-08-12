@@ -524,7 +524,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         if (expr_ctx->all_expr_inverted_index_evaluated()) {
             auto result = expr_ctx->get_inverted_index_result_for_root();
             _row_bitmap &= *result.get_data_bitmap();
-            //TODO: erase from _compound_expr_ctxs
+            //TODO: erase from _compound_expr_ctxs, because we do not need to execute expr after this.
         }
     }
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
@@ -806,7 +806,17 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
 
 Status SegmentIterator::_apply_index_expr() {
     for (const auto& expr_ctx : _compound_expr_ctxs) {
-        RETURN_IF_ERROR(expr_ctx->evaluate_inverted_index(num_rows()));
+        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                continue;
+            } else {
+                // other code is not to be handled, we should just break
+                LOG(WARNING) << "failed to evaluate inverted index for expr_ctx: "
+                             << expr_ctx->root()->debug_string()
+                             << ", error msg: " << st.to_string();
+                return st;
+            }
+        }
     }
     return Status::OK();
 }

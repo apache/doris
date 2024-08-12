@@ -235,6 +235,8 @@ Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
             null_bitmap->runOptimize();
             cache->insert(cache_key, null_bitmap, cache_handle);
             FINALIZE_INPUT(null_bitmap_in);
+        } else {
+            cache->insert(cache_key, null_bitmap, cache_handle);
         }
         if (owned_dir) {
             FINALIZE_INPUT(dir);
