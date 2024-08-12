@@ -424,7 +424,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
         }
 
-        std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
         if (data != nullptr && len > 0) {
             void* allocated = malloc(len);
             memcpy(allocated, data, len);
@@ -434,6 +433,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             has_attachment = true;
         }
 
+        std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
         for (auto& target : targets) {
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::
