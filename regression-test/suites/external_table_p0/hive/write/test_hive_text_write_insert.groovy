@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_docker_hive") {
     def format_compressions = ["gzip", "zlib", "deflate", "bzip2", "snappy", "lz4", "zstd"]
 
     def q01 = { String format_compression, String catalog_name ->
@@ -833,7 +833,7 @@ INSERT INTO all_types_par_text
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_insert"
+            String catalog_name = "test_${hivePrefix}_text_write_insert"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
