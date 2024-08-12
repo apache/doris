@@ -136,6 +136,18 @@ static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) {
     return (T*)p - vec.data();
 }
 
+template <class T>
+static size_t find_byte(const T* data, size_t start, size_t end, T byte) {
+    if (start >= end) {
+        return start;
+    }
+    const void* p = std::memchr((const void*)(data + start), byte, end - start);
+    if (p == nullptr) {
+        return end;
+    }
+    return (T*)p - data;
+}
+
 template <typename T>
 bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
     return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
@@ -143,6 +155,10 @@ bool contain_byte(const T* __restrict data, const size_t length, const signed ch
 
 inline size_t find_one(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 1);
+}
+
+inline size_t find_one(const uint8_t* data, size_t start, size_t end) {
+    return find_byte<uint8_t>(data, start, end, 1);
 }
 
 inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
