@@ -67,6 +67,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = store_paths[i].path;
         data_dir_info.storage_medium = store_paths[i].storage_medium;
         data_dir_info.data_dir_type = DataDirType::OLAP_DATA_DIR;
+        data_dir_info.bvar_name = "local_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -75,6 +76,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = spill_store_paths[i].path;
         data_dir_info.storage_medium = spill_store_paths[i].storage_medium;
         data_dir_info.data_dir_type = doris::DataDirType::SPILL_DISK_DIR;
+        data_dir_info.bvar_name = "spill_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -83,6 +85,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = cache_paths[i].path;
         data_dir_info.storage_medium = TStorageMedium::REMOTE_CACHE;
         data_dir_info.data_dir_type = doris::DataDirType::DATA_CACHE_DIR;
+        data_dir_info.bvar_name = "local_cache_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 }
