@@ -79,12 +79,11 @@ public:
                                  const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) = 0;
 
-    doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
+    doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name();
 
     void analyse_query_str_token(std::vector<std::string>* query_tokens,
                                  InvertedIndexCtx* inverted_index_ctx,
-                                 const std::string& match_query_str,
-                                 const std::string& field_name) const;
+                                 const std::string& match_query_str, const std::string& field_name);
 
     std::vector<std::string> analyse_data_token(const std::string& column_name,
                                                 InvertedIndexCtx* inverted_index_ctx,
