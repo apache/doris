@@ -371,14 +371,14 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
     }
 
     std::unordered_map<std::string, size_t> partition_count;
-    size_t prefix_size = FdbTxnKv::boundary_prefix().size() + 1; // +1 for '/'
+    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
     for (auto&& boundary : partition_boundaries) {
         if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
             continue;
         }
 
         std::string_view user_key(boundary);
-        user_key.remove_prefix(prefix_size + 1);
+        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
         decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
 

@@ -109,9 +109,8 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
         return code;
     }
 
-    std::string prefix(boundary_prefix());
-    std::string begin_key = prefix + "/";
-    std::string end_key = prefix + "0";
+    std::string begin_key(fdb_partition_key_prefix());
+    std::string end_key(fdb_partition_key_end());
 
     std::unique_ptr<RangeGetIterator> iter;
     do {
@@ -123,7 +122,7 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
                     continue;
                 }
             }
-            LOG_WARNING("failed to get boundaries")
+            LOG_WARNING("failed to get fdb boundaries")
                     .tag("code", code)
                     .tag("begin_key", hex(begin_key))
                     .tag("end_key", hex(end_key));

@@ -333,7 +333,11 @@ public:
     // Return the partition boundaries of the database.
     TxnErrorCode get_partition_boundaries(std::vector<std::string>* boundaries);
 
-    static std::string_view boundary_prefix() { return "\xff/keyServers"; }
+    static std::string_view fdb_partition_key_prefix() { return "\xff/keyServers/"; }
+    static std::string_view fdb_partition_key_end() {
+        // '0' is the next byte after '/' in the ASCII table
+        return "\xff/keyServers0";
+    }
 
 private:
     std::shared_ptr<fdb::Network> network_;
