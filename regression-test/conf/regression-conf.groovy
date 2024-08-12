@@ -201,6 +201,8 @@ dlfUid="***********"
 aliYunSk="***********"
 hwYunAk="***********"
 hwYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"

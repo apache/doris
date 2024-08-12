@@ -47,9 +47,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -645,36 +645,11 @@ public class OneRangePartitionEvaluator
         if (!(result.result instanceof Date)) {
             return result;
         }
-        date = (Date) result.result;
-        if (!(date.child() instanceof Slot) || !isPartitionSlot((Slot) date.child())) {
-            return result;
+        Expression dateChild = date.child(0);
+        if (partitionSlotContainsNull.containsKey(dateChild)) {
+            partitionSlotContainsNull.put(date, true);
         }
-        Slot partitionSlot = (Slot) date.child();
-        PartitionSlotType partitionSlotType = getPartitionSlotType(partitionSlot).get();
-        if (partitionSlotType != PartitionSlotType.RANGE || partitionSlotContainsNull.get(partitionSlot)) {
-            return result;
-        }
-        DataType childType = date.child().getDataType();
-        if (!childType.isDateTimeType() && !childType.isDateTimeV2Type()) {
-            return result;
-        }
-        ColumnRange dateTimeRange = result.childrenResult.get(0).columnRanges.get((Slot) date.child());
-        if (dateTimeRange.isEmptyRange()) {
-            return result;
-        }
-
-        Range<ColumnBound> span = dateTimeRange.span();
-        Literal lower = span.lowerEndpoint().getValue();
-        Literal upper = span.upperEndpoint().getValue();
-
-        Expression lowerDate = FoldConstantRuleOnFE.evaluate(new Date(lower), expressionRewriteContext);
-        Expression upperDate = FoldConstantRuleOnFE.evaluate(new Date(upper), expressionRewriteContext);
-
-        if (lowerDate instanceof Literal && upperDate instanceof Literal && lowerDate.equals(upperDate)) {
-            return new EvaluateRangeResult(lowerDate, result.columnRanges, result.childrenResult);
-        }
-
-        return result;
+        return computeMonotonicFunctionRange(result);
     }
 
     private boolean isPartitionSlot(Slot slot) {
@@ -859,7 +834,8 @@ public class OneRangePartitionEvaluator
         }
         Range<ColumnBound> span = childRange.span();
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
-        Literal upper = span.hasUpperBound() ? span.upperEndpoint().getValue() : null;
+        Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
+                ? span.upperEndpoint().getValue() : null;
         Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
