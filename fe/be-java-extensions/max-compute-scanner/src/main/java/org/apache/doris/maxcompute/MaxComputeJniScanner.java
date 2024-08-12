@@ -190,6 +190,11 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     private Column createOdpsColumn(int colIdx, ColumnType dorisType) {
+        TypeInfo odpsType = getOdpsType(dorisType);
+        return new Column(fields[colIdx], odpsType);
+    }
+
+    private static TypeInfo getOdpsType(ColumnType dorisType) {
         TypeInfo odpsType;
         switch (dorisType.getType()) {
             case BOOLEAN:
@@ -236,10 +241,27 @@ public class MaxComputeJniScanner extends JniScanner {
             case STRING:
                 odpsType = TypeInfoFactory.getPrimitiveTypeInfo(OdpsType.STRING);
                 break;
+            case ARRAY:
+                TypeInfo elementType = getOdpsType(dorisType.getChildTypes().get(0));
+                odpsType = TypeInfoFactory.getArrayTypeInfo(elementType);
+                break;
+            case MAP:
+                TypeInfo keyType = getOdpsType(dorisType.getChildTypes().get(0));
+                TypeInfo valueType = getOdpsType(dorisType.getChildTypes().get(1));
+                odpsType = TypeInfoFactory.getMapTypeInfo(keyType, valueType);
+                break;
+            case STRUCT:
+                List<String> names = dorisType.getChildNames();
+                List<TypeInfo> typeInfos = new ArrayList<>();
+                for (ColumnType childType : dorisType.getChildTypes()) {
+                    typeInfos.add(getOdpsType(childType));
+                }
+                odpsType = TypeInfoFactory.getStructTypeInfo(names, typeInfos);
+                break;
             default:
                 throw new RuntimeException("Unsupported transform for column type: " + dorisType.getType());
         }
-        return new Column(fields[colIdx], odpsType);
+        return odpsType;
     }
 
     @Override
