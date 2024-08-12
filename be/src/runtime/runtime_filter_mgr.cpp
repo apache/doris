@@ -343,7 +343,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             closure->request_->set_filter_size(cnt_val->global_size);
 
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
-                                   closure->response_.get(), brpc::DoNothing());
+                                   closure->response_.get(), closure.get());
             closure.release();
         }
     }
@@ -410,11 +410,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     if (merged_size == cnt_val->producer_size) {
         DCHECK_GT(cnt_val->targetv2_info.size(), 0);
 
+        butil::IOBuf request_attachment;
+
         PPublishFilterRequestV2 apply_request;
         // serialize filter
         void* data = nullptr;
         int len = 0;
-        butil::IOBuf* pre_iobuf = nullptr;
+        bool has_attachment = false;
         if (!cnt_val->filter->get_ignored()) {
             RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
         } else {
@@ -423,6 +425,15 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         }
 
         std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
+        if (data != nullptr && len > 0) {
+            void* allocated = malloc(len);
+            memcpy(allocated, data, len);
+            // control the memory by doris self to avoid using brpc's thread local storage
+            // because the memory of tls will not be released
+            request_attachment.append_user_data(allocated, len, [](void* ptr) { free(ptr); });
+            has_attachment = true;
+        }
+
         for (auto& target : targets) {
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::
@@ -435,15 +446,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             closure->request_->set_merge_time(merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
 
-            if (data != nullptr && len > 0) {
-                if (pre_iobuf == nullptr) {
-                    pre_iobuf = &closure->cntl_->request_attachment();
-                    pre_iobuf->append(data, len);
-                } else {
-                    closure->cntl_->request_attachment().append(*pre_iobuf);
-                }
+            if (has_attachment) {
+                closure->cntl_->request_attachment().append(request_attachment);
             }
-
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
             // set fragment-id
             for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
@@ -459,7 +464,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 continue;
             }
             stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
-                                 closure->response_.get(), brpc::DoNothing());
+                                 closure->response_.get(), closure.get());
             closure.release();
         }
     }
