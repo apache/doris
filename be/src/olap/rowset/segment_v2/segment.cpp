@@ -637,19 +637,9 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
                 *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                       leaf->data.file_column_type);
             } else {
-                if (tablet_column.path_info_ptr()->get_path().find("uploader.node_id") !=
-                    std::string::npos) {
-                    VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
-                               << ", fuck1 in default iter";
-                }
                 *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
             }
             return Status::OK();
-        }
-        if (tablet_column.path_info_ptr()->get_path().find("uploader.node_id") !=
-            std::string::npos) {
-            VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path()
-                       << ", fuck2 in default iter";
         }
         return new_default_iterator(tablet_column, iter);
     };

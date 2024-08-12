@@ -120,13 +120,17 @@ enum class ExtractType {
     ToString = 0,
     // ...
 };
+
+struct ParseConfig {
+    bool enable_flatten_nested = false;
+};
 template <typename ParserImpl, bool parse_nested = false>
 class JSONDataParser {
 public:
     using Element = typename ParserImpl::Element;
     using JSONObject = typename ParserImpl::Object;
     using JSONArray = typename ParserImpl::Array;
-    std::optional<ParseResult> parse(const char* begin, size_t length);
+    std::optional<ParseResult> parse(const char* begin, size_t length, const ParseConfig& config);
 
     // extract keys's element into columns
     bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
@@ -137,6 +141,7 @@ private:
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
+        bool enable_flatten_nested = false;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;

@@ -347,6 +347,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_variant_enable_flatten_nested(bool flatten_nested) {
+        _variant_enable_flatten_nested = flatten_nested;
+    }
+    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -538,6 +542,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_enable_flatten_nested = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

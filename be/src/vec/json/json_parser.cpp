@@ -71,14 +71,15 @@ bool JSONDataParser<ParserImpl, parse_nested>::extract_key(MutableColumns& colum
 }
 
 template <typename ParserImpl, bool parse_nested>
-std::optional<ParseResult> JSONDataParser<ParserImpl, parse_nested>::parse(const char* begin,
-                                                                           size_t length) {
+std::optional<ParseResult> JSONDataParser<ParserImpl, parse_nested>::parse(
+        const char* begin, size_t length, const ParseConfig& config) {
     std::string_view json {begin, length};
     Element document;
     if (!parser.parse(json, document)) {
         return {};
     }
     ParseContext context;
+    context.enable_flatten_nested = config.enable_flatten_nested;
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -97,7 +98,7 @@ void JSONDataParser<ParserImpl, parse_nested>::traverse(const Element& element, 
     } else if (element.isArray()) {
         has_nested = false;
         checkHasNested(element);
-        if (has_nested && !parse_nested && !config::variant_enable_flatten_nested) {
+        if (has_nested && !parse_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
@@ -203,7 +204,7 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseArrayElement(const Elemen
                                                                     ParseArrayContext& ctx) {
     ParseContext element_ctx;
     traverse(element, element_ctx);
-    auto& [_, paths, values] = element_ctx;
+    auto& [_, paths, values, flatten_nested] = element_ctx;
     size_t size = paths.size();
     size_t keys_to_update = ctx.arrays_by_path.size();
     for (size_t i = 0; i < size; ++i) {

@@ -28,7 +28,6 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
     }
 
     try {
-        set_be_config.call("variant_enable_flatten_nested", "true")
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
  
         def table_name = "var_nested"
@@ -41,7 +40,7 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 4
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
             """
         sql """
             insert into var_nested values (1, '{"xx" : 10}');
@@ -166,14 +165,13 @@ suite("regression_test_variant_nested", "p0,nonConcurrent"){
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "variant_enable_flatten_nested" = "true");
             """
         sql """insert into var_nested2 select * from var_nested"""
         qt_sql """select * from var_nested2 order by k limit 10;"""
         qt_sql """select v['nested'] from var_nested2 where k < 10 order by k limit 10;"""
     } finally {
         // reset flags
-        set_be_config.call("variant_enable_flatten_nested", "false")
     }
 
 }
