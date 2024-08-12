@@ -281,7 +281,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 io::FileCacheSettings CachePath::init_settings() const {
     io::FileCacheSettings settings;
     settings.total_size = total_bytes;
-    settings.max_file_segment_size = config::file_cache_max_file_segment_size;
+    settings.max_file_segment_size = config::file_cache_each_block_size;
     settings.max_query_cache_size = query_limit_bytes;
     size_t per_size = settings.total_size / 100;
     settings.disposable_queue_size = per_size * disposable_percent;

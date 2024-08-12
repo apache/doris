@@ -91,6 +91,7 @@ public:
     /// version 2.0: cache_base_path / key_prefix / key / offset
     static constexpr bool USE_CACHE_VERSION2 = true;
     static constexpr int KEY_PREFIX_LENGTH = 3;
+    static constexpr size_t MAX_MERGED_SIZE = 16 * 1024 * 1024; // 16MB
 
     struct Key {
         uint128_t key;
@@ -116,7 +117,17 @@ public:
 
     virtual size_t try_release() = 0;
 
+    /// Merge continuous small segment files into a larger one
+    /// Return the number of origin segment files and the merged files
+    virtual std::pair<size_t, size_t> try_merge() = 0;
+
+    virtual Status async_merge(const Key& key) = 0;
+
     std::string get_path_in_local_cache(const Key& key, size_t offset, CacheType type) const;
+
+    /// Get the destination file that small segment files merge into
+    /// The file is suffixed by '_merged' and will be rename as normal offset name after merging
+    std::string get_merged_path(const Key& key, size_t offset) const;
 
     std::string get_path_in_local_cache(const Key& key) const;
 

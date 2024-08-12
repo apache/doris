@@ -31,6 +31,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 namespace io {
@@ -42,6 +43,7 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
           _file_key(key_),
           _cache(cache_),
           _cache_type(cache_type) {
+    _async_write_pool = ExecEnv::GetInstance()->file_cache_thread_pool();
     /// On creation, file segment state can be EMPTY, DOWNLOADED, DOWNLOADING.
     switch (_download_state) {
     /// EMPTY is used when file segment is not in cache and
@@ -66,6 +68,12 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
         DCHECK(false) << "Can create cell with either EMPTY, DOWNLOADED, DOWNLOADING, SKIP_CACHE ";
     }
     }
+}
+
+FileBlock::FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache,
+                     State download_state, CacheType cache_type, bool is_merged_file)
+        : FileBlock(offset, size, key, cache, download_state, cache_type) {
+    _is_merged_file = is_merged_file;
 }
 
 FileBlock::~FileBlock() {
@@ -132,7 +140,7 @@ void FileBlock::reset_downloader(std::lock_guard<std::mutex>& segment_lock) {
 void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock) {
     if (_downloaded_size == range().size()) {
         static_cast<void>(set_downloaded(segment_lock));
-    } else {
+    } else if (_download_state != State::DOWNLOADING) {
         _downloaded_size = 0;
         _download_state = State::EMPTY;
         _downloader_id.clear();
@@ -152,6 +160,50 @@ bool FileBlock::is_downloader() const {
 
 bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* segment_lock */) const {
     return get_caller_id() == _downloader_id;
+}
+
+Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length) {
+    Status st = _async_write_pool->submit_func(
+            [block_ptr = shared_from_this(), buffer_ptr = buffer, off = offset, size = length]() {
+                if (!block_ptr->_status) {
+                    return;
+                }
+                Status append_st = block_ptr->append(Slice(buffer_ptr.get() + off, size));
+                if (!append_st) {
+                    block_ptr->_status = append_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
+                    return;
+                }
+                Status final_st = block_ptr->finalize_write();
+                if (!final_st) {
+                    block_ptr->_status = final_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
+                }
+            });
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async write file cache: " << st;
+        _download_state = State::EMPTY;
+    }
+    return st;
+}
+
+void FileBlock::async_remove() {
+    Status st = _async_write_pool->submit_func([block_ptr = shared_from_this()]() {
+        IFileCache* cache = block_ptr->_cache;
+        std::lock_guard cache_lock(cache->_mutex);
+        std::lock_guard segment_lock(block_ptr->_mutex);
+        block_ptr->complete_unlocked(segment_lock);
+        cache->remove(block_ptr, cache_lock, segment_lock);
+    });
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async remove file cache: " << st;
+        std::lock_guard cache_lock(_cache->_mutex);
+        std::lock_guard segment_lock(_mutex);
+        complete_unlocked(segment_lock);
+        _cache->remove(shared_from_this(), cache_lock, segment_lock);
+    }
 }
 
 Status FileBlock::append(Slice data) {
@@ -176,11 +228,16 @@ Status FileBlock::append(Slice data) {
 }
 
 std::string FileBlock::get_path_in_local_cache() const {
+    if (_is_merged_file) {
+        return _cache->get_merged_path(key(), offset());
+    }
     return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
 Status FileBlock::read_at(Slice buffer, size_t read_offset) {
-    Status st = Status::OK();
+    if (!_status) {
+        return _status;
+    }
     std::shared_ptr<FileReader> reader;
     if (!(reader = _cache_reader.lock())) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -194,7 +251,7 @@ Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     size_t bytes_reads = buffer.size;
     RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
-    return st;
+    return Status::OK();
 }
 
 bool FileBlock::change_cache_type(CacheType new_type) {
@@ -265,7 +322,31 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* segment_lock */
     _download_state = State::DOWNLOADED;
     _is_downloaded = true;
     _downloader_id.clear();
+
+    if (_is_merged_file) {
+        std::string merged_path = _cache->get_merged_path(key(), offset());
+        std::string final_path = _cache->get_path_in_local_cache(key(), offset(), _cache_type);
+        RETURN_IF_ERROR(global_local_filesystem()->rename(merged_path, final_path));
+        _is_merged_file = false;
+    }
+
     return Status::OK();
+}
+
+void FileBlock::remove_merged_file() {
+    if (_is_merged_file) {
+        std::string merged_path = get_path_in_local_cache();
+        bool exists = false;
+        Status st;
+        RETURN_IF_STATUS_ERROR(st, global_local_filesystem()->exists(merged_path, &exists));
+        if (exists) {
+            RETURN_IF_STATUS_ERROR(st, global_local_filesystem()->delete_file(merged_path));
+        }
+        if (_cache_writer) {
+            RETURN_IF_STATUS_ERROR(st, _cache_writer->close());
+            _cache_writer.reset();
+        }
+    }
 }
 
 void FileBlock::complete_unlocked(std::lock_guard<std::mutex>& segment_lock) {

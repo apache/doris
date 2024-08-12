@@ -62,6 +62,8 @@ private:
     std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
 
     bool _is_doris_table;
+    bool _is_remote_oss;
+    size_t _num_write_blocks = 0;
     FileReaderSPtr _remote_file_reader;
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
