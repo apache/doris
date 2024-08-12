@@ -174,7 +174,8 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         } catch (Throwable e) {
             relatedTable = new BaseTableNameInfo("dummyCatalog", "dummyDatabase", "dummyTable");
             LOG.warn(
-                    "can not transfer relatedTableId to relatedTable: {}, may be cause by catalog/db/table dropped, we need rebuild MTMV",
+                    "can not transfer relatedTableId to relatedTable: {}, "
+                            + "may be cause by catalog/db/table dropped, we need rebuild MTMV",
                     relatedTableId, e.getMessage());
         } finally {
             relatedTableId = null;
