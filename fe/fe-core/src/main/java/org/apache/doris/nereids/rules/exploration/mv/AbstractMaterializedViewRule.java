@@ -25,7 +25,7 @@ import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -269,7 +269,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions;
+            Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>> invalidPartitions;
             if (materializationContext instanceof AsyncMaterializationContext) {
                 try {
                     invalidPartitions = calcInvalidPartitions(queryPlan, rewrittenPlan,
@@ -292,7 +292,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = needUnionRewrite(invalidPartitions, cascadesContext);
-                final Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> finalInvalidPartitions =
+                final Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>>
+                        finalInvalidPartitions =
                         invalidPartitions;
                 if (partitionNeedUnion) {
                     MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
@@ -371,7 +372,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     protected boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions,
+            Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>> invalidPartitions,
             CascadesContext cascadesContext) {
         return invalidPartitions != null
                 && (!invalidPartitions.key().isEmpty() || !invalidPartitions.value().isEmpty());
@@ -409,7 +410,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * So we should calc the invalid partition used in query
      * @return the key in pair is mvNeedRemovePartitionNameSet, the value in pair is baseTableNeedUnionPartitionNameSet
      */
-    protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> calcInvalidPartitions(
+    protected Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>> calcInvalidPartitions(
             Plan queryPlan, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext)
             throws AnalysisException {
@@ -423,12 +424,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
-        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
+        BaseTableNameInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
         if (relatedPartitionTable == null) {
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
-        Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
+        Map<BaseTableNameInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         // Bail out, not check invalid partition if not olap scan, support later
@@ -482,11 +483,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
                 .copyInto(baseTableNeedUnionPartitionNameSet);
         // Construct result map
-        Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
+        Map<BaseTableNameInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
         if (!mvNeedRemovePartitionNameSet.isEmpty()) {
-            mvPartitionNeedRemoveNameMap.put(new BaseTableInfo(mtmv), mvNeedRemovePartitionNameSet);
+            mvPartitionNeedRemoveNameMap.put(new BaseTableNameInfo(mtmv), mvNeedRemovePartitionNameSet);
         }
-        Map<BaseTableInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
+        Map<BaseTableNameInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
         if (!baseTableNeedUnionPartitionNameSet.isEmpty()) {
             baseTablePartitionNeedUnionNameMap.put(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }

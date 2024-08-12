@@ -24,7 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -143,7 +143,7 @@ public class MaterializedViewUtils {
         }
         // TODO support to return only one related table info, support multi later
         for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return RelatedTableInfo.successWith(new BaseTableInfo(entry.getKey()), true,
+            return RelatedTableInfo.successWith(new BaseTableNameInfo(entry.getKey()), true,
                     entry.getValue().getName(), checkContext.getPartitionExpression().orElseGet(() -> null));
         }
         return RelatedTableInfo.failWith("can't not find valid partition track column finally");
@@ -716,14 +716,14 @@ public class MaterializedViewUtils {
      * The related table info that mv relate
      */
     public static final class RelatedTableInfo {
-        private final BaseTableInfo tableInfo;
+        private final BaseTableNameInfo tableInfo;
         private final boolean pctPossible;
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
         // This records the partition expression if exist
         private Optional<Expression> partitionExpression;
 
-        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
+        public RelatedTableInfo(BaseTableNameInfo tableInfo, boolean pctPossible, String column, String failReason,
                 Expression partitionExpression) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
@@ -737,12 +737,12 @@ public class MaterializedViewUtils {
                     null);
         }
 
-        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column,
+        public static RelatedTableInfo successWith(BaseTableNameInfo tableInfo, boolean pctPossible, String column,
                 Expression partitionExpression) {
             return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression);
         }
 
-        public BaseTableInfo getTableInfo() {
+        public BaseTableNameInfo getTableInfo() {
             return tableInfo;
         }
 

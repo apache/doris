@@ -19,16 +19,21 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 /**
  * MTMVPartitionInfo
  */
-public class MTMVPartitionInfo {
+public class MTMVPartitionInfo implements GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(MTMVPartitionInfo.class);
 
     public enum MTMVPartitionType {
         FOLLOW_BASE_TABLE,
@@ -39,7 +44,10 @@ public class MTMVPartitionInfo {
     @SerializedName("pt")
     private MTMVPartitionType partitionType;
     @SerializedName("rt")
-    private BaseTableInfo relatedTable;
+    @Deprecated
+    private BaseTableInfo relatedTableId;
+    @SerializedName("rtn")
+    private BaseTableNameInfo relatedTable;
     @SerializedName("rc")
     private String relatedCol;
     @SerializedName("pc")
@@ -68,7 +76,7 @@ public class MTMVPartitionInfo {
         this.partitionType = partitionType;
     }
 
-    public BaseTableInfo getRelatedTableInfo() {
+    public BaseTableNameInfo getRelatedTableInfo() {
         return relatedTable;
     }
 
@@ -76,7 +84,7 @@ public class MTMVPartitionInfo {
         return (MTMVRelatedTableIf) MTMVUtil.getTable(relatedTable);
     }
 
-    public void setRelatedTable(BaseTableInfo relatedTable) {
+    public void setRelatedTable(BaseTableNameInfo relatedTable) {
         this.relatedTable = relatedTable;
     }
 
@@ -147,6 +155,29 @@ public class MTMVPartitionInfo {
                     + ", relatedCol='" + relatedCol + '\''
                     + ", partitionCol='" + partitionCol + '\''
                     + '}';
+        }
+    }
+
+    /**
+     * Previously, ID was used to store the related table of materialized views,
+     * but when the catalog is deleted, the ID will change, so name is used instead.
+     * The logic here is to be compatible with older versions by converting ID to name
+     */
+    @Override
+    public void gsonPostProcess() {
+        if (relatedTableId == null) {
+            return;
+        }
+        try {
+            TableIf table = MTMVUtil.getTable(relatedTableId);
+            relatedTable = new BaseTableNameInfo(table);
+        } catch (Throwable e) {
+            relatedTable = new BaseTableNameInfo("dummyCatalog", "dummyDatabase", "dummyTable");
+            LOG.warn(
+                    "can not transfer relatedTableId to relatedTable: {}, may be cause by catalog/db/table dropped, we need rebuild MTMV",
+                    relatedTableId, e.getMessage());
+        } finally {
+            relatedTableId = null;
         }
     }
 }

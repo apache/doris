@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -273,7 +274,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 if (!(table instanceof MTMVRelatedTableIf)) {
                     return catalogRelation;
                 }
-                for (Map.Entry<BaseTableInfo, Set<String>> filterTableEntry : predicates.getPartition().entrySet()) {
+                for (Map.Entry<BaseTableNameInfo, Set<String>> filterTableEntry : predicates.getPartition()
+                        .entrySet()) {
                     if (!Objects.equals(new BaseTableInfo(table), filterTableEntry.getKey())) {
                         continue;
                     }
@@ -326,7 +328,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     public static class PredicateAddContext {
 
         private final Map<TableIf, Set<Expression>> predicates;
-        private final Map<BaseTableInfo, Set<String>> partition;
+        private final Map<BaseTableNameInfo, Set<String>> partition;
         private final String partitionName;
         private boolean handleSuccess = true;
         // when add filter by partition, if partition has no data, doesn't need to add filter. should be false
@@ -336,12 +338,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             this(predicates, null, null);
         }
 
-        public PredicateAddContext(Map<BaseTableInfo, Set<String>> partition,
+        public PredicateAddContext(Map<BaseTableNameInfo, Set<String>> partition,
                 String partitionName) {
             this(null, partition, partitionName);
         }
 
-        public PredicateAddContext(Map<TableIf, Set<Expression>> predicates, Map<BaseTableInfo, Set<String>> partition,
+        public PredicateAddContext(Map<TableIf, Set<Expression>> predicates,
+                Map<BaseTableNameInfo, Set<String>> partition,
                 String partitionName) {
             this.predicates = predicates;
             this.partition = partition;
@@ -352,7 +355,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             return predicates;
         }
 
-        public Map<BaseTableInfo, Set<String>> getPartition() {
+        public Map<BaseTableNameInfo, Set<String>> getPartition() {
             return partition;
         }
 

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
@@ -706,10 +707,10 @@ public class StructInfo {
     /**
      * Add or remove partition on base table and mv when materialized view scan contains invalid partitions
      */
-    public static class PartitionRemover extends DefaultPlanRewriter<Map<BaseTableInfo, Set<String>>> {
+    public static class PartitionRemover extends DefaultPlanRewriter<Map<BaseTableNameInfo, Set<String>>> {
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan,
-                Map<BaseTableInfo, Set<String>> context) {
+                Map<BaseTableNameInfo, Set<String>> context) {
             // todo Support other partition table
             BaseTableInfo tableInfo = new BaseTableInfo(olapScan.getTable());
             if (!context.containsKey(tableInfo)) {
@@ -730,10 +731,10 @@ public class StructInfo {
      * Collect partitions on base table
      */
     public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
-            Map<BaseTableInfo, Set<Partition>>> {
+            Map<BaseTableNameInfo, Set<Partition>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
+                Map<BaseTableNameInfo, Set<Partition>> targetTablePartitionMap) {
             TableIf table = catalogRelation.getTable();
             BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
             if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
@@ -762,7 +763,7 @@ public class StructInfo {
      *         need to add filter.
      *         return null if add filter fail.
      */
-    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableNameInfo,
             Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
         PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);

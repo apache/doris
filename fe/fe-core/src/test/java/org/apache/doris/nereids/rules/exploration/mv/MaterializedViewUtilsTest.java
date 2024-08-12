@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -863,12 +863,9 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
             String expectColumnName,
             boolean pctPossible) {
         Assertions.assertNotNull(relatedTableInfo);
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
+        BaseTableNameInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
         try {
-            TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
-                    .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
-                    .getDbOrAnalysisException(relatedBaseTableInfo.getDbId())
-                    .getTableOrAnalysisException(relatedBaseTableInfo.getTableId());
+            TableIf tableIf = MTMVUtil.getTable(relatedBaseTableInfo);
             Assertions.assertEquals(tableIf.getName(), expectTableName);
         } catch (Exception exception) {
             Assertions.fail();

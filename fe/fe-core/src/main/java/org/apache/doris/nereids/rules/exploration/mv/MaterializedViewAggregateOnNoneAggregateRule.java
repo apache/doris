@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.BaseTableNameInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -91,10 +91,10 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
     }
 
     @Override
-    protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> calcInvalidPartitions(
+    protected Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>> calcInvalidPartitions(
             Plan queryPlan, Plan rewrittenPlan, AsyncMaterializationContext materializationContext,
             CascadesContext cascadesContext) throws AnalysisException {
-        Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions
+        Pair<Map<BaseTableNameInfo, Set<String>>, Map<BaseTableNameInfo, Set<String>>> invalidPartitions
                 = super.calcInvalidPartitions(queryPlan, rewrittenPlan, materializationContext, cascadesContext);
         if (needUnionRewrite(invalidPartitions, cascadesContext)) {
             // if query use some invalid partition in mv, bail out
