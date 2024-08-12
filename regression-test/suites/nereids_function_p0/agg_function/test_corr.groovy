@@ -80,6 +80,7 @@ suite("test_corr") {
     (5, 5, 10)
     """
     qt_sql "select corr(x,y) from test_corr"
-    
+
+    qt_sql "select corr(cast(x as float),cast(y as float)) from test_corr"
     sql """ DROP TABLE IF EXISTS test_corr """
 }
