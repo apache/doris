@@ -75,6 +75,7 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     resource_mgr_ = resource_mgr;
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -237,46 +238,64 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
     }
 
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        msg = "failed to create txn";
-        code = cast_as<ErrCategory::CREATE>(err);
-        return;
-    }
-
-    std::string ver_val;
-    // 0 for success get a key, 1 for key not found, negative for error
-    err = txn->get(ver_key, &ver_val);
-    VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
-    if (err == TxnErrorCode::TXN_OK) {
-        if (is_table_version) {
-            int64_t version = 0;
-            if (!txn->decode_atomic_int(ver_val, &version)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed table version value";
-                return;
-            }
-            response->set_version(version);
-        } else {
-            VersionPB version_pb;
-            if (!version_pb.ParseFromString(ver_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed version value";
-                return;
-            }
-            response->set_version(version_pb.version());
-            response->add_version_update_time_ms(version_pb.update_time_ms());
+    do {
+        code = MetaServiceCode::OK;
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            msg = "failed to create txn";
+            code = cast_as<ErrCategory::CREATE>(err);
+            return;
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
-        return;
-    } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        msg = "not found";
-        code = MetaServiceCode::VERSION_NOT_FOUND;
-        return;
-    }
-    msg = fmt::format("failed to get txn, err={}", err);
-    code = cast_as<ErrCategory::READ>(err);
+
+        std::string ver_val;
+        // 0 for success get a key, 1 for key not found, negative for error
+        err = txn->get(ver_key, &ver_val);
+        VLOG_DEBUG << "xxx get version_key=" << hex(ver_key);
+        if (err == TxnErrorCode::TXN_OK) {
+            if (is_table_version) {
+                int64_t version = 0;
+                if (!txn->decode_atomic_int(ver_val, &version)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed table version value";
+                    return;
+                }
+                response->set_version(version);
+            } else {
+                VersionPB version_pb;
+                if (!version_pb.ParseFromString(ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed version value";
+                    return;
+                }
+
+                if (version_pb.has_txn_id()) {
+                    txn.reset();
+                    std::shared_ptr<TxnLazyCommitTask> task =
+                            txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
+                    std::pair<MetaServiceCode, std::string> ret = task->wait();
+                    code = ret.first;
+                    msg = ret.second;
+                    if (code != MetaServiceCode::OK) {
+                        LOG(WARNING)
+                                << "wait txn lazy commit failed, txn_id=" << version_pb.txn_id();
+                        return;
+                    }
+                }
+
+                response->set_version(version_pb.version());
+                response->add_version_update_time_ms(version_pb.update_time_ms());
+            }
+            { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+            return;
+        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            msg = "not found";
+            code = MetaServiceCode::VERSION_NOT_FOUND;
+            return;
+        }
+        msg = fmt::format("failed to get txn, err={}", err);
+        code = cast_as<ErrCategory::READ>(err);
+    } while (false);
 }
 
 void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* controller,
@@ -326,8 +345,13 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     std::vector<std::optional<std::string>> version_values;
     version_keys.reserve(BATCH_SIZE);
     version_values.reserve(BATCH_SIZE);
+
     while ((code == MetaServiceCode::OK || code == MetaServiceCode::KV_TXN_TOO_OLD) &&
            response->versions_size() < response->partition_ids_size()) {
+    TRY_AGAIN:
+        response->clear_versions();
+        code = MetaServiceCode::OK;
+
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -387,10 +411,30 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         msg = "malformed version value";
                         break;
                     }
+                    if (version_pb.has_txn_id()) {
+                        txn.reset();
+                        std::shared_ptr<TxnLazyCommitTask> task =
+                                txn_lazy_committer_->submit(instance_id, version_pb.txn_id());
+                        std::pair<MetaServiceCode, std::string> ret = task->wait();
+                        code = ret.first;
+                        msg = ret.second;
+                        if (code != MetaServiceCode::OK) {
+                            LOG(WARNING) << "wait txn lazy commit failed, txn_id="
+                                         << version_pb.txn_id();
+                            break;
+                        }
+                        goto TRY_AGAIN;
+                    }
                     response->add_versions(version_pb.version());
                     response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
+            if (code != MetaServiceCode::OK) {
+                break;
+            }
+        }
+        if (code != MetaServiceCode::OK) {
+            break;
         }
     }
     if (code != MetaServiceCode::OK) {

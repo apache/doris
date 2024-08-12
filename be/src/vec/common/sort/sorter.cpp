@@ -124,6 +124,8 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             for (size_t i = 0; i < num_columns; ++i)
                 merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
             ++merged_rows;
+            LOG(INFO) << "++merged_rows";
+            LOG(INFO) << "merged_rows:" << merged_rows;
         } else {
             offset_--;
         }

@@ -445,6 +445,8 @@ void MemTable::_aggregate() {
                 }
             }
             _stat.merged_rows++;
+            LOG(INFO) << "_stat.merged_rows++";
+            LOG(INFO) << "_stat.merged_rows:" << _stat.merged_rows;
             _aggregate_two_row_in_block(mutable_block, _row_in_blocks[i], prev_row);
         } else {
             prev_row = _row_in_blocks[i];
