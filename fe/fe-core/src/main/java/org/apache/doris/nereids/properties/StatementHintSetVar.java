@@ -22,14 +22,14 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * select hint.
+ * statement hint.
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
-public class SelectHintSetVar extends SelectHint {
+public class StatementHintSetVar extends StatementHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final Map<String, Optional<String>> parameters;
 
-    public SelectHintSetVar(String hintName, Map<String, Optional<String>> parameters) {
+    public StatementHintSetVar(String hintName, Map<String, Optional<String>> parameters) {
         super(hintName);
         this.parameters = parameters;
     }
