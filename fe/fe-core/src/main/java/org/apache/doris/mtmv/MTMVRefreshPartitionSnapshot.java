@@ -70,7 +70,7 @@ public class MTMVRefreshPartitionSnapshot {
             return;
         }
         MTMVRelation relation = mtmv.getRelation();
-        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevelId())) {
             tablesId = null;
             return;
         }
