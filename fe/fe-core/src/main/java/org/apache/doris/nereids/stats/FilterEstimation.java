@@ -172,15 +172,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 }
                 return false;
             };
-            boolean leftAgg = left.anyMatch(containsAggSlot);
-            boolean rightAgg = right.anyMatch(containsAggSlot);
-            // It means this predicate appears in HAVING clause.
-            if (leftAgg || rightAgg) {
-                double rowCount = context.statistics.getRowCount();
-                double newRowCount = Math.max(rowCount * DEFAULT_HAVING_COEFFICIENT,
-                        Math.max(statsForLeft.ndv, statsForRight.ndv));
-                return context.statistics.withRowCount(newRowCount);
-            }
+            // boolean leftAgg = left.anyMatch(containsAggSlot);
+            // boolean rightAgg = right.anyMatch(containsAggSlot);
+            // // It means this predicate appears in HAVING clause.
+            // if (leftAgg || rightAgg) {
+            //     double rowCount = context.statistics.getRowCount();
+            //     double newRowCount = Math.max(rowCount * 0.5,
+            //             Math.max(statsForLeft.ndv, statsForRight.ndv));
+            //     return context.statistics.withRowCount(newRowCount);
+            // }
         }
         if (!left.isConstant() && !right.isConstant()) {
             return calculateWhenBothColumn(cp, context, statsForLeft, statsForRight);

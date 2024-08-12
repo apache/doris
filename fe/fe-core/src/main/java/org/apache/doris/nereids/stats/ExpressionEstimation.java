@@ -373,7 +373,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1D).setAvgSizeByte(width).setNumNulls(0)
+        // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
+        return new ColumnStatisticBuilder().setNdv(context.getRowCount()).setCount(context.getRowCount())
+                .setAvgSizeByte(width).setNumNulls(0)
                 .setDataSize(width).setMinValue(0).setMaxValue(context.getRowCount())
                 .setMaxExpr(null).setMinExpr(null).build();
     }
