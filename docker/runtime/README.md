@@ -23,7 +23,7 @@ under the License.
 
 #### Download and copy the Doris code repo
 
-```console
+```shell
 $ cd /to/your/workspace/
 $ git clone https://github.com/apache/doris.git
 $ cd doris/docker
@@ -54,7 +54,7 @@ Here we take the build of x64 (avx2) and arm64 platforms of 2.1.5 version as an 
 
 Go to the doris [official website](https://doris.apache.org/download) to download the binary package you need, and pay attention to selecting the doris version and architecture type you need.
   
-```console
+```shell
 $ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-2.1.5-bin-x64.tar.gz
 # or
 $ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-2.1.5-bin-arm64.tar.gz
@@ -62,7 +62,7 @@ $ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-2.
    
 2. Unzip binary package
 
-```console
+```shell
 $ tar -zxvf apache-doris-2.1.5-bin-x64.tar.gz
 # or
 $ tar -zxvf apache-doris-2.1.5-bin-arm64.tar.gz
@@ -102,7 +102,7 @@ The below images depend on the base image selectdb/base. If your environment can
 
 As mentioned in the preparation steps above, the Dockerfile of the Base image is under the runtime/base-image path. To build it, make sure you have pulled the Doris code repo and execute the following command.
 
-```console
+```shell
 $ cd /to/your/workspace/runtime/base-image && docker build . -t doris-base:latest -f Dockerfile_base
 ```
 
@@ -125,7 +125,7 @@ ARG DORIS_VERSION="x.x.x"
 
 Execute the following command, Docker will automatically confirm the architecture type
 
-```console
+```shell
 $ cd /to/your/workspace/runtime/fe && docker build . -t doris.fe:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
 $ cd /to/your/workspace/runtime/be && docker build . -t doris.be:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
 $ cd /to/your/workspace/runtime/ms && docker build . -t doris.ms:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
