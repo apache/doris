@@ -3145,23 +3145,20 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto col_origin =
-                assert_cast<const ColumnString*>(block.get_by_position(arguments[0])
-                                                         .column->convert_to_full_column_if_const()
-                                                         .get());
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_origin_str = assert_cast<const ColumnString*>(col_origin.get());
         auto col_old =
-                assert_cast<const ColumnString*>(block.get_by_position(arguments[1])
-                                                         .column->convert_to_full_column_if_const()
-                                                         .get());
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_old_str = assert_cast<const ColumnString*>(col_old.get());
         auto col_new =
-                assert_cast<const ColumnString*>(block.get_by_position(arguments[2])
-                                                         .column->convert_to_full_column_if_const()
-                                                         .get());
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto col_new_str = assert_cast<const ColumnString*>(col_new.get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef origin_str = col_origin->get_data_at(i);
-            StringRef old_str = col_old->get_data_at(i);
-            StringRef new_str = col_new->get_data_at(i);
+            StringRef origin_str = col_origin_str->get_data_at(i);
+            StringRef old_str = col_old_str->get_data_at(i);
+            StringRef new_str = col_new_str->get_data_at(i);
 
             std::string result = replace(origin_str.to_string(), old_str.to_string_view(),
                                          new_str.to_string_view());
