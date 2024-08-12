@@ -67,11 +67,13 @@ public class CompoundPredicate extends Predicate {
         if (e2 != null) {
             children.add(e2);
         }
+        printSqlInParens = true;
     }
 
     protected CompoundPredicate(CompoundPredicate other) {
         super(other);
         op = other.op;
+        printSqlInParens = true;
     }
 
     @Override
@@ -92,7 +94,7 @@ public class CompoundPredicate extends Predicate {
     public String toSqlImpl() {
         if (children.size() == 1) {
             Preconditions.checkState(op == Operator.NOT);
-            return "NOT " + getChild(0).toSql();
+            return "NOT (" + getChild(0).toSql() + ")";
         } else {
             return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
@@ -101,7 +103,7 @@ public class CompoundPredicate extends Predicate {
     @Override
     public String toDigestImpl() {
         if (children.size() == 1) {
-            return "NOT " + getChild(0).toDigest();
+            return "NOT (" + getChild(0).toSql() + ")";
         } else {
             return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
         }
