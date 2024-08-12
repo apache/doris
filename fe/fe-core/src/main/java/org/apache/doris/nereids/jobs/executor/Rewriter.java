@@ -87,6 +87,7 @@ import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
+import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
@@ -181,7 +182,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
                                 // in the ExpressionNormalization, so must invoke in another job, otherwise dead loop.
-                                new ExtractSingleTableExpressionFromDisjunction()
+                                new ExtractSingleTableExpressionFromDisjunction(),
+                                new MaxMinFilterPushDown()
                         )
                 ),
                 // subquery unnesting relay on ExpressionNormalization to extract common factor expression
