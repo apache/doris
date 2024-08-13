@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -322,5 +323,13 @@ public abstract class AlterJobV2 implements Writable {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    protected void assignDeleteTabletWatermarkTxnId() {
+        try {
+            this.deleteTabletWatermarkTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        } catch (UserException e) {
+            LOG.warn("get next transaction id failed");
+        }
     }
 }

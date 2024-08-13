@@ -661,11 +661,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             } // end for partitions
             commitShadowIndex();
             // all partitions are good
-            try {
-                this.deleteTabletWatermarkTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-            } catch (UserException e) {
-                LOG.warn("get next transaction id failed");
-            }
+            assignDeleteTabletWatermarkTxnId();
             onFinished(tbl);
         } finally {
             tbl.writeUnlock();
@@ -792,12 +788,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (jobState.isFinalState()) {
             return false;
         }
-        try {
-            this.deleteTabletWatermarkTxnId =
-                    Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-        } catch (Exception e) {
-            LOG.warn("get next transaction id failed");
-        }
+        assignDeleteTabletWatermarkTxnId();
         cancelInternal();
 
         pruneMeta();

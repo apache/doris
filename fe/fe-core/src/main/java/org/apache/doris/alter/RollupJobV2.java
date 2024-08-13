@@ -646,13 +646,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return false;
         }
 
-        try {
-            this.deleteTabletWatermarkTxnId =
-                    Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-        } catch (UserException e) {
-            LOG.warn("get next transaction id failed");
-        }
-
+        assignDeleteTabletWatermarkTxnId();
         cancelInternal();
 
         jobState = JobState.CANCELLED;
