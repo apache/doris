@@ -97,7 +97,10 @@ suite("test_auth_compatibility", "account") {
     connect(user = user, password = pwd, url = context.config.jdbcUrl) {}
     try {
         connect(user = user, password = pwd, url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Reach limit of connections"), e.getMessage())
     }
+    sql """SET PROPERTY FOR '${user}' 'max_user_ip_connections'= '100'"""
+
 }
