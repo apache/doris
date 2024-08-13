@@ -1310,4 +1310,35 @@ suite("nereids_scalar_fn_Array") {
     qt_array_empty_fe """select array()"""
     sql """ set debug_skip_fold_constant=true; """
     qt_array_empty_be """select array()"""
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 }
