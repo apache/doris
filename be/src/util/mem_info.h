@@ -217,8 +217,8 @@ private:
     static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
 
-    static int64_t _s_cgroup_mem_limit;
-    static int64_t _s_cgroup_mem_usage;
+    static uint64_t _s_cgroup_mem_limit;
+    static uint64_t _s_cgroup_mem_usage;
     static bool _s_cgroup_mem_refresh_state;
     static int64_t _s_cgroup_mem_refresh_wait_times;
 

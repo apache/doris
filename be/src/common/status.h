@@ -76,7 +76,6 @@ namespace ErrorCode {
     TStatusError(HTTP_ERROR, true);                       \
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
-    TStatusError(CGROUP_ERROR, false);                    \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -291,7 +290,8 @@ namespace ErrorCode {
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
     E(INVALID_TABLET_STATE, -7211, false);                   \
-    E(ROWSETS_EXPIRED, -7311, false);
+    E(ROWSETS_EXPIRED, -7311, false);                        \
+    E(CGROUP_ERROR, -7411, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;

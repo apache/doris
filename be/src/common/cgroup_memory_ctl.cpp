@@ -25,7 +25,6 @@
 #include <memory>
 #include <utility>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "util/cgroup_util.h"
 
@@ -33,10 +32,10 @@ namespace doris {
 
 // Is the memory controller of cgroups v2 enabled on the system?
 // Assumes that cgroupsv2_enable() is enabled.
-bool cgroupsv2_memory_controller_enabled() {
+Status cgroupsv2_memory_controller_enabled(bool* ret) {
 #if defined(OS_LINUX)
     if (!CGroupUtil::cgroupsv2_enable()) {
-        throw doris::Exception(doris::ErrorCode::CGROUP_ERROR, "cgroupsv2_enable is false");
+        return Status::CgroupError("cgroupsv2_enable is false");
     }
     // According to https://docs.kernel.org/admin-guide/cgroup-v2.html, file "cgroup.controllers" defines which controllers are available
     // for the current + child cgroups. The set of available controllers can be restricted from level to level using file
@@ -45,13 +44,16 @@ bool cgroupsv2_memory_controller_enabled() {
     auto cgroup_dir = cgroup.empty() ? default_cgroups_mount : (default_cgroups_mount / cgroup);
     std::ifstream controllers_file(cgroup_dir / "cgroup.controllers");
     if (!controllers_file.is_open()) {
-        return false;
+        *ret = false;
+        return Status::CgroupError("open cgroup.controllers failed");
     }
     std::string controllers;
     std::getline(controllers_file, controllers);
-    return controllers.find("memory") != std::string::npos;
+    *ret = controllers.find("memory") != std::string::npos;
+    return Status::OK();
 #else
-    return false;
+    *ret = false;
+    return Status::CgroupError("cgroupsv2 only support Linux");
 #endif
 }
 
@@ -59,22 +61,18 @@ struct CgroupsV1Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV1Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
-    uint64_t read_memory_limit() override {
-        int64_t value;
-        auto st = CGroupUtil::read_int_line_from_cgroup_file(
-                (_mount_file_dir / "memory.limit_in_bytes"), &value);
-        if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
-                                   "Cannot read cgroupv1 memory.limit_in_bytes, " + st.to_string());
-        }
-        return value;
+    Status read_memory_limit(uint64_t* value) override {
+        RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(
+                (_mount_file_dir / "memory.limit_in_bytes"), (int64_t*)value));
+        return Status::OK();
     }
 
-    uint64_t read_memory_usage() override {
+    Status read_memory_usage(uint64_t* value) override {
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
-        return metrics_map["rss"];
+        *value = metrics_map["rss"];
+        return Status::OK();
     }
 
 private:
@@ -85,35 +83,25 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
     explicit CgroupsV2Reader(std::filesystem::path mount_file_dir)
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
-    uint64_t read_memory_limit() override {
-        int64_t value;
-        auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
-                                                             &value);
-        if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
-                                   "Cannot read cgroupv2 memory.max, " + st.to_string());
-        }
-        return value;
+    Status read_memory_limit(uint64_t* value) override {
+        RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
+                                                                   (int64_t*)value));
+        return Status::OK();
     }
 
-    uint64_t read_memory_usage() override {
-        int64_t mem_usage = 0;
+    Status read_memory_usage(uint64_t* value) override {
         // memory.current contains a single number
         // the reason why we subtract it described here: https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
-        auto st = CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.current"),
-                                                             &mem_usage);
-        if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR,
-                                   "Cannot read cgroupv2 memory.current, " + st.to_string());
-        }
+        RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(
+                (_mount_file_dir / "memory.current"), (int64_t*)value));
         std::unordered_map<std::string, int64_t> metrics_map;
         CGroupUtil::read_int_metric_from_cgroup_file((_mount_file_dir / "memory.stat"),
                                                      metrics_map);
-        mem_usage -= metrics_map["inactive_file"];
-        if (mem_usage < 0) {
-            throw doris::Exception(doris::ErrorCode::CGROUP_ERROR, "Negative memory usage");
+        *value -= metrics_map["inactive_file"];
+        if (*value < 0) {
+            return Status::CgroupError("CgroupsV2Reader read_memory_usage negative memory usage");
         }
-        return mem_usage;
+        return Status::OK();
     }
 
 private:
@@ -121,7 +109,10 @@ private:
 };
 
 std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
-    if (CGroupUtil::cgroupsv2_enable() && cgroupsv2_memory_controller_enabled()) {
+    bool enable_controller;
+    auto cgroupsv2_memory_controller_st = cgroupsv2_memory_controller_enabled(&enable_controller);
+    if (CGroupUtil::cgroupsv2_enable() && cgroupsv2_memory_controller_st.ok() &&
+        enable_controller) {
         auto v2_memory_stat_path = CGroupUtil::get_cgroupsv2_path("memory.stat");
         auto v2_memory_current_path = CGroupUtil::get_cgroupsv2_path("memory.current");
         auto v2_memory_max_path = CGroupUtil::get_cgroupsv2_path("memory.max");
@@ -138,65 +129,68 @@ std::pair<std::string, CGroupUtil::CgroupsVersion> get_cgroups_path() {
         return {cgroup_path, CGroupUtil::CgroupsVersion::V1};
     }
 
-    throw doris::Exception(
-            doris::ErrorCode::CGROUP_ERROR,
-            fmt::format("Cannot find cgroups v1 or v2 current memory file, cgroupsv2_enable: {}, "
-                        "cgroupsv2_memory_controller_enabled: {}, cgroupsv1_enable: {}",
-                        CGroupUtil::cgroupsv2_enable(), cgroupsv2_memory_controller_enabled(),
-                        CGroupUtil::cgroupsv1_enable()));
+    return {"", CGroupUtil::CgroupsVersion::V1};
 }
 
-std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> get_cgroups_reader() {
+Status get_cgroups_reader(std::shared_ptr<CGroupMemoryCtl::ICgroupsReader>& reader) {
     const auto [cgroup_path, version] = get_cgroups_path();
+    if (cgroup_path.empty()) {
+        bool enable_controller;
+        auto st = cgroupsv2_memory_controller_enabled(&enable_controller);
+        return Status::CgroupError(
+                "Cannot find cgroups v1 or v2 current memory file, cgroupsv2_enable: {},{}, "
+                "cgroupsv2_memory_controller_enabled: {}, cgroupsv1_enable: {}",
+                CGroupUtil::cgroupsv2_enable(), enable_controller, st.to_string(),
+                CGroupUtil::cgroupsv1_enable());
+    }
 
     if (version == CGroupUtil::CgroupsVersion::V2) {
-        return std::make_shared<CgroupsV2Reader>(cgroup_path);
+        reader = std::make_shared<CgroupsV2Reader>(cgroup_path);
     } else {
-        return std::make_shared<CgroupsV1Reader>(cgroup_path);
+        reader = std::make_shared<CgroupsV1Reader>(cgroup_path);
     }
+    return Status::OK();
 }
 
-Status CGroupMemoryCtl::find_cgroup_mem_limit(int64_t* bytes) {
-    try {
-        *bytes = get_cgroups_reader()->read_memory_limit();
-        return Status::OK();
-    } catch (const doris::Exception& e) {
-        LOG(WARNING) << "Cgroup find_cgroup_mem_limit failed, " << e.to_string();
-        return Status::CgroupError(e.to_string());
-    }
+Status CGroupMemoryCtl::find_cgroup_mem_limit(uint64_t* bytes) {
+    std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> reader;
+    RETURN_IF_ERROR(get_cgroups_reader(reader));
+    RETURN_IF_ERROR(reader->read_memory_limit(bytes));
+    return Status::OK();
 }
 
-Status CGroupMemoryCtl::find_cgroup_mem_usage(int64_t* bytes) {
-    try {
-        *bytes = get_cgroups_reader()->read_memory_usage();
-        return Status::OK();
-    } catch (const doris::Exception& e) {
-        LOG(WARNING) << "Cgroup find_cgroup_mem_usage failed, " << e.to_string();
-        return Status::CgroupError(e.to_string());
-    }
+Status CGroupMemoryCtl::find_cgroup_mem_usage(uint64_t* bytes) {
+    std::shared_ptr<CGroupMemoryCtl::ICgroupsReader> reader;
+    RETURN_IF_ERROR(get_cgroups_reader(reader));
+    RETURN_IF_ERROR(reader->read_memory_usage(bytes));
+    return Status::OK();
 }
 
 std::string CGroupMemoryCtl::debug_string() {
-    try {
-        const auto [cgroup_path, version] = get_cgroups_path();
-
-        int64_t mem_limit;
-        auto mem_limit_st = find_cgroup_mem_limit(&mem_limit);
-
-        int64_t mem_usage;
-        auto mem_usage_st = find_cgroup_mem_usage(&mem_usage);
-
+    const auto [cgroup_path, version] = get_cgroups_path();
+    if (cgroup_path.empty()) {
+        bool enable_controller;
+        auto st = cgroupsv2_memory_controller_enabled(&enable_controller);
         return fmt::format(
-                "Process CGroup Memory Info (cgroups path: {}, cgroup version: {}): memory limit: "
-                "{}, "
-                "memory usage: {}",
-                cgroup_path, (version == CGroupUtil::CgroupsVersion::V1) ? "v1" : "v2",
-                mem_limit_st.ok() ? std::to_string(mem_limit) : mem_limit_st.to_string(),
-                mem_usage_st.ok() ? std::to_string(mem_usage) : mem_usage_st.to_string());
-    } catch (const doris::Exception& e) {
-        LOG(WARNING) << "Cgroup find_cgroup_mem_usage failed, " << e.to_string();
-        return fmt::format("CGroupMemoryCtl::debug_string {}", e.to_string());
+                "Cannot find cgroups v1 or v2 current memory file, cgroupsv2_enable: {},{}, "
+                "cgroupsv2_memory_controller_enabled: {}, cgroupsv1_enable: {}",
+                CGroupUtil::cgroupsv2_enable(), enable_controller, st.to_string(),
+                CGroupUtil::cgroupsv1_enable());
     }
+
+    uint64_t mem_limit;
+    auto mem_limit_st = find_cgroup_mem_limit(&mem_limit);
+
+    uint64_t mem_usage;
+    auto mem_usage_st = find_cgroup_mem_usage(&mem_usage);
+
+    return fmt::format(
+            "Process CGroup Memory Info (cgroups path: {}, cgroup version: {}): memory limit: "
+            "{}, "
+            "memory usage: {}",
+            cgroup_path, (version == CGroupUtil::CgroupsVersion::V1) ? "v1" : "v2",
+            mem_limit_st.ok() ? std::to_string(mem_limit) : mem_limit_st.to_string(),
+            mem_usage_st.ok() ? std::to_string(mem_usage) : mem_usage_st.to_string());
 }
 
 } // namespace doris

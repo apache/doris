@@ -20,10 +20,8 @@
 #include <fmt/format.h>
 #include <sys/stat.h>
 
-#include <cfloat>
 #include <filesystem>
 
-#include "util/cgroup_util.h"
 #include "util/defer_op.h"
 
 namespace doris {
