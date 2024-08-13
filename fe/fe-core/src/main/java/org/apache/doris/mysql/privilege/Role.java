@@ -836,6 +836,11 @@ public class Role implements Writable, GsonPostProcessable {
     public void revokePrivs(ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
             throws DdlException {
         PrivBitSet existingPriv;
+        // 2.x -> 3.0 compatibility logic
+        if (resourcePattern.getResourceType() == null) {
+            // 2.x not have cloud auth, so just transfer to ResourceTypeEnum.GENERAL
+            resourcePattern.setResourceType(ResourceTypeEnum.GENERAL);
+        }
         switch (resourcePattern.getResourceType()) {
             case GENERAL:
                 existingPriv = resourcePatternToPrivs.get(resourcePattern);
