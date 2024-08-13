@@ -228,6 +228,14 @@ void CloudStorageEngine::stop() {
             t->join();
         }
     }
+
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    LOG(INFO) << "Cloud storage engine is stopped.";
 }
 
 bool CloudStorageEngine::stopped() {
