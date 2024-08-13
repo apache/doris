@@ -337,8 +337,6 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
 
-    void _async_report_debug_info_if_necessary(const Status& status);
-
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     void add_fragment_profile(

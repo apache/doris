@@ -216,7 +216,6 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
         return;
     }
 
-    _async_report_debug_info_if_necessary(new_status);
     set_ready_to_execute(new_status);
     cancel_all_pipeline_context(new_status, fragment_id);
 }
@@ -445,10 +444,6 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() const {
             /*is_done=*/false);
 
     return exec_status;
-}
-
-void QueryContext::_async_report_debug_info_if_necessary(const Status& status) {
-    // TODO(zhiqiang): implement this function.
 }
 
 } // namespace doris

@@ -217,7 +217,6 @@ static bool _get_all_running_queries(std::unordered_set<TUniqueId>& result_ref) 
         }
 
         for (const auto& query_id : query_ids_and_rpc_succeed.first) {
-            LOG_INFO("Running query id: {}", print_id(query_id));
             result_ref.insert(query_id);
         }
     }
@@ -949,9 +948,8 @@ void FragmentMgr::cancel_worker() {
         clock_gettime(CLOCK_MONOTONIC, &now);
 
         if (now.tv_sec - check_invalid_query_last_timestamp.tv_sec >
-            config::pipeline_task_leakage_detect_period_sec) {
+            config::pipeline_task_leakage_detect_period_secs) {
             check_invalid_query_last_timestamp = now;
-            do_pipeline_task_leak_check = true;
             do_pipeline_task_leak_check = _get_all_running_queries(running_queries_on_all_fes);
             if (!do_pipeline_task_leak_check) {
                 LOG_INFO(
@@ -1031,7 +1029,7 @@ void FragmentMgr::cancel_worker() {
                         continue;
                     }
 
-                    // If query is from a unstable fe, do not cancel it.
+                    // If query is from an unstable fe, do not cancel it.
                     if (white_list_fe_hosts.contains(q_ctx->coord_addr.hostname)) {
                         continue;
                     }

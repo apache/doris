@@ -1343,7 +1343,7 @@ DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");
 
-DEFINE_mInt64(pipeline_task_leakage_detect_period_sec, "60");
+DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 
 // clang-format off
 #ifdef BE_TEST
