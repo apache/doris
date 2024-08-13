@@ -32,6 +32,7 @@ PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase
             std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                          parent->get_name() + "_SPILL_DEPENDENCY", true);
 }
+
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                           doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -64,6 +65,7 @@ Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::_open_timer);
     return Base::open(state);
 }
+
 Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);

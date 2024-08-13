@@ -154,7 +154,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->init_stub(state));
+        _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+                fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
+    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     return Status::OK();
 }
 
@@ -201,9 +204,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         for (int i = 0; i < config::num_broadcast_buffer; ++i) {
             _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
-
-        _wait_broadcast_buffer_timer =
-                ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
         size_t dep_id = 0;
         for (auto* channel : channels) {
@@ -211,9 +211,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 if (auto dep = channel->get_local_channel_dependency()) {
                     _local_channels_dependency.push_back(dep);
                     DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                    _wait_channel_timer.push_back(_profile->add_nonzero_counter(
-                            fmt::format("WaitForLocalExchangeBuffer{}", dep_id), TUnit ::TIME_NS,
-                            timer_name, 1));
                     dep_id++;
                 } else {
                     LOG(WARNING) << "local recvr is null: query id = "
