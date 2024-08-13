@@ -235,6 +235,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 PROP_MAPKV_DELIMITER);
         serDeProperties.setMapkvDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_MAPKV_DELIMITER, mapkvDelim)));
+        tSink.setSerDeProperties(serDeProperties);
     }
 
     protected TDataSinkType getDataSinkType() {

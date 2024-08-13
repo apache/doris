@@ -66,33 +66,11 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
         _csv_header = "";
     }
 
-    if (_collection_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ',';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\002';
-            break;
-        default:
-            break;
-        }
-    } else {
+    if (!_collection_delimiter.empty()) {
         _options.collection_delim = _collection_delimiter[0];
     }
 
-    if (_mapkv_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ':';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\003';
-            break;
-        default:
-            break;
-        }
-    } else {
+    if (!_mapkv_delimiter.empty()) {
         _options.map_key_delim = _mapkv_delimiter[0];
     }
 }
