@@ -95,7 +95,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                baseOlapTable.getTableSnapshot();
+                baseOlapTable.getTableSnapshot((MTMVRefreshContext) any);
                 minTimes = 0;
                 result = baseSnapshotIf;
 
@@ -115,7 +115,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                baseOlapTable.getPartitionSnapshot(anyString);
+                baseOlapTable.getPartitionSnapshot(anyString, (MTMVRefreshContext) any);
                 minTimes = 0;
                 result = baseSnapshotIf;
 
@@ -152,7 +152,7 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
+                .isSyncWithPartitions(null, "name1", Sets.newHashSet("name2"));
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -166,7 +166,7 @@ public class MTMVPartitionUtilTest {
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
+                .isSyncWithPartitions(null, "name1", Sets.newHashSet("name2"));
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -180,7 +180,7 @@ public class MTMVPartitionUtilTest {
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(mtmv, "name1", baseOlapTable, Sets.newHashSet("name2"));
+                .isSyncWithPartitions(null, "name1", Sets.newHashSet("name2"));
         Assert.assertFalse(isSyncWithPartition);
     }
 
