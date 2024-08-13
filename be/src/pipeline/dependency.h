@@ -886,8 +886,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
     void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
-        std::vector<DependencySPtr> new_deps(sink_deps.size(), nullptr);
-        source_deps.swap(new_deps);
         for (size_t i = 0; i < source_deps.size(); i++) {
             source_deps[i] =
                     std::make_shared<Dependency>(local_exchange_id, local_exchange_id,

@@ -58,7 +58,7 @@ Status PartitionSorter::append_block(Block* input_block) {
     Block sorted_block = VectorizedUtils::create_empty_columnswithtypename(_row_desc);
     DCHECK(input_block->columns() == sorted_block.columns());
     RETURN_IF_ERROR(partial_sort(*input_block, sorted_block));
-    RETURN_IF_ERROR(_state->add_sorted_block(sorted_block));
+    RETURN_IF_ERROR(_state->add_sorted_block(std::move(sorted_block)));
     return Status::OK();
 }
 
@@ -67,46 +67,49 @@ Status PartitionSorter::prepare_for_read() {
     auto& blocks = _state->get_sorted_block();
     auto& priority_queue = _state->get_priority_queue();
     for (auto& block : blocks) {
-        cursors.emplace_back(block, _sort_description);
+        cursors.emplace_back(MergeSortCursorImpl::create_shared(block, _sort_description));
     }
     for (auto& cursor : cursors) {
-        priority_queue.push(MergeSortCursor(&cursor));
+        priority_queue.push(std::move(cursor));
     }
+    cursors.clear();
     return Status::OK();
 }
 
 // have done sorter and get topn records, so could reset those state to init
 void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
-    std::priority_queue<MergeSortBlockCursor> empty_queue;
+    std::priority_queue<std::shared_ptr<MergeSortBlockCursor>> empty_queue;
     std::swap(_block_priority_queue, empty_queue);
     _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state, nullptr);
     _previous_row->reset();
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if (_state->get_sorted_block().empty()) {
+    if (_state->get_sorted_block().empty() && _state->get_priority_queue().empty()) {
+        *eos = true;
+    } else if (_state->get_cursors().size() == 1 && _has_global_limit) {
+        auto& cursor = _state->get_cursors()[0];
+        block->swap(*cursor->block);
+        block->set_num_rows(_partition_inner_limit);
         *eos = true;
     } else {
-        if (_state->get_sorted_block().size() == 1 && _has_global_limit) {
-            auto& sorted_block = _state->get_sorted_block()[0];
-            block->swap(sorted_block);
-            block->set_num_rows(_partition_inner_limit);
-            *eos = true;
-        } else {
-            RETURN_IF_ERROR(partition_sort_read(block, eos, state->batch_size()));
-        }
+        RETURN_IF_ERROR(partition_sort_read(block, eos, state->batch_size()));
     }
     return Status::OK();
 }
 
 Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int batch_size) {
-    const auto& sorted_block = _state->get_sorted_block()[0];
-    size_t num_columns = sorted_block.columns();
+    auto& priority_queue = _state->get_priority_queue();
+    if (priority_queue.empty()) {
+        *eos = true;
+        return Status::OK();
+    }
+    const auto& sorted_block = priority_queue.top().impl->block;
+    size_t num_columns = sorted_block->columns();
     MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, sorted_block);
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *sorted_block);
     MutableColumns& merged_columns = m_block.mutable_columns();
     size_t current_output_rows = 0;
-    auto& priority_queue = _state->get_priority_queue();
 
     bool get_enough_data = false;
     while (!priority_queue.empty()) {
@@ -121,7 +124,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
             //1 row_number no need to check distinct, just output partition_inner_limit row
             if ((current_output_rows + _output_total_rows) < _partition_inner_limit) {
                 for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                    merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
                 }
             } else {
                 //rows has get enough
@@ -155,7 +158,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 }
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
             }
             break;
         }
@@ -180,7 +183,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 *_previous_row = current;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
             }
             current_output_rows++;
             break;

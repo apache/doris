@@ -50,7 +50,7 @@ public:
     SortCursorCmp(const MergeSortCursor& cursor) : row(cursor->pos), impl(cursor.impl) {}
 
     void reset() {
-        impl = nullptr;
+        impl->reset();
         row = 0;
     }
     bool compare_two_rows(const MergeSortCursor& rhs) const {
@@ -67,7 +67,7 @@ public:
         return true;
     }
     int row = 0;
-    MergeSortCursorImpl* impl = nullptr;
+    std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 };
 
 class PartitionSorter final : public Sorter {

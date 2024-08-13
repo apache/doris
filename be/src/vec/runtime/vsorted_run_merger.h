@@ -74,12 +74,12 @@ protected:
     int64_t _limit = -1;
     size_t _offset = 0;
 
-    std::vector<BlockSupplierSortCursorImpl> _cursors;
+    std::vector<std::shared_ptr<BlockSupplierSortCursorImpl>> _cursors;
     std::priority_queue<MergeSortCursor> _priority_queue;
 
     /// In pipeline engine, if a cursor needs to read one more block from supplier,
     /// we make it as a pending cursor until the supplier is readable.
-    MergeSortCursorImpl* _pending_cursor = nullptr;
+    std::shared_ptr<MergeSortCursorImpl> _pending_cursor = nullptr;
 
     Block _empty_block;
 
