@@ -18,7 +18,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[customer]
 --------------PhysicalProject

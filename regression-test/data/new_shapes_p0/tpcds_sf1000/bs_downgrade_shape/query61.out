@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------filter((customer_address.ca_gmt_offset = -7.00))
 ----------------------PhysicalOlapScan[customer_address] apply RFs: RF10
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 ss_customer_sk->[c_customer_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 ss_customer_sk->[c_customer_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer] apply RFs: RF9
 ----------------------PhysicalProject
@@ -58,7 +58,7 @@ PhysicalResultSink
 ----------------------------filter((item.i_category = 'Home'))
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer] apply RFs: RF0
 --------------------------PhysicalProject

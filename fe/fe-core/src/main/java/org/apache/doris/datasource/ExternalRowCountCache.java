@@ -86,9 +86,17 @@ public class ExternalRowCountCache {
                 TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
                 return Optional.of(table.fetchRowCount());
             } catch (Exception e) {
-                LOG.warn("Failed to get table with catalogId {}, dbId {}, tableId {}", rowCountKey.catalogId,
-                        rowCountKey.dbId, rowCountKey.tableId);
-                return Optional.empty();
+                LOG.warn("Failed to get table row count with catalogId {}, dbId {}, tableId {}. Reason {}",
+                        rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
+                LOG.debug(e);
+                // Return Optional.empty() will cache this empty value in memory,
+                // so we can't try to load the row count until the cache expire.
+                // Throw an exception here will cause too much stack log in fe.out.
+                // So we return null when exception happen.
+                // Null may raise NPE in caller, but that is expected.
+                // We catch that NPE and return a default value -1 without keep the value in cache,
+                // so we can trigger the load function to fetch row count again next time in this exception case.
+                return null;
             }
         }
     }
@@ -96,46 +104,39 @@ public class ExternalRowCountCache {
     /**
      * Get cached row count for the given table. Return 0 if cached not loaded or table not exists.
      * Cached will be loaded async.
-     * @param catalogId
-     * @param dbId
-     * @param tableId
-     * @return Cached row count or 0 if not exist
+     * @return Cached row count or -1 if not exist
      */
     public long getCachedRowCount(long catalogId, long dbId, long tableId) {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
             if (f.isDone()) {
-                return f.get().orElse(0L);
+                return f.get().orElse(-1L);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }
-        return 0;
+        return -1;
     }
 
     /**
-     * Get cached row count for the given table if present. Return 0 if cached not loaded.
+     * Get cached row count for the given table if present. Return -1 if cached not loaded.
      * This method will not trigger async loading if cache is missing.
-     *
-     * @param catalogId
-     * @param dbId
-     * @param tableId
-     * @return
+     * @return Cached row count or -1 if not exist
      */
     public long getCachedRowCountIfPresent(long catalogId, long dbId, long tableId) {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.getIfPresent(key);
             if (f == null) {
-                return 0;
+                return -1;
             } else if (f.isDone()) {
-                return f.get().orElse(0L);
+                return f.get().orElse(-1L);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count if present", e);
         }
-        return 0;
+        return -1;
     }
 
 }

@@ -23,7 +23,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 ----------------------------------------PhysicalOlapScan[customer_address]
---------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF0 i_manufact_id->[i_manufact_id]
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF0 i_manufact_id->[i_manufact_id]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------------------------PhysicalProject
@@ -47,7 +47,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 ----------------------------------------PhysicalOlapScan[customer_address]
---------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF4 i_manufact_id->[i_manufact_id]
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF4 i_manufact_id->[i_manufact_id]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF4
 ----------------------------------PhysicalProject
@@ -71,7 +71,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 ----------------------------------------PhysicalOlapScan[customer_address]
---------------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF8 i_manufact_id->[i_manufact_id]
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF8 i_manufact_id->[i_manufact_id]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF8
 ----------------------------------PhysicalProject

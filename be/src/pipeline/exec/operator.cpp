@@ -452,7 +452,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
             _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
 
-            _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
+            auto deps = _shared_state->get_dep_by_channel_id(info.task_idx);
+            if (deps.size() == 1) {
+                _dependency = deps.front().get();
+            }
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {

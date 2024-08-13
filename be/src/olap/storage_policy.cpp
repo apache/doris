@@ -191,6 +191,37 @@ std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64
     }
 }
 
+std::string StorageResource::remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id,
+                                                int64_t index_id,
+                                                std::string_view index_path_suffix) const {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}_{}{}.idx", DATA_PREFIX, rowset.tablet_id(),
+                           rowset.rowset_id().to_string(), seg_id, index_id, suffix);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}_{}{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
+                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id, index_id,
+                           suffix);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_idx_v2_path(const RowsetMeta& rowset, int64_t seg_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}.idx", DATA_PREFIX, rowset.tablet_id(),
+                           rowset.rowset_id().to_string(), seg_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
+                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
 std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
     switch (path_version) {
     case 0:

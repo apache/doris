@@ -199,6 +199,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -1099,6 +1101,12 @@ public class ShowExecutor {
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            IcebergExternalDatabase db = (IcebergExternalDatabase) catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(showStmt.getDb()).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocation())
+                .append("'");
         } else {
             DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
             sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");

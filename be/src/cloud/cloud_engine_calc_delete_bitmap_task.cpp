@@ -120,7 +120,7 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
                                                            int64_t ms_cumulative_compaction_cnt,
                                                            int64_t ms_cumulative_point) {
     _ms_base_compaction_cnt = ms_base_compaction_cnt;
-    _ms_cumulative_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_compaction_cnt = ms_cumulative_compaction_cnt;
     _ms_cumulative_point = ms_cumulative_point;
 }
 
@@ -186,9 +186,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
+    TxnPublishInfo previous_publish_info;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             _transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status);
+            &partial_update_info, &publish_status, &previous_publish_info);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id
                      << ", txn_id=" << _transaction_id << ", status=" << status;
@@ -204,8 +205,19 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;
+    txn_info.publish_info = {.publish_version = _version,
+                             .base_compaction_cnt = _ms_base_compaction_cnt,
+                             .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
+                             .cumulative_point = _ms_cumulative_point};
     auto update_delete_bitmap_time_us = 0;
-    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED)) {
+    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+        _version == previous_publish_info.publish_version &&
+        _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
+        _ms_cumulative_compaction_cnt == previous_publish_info.cumulative_compaction_cnt &&
+        _ms_cumulative_point == previous_publish_info.cumulative_point) {
+        // if version or compaction stats can't match, it means that this is a retry and there are
+        // compaction or other loads finished successfully on the same tablet. So the previous publish
+        // is stale and we should re-calculate the delete bitmap
         LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
                   << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
     } else {

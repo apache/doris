@@ -104,6 +104,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     bottomSemi.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomSemi.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                    bottomSemi.getMarkJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
 
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomSemi);
                     Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
