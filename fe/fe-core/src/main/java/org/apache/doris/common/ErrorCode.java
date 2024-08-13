@@ -75,6 +75,8 @@ public enum ErrorCode {
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the (%s) privilege(s) for this operation"),
+    ERR_CATALOG_ACCESS_DENIED_ERROR(1221, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on catalog %s for this operation"),
     ERR_DB_ACCESS_DENIED_ERROR(1225, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the (%s) privilege(s) on database %s for this operation"),
 

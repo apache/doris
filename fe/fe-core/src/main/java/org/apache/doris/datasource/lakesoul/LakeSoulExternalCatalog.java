@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lakesoul;
 
-
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -29,11 +28,15 @@ import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 
 public class LakeSoulExternalCatalog extends ExternalCatalog {
+
+    private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
 
     private DBManager lakesoulMetadataManager;
 
@@ -67,26 +70,24 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        TableInfo tableInfo = lakesoulMetadataManager.getTableInfoByNameAndNamespace(dbName, tblName);
+        TableInfo tableInfo = lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
         return null != tableInfo;
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        if (lakesoulMetadataManager == null) {
-            if (props != null) {
-                if (props.containsKey(DBUtil.urlKey)) {
-                    System.setProperty(DBUtil.urlKey, props.get(DBUtil.urlKey));
-                }
-                if (props.containsKey(DBUtil.usernameKey)) {
-                    System.setProperty(DBUtil.usernameKey, props.get(DBUtil.usernameKey));
-                }
-                if (props.containsKey(DBUtil.passwordKey)) {
-                    System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
-                }
+        if (props != null) {
+            if (props.containsKey(DBUtil.urlKey)) {
+                System.setProperty(DBUtil.urlKey, props.get(DBUtil.urlKey));
             }
-            lakesoulMetadataManager = new DBManager();
+            if (props.containsKey(DBUtil.usernameKey)) {
+                System.setProperty(DBUtil.usernameKey, props.get(DBUtil.usernameKey));
+            }
+            if (props.containsKey(DBUtil.passwordKey)) {
+                System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
+            }
         }
+        lakesoulMetadataManager = new DBManager();
     }
 
     public TableInfo getLakeSoulTable(String dbName, String tblName) {

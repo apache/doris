@@ -27,14 +27,6 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(_init_timer);
     _channel_id = info.task_idx;
     _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
-    return Status::OK();
-}
-
-Status LocalExchangeSourceLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
@@ -56,7 +48,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
         _exchanger->close(*this);
     }
     if (_shared_state) {
-        _shared_state->sub_running_source_operators();
+        _shared_state->sub_running_source_operators(*this);
     }
 
     return Base::close(state);
@@ -64,9 +56,12 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
 
 std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
     auto deps = Base::dependencies();
-    auto exchanger_deps = _exchanger->local_state_dependency(_channel_id);
-    for (auto* dep : exchanger_deps) {
-        deps.push_back(dep);
+    auto le_deps = _shared_state->get_dep_by_channel_id(_channel_id);
+    if (le_deps.size() > 1) {
+        // If this is a local merge exchange, we should use all dependencies here.
+        for (auto& dep : le_deps) {
+            deps.push_back(dep.get());
+        }
     }
     return deps;
 }

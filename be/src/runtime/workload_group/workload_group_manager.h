@@ -27,6 +27,10 @@ namespace doris {
 
 class CgroupCpuCtl;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
@@ -55,6 +59,8 @@ public:
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
     void refresh_wg_weighted_memory_limit();
+
+    void get_wg_resource_usage(vectorized::Block* block);
 
 private:
     std::shared_mutex _group_mutex;
