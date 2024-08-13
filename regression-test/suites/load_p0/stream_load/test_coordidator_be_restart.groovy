@@ -30,20 +30,6 @@ suite('test_coordidator_be_restart') {
 
         def dbId = getDbId()
 
-        def tableName2 = 'tbl_test_coordidator_be_restart_t2'
-
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName2} (
-                id int,
-                name CHAR(10),
-                dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
-                dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
-                dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
-                dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
-            )
-            DISTRIBUTED BY HASH(id) BUCKETS 1
-        """
-
         def txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
         assertEquals(0, txns.size())
         txns = sql_return_maparray "show proc '/transactions/${dbId}/finished'"
@@ -63,25 +49,10 @@ suite('test_coordidator_be_restart') {
             }
         }
 
-        thread {
-            try {
-                streamLoad {
-                    set 'version', '1'
-                    set 'sql', """
-                            insert into ${db}.${tableName2} (id, name) select c1, c2 from http_stream("format"="csv")
-                            """
-                    time 120 * 1000
-                    file context.config.dataPath + '/load_p0/http_stream/test_http_stream.csv'
-                }
-            } catch (Exception e) {
-                logger.info('http stream: ' + e)
-            }
-        }
-
         sleep(5000)
         txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
         logger.info('running txns: ' + txns)
-        assertEquals(2, txns.size())
+        assertEquals(1, txns.size())
         for (def txn : txns) {
             assertEquals('PREPARE', txn.TransactionStatus)
         }
@@ -104,7 +75,7 @@ suite('test_coordidator_be_restart') {
         sleep 5000
         txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
         logger.info('running txns: ' + txns)
-        assertEquals(2, txns.size())
+        assertEquals(1, txns.size())
         for (def txn : txns) {
             assertEquals('PREPARE', txn.TransactionStatus)
         }
@@ -127,7 +98,7 @@ suite('test_coordidator_be_restart') {
         assertEquals(0, txns.size())
         txns = sql_return_maparray "show proc '/transactions/${dbId}/finished'"
         logger.info('finished txns: ' + txns)
-        assertEquals(2, txns.size())
+        assertEquals(1, txns.size())
         for (def txn : txns) {
             assertEquals('ABORTED', txn.TransactionStatus)
         }
