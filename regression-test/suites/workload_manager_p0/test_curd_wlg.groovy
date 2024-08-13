@@ -705,4 +705,15 @@ suite("test_crud_wlg") {
     qt_select_wgp_12 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
     sql "drop workload group test_wg_priv_g1"
 
+    sql "create workload group empty_g1 properties('cpu_share'='1024');"
+    sql "create workload group empty_g2 properties('cpu_share'='1024');"
+    sql "create workload group empty_g3 properties('cpu_share'='1024');"
+    sql "create workload group empty_g4 properties('cpu_share'='1024');"
+    sql "create workload group empty_g5 properties('cpu_share'='1024');"
+    sql "create workload group empty_g6 properties('cpu_share'='1024');"
+    sql "create workload group empty_g7 properties('cpu_share'='1024');"
+    sql "create workload group empty_g8 properties('cpu_share'='1024');"
+    sql "create workload group empty_g9 properties('cpu_share'='1024');"
+    sql "create workload group empty_g10 properties('cpu_share'='1024');"
+
 }
