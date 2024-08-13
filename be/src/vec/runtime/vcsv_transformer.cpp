@@ -18,40 +18,22 @@
 #include "vec/runtime/vcsv_transformer.h"
 
 #include <glog/logging.h>
-#include <stdlib.h>
-#include <string.h>
 
-#include <exception>
-#include <ostream>
+#include <cstdlib>
+#include <cstring>
 
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
-#include "util/binary_cast.hpp"
 #include "util/faststring.h"
-#include "util/mysql_global.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_complex.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -62,20 +44,56 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
                                  std::string_view line_delimiter, bool with_bom,
-                                 TFileCompressType::type compress_type)
+                                 std::string_view collection_delimiter,
+                                 std::string_view mapkv_delimiter,
+                                 TFileCompressType::type compress_type,
+                                 TTextSerdeType::type text_serde_type)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_separator(column_separator),
           _line_delimiter(line_delimiter),
+          _collection_delimiter(collection_delimiter),
+          _mapkv_delimiter(mapkv_delimiter),
           _file_writer(file_writer),
           _with_bom(with_bom),
-          _compress_type(compress_type) {
-    if (header.size() > 0) {
+          _compress_type(compress_type),
+          _text_serde_type(text_serde_type) {
+    if (!header.empty()) {
         _csv_header = header;
         if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             _csv_header += _gen_csv_header_types();
         }
     } else {
         _csv_header = "";
+    }
+
+    if (_collection_delimiter.empty()) {
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
+            _options.collection_delim = ',';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\002';
+            break;
+        default:
+            break;
+        }
+    } else {
+        _options.collection_delim = _collection_delimiter[0];
+    }
+
+    if (_mapkv_delimiter.empty()) {
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
+            _options.collection_delim = ':';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\003';
+            break;
+        default:
+            break;
+        }
+    } else {
+        _options.map_key_delim = _mapkv_delimiter[0];
     }
 }
 
@@ -114,13 +132,22 @@ Status VCSVTransformer::write(const Block& block) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            Status st = _serdes[col_id]->serialize_one_cell_to_json(
-                    *(block.get_by_position(col_id).column), i, buffer_writer, _options);
-            if (!st.ok()) {
-                // VectorBufferWriter must do commit before deconstruct,
-                // or it may throw DCHECK failure.
-                buffer_writer.commit();
-                return st;
+            switch (_text_serde_type) {
+                // TODO: change serialize_one_cell_to_hive_text return Status
+            case TTextSerdeType::JSON_TEXT_SERDE:
+                (void)_serdes[col_id]->serialize_one_cell_to_json(
+                        *(block.get_by_position(col_id).column), i, buffer_writer, _options);
+                // if (!st.ok()) {
+                //     // VectorBufferWriter must do commit before deconstruct,
+                //     // or it may throw DCHECK failure.
+                //     buffer_writer.commit();
+                //     return st;
+                // }
+                break;
+            case TTextSerdeType::HIVE_TEXT_SERDE:
+                _serdes[col_id]->serialize_one_cell_to_hive_text(
+                        *(block.get_by_position(col_id).column), i, buffer_writer, _options);
+                break;
             }
         }
         buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());

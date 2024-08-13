@@ -327,6 +327,8 @@ struct THivePartition {
 struct THiveSerDeProperties {
     1: optional string field_delim
     2: optional string line_delim
+    3: optional string collection_delim // array ,map ,struct delimiter 
+    4: optional string mapkv_delim
 }
 
 struct THiveTableSink {

@@ -25,7 +25,9 @@
 #include <parquet/file_writer.h>
 #include <parquet/properties.h>
 #include <parquet/types.h>
-#include <stdint.h>
+
+#include <cstdint>
+#include <string_view>
 
 #include "util/block_compression.h"
 #include "vfile_format_transformer.h"
@@ -44,8 +46,10 @@ public:
                     const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
                     std::string_view header_type, std::string_view header,
                     std::string_view column_separator, std::string_view line_delimiter,
-                    bool with_bom,
-                    TFileCompressType::type compress_type = TFileCompressType::PLAIN);
+                    bool with_bom, std::string_view collection_delimiter = "",
+                    std::string_view mapkv_delimiter = "",
+                    TFileCompressType::type compress_type = TFileCompressType::PLAIN,
+                    TTextSerdeType::type text_serde_type = TTextSerdeType::JSON_TEXT_SERDE);
 
     ~VCSVTransformer() = default;
 
@@ -64,6 +68,8 @@ private:
     std::string _csv_header;
     std::string_view _column_separator;
     std::string_view _line_delimiter;
+    std::string_view _collection_delimiter;
+    std::string_view _mapkv_delimiter;
 
     doris::io::FileWriter* _file_writer = nullptr;
     // Used to buffer the export data of plain text
@@ -75,8 +81,9 @@ private:
     fmt::memory_buffer _outstream_buffer;
 
     bool _with_bom = false;
-    TFileCompressType::type _compress_type;
+    const TFileCompressType::type _compress_type;
     BlockCompressionCodec* _compress_codec = nullptr;
+    const TTextSerdeType::type _text_serde_type;
 };
 
 } // namespace doris::vectorized
