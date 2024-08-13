@@ -1132,8 +1132,14 @@ Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>
     if (rowsets->empty()) {
         return Status::OK();
     }
+
     RowsetSharedPtr prev_rowset = rowsets->front();
     size_t i = 1;
+    int max_start = 0;
+    int max_length = 1;
+
+    int start = 0;
+    int length = 1;
     for (; i < rowsets->size(); ++i) {
         RowsetSharedPtr rowset = (*rowsets)[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
@@ -1141,12 +1147,20 @@ Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>
                 missing_version->push_back(prev_rowset->version());
                 missing_version->push_back(rowset->version());
             }
-            break;
+            start = i;
+            length = 1;
+        } else {
+            length++;
         }
+
+        if (length > max_length) {
+            max_start = start;
+            max_length = length;
+        }
+
         prev_rowset = rowset;
     }
-
-    rowsets->resize(i);
+    *rowsets = {rowsets->begin() + max_start, rowsets->begin() + max_start + max_length};
     return Status::OK();
 }
 

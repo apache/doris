@@ -111,10 +111,11 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<Version> missing_versions;
     RETURN_IF_ERROR(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
     if (!missing_versions.empty()) {
-        DCHECK(missing_versions.size() == 2);
+        DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "prev rowset verison=" << missing_versions[0]
-                     << ", next rowset version=" << missing_versions[1]
+                     << "total missed version size: " << missing_versions.size() / 2
+                     << " first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
     }
 
