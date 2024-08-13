@@ -80,7 +80,7 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     if (slot->type().is_date_type() && expr->type().is_date_type()) {
         return true;
     }
-    
+
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
