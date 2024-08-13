@@ -35,7 +35,7 @@ namespace doris {
 // Assumes that cgroupsv2_enable() is enabled.
 bool cgroupsv2_memory_controller_enabled() {
 #if defined(OS_LINUX)
-    assert(cgroupsv2_enable());
+    assert(CGroupUtil::cgroupsv2_enable());
     // According to https://docs.kernel.org/admin-guide/cgroup-v2.html, file "cgroup.controllers" defines which controllers are available
     // for the current + child cgroups. The set of available controllers can be restricted from level to level using file
     // "cgroups.subtree_control". It is therefore sufficient to check the bottom-most nested "cgroup.controllers" file.
