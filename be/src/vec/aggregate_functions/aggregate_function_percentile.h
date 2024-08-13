@@ -583,7 +583,7 @@ public:
 template <typename T>
 struct PercentileState {
     mutable std::vector<Counts<T>> vec_counts;
-    std::vector<double> vec_quantile;
+    std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
