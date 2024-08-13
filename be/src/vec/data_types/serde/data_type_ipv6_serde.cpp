@@ -70,7 +70,7 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     IPv6 val = 0;
-    auto str_value = static_cast<const JsonbStringVal*>(arg);
+    const auto *str_value = static_cast<const JsonbStringVal*>(arg);
     ReadBuffer rb(reinterpret_cast<const unsigned char*>(str_value->getBlob()),
                   str_value->getBlobLen());
     if (!read_ipv6_text_impl(val, rb)) {
