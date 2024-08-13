@@ -1127,13 +1127,19 @@ void Compaction::gc_output_rowset() {
 // Find the longest consecutive version path in "rowset", from beginning.
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
-Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                    std::vector<Version>* missing_version) {
+void Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                                  std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
-        return Status::OK();
+        return;
     }
+
     RowsetSharedPtr prev_rowset = rowsets->front();
     size_t i = 1;
+    int max_start = 0;
+    int max_length = 1;
+
+    int start = 0;
+    int length = 1;
     for (; i < rowsets->size(); ++i) {
         RowsetSharedPtr rowset = (*rowsets)[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
@@ -1141,13 +1147,20 @@ Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>
                 missing_version->push_back(prev_rowset->version());
                 missing_version->push_back(rowset->version());
             }
-            break;
+            start = i;
+            length = 1;
+        } else {
+            length++;
         }
+
+        if (length > max_length) {
+            max_start = start;
+            max_length = length;
+        }
+
         prev_rowset = rowset;
     }
-
-    rowsets->resize(i);
-    return Status::OK();
+    *rowsets = {rowsets->begin() + max_start, rowsets->begin() + max_start + max_length};
 }
 
 Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {

@@ -46,9 +46,6 @@ protected:
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                          std::vector<Version>* missing_version);
-
 private:
     Version _last_delete_version {-1, -1};
 
