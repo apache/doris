@@ -46,15 +46,6 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
-#define DISPATCH(TYPE)                                                                 \
-    if (which.idx == TypeIndex::TYPE)                                                  \
-        return creator_without_type::create<AggregateFunctionTemplate<                 \
-                NameData<Data<TYPE, BaseDatadecimal<TYPE, is_stddev>>>, is_nullable>>( \
-                custom_nullable ? remove_nullable(argument_types) : argument_types,    \
-                result_is_nullable);
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
     LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
                                 argument_types[0]->get_name());
     return nullptr;
