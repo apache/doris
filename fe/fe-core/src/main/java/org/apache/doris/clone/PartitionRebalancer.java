@@ -138,7 +138,7 @@ public class PartitionRebalancer extends Rebalancer {
                     invertedIndex.getTabletIdsByBackendIdAndStorageMedium(move.toBe, medium));
 
             BiPredicate<Long, TabletMeta> canMoveTablet = (Long tabletId, TabletMeta tabletMeta) -> {
-                return tabletMeta != null
+                return canBalanceTablet(tabletMeta)
                         && tabletMeta.getPartitionId() == move.partitionId
                         && tabletMeta.getIndexId() == move.indexId
                         && !invalidIds.contains(tabletId)
