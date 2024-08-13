@@ -39,6 +39,7 @@
 #include <system_error>
 #include <utility>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_fwd.h"
@@ -392,7 +393,7 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
                                           const CacheContext& context) {
     if (!_lazy_open_done) {
         // Cache is not ready yet
-        LOG(WARNING) << std::format(
+        VLOG_NOTICE << std::format(
                 "Cache is not ready yet, skip cache for key: {}, offset: {}, size: {}.",
                 key.to_string(), offset, size);
         FileBlocks file_blocks = {std::make_shared<FileBlock>(
