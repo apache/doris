@@ -137,12 +137,11 @@ struct MergeSortCursorImpl {
     }
 
     MergeSortCursorImpl(const SortDescription& desc_)
-            : desc(desc_), sort_columns_size(desc.size()) {}
+            : block(Block::create_shared()), desc(desc_), sort_columns_size(desc.size()) {}
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
     void reset() {
-        block->clear();
         sort_columns.clear();
 
         auto columns = block->get_columns_and_convert();
