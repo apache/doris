@@ -75,7 +75,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
             .build();
 
     private Database db;
@@ -379,6 +379,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                     partitionInfo.add(FeConstants.null_string);
                     trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
                 }
+
+                partitionInfo.add(partition.getCommittedVersion());
+                trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion()));
 
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }

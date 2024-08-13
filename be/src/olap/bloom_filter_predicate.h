@@ -25,6 +25,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {

@@ -84,6 +84,8 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
 }
 
 LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_file_writer_cnt << -_segment_file_writers.size();
+    g_load_stream_file_writer_cnt << -_inverted_file_writers.size();
     g_load_stream_writer_cnt << -1;
 }
 
@@ -140,7 +142,6 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("close_writer failed, LoadStreamWriter is not inited");
         }
@@ -165,7 +166,6 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
         _is_canceled = true;
         return st;
     }
-    g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << "closed, written "
               << file_writer->bytes_appended() << " bytes"
               << ", file type is " << file_type;
@@ -183,7 +183,6 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     size_t inverted_file_size = 0;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }

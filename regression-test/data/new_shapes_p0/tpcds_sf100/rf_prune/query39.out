@@ -4,21 +4,23 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------filter((if((mean = 0.0), 0.0, (stdev / mean)) > 1.0))
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
-----------------------PhysicalOlapScan[inventory] apply RFs: RF0
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
 ----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
---------------------------PhysicalOlapScan[date_dim]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+--------------------------PhysicalOlapScan[inventory] apply RFs: RF0
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[item]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[item]
---------------PhysicalProject
-----------------PhysicalOlapScan[warehouse]
+--------------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

@@ -268,8 +268,6 @@ DEFINE_mInt32(doris_scan_range_row_count, "524288");
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // max bytes number for single scan block, used in segmentv2
 DEFINE_mInt32(doris_scan_block_max_mb, "67108864");
-// size of scanner queue between scanner thread and compute thread
-DEFINE_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
@@ -1338,7 +1336,7 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "true");
+DEFINE_mBool(enable_parquet_page_index, "false");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 

@@ -861,6 +861,14 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
             }
         }
     }
+
+    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
+            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
+        }
+    });
+
     return status;
 }
 
@@ -1715,7 +1723,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
 
     // Time series policy does not rely on permits, it uses goal size to control memory
     if (tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
-        permits = 0;
+        // permits = 0 means that prepare_compaction failed
+        permits = 1;
     } else {
         permits = compaction->get_compaction_permits();
     }
@@ -2641,14 +2650,21 @@ Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
 }
 
 void Tablet::clear_cache() {
-    std::shared_lock rlock(get_header_lock());
-    static auto recycle_segment_cache = [](const auto& rowset_map) {
-        for (auto& [_, rowset] : rowset_map) {
-            rowset->clear_cache();
+    std::vector<RowsetSharedPtr> rowsets;
+    {
+        std::shared_lock rlock(get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+
+        for (auto& [_, rowset] : rowset_map()) {
+            rowsets.push_back(rowset);
         }
-    };
-    recycle_segment_cache(rowset_map());
-    recycle_segment_cache(stale_rowset_map());
+        for (auto& [_, rowset] : stale_rowset_map()) {
+            rowsets.push_back(rowset);
+        }
+    }
+    for (auto& rowset : rowsets) {
+        rowset->clear_cache();
+    }
 }
 
 } // namespace doris

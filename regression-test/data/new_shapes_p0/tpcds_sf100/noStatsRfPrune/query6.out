@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((s.ss_sold_date_sk = d.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=()
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=()
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 --------------------------------------PhysicalProject

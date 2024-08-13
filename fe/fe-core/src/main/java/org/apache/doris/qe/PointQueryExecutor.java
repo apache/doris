@@ -167,7 +167,7 @@ public class PointQueryExecutor implements CoordInterface {
             } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
                 binaryPredicate.setChild(1, conjunctVals.get(i));
             } else {
-                Preconditions.checkState(false, "Should conatains literal in " + binaryPredicate.toSqlImpl());
+                Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
         }
     }
