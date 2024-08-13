@@ -40,6 +40,7 @@ class FileWriter;
 
 namespace doris::vectorized {
 
+// TODO(syt): consider and support escape and quote char
 class VCSVTransformer final : public VFileFormatTransformer {
 public:
     VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,

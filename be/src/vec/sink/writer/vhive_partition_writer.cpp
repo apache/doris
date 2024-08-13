@@ -113,11 +113,12 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
+        // TODO(syt): support hive csv table, only hive text file is supportted now
         _file_format_transformer.reset(new VCSVTransformer(
                 state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
                 _hive_serde_properties.field_delim, _hive_serde_properties.line_delim, false,
                 _hive_serde_properties.collection_delim, _hive_serde_properties.mapkv_delim,
-                _hive_compress_type));
+                _hive_compress_type, TTextSerdeType::HIVE_TEXT_SERDE));
         return _file_format_transformer->open();
     }
     default: {
