@@ -120,7 +120,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         scanRangeLocations = new ArrayList<>();
         for (Long partitionID : selectedPartitionIds) {
             Long backendId = partitionIDToBackendID.get(partitionID);
-            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().get(backendId);
             if (!be.isAlive()) {
                 throw new AnalysisException("backend " + be.getId() + " is not alive.");
             }
@@ -134,7 +134,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         }
     }
 
-    private void computePartitionInfo() throws AnalysisException {
+    private void computePartitionInfo() throws UserException {
         List<Column> partitionColumns = new ArrayList<>();
         for (SlotDescriptor slotDesc : desc.getSlots()) {
             if (BEACKEND_ID_COLUMN_SET.contains(slotDesc.getColumn().getName().toLowerCase())) {
@@ -155,11 +155,11 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
      * @param partitionColumns The Columns we want to create partitionInfo
      * @throws AnalysisException
      */
-    private void createPartitionInfo(List<Column> partitionColumns) throws AnalysisException {
+    private void createPartitionInfo(List<Column> partitionColumns) throws UserException {
         backendPartitionInfo = new PartitionInfo(PartitionType.LIST, partitionColumns);
         partitionIDToBackendID = new HashMap<>();
         long partitionID = 0;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 // create partition key
                 PartitionKey partitionKey = new PartitionKey();

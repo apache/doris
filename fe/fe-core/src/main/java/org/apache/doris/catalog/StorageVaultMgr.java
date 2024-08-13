@@ -24,10 +24,12 @@ import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -35,6 +37,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -176,7 +179,15 @@ public class StorageVaultMgr {
     }
 
     private void alterSyncVaultTask() {
-        systemInfoService.getAllBackends().forEach(backend -> {
+        List<Backend> bes;
+        try {
+            // get system all backends
+            bes = systemInfoService.getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("failed to get current cluster backends: {}", e);
+            return;
+        }
+        bes.forEach(backend -> {
             TNetworkAddress address = backend.getBrpcAddress();
             try {
                 BackendServiceProxy.getInstance().alterVaultSync(address, PAlterVaultSyncRequest.newBuilder().build());

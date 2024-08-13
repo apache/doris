@@ -76,7 +76,13 @@ public class TopicPublisherThread extends MasterDaemon {
         // because it may means workload group/policy is dropped
 
         // step 2: publish topic info to all be
-        Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
+        Collection<Backend> nodesToPublish;
+        try {
+            nodesToPublish = clusterInfoService.getAllBackendsByAllCluster().values();
+        } catch (Exception e) {
+            LOG.warn("get backends failed", e);
+            return;
+        }
         AckResponseHandler handler = new AckResponseHandler(nodesToPublish);
         for (Backend be : nodesToPublish) {
             executor.submit(new TopicPublishWorker(request, be, handler));
