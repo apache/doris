@@ -1466,7 +1466,8 @@ class Suite implements GroovyInterceptable {
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
         """
-
+        sql "analyze table ${mv_name} with sync;"
+        
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         explain {
