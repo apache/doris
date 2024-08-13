@@ -68,7 +68,8 @@ struct CorrMoment {
     }
 
     T get() const {
-        if ((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1) == 0) [[unlikely]] {
+        // avoid float error(silent nan) when x or y is constant
+        if (m0 * x2 <= x1 * x1 || m0 * y2 <= y1 * y1) [[unlikely]] {
             return 0;
         }
         return (m0 * xy - x1 * y1) / sqrt((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1));
