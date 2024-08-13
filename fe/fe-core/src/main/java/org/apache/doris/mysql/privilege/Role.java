@@ -152,9 +152,9 @@ public class Role implements Writable, GsonPostProcessable {
     public Role(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
         // grant has trans privs
-        // 2.1 -> 3.0 compatibility logic
+        // 2.x -> 3.0 compatibility logic
         if (resourcePattern.getResourceType() == null) {
-            // 2.1 not have cloud auth, so just transfer to ResourceTypeEnum.GENERAL
+            // 2.x not have cloud auth, so just transfer to ResourceTypeEnum.GENERAL
             resourcePattern.setResourceType(ResourceTypeEnum.GENERAL);
         }
         switch (resourcePattern.getResourceType()) {
