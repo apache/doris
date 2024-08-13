@@ -34,14 +34,32 @@ public class MaxMinFilterPushDownTest extends TestWithFeService implements MemoP
     }
 
     @Test
-    public void testMaxNotRewrite() {
+    public void testMaxNotRewrite0() {
         String sql = "select id, max(score) from max_t group by id having max(score)<10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }
     @Test
-    public void testMinNotRewrite() {
+    public void testMinNotRewrite1() {
         String sql = "select id, min(score) from max_t group by id having min(score)>10";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+    @Test
+    public void testMinNotRewrite2() {
+        String sql = "select id, min(score), max(score) from max_t group by id having min(score)>10";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+    @Test
+    public void testMinNotRewrite3() {
+        String sql = "select id, min(score), count(score) from max_t group by id having min(score)>10";
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .nonMatch(logicalFilter(logicalOlapScan()));
+    }
+    @Test
+    public void testMinNotRewrite4() {
+        String sql = "select id, max(score) from max_t group by id having abs(max(score))>10";
         PlanChecker.from(connectContext).analyze(sql).rewrite()
                 .nonMatch(logicalFilter(logicalOlapScan()));
     }

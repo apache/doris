@@ -30,10 +30,7 @@ suite("max_min_filter_push_down") {
 
     sql """
     INSERT INTO max_min_filter_push_down1 (id, value1, value2) VALUES
-    (1, 10, 'A'),
-    (2, 20, 'B'),
-    (3, 30, 'C'),
-    (4, 40, 'D');
+    (1, 10, 'A'),(1, 11, 'A'),(2, 20, 'B'),(2, 73, 'B'),(2, 19, 'B'),(3, 30, 'C'),(3, 61, 'C'),(4, 40, 'D'),(4, 43, 'D'),(4, 45, 'D');
     """
 
     qt_min """
@@ -77,10 +74,85 @@ suite("max_min_filter_push_down") {
     select id,max(value1),min(value1) from max_min_filter_push_down1 group by id having 40<=max(value1); 
     """
 
+    qt_min_scalar_agg """
+    explain shape plan
+    select min(value1) from max_min_filter_push_down1 having min(value1) <40;
+    """
+    qt_max_scalar_agg """
+    explain shape plan
+    select max(value1) from max_min_filter_push_down1 having max(value1) >40;
+    """
+    qt_max_scalar_agg """
+    explain shape plan
+    select max(value1) from max_min_filter_push_down1 having 40<max(value1); 
+    """
+
+    qt_min_equal_scalar_agg """
+    explain shape plan
+    select min(value1) from max_min_filter_push_down1 having min(value1) <=40 and min(value1) <=20;
+    """
+    qt_max_equal_scalar_agg """
+    explain shape plan
+    select max(value1) from max_min_filter_push_down1 having max(value1) >=40;
+    """
+
+
+    qt_min_res """
+    select id,min(value1) from max_min_filter_push_down1 group by id having min(value1) <40 and min(value1) <20 order by 1,2;
+    """
+    qt_max_res """
+    select id,max(value1) from max_min_filter_push_down1 group by id having max(value1) >40 order by 1,2;
+    """
+
+    qt_min_commute_res """
+    select id,min(value1) from max_min_filter_push_down1 group by id having 40>min(value1) order by 1,2;
+    """
+    qt_max_res """
+    select id,max(value1) from max_min_filter_push_down1 group by id having 40<max(value1) order by 1,2; 
+    """
+
+    qt_min_equal_res """
+    select id,min(value1) from max_min_filter_push_down1 group by id having min(value1) <=40 and min(value1) <=20  order by 1,2;
+    """
+    qt_max_equal_res """
+    select id,max(value1) from max_min_filter_push_down1 group by id having max(value1) >=40  order by 1,2;
+    """
+
+    qt_min_commute_equal_res """
+    select id,min(value1) from max_min_filter_push_down1 group by id having 40>=min(value1)  order by 1,2;
+    """
+    qt_max_commute_equal_res """
+    select id,max(value1) from max_min_filter_push_down1 group by id having 40<=max(value1) order by 1,2; 
+    """
+
+    qt_has_other_agg_func_res """
+    select id,max(value1),min(value1) from max_min_filter_push_down1 group by id having 40<=max(value1) order by 1,2; 
+    """
+
+    qt_min_scalar_agg_res """
+    select min(value1) from max_min_filter_push_down1 having min(value1) <40;
+    """
+    qt_max_scalar_agg_res """
+    select max(value1) from max_min_filter_push_down1 having max(value1) >40;
+    """
+    qt_max_scalar_agg_res """
+    select max(value1) from max_min_filter_push_down1 having 40<max(value1); 
+    """
+
+    qt_min_equal_scalar_agg_res """
+    select min(value1) from max_min_filter_push_down1 having min(value1) <=40 and min(value1) <=20;
+    """
+    qt_max_equal_scalar_agg_res """
+    select max(value1) from max_min_filter_push_down1 having max(value1) >=40;
+    """
+
+
     sql "drop table if exists max_min_filter_push_down2"
     sql """create table max_min_filter_push_down2(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2)
     properties("replication_num"="1");"""
-    sql "insert into max_min_filter_push_down2 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11');"
+    sql """insert into max_min_filter_push_down2 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09')
+    ,(14,'01234567890123456789', 29,23,'0123456789','2020-01-7 10:00:00.99','2020-01-11'),(1,'01234567890123456789', 7,23,'0123456789','2020-01-7 10:00:00.99','2020-01-11')
+    ,(14,'01234567890123456789', 32,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11'),(1,'01234567890123456789', 8,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11');"""
 
     qt_smallint """explain shape plan
     select d_int,max(d_smallint) from max_min_filter_push_down2 group by d_int having max(d_smallint)>10;"""
@@ -100,4 +172,14 @@ suite("max_min_filter_push_down") {
     select min(d_tinyint) from max_min_filter_push_down2 group by d_tinyint having min(d_tinyint)<10;"""
     qt_char100_group_by_key """explain shape plan
     select max(d_char100) from max_min_filter_push_down2 group by d_char100 having max(d_char100)>'ab';"""
+
+    qt_smallint_res """select d_int,max(d_smallint) from max_min_filter_push_down2 group by d_int having max(d_smallint)>10  order by 1,2;"""
+    qt_tinyint_res """select d_int,min(d_tinyint) from max_min_filter_push_down2 group by d_int having min(d_tinyint)<10  order by 1,2;"""
+    qt_char100_res """select d_int,max(d_char100) from max_min_filter_push_down2 group by d_int having max(d_char100)>'ab'  order by 1,2;"""
+    qt_char100_cmp_num_cannot_rewrite_res """select d_int,min(d_char100) from max_min_filter_push_down2 group by d_int having min(d_char100)<10  order by 1,2;"""
+    qt_datetimev2_res """select d_int,min(d_datetimev2) from max_min_filter_push_down2 group by d_int having min(d_datetimev2)<'2020-01-09' order by 1,2;"""
+    qt_datev2_res """select d_int,max(d_datev2) from max_min_filter_push_down2 group by d_int having max(d_datev2)>'2020-01-09 10:00:00' order by 1,2;"""
+    qt_smallint_group_by_key_res """select max(d_smallint) from max_min_filter_push_down2 group by d_smallint having max(d_smallint)>10 order by 1,2;"""
+    qt_tinyint_group_by_key_res """select min(d_tinyint) from max_min_filter_push_down2 group by d_tinyint having min(d_tinyint)<10 order by 1,2;"""
+    qt_char100_group_by_key_res """select max(d_char100) from max_min_filter_push_down2 group by d_char100 having max(d_char100)>'ab' order by 1,2;"""
 }

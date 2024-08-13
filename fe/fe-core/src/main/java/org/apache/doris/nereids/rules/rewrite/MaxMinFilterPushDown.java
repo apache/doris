@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -109,7 +110,7 @@ public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
                 newPredicate = new LessThanEqual(func.child(0), originConjunct.child(1));
             }
         }
-
+        Preconditions.checkState(newPredicate != null);
         LogicalFilter<Plan> newPushDownFilter = new LogicalFilter<>(ImmutableSet.of(newPredicate), aggChild);
         LogicalAggregate<Plan> newAgg = agg.withChildren(ImmutableList.of(newPushDownFilter));
         return PlanUtils.filterOrSelf(newUpperConjuncts, newAgg);
