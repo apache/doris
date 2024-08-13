@@ -228,7 +228,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
     SCOPED_TIMER(_exec_timer);
     auto current_rows = input_block->rows();
     if (current_rows > 0) {
-        child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(_value_places.empty())) {
                 _value_places.push_back(_pool->add(
@@ -250,6 +249,7 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, eos));
                 RETURN_IF_CANCELLED(state);
                 input_block->clear_column_data();
+                child_input_rows = child_input_rows + current_rows;
             }
         }
     }
