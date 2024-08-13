@@ -744,6 +744,11 @@ public class LoadAction extends RestBaseController {
                     + "Current catalog is " + catalog);
         }
 
+        Object redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
+        }
+
         String fullDbName = getFullDbName(db);
 
         Map<String, Object> resultMap = new HashMap<>();
@@ -858,6 +863,11 @@ public class LoadAction extends RestBaseController {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
             return ResponseEntityBuilder.okWithCommonError("Only support internal catalog. "
                     + "Current catalog is " + catalog);
+        }
+
+        Object redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
         }
 
         String fullDbName = getFullDbName(db);
