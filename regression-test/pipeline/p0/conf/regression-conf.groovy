@@ -150,3 +150,8 @@ externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+// max compute catalog test config
+enableMaxComputeTest=true
+aliYunAk="***********"
+aliYunSk="***********"

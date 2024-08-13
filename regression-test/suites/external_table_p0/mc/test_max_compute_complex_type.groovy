@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_max_compute_complex_type", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_max_compute_complex_type", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("aliYunAk")
@@ -39,9 +39,9 @@ suite("test_max_compute_complex_type", "p0,external,hive,external_docker,externa
         sql """ use jz_datalake """
 
         qt_mc_q1 """ select id,arr3,arr1,arr5,arr2 from array_table order by id desc """
-        qt_mc_q2 """ select arr2,arr1 from map_table limit 2 """
-        qt_mc_q3 """ select contact_info,user_info from struct_table limit 2 """
-        qt_mc_q4 """ select user_id,activity_log from nested_complex_table limit 2 """
+        order_qt_mc_q2 """ select arr2,arr1 from map_table limit 2 """
+        order_qt_mc_q3 """ select contact_info,user_info from struct_table limit 2 """
+        qt_mc_q4 """ select user_id,activity_log from nested_complex_table order by user_id limit 2 """
 
         sql """drop catalog ${mc_catalog_name};"""
     }
