@@ -170,6 +170,8 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
 
 } // namespace
 
+bvar::Adder<uint64_t> unused_remote_rowset_num("unused_remote_rowset_num");
+
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
     for (size_t i = 0; i < _executor_nums; i++) {
@@ -2394,6 +2396,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
     }
+    unused_remote_rowset_num << 1;
 }
 
 Status Tablet::remove_all_remote_rowsets() {
