@@ -36,6 +36,7 @@
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
@@ -1030,7 +1031,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 if (rs_column.has_default_value()) {
                     mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
                 } else if (rs_column.is_nullable()) {
-                    assert_cast<vectorized::ColumnNullable*>(mutable_column.get())
+                    assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            mutable_column.get())
                             ->insert_null_elements(1);
                 } else {
                     mutable_column->insert_default();
