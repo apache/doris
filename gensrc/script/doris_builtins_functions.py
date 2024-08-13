@@ -2212,7 +2212,7 @@ visible_functions = {
 
     # multi match functions
     "MultiMatch": [
-        [['multi_match'], 'BOOLEAN', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['multi_match'], 'BOOLEAN', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE']
     ]
 }
 
