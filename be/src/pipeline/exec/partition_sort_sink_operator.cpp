@@ -104,7 +104,6 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     SCOPED_TIMER(local_state.exec_time_counter());
     if (current_rows > 0) {
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-        local_state.child_input_rows = local_state.child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(local_state._value_places.empty())) {
                 local_state._value_places.push_back(_pool->add(new vectorized::PartitionBlocks(
@@ -129,6 +128,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, local_state, eos));
                 RETURN_IF_CANCELLED(state);
                 input_block->clear_column_data();
+                local_state.child_input_rows = local_state.child_input_rows + current_rows;
             }
         }
     }
