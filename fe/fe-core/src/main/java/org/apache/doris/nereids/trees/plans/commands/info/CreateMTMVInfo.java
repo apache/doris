@@ -162,7 +162,7 @@ public class CreateMTMVInfo {
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(true, keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS));
+        columns.forEach(c -> c.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS));
 
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
@@ -231,7 +231,7 @@ public class CreateMTMVInfo {
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
         // must disable constant folding by be, because be constant folding may return wrong type
         ctx.getSessionVariable().disableConstantFoldingByBEOnce();
-        Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
@@ -302,7 +302,7 @@ public class CreateMTMVInfo {
         }
         Plan plan;
         try {
-            plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+            plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
         } finally {
             sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);

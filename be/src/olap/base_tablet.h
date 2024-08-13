@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
 #include "util/metrics.h"
 
@@ -252,6 +253,26 @@ public:
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int limit);
 
+    // Return the merged schema of all rowsets
+    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
+
+    Status calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
+                         int32_t* rowset_count, int64_t* file_count);
+
+    Status show_nested_index_file(std::string* json_meta);
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -268,7 +289,6 @@ protected:
     static void _rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                        const RowsetIdUnorderedSet& pre,
                                        RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
-    static void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
 
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;

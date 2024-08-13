@@ -1,0 +1,3486 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.000 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.100 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.120 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 -08:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.000 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.100 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.120 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 -00:35'; # differ: doris : None, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2001-01-02 +07:09'; # differ: doris : 2001-01-02 07:09:00, presto : 2001-01-02 00:00:00.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4:5.321+07:09'; # differ: doris : 2001-01-02 03:55:05, presto : 2001-01-02 03:04:05.321 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4:5+07:09'; # differ: doris : 2001-01-02 03:55:05, presto : 2001-01-02 03:04:05.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4+07:09'; # differ: doris : None, presto : 2001-01-02 03:04:00.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 +07:09'; # differ: doris : 2001-01-02 07:09:00, presto : 2001-01-02 00:00:00.000 +07:09
+-- SELECT TIMESTAMP '2001-01-02 03:04:05.321 Europe/Berlin'; # differ: doris : None, presto : 2001-01-02 03:04:05.321 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 03:04:05 Europe/Berlin'; # differ: doris : None, presto : 2001-01-02 03:04:05.000 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 03:04 Europe/Berlin'; # differ: doris : None, presto : 2001-01-02 03:04:00.000 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 Europe/Berlin'; # differ: doris : None, presto : 2001-01-02 00:00:00.000 Europe/Berlin
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu' AS DATE); # differ: doris : None, presto : 2020-05-01
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(12)); # differ: doris : None, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(10)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(11)); # differ: doris : None, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 America/Los_Angeles' AS TIME(0)); # differ: doris : None, presto : 01:23:45.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 America/Los_Angeles' AS TIME(1)); # differ: doris : None, presto : 01:23:45.100
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 America/Los_Angeles' AS TIME(2)); # differ: doris : None, presto : 01:23:45.120
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 America/Los_Angeles' AS TIME(3)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 America/Los_Angeles' AS TIME(4)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 America/Los_Angeles' AS TIME(5)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 America/Los_Angeles' AS TIME(6)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 America/Los_Angeles' AS TIME(7)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 America/Los_Angeles' AS TIME(8)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 America/Los_Angeles' AS TIME(9)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 America/Los_Angeles' AS TIME(10)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 America/Los_Angeles' AS TIME(11)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 America/Los_Angeles' AS TIME(12)); # differ: doris : None, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45 America/Los_Angeles' AS TIME(0)); # differ: doris : None, presto : 03:23:45.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1 America/Los_Angeles' AS TIME(1)); # differ: doris : None, presto : 03:23:45.100
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12 America/Los_Angeles' AS TIME(2)); # differ: doris : None, presto : 03:23:45.120
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123 America/Los_Angeles' AS TIME(3)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234 America/Los_Angeles' AS TIME(4)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345 America/Los_Angeles' AS TIME(5)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456 America/Los_Angeles' AS TIME(6)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567 America/Los_Angeles' AS TIME(7)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678 America/Los_Angeles' AS TIME(8)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789 America/Los_Angeles' AS TIME(9)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567891 America/Los_Angeles' AS TIME(10)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678912 America/Los_Angeles' AS TIME(11)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789123 America/Los_Angeles' AS TIME(12)); # differ: doris : None, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234567+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345678+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456789+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234567891+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345678912+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456789123+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.00000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.000000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.10+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.100+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.10000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.100000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.10000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.100000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.10000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.100000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.120+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1200+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.120000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1200000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.120000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1200000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.120000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1230+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12300+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1230000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12300000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1230000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12300000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12340+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123400+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12340000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123400000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12340000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123400000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123450+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234500+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123450000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234500000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123450000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234560+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345600+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234560000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345600000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345670+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456700+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234567000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345670000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456700000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456780+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234567800+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345678000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456780000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1234567890+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345678900+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456789000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.12345678910+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456789100+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.123456789120+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.1111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.11111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.5555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 12:34:56.55555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 00:00:00.00000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 America/Los_Angeles' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 America/Los_Angeles' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 America/Los_Angeles' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 America/Los_Angeles' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 America/Los_Angeles' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 America/Los_Angeles' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 America/Los_Angeles' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 America/Los_Angeles' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 America/Los_Angeles' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 America/Los_Angeles' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 America/Los_Angeles' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567891-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 America/Los_Angeles' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678912-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 America/Los_Angeles' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45 America/Los_Angeles' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1 America/Los_Angeles' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.1-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12 America/Los_Angeles' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.12-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123 America/Los_Angeles' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234 America/Los_Angeles' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.1234-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345 America/Los_Angeles' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.12345-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456 America/Los_Angeles' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.123456-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567 America/Los_Angeles' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.1234567-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678 America/Los_Angeles' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.12345678-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789 America/Los_Angeles' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.123456789-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567891 America/Los_Angeles' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.1234567891-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678912 America/Los_Angeles' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.12345678912-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789123 America/Los_Angeles' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 03:23:45.123456789123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 -08:35' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 -08:35' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 -08:35' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 -08:35' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 -08:35' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 -08:35' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 -08:35' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 -08:35' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 -08:35' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 -08:35' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 -08:35' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567891-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 -08:35' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678912-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 -08:35' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789123-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 -00:35' AS TIME(0) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 -00:35' AS TIME(1) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 -00:35' AS TIME(2) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 -00:35' AS TIME(3) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 -00:35' AS TIME(4) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 -00:35' AS TIME(5) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 -00:35' AS TIME(6) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 -00:35' AS TIME(7) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 -00:35' AS TIME(8) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 -00:35' AS TIME(9) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 -00:35' AS TIME(10) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.1234567891-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 -00:35' AS TIME(11) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.12345678912-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 -00:35' AS TIME(12) WITH TIME ZONE); # differ: doris : None, presto : 01:23:45.123456789123-00:35
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9 UTC' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99 UTC' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999 UTC' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999 UTC' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999 UTC' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999 UTC' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999 UTC' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999 UTC' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999 UTC' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999999 UTC' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999999 UTC' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999999 UTC' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999999 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999999 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999999 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.4 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.94 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.994 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9994 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99994 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999994 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999994 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999994 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999994 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999994 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999994 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999994 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.95 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.995 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9995 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99995 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999995 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999995 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : None, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999995 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999995 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999995 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999995 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999995 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.1 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.12 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.1234 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.12345 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.123456 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.1234567 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.12345678 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.123456789 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.1234567890 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.12345678901 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 2020-05-01 12:34:56.123456789012 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.1 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.12 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.1234 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.12345 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.123456 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234567 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.1234567 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345678 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.12345678 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456789 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.123456789 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234567890 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.1234567890 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345678901 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.12345678901 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456789012 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : 1500-05-01 12:34:56.123456789012 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '12001-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : +12001-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '-12001-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : -12001-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.560 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.5 UTC' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.95 UTC' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.995 UTC' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9995 UTC' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99995 UTC' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999995 UTC' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9999995 UTC' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99999995 UTC' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999995 UTC' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9999999995 UTC' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99999999995 UTC' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999995 UTC' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...'2020-11-01 07:00:00 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...020-11-01 07:00:00.1 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...20-11-01 07:00:00.12 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.00 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...20-11-01 07:00:00.00 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...0-11-01 07:00:00.123 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...-11-01 07:00:00.1234 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...11-01 07:00:00.12345 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...1-01 07:00:00.123456 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234567 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...-01 07:00:00.1234567 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345678 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...01 07:00:00.12345678 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456789 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...1 07:00:00.123456789 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234567890 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	... 07:00:00.1234567890 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345678901 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...07:00:00.12345678901 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456789012 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...7:00:00.123456789012 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.000000000000 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...7:00:00.000000000000 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567890 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678901 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789012 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +00:00] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.100 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.110 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.000 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.500 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.550 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.555 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : None, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.000000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.100000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.110000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.000000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.500000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.550000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.555000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : None, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 1000
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2 Asia/Kathmandu'); # differ: doris : None, presto : 1100
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22 Asia/Kathmandu'); # differ: doris : None, presto : 1110
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 1000
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9 Asia/Kathmandu'); # differ: doris : None, presto : 1800
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99 Asia/Kathmandu'); # differ: doris : None, presto : 1880
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1888
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222222 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999999 Asia/Kathmandu'); # differ: doris : None, presto : 1
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 1682
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 240
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 55
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 18
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : None, presto : 4
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('millisecond', 1000, TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1000 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 83)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 85)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 86)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 87)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 88)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 89)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 90)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 91)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 92)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 93)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 94)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 95)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 96)	
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : None, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234567 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345678 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456789 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234567890 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345678901 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456789012 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234567 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345678 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456789 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234567890 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345678901 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456789012 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +07:09] is invalid
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu'); # differ: doris : None, presto : 2020-05-31
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.0
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.12
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.123
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234498
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.123456
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu'); # differ: doris : None, presto : 1589093396.1234567
+set debug_skip_fold_constant=true;
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '1500-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '+12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : +12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.120 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234567 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345678 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456789 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.1234567890 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.12345678901 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '-12001-05-01 12:34:56.123456789012 Asia/Kathmandu'; # differ: doris : None, presto : -12001-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 -08:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -08:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.1234567890 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.12345678901 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2020-05-01 12:34:56.123456789012 -00:35'; # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 -00:35
+-- SELECT TIMESTAMP '2001-01-02 +07:09'; # differ: doris : 2001-01-02 07:09:00, presto : 2001-01-02 00:00:00.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4:5.321+07:09'; # differ: doris : 2001-01-02 03:55:05, presto : 2001-01-02 03:04:05.321 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4:5+07:09'; # differ: doris : 2001-01-02 03:55:05, presto : 2001-01-02 03:04:05.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 3:4+07:09'; # differ: doris : 2001-01-02 03:55:00, presto : 2001-01-02 03:04:00.000 +07:09
+-- SELECT TIMESTAMP '2001-1-2 +07:09'; # differ: doris : 2001-01-02 07:09:00, presto : 2001-01-02 00:00:00.000 +07:09
+-- SELECT TIMESTAMP '2001-01-02 03:04:05.321 Europe/Berlin'; # differ: doris : 2001-01-02 03:04:05, presto : 2001-01-02 03:04:05.321 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 03:04:05 Europe/Berlin'; # differ: doris : 2001-01-02 03:04:05, presto : 2001-01-02 03:04:05.000 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 03:04 Europe/Berlin'; # differ: doris : None, presto : 2001-01-02 03:04:00.000 Europe/Berlin
+-- SELECT TIMESTAMP '2001-01-02 Europe/Berlin'; # differ: doris : 2001-01-02 00:00:00, presto : 2001-01-02 00:00:00.000 Europe/Berlin
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu' AS DATE); # differ: doris : 2020-05-01, presto : 2020-05-01
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-01 00:00:00, presto : 2020-05-01 00:00:00.000 UTC
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(DATE '2020-05-01' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(12)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(0)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(1)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(2)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(3)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(4)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(5)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(6)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(7)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(8)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(9)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(10)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(11)); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 America/Los_Angeles' AS TIME(0)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 America/Los_Angeles' AS TIME(1)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.100
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 America/Los_Angeles' AS TIME(2)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.120
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 America/Los_Angeles' AS TIME(3)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 America/Los_Angeles' AS TIME(4)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 America/Los_Angeles' AS TIME(5)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 America/Los_Angeles' AS TIME(6)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 America/Los_Angeles' AS TIME(7)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 America/Los_Angeles' AS TIME(8)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 America/Los_Angeles' AS TIME(9)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 America/Los_Angeles' AS TIME(10)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 America/Los_Angeles' AS TIME(11)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 America/Los_Angeles' AS TIME(12)); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45 America/Los_Angeles' AS TIME(0)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.000
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1 America/Los_Angeles' AS TIME(1)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.100
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12 America/Los_Angeles' AS TIME(2)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.120
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123 America/Los_Angeles' AS TIME(3)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234 America/Los_Angeles' AS TIME(4)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345 America/Los_Angeles' AS TIME(5)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456 America/Los_Angeles' AS TIME(6)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567 America/Los_Angeles' AS TIME(7)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678 America/Los_Angeles' AS TIME(8)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789 America/Los_Angeles' AS TIME(9)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567891 America/Los_Angeles' AS TIME(10)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678912 America/Los_Angeles' AS TIME(11)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789123 America/Los_Angeles' AS TIME(12)); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234567+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345678+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456789+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234567891+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345678912+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456789123+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.00000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.000000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.10+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.10000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.10000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.10000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.100000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1200+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1200000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1200000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.120000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1230+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12300+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1230000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12300000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1230000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12300000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12340+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123400+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12340000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123400000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12340000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123400000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123450+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234500+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123450000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234500000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123450000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234560+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345600+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234560000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345600000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345670+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456700+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234567000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345670000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456700000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456780+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234567800+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345678000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456780000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1234567890+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345678900+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456789000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.12345678910+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456789100+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.123456789120+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.1111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 12:34:56.11111111111+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:57+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.6+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.56+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.5555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 12:34:56.55555555556+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.9999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.99999999999 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.0000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-05-01 23:59:59.999999999999 Asia/Kathmandu' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-05-02 00:00:00, presto : 00:00:00.00000000000+05:45
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 America/Los_Angeles' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 America/Los_Angeles' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 America/Los_Angeles' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 America/Los_Angeles' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 America/Los_Angeles' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 America/Los_Angeles' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 America/Los_Angeles' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 America/Los_Angeles' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 America/Los_Angeles' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 America/Los_Angeles' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 America/Los_Angeles' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567891-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 America/Los_Angeles' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678912-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 America/Los_Angeles' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45 America/Los_Angeles' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1 America/Los_Angeles' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.1-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12 America/Los_Angeles' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.12-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123 America/Los_Angeles' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234 America/Los_Angeles' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.1234-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345 America/Los_Angeles' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.12345-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456 America/Los_Angeles' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123456-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567 America/Los_Angeles' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.1234567-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678 America/Los_Angeles' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.12345678-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789 America/Los_Angeles' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123456789-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.1234567891 America/Los_Angeles' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.1234567891-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.12345678912 America/Los_Angeles' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.12345678912-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 03:23:45.123456789123 America/Los_Angeles' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-03-08 03:23:45, presto : 03:23:45.123456789123-08:00
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 -08:35' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 -08:35' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 -08:35' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 -08:35' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 -08:35' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 -08:35' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 -08:35' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 -08:35' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 -08:35' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 -08:35' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 -08:35' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567891-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 -08:35' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678912-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 -08:35' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789123-08:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45 -00:35' AS TIME(0) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1 -00:35' AS TIME(1) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12 -00:35' AS TIME(2) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123 -00:35' AS TIME(3) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234 -00:35' AS TIME(4) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345 -00:35' AS TIME(5) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456 -00:35' AS TIME(6) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567 -00:35' AS TIME(7) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678 -00:35' AS TIME(8) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789 -00:35' AS TIME(9) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.1234567891 -00:35' AS TIME(10) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.1234567891-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.12345678912 -00:35' AS TIME(11) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.12345678912-00:35
+-- SELECT CAST(TIMESTAMP '2020-03-08 01:23:45.123456789123 -00:35' AS TIME(12) WITH TIME ZONE); # differ: doris : 2020-03-08 01:23:45, presto : 01:23:45.123456789123-00:35
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9 UTC' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99 UTC' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999 UTC' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999 UTC' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999 UTC' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999 UTC' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999 UTC' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999 UTC' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999 UTC' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999999 UTC' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999999 UTC' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999999 UTC' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999999 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999999 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999999 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.120
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu' AS TIMESTAMP(12)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.100
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.110
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.111
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.11111111111 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.4 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.94 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.900
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.994 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.990
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9994 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.999
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99994 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999994 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999994 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999994 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999994 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999994 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999994 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999994 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.600
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.560
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:56.556
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.55555555555 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.5 Asia/Kathmandu' AS TIMESTAMP(0)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.95 Asia/Kathmandu' AS TIMESTAMP(1)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.995 Asia/Kathmandu' AS TIMESTAMP(2)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9995 Asia/Kathmandu' AS TIMESTAMP(3)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99995 Asia/Kathmandu' AS TIMESTAMP(4)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999995 Asia/Kathmandu' AS TIMESTAMP(5)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999995 Asia/Kathmandu' AS TIMESTAMP(6)); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999995 Asia/Kathmandu' AS TIMESTAMP(7)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999995 Asia/Kathmandu' AS TIMESTAMP(8)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.9999999995 Asia/Kathmandu' AS TIMESTAMP(9)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.99999999995 Asia/Kathmandu' AS TIMESTAMP(10)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.999999999995 Asia/Kathmandu' AS TIMESTAMP(11)); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.1 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.12 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.1234 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.12345 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123456 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.1234567 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.12345678 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123456789 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.1234567890 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.12345678901 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu' AS VARCHAR); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.123456789012 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.1 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.12 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.1234 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.12345 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123456 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234567 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.1234567 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345678 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.12345678 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456789 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123456789 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.1234567890 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.1234567890 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.12345678901 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.12345678901 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-01 12:34:56.123456789012 Asia/Kathmandu' AS VARCHAR); # differ: doris : 1500-05-01 12:34:56, presto : 1500-05-01 12:34:56.123456789012 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '12001-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : +12001-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '-12001-05-01 12:34:56 Asia/Kathmandu' AS VARCHAR); # differ: doris : None, presto : -12001-05-01 12:34:56 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56, presto : 2020-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.100000, presto : 2020-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.110000, presto : 2020-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.111000, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.111100, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.111110, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.111111, presto : 2020-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('2020-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:57, presto : 2020-05-01 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.600000, presto : 2020-05-01 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.560000, presto : 2020-05-01 12:34:56.560 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.556000, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.555600, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.555560, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-01 12:34:56.555556, presto : 2020-05-01 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('2020-05-01 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : +12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('+12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.110 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : None, presto : -12001-05-01 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST('-12001-05-01 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 12
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(9) WITH TIME ZONE) AS TIMESTAMP(12) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE) AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(CAST(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE) AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.100 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:56, presto : 2020-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:56, presto : 1500-05-10 12:34:56.111 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:57.000 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.600 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 2020-05-10 12:34:57, presto : 2020-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1500-05-10 12:34:57, presto : 1500-05-10 12:34:56.556 Asia/Kathmandu
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.5 UTC' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.95 UTC' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.995 UTC' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9995 UTC' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99995 UTC' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999995 UTC' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9999995 UTC' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99999995 UTC' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999995 UTC' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.9999999995 UTC' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.99999999995 UTC' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999995 UTC' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(0) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(1) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(2) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(3) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(4) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(5) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(6) WITH TIME ZONE); # differ: doris : 1970-01-01 00:00:01, presto : 1970-01-01 00:00:01.000 UTC
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(7) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 7
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(8) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 8
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(9) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 9
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(10) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 10
+-- SELECT CAST(TIMESTAMP '1970-01-01 00:00:00.999999999999 UTC' AS TIMESTAMP(11) WITH TIME ZONE); # error: errCode = 2, detailMessage = Scale of Datetime/Time must between 0 and 6. Scale was set to: 11
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567890 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678901 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789012 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 Asia/Kathmandu] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...'2020-11-01 07:00:00 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...020-11-01 07:00:00.1 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...20-11-01 07:00:00.12 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.00 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...20-11-01 07:00:00.00 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...0-11-01 07:00:00.123 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...-11-01 07:00:00.1234 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...11-01 07:00:00.12345 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...1-01 07:00:00.123456 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234567 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...-01 07:00:00.1234567 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345678 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...01 07:00:00.12345678 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456789 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...1 07:00:00.123456789 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.1234567890 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	... 07:00:00.1234567890 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.12345678901 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...07:00:00.12345678901 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.123456789012 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...7:00:00.123456789012 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-11-01 07:00:00.000000000000 UTC' AT TIME ZONE 'America/Chicago'); # error: errCode = 2, detailMessage = Syntax error in line 1:	...7:00:00.000000000000 UTC' AT TIME ZONE 'America/Chicag...	                             ^	Encountered: AT	Expected: ||, COMMA	
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.1234567890 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.12345678901 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +00:00] is invalid
+-- SELECT to_iso8601(TIMESTAMP '2020-05-01 12:34:56.123456789012 +00:00'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +00:00] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.1111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.11111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.111111111111 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '12001-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [12001-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.5555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.55555555555 Asia/Kathmandu] is invalid
+-- SELECT format('%s', TIMESTAMP '-12001-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = date/datetime literal [-12001-05-10 12:34:56.555555555555 Asia/Kathmandu] is invalid
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.000 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.100 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.110 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.111 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:56.SSS Z, presto : 2020-05-10 12:34:56.000 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.500 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.550 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.555 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+-- SELECT format_datetime(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu', 'yyyy-MM-dd HH:mm:ss.SSS Z'); # differ: doris : 2020-05-10 12:34:57.SSS Z, presto : 2020-05-10 12:34:56.556 +0545
+SELECT date_format(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f');
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.100000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.110000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.1111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.11111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.111111111111 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:56.000000, presto : 2020-05-10 12:34:56.111000
+SELECT date_format(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f');
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.500000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.550000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.555000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.5555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.55555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+-- SELECT date_format(TIMESTAMP '2020-05-10 12:34:56.555555555555 Asia/Kathmandu', '%Y-%m-%d %H:%i:%s.%f'); # differ: doris : 2020-05-10 12:34:57.000000, presto : 2020-05-10 12:34:56.556000
+SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu');
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2 Asia/Kathmandu'); # differ: doris : 1000, presto : 1100
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22 Asia/Kathmandu'); # differ: doris : 1000, presto : 1110
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222222 Asia/Kathmandu'); # differ: doris : 1000, presto : 1111
+SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu');
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9 Asia/Kathmandu'); # differ: doris : 2000, presto : 1800
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99 Asia/Kathmandu'); # differ: doris : 2000, presto : 1880
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+-- SELECT date_diff('millisecond', TIMESTAMP '2020-05-10 12:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999999 Asia/Kathmandu'); # differ: doris : 2000, presto : 1888
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.2222222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.22222222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.222222222222 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.1111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.9999999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.11111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.99999999999 Asia/Kathmandu');
+SELECT date_diff('hour', TIMESTAMP '2020-05-10 11:34:55.111111111111 Asia/Kathmandu', TIMESTAMP '2020-05-10 12:34:56.999999999999 Asia/Kathmandu');
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('day', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 1682
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+-- SELECT date_diff('week', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 240
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw');
+SELECT date_diff('month', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw');
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+-- SELECT date_diff('quarter', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw'); # differ: doris : 1683, presto : 18
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.1111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.9999999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.11111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.99999999999 Europe/Warsaw');
+SELECT date_diff('year', TIMESTAMP '2001-01-31 19:34:55.111111111111 Europe/Warsaw', TIMESTAMP '2005-09-10 13:31:00.999999999999 Europe/Warsaw');
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.1000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.1000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.10000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.10000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '2020-05-10 12:34:56.100000000000 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56.100000000000 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('millisecond', 1000, TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2020-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1000 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.1111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.1111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.11111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.11111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.111111111111 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.111111111111 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 83)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 85)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 86)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 87)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 88)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 89)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 90)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 91)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 92)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 93)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.5555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.5555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 94)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.55555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.55555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 95)	
+-- SELECT date_add('millisecond', 1, TIMESTAMP '1500-05-10 12:34:56.555555555555 Asia/Kathmandu'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('1500-05-10 12:34:56.555555555555 Asia/Kathmandu' AS DATETIME), INTERVAL 1 MILLISECOND'(line 1, pos 96)	
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('day', 1683, TIMESTAMP '2001-01-31 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('week', 240, TIMESTAMP '2001-02-03 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('month', 55, TIMESTAMP '2001-02-10 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 83)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 85)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 86)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 87)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 88)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 89)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 90)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 91)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 92)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 93)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.1111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.1111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 94)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.11111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.11111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 95)	
+-- SELECT date_add('quarter', 18, TIMESTAMP '2001-03-10 13:31:00.111111111111 Europe/Warsaw'); # error: errCode = 2, detailMessage = 	no viable alternative at input 'DATE_ADD(CAST('2001-03-10 13:31:00.111111111111 Europe/Warsaw' AS DATETIME), INTERVAL 18 QUARTER'(line 1, pos 96)	
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.000 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.100 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.110 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.1111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.11111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT date_add('year', 4, TIMESTAMP '2001-09-10 13:31:00.111111111111 Europe/Warsaw'); # differ: doris : 2005-09-10 13:31:00, presto : 2005-09-10 13:31:00.111 Europe/Warsaw
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234567 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345678 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456789 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.1234567890 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.12345678901 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +07:09] is invalid
+-- SELECT timezone_hour(TIMESTAMP '2020-05-01 12:34:56.123456789012 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234567 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345678 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456789 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.1234567890 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.1234567890 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.12345678901 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.12345678901 +07:09] is invalid
+-- SELECT timezone_minute(TIMESTAMP '2020-05-01 12:34:56.123456789012 +07:09'); # error: errCode = 2, detailMessage = date/datetime literal [2020-05-01 12:34:56.123456789012 +07:09] is invalid
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.1234567891 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.12345678912 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT last_day_of_month(TIMESTAMP '2020-05-01 12:34:56.123456789123 Asia/Kathmandu'); # differ: doris : 2020-05-31, presto : 2020-05-31
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.0
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.12
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.123
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234498
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.123456
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234567 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu'); # differ: doris : 1589085296, presto : 1589093396.1234567
+-- SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu') # differ: doris : 1589085296, presto : 1589093396.1234567

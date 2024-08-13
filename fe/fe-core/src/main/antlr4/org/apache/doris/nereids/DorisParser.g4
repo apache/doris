@@ -26,7 +26,7 @@ options { tokenVocab = DorisLexer; }
 }
 
 multiStatements
-    : (statement SEMICOLON*)+ EOF
+    : statement (SEMICOLON+ statement)* SEMICOLON* EOF
     ;
 
 singleStatement
@@ -151,6 +151,7 @@ supportedCreateStatement
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
+    | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
     ;
 
 supportedDropStatement
@@ -743,6 +744,7 @@ predicate
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
+    | IS NOT? kind=(TRUE | FALSE)
     ;
 
 valueExpression

@@ -315,11 +315,14 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         return;
     }
 
-    size_t num_acquired = request->partition_ids_size();
+    size_t num_acquired =
+            is_table_version ? request->table_ids_size() : request->partition_ids_size();
     response->mutable_versions()->Reserve(num_acquired);
     response->mutable_db_ids()->CopyFrom(request->db_ids());
     response->mutable_table_ids()->CopyFrom(request->table_ids());
-    response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    if (!is_table_version) {
+        response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+    }
 
     constexpr size_t BATCH_SIZE = 500;
     std::vector<std::string> version_keys;
@@ -327,7 +330,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     version_keys.reserve(BATCH_SIZE);
     version_values.reserve(BATCH_SIZE);
     while ((code == MetaServiceCode::OK || code == MetaServiceCode::KV_TXN_TOO_OLD) &&
-           response->versions_size() < response->partition_ids_size()) {
+           response->versions_size() < num_acquired) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -343,11 +346,11 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             for (size_t j = i; j < limit; j++) {
                 int64_t db_id = request->db_ids(j);
                 int64_t table_id = request->table_ids(j);
-                int64_t partition_id = request->partition_ids(j);
                 std::string ver_key;
                 if (is_table_version) {
                     table_version_key({instance_id, db_id, table_id}, &ver_key);
                 } else {
+                    int64_t partition_id = request->partition_ids(j);
                     partition_version_key({instance_id, db_id, table_id, partition_id}, &ver_key);
                 }
                 version_keys.push_back(std::move(ver_key));

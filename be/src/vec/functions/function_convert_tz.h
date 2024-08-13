@@ -88,12 +88,6 @@ public:
                 std::make_shared<DataTypeString>()};
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -110,10 +104,6 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
-
         if (col_const[1] && col_const[2]) {
             auto result_column = ColumnType::create();
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
@@ -126,12 +116,12 @@ public:
                     std::move(result_column), std::move(result_null_map_column));
         } else {
             auto result_column = ColumnType::create();
-            execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                    assert_cast<const ColumnString*>(argument_columns[1].get()),
-                    assert_cast<const ColumnString*>(argument_columns[2].get()),
-                    assert_cast<ReturnColumnType*>(result_column.get()),
-                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                    input_rows_count);
+            _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                     assert_cast<const ColumnString*>(argument_columns[1].get()),
+                     assert_cast<const ColumnString*>(argument_columns[2].get()),
+                     assert_cast<ReturnColumnType*>(result_column.get()),
+                     assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                     input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } //if const
@@ -139,10 +129,10 @@ public:
     }
 
 private:
-    static void execute(FunctionContext* context, const ColumnType* date_column,
-                        const ColumnString* from_tz_column, const ColumnString* to_tz_column,
-                        ReturnColumnType* result_column, NullMap& result_null_map,
-                        size_t input_rows_count) {
+    static void _execute(FunctionContext* context, const ColumnType* date_column,
+                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
+                         ReturnColumnType* result_column, NullMap& result_null_map,
+                         size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();

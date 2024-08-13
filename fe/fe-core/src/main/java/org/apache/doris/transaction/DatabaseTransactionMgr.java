@@ -43,6 +43,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -91,7 +92,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -120,7 +121,7 @@ public class DatabaseTransactionMgr {
 
     // the lock is used to control the access to transaction states
     // no other locks should be inside this lock
-    private final ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
@@ -626,6 +627,14 @@ public class DatabaseTransactionMgr {
 
                         int successReplicaNum = tabletSuccReplicas.size();
                         if (successReplicaNum < loadRequiredReplicaNum) {
+                            long now = System.currentTimeMillis();
+                            long lastLoadFailedTime = tablet.getLastLoadFailedTime();
+                            tablet.setLastLoadFailedTime(now);
+                            if (now - lastLoadFailedTime >= 5000L) {
+                                Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
+                                        tablet, db.getId(), table, partition, index, 0);
+                            }
+
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
@@ -1095,7 +1104,10 @@ public class DatabaseTransactionMgr {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
-        tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
+            LOG.warn("finish transaction {} failed, get lock timeout with tables {}", transactionId, tableIdList);
+            return;
+        }
         PublishResult publishResult;
         try {
             // add all commit errors and publish errors to a single set
@@ -1387,6 +1399,9 @@ public class DatabaseTransactionMgr {
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
                             loadRequiredReplicaNum, allowPublishOneSucc, newVersion, tabletSuccReplicas,
                             tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
+                    }
                 }
             }
         }
@@ -2298,8 +2313,9 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
-    public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, List<Long> tableIdList) {
         readLock();
+        List<TransactionState> unFishedTxns = new ArrayList<>();
         try {
             for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
                 if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
@@ -2311,6 +2327,26 @@ public class DatabaseTransactionMgr {
                         LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
                                 entry.getKey(), dbId, endTransactionId);
                     }
+                    unFishedTxns.add(entry.getValue());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return unFishedTxns;
+    }
+
+    public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {
+        readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                        tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
+                    continue;
+                }
+                if (entry.getKey() <= endTransactionId) {
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
@@ -2701,6 +2737,9 @@ public class DatabaseTransactionMgr {
                     publishResult = checkQuorumReplicas(transactionState, tableId, partition, tablet,
                             loadRequiredReplicaNum, allowPublishOneSucc, maxVersion, tabletSuccReplicas,
                             tabletWriteFailedReplicas, tabletVersionFailedReplicas, publishResult, logs);
+                    if (publishResult == PublishResult.QUORUM_SUCC) {
+                        tablet.setLastLoadFailedTime(-1L);
+                    }
                 }
             }
         }

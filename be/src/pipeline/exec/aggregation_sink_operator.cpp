@@ -503,7 +503,8 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                 _shared_state->reach_limit =
                         hash_table_size >=
                         (_shared_state->do_sort_limit
-                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit *
+                                           config::topn_agg_limit_multiplier
                                  : Base::_parent->template cast<AggSinkOperatorX>()._limit);
                 if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
                     _shared_state->build_limit_heap(hash_table_size);
@@ -747,7 +748,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
-    _external_agg_bytes_threshold = state->external_agg_bytes_threshold();
 
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });

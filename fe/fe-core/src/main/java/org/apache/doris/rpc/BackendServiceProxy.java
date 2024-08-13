@@ -555,5 +555,16 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResourceAsync(TNetworkAddress address, int timeoutSec,
+            InternalService.PGetBeResourceRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getBeResource(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("get be resource failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 
 }

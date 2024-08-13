@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -61,6 +62,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -143,11 +145,16 @@ public class LoadAction extends RestBaseController {
         String sql = request.getHeader("sql");
         LOG.info("streaming load sql={}", sql);
         boolean groupCommit = false;
+        long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
             groupCommit = true;
             try {
                 String[] pair = parseDbAndTb(sql);
+                Database db = Env.getCurrentInternalCatalog()
+                        .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                tableId = tbl.getId();
                 if (isGroupCommitBlock(pair[0], pair[1])) {
                     String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
                     return new RestBaseResult(msg);
@@ -165,7 +172,7 @@ public class LoadAction extends RestBaseController {
             }
 
             String label = request.getHeader(LABEL_KEY);
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, groupCommit);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
 
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
@@ -287,7 +294,18 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                redirectAddr = selectRedirectBackend(request, groupCommit);
+                Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                if (!database.isPresent()) {
+                    return new RestBaseResult("Database not founded.");
+                }
+
+                Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                if (!olapTable.isPresent()) {
+                    return new RestBaseResult("OlapTable not founded.");
+                }
+
+                long tableId = ((OlapTable) olapTable.get()).getId();
+                redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
@@ -320,7 +338,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, false, -1);
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
@@ -352,7 +370,7 @@ public class LoadAction extends RestBaseController {
         return "";
     }
 
-    private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit)
+    private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit, long tableId)
             throws LoadException {
         long debugBackendId = DebugPointUtil.getDebugParamOrDefault("LoadAction.selectRedirectBackend.backendId", -1L);
         if (debugBackendId != -1L) {
@@ -366,11 +384,12 @@ public class LoadAction extends RestBaseController {
             }
             return selectCloudRedirectBackend(cloudClusterName, request, groupCommit);
         } else {
-            return selectLocalRedirectBackend(groupCommit);
+            return selectLocalRedirectBackend(groupCommit, request, tableId);
         }
     }
 
-    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit) throws LoadException {
+    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
+            throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
         String qualifiedUser = ConnectContext.get().getQualifiedUser();
@@ -390,12 +409,20 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            for (Long backendId : backendIds) {
-                Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (!candidateBe.isDecommissioned()) {
-                    backend = candidateBe;
-                    break;
-                }
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setThreadLocalInfo();
+            ctx.setRemoteIP(request.getRemoteAddr());
+            // We set this variable to fulfill required field 'user' in
+            // TMasterOpRequest(FrontendService.thrift)
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
+
+            try {
+                backend = Env.getCurrentEnv().getGroupCommitManager()
+                        .selectBackendForGroupCommit(tableId, ctx, false);
+            } catch (DdlException e) {
+                throw new RuntimeException(e);
             }
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
@@ -573,10 +600,10 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No label selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, false, -1);
 
             LOG.info("Redirect load action with auth token to destination={},"
-                        + "stream: {}, db: {}, tbl: {}, label: {}",
+                            + "stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
             URI urlObj = null;

@@ -49,7 +49,7 @@ class Dependency;
 class PipelineTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
-using DependencyMap = std::map<int, std::vector<DependencySPtr>>;
+class LocalExchangeSourceLocalState;
 
 static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 60 * 1000L * 1000L * 1000L;
 static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
@@ -88,20 +88,11 @@ class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(false),
-              _ready(false) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(false) {}
     Dependency(int id, int node_id, std::string name, bool ready)
-            : _id(id),
-              _node_id(node_id),
-              _name(std::move(name)),
-              _is_write_dependency(true),
-              _ready(ready) {}
+            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(ready) {}
     virtual ~Dependency() = default;
 
-    bool is_write_dependency() const { return _is_write_dependency; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     BasicSharedState* shared_state() { return _shared_state; }
@@ -118,12 +109,10 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
@@ -166,7 +155,6 @@ protected:
     const int _id;
     const int _node_id;
     const std::string _name;
-    const bool _is_write_dependency;
     std::atomic<bool> _ready;
 
     BasicSharedState* _shared_state = nullptr;
@@ -661,15 +649,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-class AsyncWriterDependency final : public Dependency {
-public:
-    using SharedState = BasicSharedState;
-    ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
-    AsyncWriterDependency(int id, int node_id)
-            : Dependency(id, node_id, "AsyncWriterDependency", true) {}
-    ~AsyncWriterDependency() override = default;
-};
-
 using SetHashTableVariants =
         std::variant<std::monostate,
                      vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
@@ -761,8 +740,9 @@ public:
         // (select 0) intersect (select null) the build side hash table should not
         // ignore null value.
         std::vector<DataTypePtr> data_types;
-        for (const auto& ctx : child_exprs_lists[0]) {
-            data_types.emplace_back(build_not_ignore_null[0]
+        for (int i = 0; i < child_exprs_lists[0].size(); i++) {
+            const auto& ctx = child_exprs_lists[0][i];
+            data_types.emplace_back(build_not_ignore_null[i]
                                             ? make_nullable(ctx->root()->data_type())
                                             : ctx->root()->data_type());
         }
@@ -831,20 +811,21 @@ struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
+    ~LocalExchangeSharedState() override;
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    void create_source_dependencies(int operator_id, int node_id) {
+    virtual void create_dependencies(int operator_id, int node_id) {
         for (auto& source_dep : source_deps) {
             source_dep = std::make_shared<Dependency>(operator_id, node_id,
                                                       "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_dep->set_shared_state(this);
         }
-    };
+    }
     void sub_running_sink_operators();
-    void sub_running_source_operators();
+    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);
@@ -856,7 +837,10 @@ public:
         }
     }
 
-    Dependency* get_dep_by_channel_id(int channel_id) { return source_deps[channel_id].get(); }
+    virtual std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
+        return {source_deps[channel_id]};
+    }
+    virtual Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
         auto& dep = source_deps[channel_id];
@@ -867,28 +851,79 @@ public:
     void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
         mem_trackers[channel_id]->consume(delta);
         if (update_total_mem_usage) {
-            add_total_mem_usage(delta);
+            add_total_mem_usage(delta, channel_id);
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
-        mem_trackers[channel_id]->release(delta);
-        if (update_total_mem_usage) {
-            sub_total_mem_usage(delta);
-        }
-    }
+    void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
 
-    void add_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    void sub_total_mem_usage(size_t delta) {
-        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+        auto prev_usage = mem_usage.fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
+};
+
+struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
+    LocalMergeExchangeSharedState(int num_instances)
+            : LocalExchangeSharedState(num_instances),
+              _queues_mem_usage(num_instances),
+              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {
+        for (size_t i = 0; i < num_instances; i++) {
+            _queues_mem_usage[i] = 0;
+        }
+    }
+
+    void create_dependencies(int operator_id, int node_id) override {
+        sink_deps.resize(source_deps.size());
+        for (size_t i = 0; i < source_deps.size(); i++) {
+            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
+                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_deps[i]->set_shared_state(this);
+            sink_deps[i] = std::make_shared<Dependency>(
+                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
+            sink_deps[i]->set_shared_state(this);
+        }
+    }
+
+    void sub_total_mem_usage(size_t delta, int channel_id) override {
+        auto prev_usage = _queues_mem_usage[channel_id].fetch_sub(delta);
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
+                                         << " channel_id: " << channel_id;
+        if (prev_usage - delta <= _each_queue_limit) {
+            sink_deps[channel_id]->set_ready();
+        }
+        if (_queues_mem_usage[channel_id] == 0) {
+            source_deps[channel_id]->block();
+        }
+    }
+    void add_total_mem_usage(size_t delta, int channel_id) override {
+        if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
+            sink_deps[channel_id]->block();
+        }
+        source_deps[channel_id]->set_ready();
+    }
+
+    Dependency* get_sink_dep_by_channel_id(int channel_id) override {
+        return sink_deps[channel_id].get();
+    }
+
+    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) override {
+        return source_deps;
+    }
+
+private:
+    std::vector<std::atomic_int64_t> _queues_mem_usage;
+    const int64_t _each_queue_limit;
 };
 
 } // namespace doris::pipeline

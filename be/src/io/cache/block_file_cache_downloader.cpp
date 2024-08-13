@@ -171,7 +171,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
         DownloadFileMeta download_meta {
                 .path = storage_resource.value()->remote_segment_path(*find_it->second,
                                                                       meta.segment_id()),
-                .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
+                .file_size = meta.has_file_size() ? meta.file_size()
+                                                  : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
                 .file_system = storage_resource.value()->fs,
@@ -191,6 +192,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
             .is_doris_table = true,
+            .cache_base_path {},
             .file_size = meta.file_size,
     };
     auto st = meta.file_system->open_file(meta.path, &file_reader, &opts);

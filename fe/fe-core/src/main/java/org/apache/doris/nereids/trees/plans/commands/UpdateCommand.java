@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -213,7 +214,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && ExpressionAnalyzer.compareDbName(tableQualifier.get(1), dbName))) {
+                || (dbName != null
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }
@@ -256,5 +258,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUpdateCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UPDATE;
     }
 }

@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE'))))
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE'))))
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalProject

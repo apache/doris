@@ -772,6 +772,17 @@ message GetCurrentMaxTxnResponse {
     optional int64 current_max_txn_id = 2;
 }
 
+message AbortTxnWithCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+}
+
+message AbortTxnWithCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckTxnConflictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -783,6 +794,7 @@ message CheckTxnConflictRequest {
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
+    repeated TxnInfoPB conflict_txns = 3; 
 }
 
 message CleanTxnLabelRequest {
@@ -840,6 +852,7 @@ message AlterObjStoreInfoRequest {
         ADD_BUILT_IN_VAULT = 102;
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
+        ALTER_S3_VAULT = 105;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
@@ -1423,6 +1436,16 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message ResetRLProgressRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+}
+
+message ResetRLProgressResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -1457,6 +1480,7 @@ service MetaService {
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
+    rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
@@ -1482,6 +1506,7 @@ service MetaService {
 
     rpc get_obj_store_info(GetObjStoreInfoRequest) returns (GetObjStoreInfoResponse);
     rpc alter_obj_store_info(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
+    rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
@@ -1513,6 +1538,7 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+    rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);

@@ -75,6 +75,7 @@
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -260,7 +261,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
-    for (const auto& projections : _intermediate_projections) {
+    for (const auto& projections : local_state->_intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
@@ -334,15 +335,21 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::
     return get_block(state, block, eos);
 }
 
-bool PipelineXLocalStateBase::reached_limit() const {
-    return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
-}
-
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
     }
+
+    DBUG_EXECUTE_IF("Pipeline::reached_limit_early", {
+        auto op_name = to_lower(_parent->_op_name);
+        auto arg_op_name = dp->param<std::string>("op_name");
+        arg_op_name = to_lower(arg_op_name);
+
+        if (op_name == arg_op_name) {
+            *eos = true;
+        }
+    });
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
@@ -445,7 +452,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
             _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
 
-            _dependency = _shared_state->get_dep_by_channel_id(info.task_idx);
+            auto deps = _shared_state->get_dep_by_channel_id(info.task_idx);
+            if (deps.size() == 1) {
+                _dependency = deps.front().get();
+            }
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {
@@ -614,10 +624,10 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency =
-            AsyncWriterDependency::create_shared(_parent->operator_id(), _parent->node_id());
-    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
+    _async_writer_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                         "AsyncWriterDependency", true);
+    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs, _async_writer_dependency,
+                             _finish_dependency));
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
             _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);

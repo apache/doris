@@ -49,6 +49,7 @@ import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
+import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
@@ -278,7 +279,6 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
@@ -364,6 +364,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -456,6 +457,7 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
@@ -860,6 +862,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new AlterViewCommand(info);
+    }
+
+    @Override
+    public LogicalPlan visitAlterStorageVault(AlterStorageVaultContext ctx) {
+        List<String> nameParts = this.visitMultipartIdentifier(ctx.name);
+        String vaultName = nameParts.get(0);
+        Map<String, String> properties = this.visitPropertyClause(ctx.properties);
+        return new AlterStorageVaultCommand(vaultName, properties);
     }
 
     @Override
@@ -2117,11 +2127,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            List<Expression> params = visit(ctx.expression(), Expression.class);
+            List<Expression> params = Lists.newArrayList();
+            params.addAll(visit(ctx.expression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
-            if (!orderKeys.isEmpty()) {
-                return parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
-            }
+            params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
             if (!unboundStars.isEmpty()) {
@@ -3328,6 +3337,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.NULL:
                     outExpression = new IsNull(valueExpression);
                     break;
+                case DorisParser.TRUE:
+                    outExpression = new Cast(valueExpression,
+                            BooleanType.INSTANCE, true);
+                    break;
+                case DorisParser.FALSE:
+                    outExpression = new Not(new Cast(valueExpression,
+                            BooleanType.INSTANCE, true));
+                    break;
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:
                     outExpression = new MatchAny(
@@ -3525,23 +3542,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             comment = "";
         }
         return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
-    }
-
-    private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,
-            List<Expression> params, List<OrderKey> orderKeys, ParserRuleContext ctx) {
-        if (functionName.equalsIgnoreCase("group_concat")) {
-            OrderExpression[] orderExpressions = orderKeys.stream()
-                    .map(OrderExpression::new)
-                    .toArray(OrderExpression[]::new);
-            if (params.size() == 1) {
-                return new GroupConcat(isDistinct, params.get(0), orderExpressions);
-            } else if (params.size() == 2) {
-                return new GroupConcat(isDistinct, params.get(0), params.get(1), orderExpressions);
-            } else {
-                throw new ParseException("group_concat requires one or two parameters: " + params, ctx);
-            }
-        }
-        throw new ParseException("Unsupported function with order expressions" + ctx.getText(), ctx);
     }
 
     private String parseConstant(ConstantContext context) {

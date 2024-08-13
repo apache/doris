@@ -18,6 +18,11 @@
 import org.junit.Assert;
 
 suite("test_set_partition_version_mtmv","mtmv") {
+    // cloud not support set partition version
+    if (isCloudMode()) {
+        return;
+    }
+
     String suiteName = "test_set_partition_version_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"

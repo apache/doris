@@ -377,8 +377,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < _reader_context.batch_size);
 
-    // do filter delete row in base compaction, only base compaction need to do the job
-    if (_filter_delete) {
+    if (_delete_sign_available) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {

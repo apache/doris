@@ -97,15 +97,15 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
 void register_function_ignore(SimpleFunctionFactory& factory);
-
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
-
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
+void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -292,6 +292,8 @@ public:
             register_function_tokenize(instance);
             register_function_ignore(instance);
             register_function_variant_element(instance);
+            register_function_multi_match(instance);
+            register_function_split_by_regexp(instance);
         });
         return instance;
     }

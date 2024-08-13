@@ -186,13 +186,11 @@ DECLARE_mBool(disable_memory_gc);
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// Allocator check failed log stacktrace if not catch exception
-DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
-
-// malloc or new large memory larger than large_memory_check_bytes, default 2G,
-// will print a warning containing the stacktrace, but not prevent memory alloc.
-// If is -1, disable large memory check.
-DECLARE_mInt64(large_memory_check_bytes);
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
+// if alloc failed using Doris Allocator, will print stacktrace in error log.
+// if is -1, disable print stacktrace when alloc large memory.
+DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 DECLARE_mBool(enable_memory_orphan_check);
@@ -299,6 +297,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
+DECLARE_mInt32(doris_scanner_min_thread_pool_thread_num);
 // number of batch size to fetch the remote split source
 DECLARE_mInt32(remote_split_source_batch_size);
 // max number of remote scanner thread pool size
@@ -320,8 +319,6 @@ DECLARE_mInt32(doris_scan_range_row_count);
 DECLARE_mInt32(doris_scan_range_max_mb);
 // max bytes number for single scan block, used in segmentv2
 DECLARE_mInt32(doris_scan_block_max_mb);
-// size of scanner queue between scanner thread and compute thread
-DECLARE_mInt32(doris_scanner_queue_size);
 // single read execute fragment row number
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
@@ -534,6 +531,8 @@ DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
 // timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
+// timeout for try_lock migration lock
+DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
@@ -655,8 +654,8 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
-// Sleep time in milliseconds between refresh iterations of workload group memory statistics
-DECLARE_mInt64(wg_mem_refresh_interval_ms);
+// Sleep time in milliseconds between refresh iterations of workload group weighted memory ratio
+DECLARE_mInt64(wg_weighted_memory_ratio_refresh_interval_ms);
 
 // percent of (active memtables size / all memtables size) when reach hard limit
 DECLARE_mInt32(memtable_hard_limit_active_percent);
@@ -688,6 +687,9 @@ DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
+
+// arrow flight result sink buffer rows size, default 4096 * 8
+DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -989,7 +991,8 @@ DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
 
-DECLARE_Int32(s3_transfer_executor_pool_size);
+DECLARE_Int32(min_s3_file_system_thread_num);
+DECLARE_Int32(max_s3_file_system_thread_num);
 
 DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);
@@ -1432,6 +1435,10 @@ DECLARE_mBool(enable_parquet_page_index);
 DECLARE_mBool(ignore_not_found_file_in_external_table);
 
 DECLARE_mBool(enable_hdfs_mem_limiter);
+
+// Define how many percent data in hashtable bigger than limit
+// we should do agg limit opt
+DECLARE_mInt16(topn_agg_limit_multiplier);
 
 #ifdef BE_TEST
 // test s3

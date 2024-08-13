@@ -86,7 +86,7 @@ public:
          * it is guaranteed that these file blocks are not removed from cache.
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
-                                const CacheContext& context);
+                                CacheContext& context);
 
     /**
      * Clear all cached data for this cache instance async
@@ -95,6 +95,14 @@ public:
      */
     std::string clear_file_cache_async();
     std::string clear_file_cache_directly();
+
+    /**
+     * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
+     *
+     * @returns summary message
+     */
+    std::string reset_capacity(size_t new_capacity);
+
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
     /// For debug.
     std::string dump_structure(const UInt128Wrapper& hash);
@@ -358,7 +366,7 @@ private:
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 
-    void check_disk_resource_limit(const std::string& path);
+    void check_disk_resource_limit();
 
     size_t get_available_cache_size_unlocked(FileCacheType type,
                                              std::lock_guard<std::mutex>& cache_lock) const;

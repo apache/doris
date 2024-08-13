@@ -105,7 +105,7 @@ struct TShowVariableRequest {
 
 // Results of a call to describeTable()
 struct TShowVariableResult {
-    1: required map<string, string> variables
+    1: required list<list<string>> variables
 }
 
 // Valid table file formats
@@ -540,6 +540,16 @@ struct TTxnLoadInfo {
     6: optional list<TSubTxnInfo> subTxnInfos
 }
 
+struct TGroupCommitInfo{
+    1: optional bool getGroupCommitLoadBeId
+    2: optional i64 groupCommitLoadTableId
+    3: optional string cluster
+    4: optional bool isCloud
+    5: optional bool updateLoadData
+    6: optional i64 tableId 
+    7: optional i64 receiveData
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -573,6 +583,7 @@ struct TMasterOpRequest {
     28: optional map<string, Exprs.TExprNode> user_variables
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
+    30: optional TGroupCommitInfo groupCommitInfo
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -606,6 +617,7 @@ struct TMasterOpResult {
     8: optional list<binary> queryResultBufList;
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
+    10: optional i64 groupCommitLoadBeId;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -817,6 +829,9 @@ struct TLoadTxnCommitRequest {
     15: optional list<string> tbls
     16: optional i64 table_id
     17: optional string auth_code_uuid
+    18: optional bool groupCommit
+    19: optional i64 receiveBytes
+    20: optional i64 backendId 
 }
 
 struct TLoadTxnCommitResult {
@@ -987,6 +1002,7 @@ enum TSchemaTableName {
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
 }
 
 struct TMetadataTableRequestParams {

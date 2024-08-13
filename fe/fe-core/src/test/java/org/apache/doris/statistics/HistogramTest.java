@@ -94,8 +94,8 @@ class HistogramTest {
         JsonObject histogramJson = JsonParser.parseString(json).getAsJsonObject();
 
         String typeStr = histogramJson.get("data_type").getAsString();
-        Assertions.assertEquals("DATETIME", typeStr);
-        Type datatype = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr));
+        Assertions.assertEquals("datetime", typeStr);
+        Type datatype = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr.toUpperCase()));
         Assertions.assertNotNull(datatype);
 
         int numBuckets = histogramJson.get("num_buckets").getAsInt();

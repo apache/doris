@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -55,6 +57,12 @@ public class StateCombinator extends ScalarFunction
      */
     public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
         super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
+        for (Expression arg : arguments) {
+            if (arg instanceof OrderExpression) {
+                throw new AnalysisException(String
+                        .format("%s_state doesn't support order by expression", nested.getName()));
+            }
+        }
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {

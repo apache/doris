@@ -34,7 +34,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
@@ -48,9 +47,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
@@ -58,7 +57,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -1216,10 +1214,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+    // for those elements equal in partiton ids, get their names.
+    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
-        for (Long id : partitionIds) {
-            names.add(idToPartition.get(id).getName());
+        for (int i = 0; i < partitionIds1.size(); i++) {
+            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
+                names.add(getPartition(partitionIds1.get(i)).getName());
+            }
         }
         return names;
     }
@@ -1428,18 +1429,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long fetchRowCount() {
-        long rowCount = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-        }
-        return rowCount;
+        return getRowCountForIndex(baseIndexId);
     }
 
     public long getRowCountForIndex(long indexId) {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             MaterializedIndex index = entry.getValue().getIndex(indexId);
-            rowCount += index == null ? 0 : index.getRowCount();
+            rowCount += (index == null || index.getRowCount() == -1) ? 0 : index.getRowCount();
         }
         return rowCount;
     }
@@ -1868,11 +1865,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         return false;
                     }
 
-                    Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
-                            infoService, visibleVersion, replicaAlloc, aliveBeIds);
-                    if (statusPair.first != TabletStatus.HEALTHY) {
+                    TabletStatus status = tablet.getHealth(infoService, visibleVersion,
+                            replicaAlloc, aliveBeIds).status;
+                    if (status != TabletStatus.HEALTHY) {
                         LOG.info("table {} is not stable because tablet {} status is {}. replicas: {}",
-                                id, tablet.getId(), statusPair.first, tablet.getReplicas());
+                                id, tablet.getId(), status, tablet.getReplicas());
                         return false;
                     }
                 }
@@ -1990,9 +1987,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public int hashCode() {
-        return Objects.hash(state, indexIdToMeta, indexNameToId, keysType, partitionInfo, idToPartition,
-                nameToPartition, defaultDistributionInfo, tempPartitions, bfColumns, bfFpp, colocateGroup,
-                hasSequenceCol, sequenceType, indexes, baseIndexId, tableProperty);
+        return (int) baseIndexId;
     }
 
     public Column getBaseColumn(String columnName) {
@@ -2228,7 +2223,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
     }
-
 
     public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
         if (tableProperty == null) {
@@ -2568,6 +2562,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
+    public boolean isUniqKeyMergeOnWrite() {
+        return getKeysType() == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite();
+    }
+
     public boolean isDuplicateWithoutKey() {
         return getKeysType() == KeysType.DUP_KEYS && getKeysNum() == 0;
     }
@@ -2659,8 +2657,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        return keysType == KeysType.DUP_KEYS
-                || (keysType == KeysType.UNIQUE_KEYS && getEnableUniqueKeyMergeOnWrite());
+        return keysType == KeysType.DUP_KEYS || isUniqKeyMergeOnWrite();
     }
 
     public void initAutoIncrementGenerator(long dbId) {
@@ -2850,6 +2847,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (Config.isNotCloudMode()) {
             return tableAttributes.getVisibleVersion();
         }
+
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setDbId(this.getDatabase().getId())
@@ -2859,7 +2857,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 .build();
 
         try {
-            Cloud.GetVersionResponse resp = getVersionFromMeta(request);
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
             long version = -1;
             if (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
                 version = resp.getVersion();
@@ -2875,7 +2873,90 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
             return version;
         } catch (RpcException e) {
-            throw new RuntimeException("get version from meta service failed");
+            throw new RuntimeException("get version from meta service failed", e);
+        }
+    }
+
+    // Get the table versions in batch.
+    public static List<Long> getVisibleVersionByTableIds(Collection<Long> tableIds) {
+        List<OlapTable> tables = new ArrayList<>();
+
+        InternalCatalog catalog = Env.getCurrentEnv().getInternalCatalog();
+        for (long tableId : tableIds) {
+            Table table = catalog.getTableByTableId(tableId);
+            if (table == null) {
+                throw new RuntimeException("get table visible version failed, no such table " + tableId + " exists");
+            }
+            if (table.getType() != TableType.OLAP) {
+                throw new RuntimeException(
+                        "get table visible version failed, table " + tableId + " is not a OLAP table");
+            }
+            tables.add((OlapTable) table);
+        }
+
+        return getVisibleVersionInBatch(tables);
+    }
+
+    // Get the table versions in batch.
+    public static List<Long> getVisibleVersionInBatch(Collection<OlapTable> tables) {
+        if (tables.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        if (Config.isNotCloudMode()) {
+            return tables.stream()
+                    .map(table -> table.tableAttributes.getVisibleVersion())
+                    .collect(Collectors.toList());
+        }
+
+        List<Long> dbIds = new ArrayList<>();
+        List<Long> tableIds = new ArrayList<>();
+        for (OlapTable table : tables) {
+            dbIds.add(table.getDatabase().getId());
+            tableIds.add(table.getId());
+        }
+
+        return getVisibleVersionFromMeta(dbIds, tableIds);
+    }
+
+    private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+        // get version rpc
+        Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setDbId(-1)
+                .setTableId(-1)
+                .setPartitionId(-1)
+                .addAllDbIds(dbIds)
+                .addAllTableIds(tableIds)
+                .setBatchMode(true)
+                .setIsTableVersion(true)
+                .build();
+
+        try {
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                throw new RpcException("get table visible version", "unexpected status " + resp.getStatus());
+            }
+
+            List<Long> versions = resp.getVersionsList();
+            if (versions.size() != tableIds.size()) {
+                throw new RpcException("get table visible version",
+                        "wrong number of versions, required " + tableIds.size() + ", but got " + versions.size());
+            }
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table version from meta service, tables: {}, versions: {}", tableIds, versions);
+            }
+
+            for (int i = 0; i < versions.size(); i++) {
+                // Set visible version to 1 if no such table version exists.
+                if (versions.get(i) <= 0L) {
+                    versions.set(i, 1L);
+                }
+            }
+
+            return versions;
+        } catch (RpcException e) {
+            throw new RuntimeException("get table version from meta service failed", e);
         }
     }
 
@@ -2923,29 +3004,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public String getPartitionName(long partitionId) throws AnalysisException {
-        readLock();
-        try {
-            return getPartitionOrAnalysisException(partitionId).getName();
-        } finally {
-            readUnlock();
-        }
-    }
-
-    private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
-            throws RpcException {
-        long startAt = System.nanoTime();
-        try {
-            return VersionHelper.getVisibleVersion(req);
-        } finally {
-            SummaryProfile profile = getSummaryProfile();
-            if (profile != null) {
-                profile.addGetTableVersionTime(System.nanoTime() - startAt);
-            }
-        }
-    }
-
-    @Override
     public boolean needAutoRefresh() {
         return true;
     }
@@ -2953,17 +3011,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
-    }
-
-    private static SummaryProfile getSummaryProfile() {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null) {
-            StmtExecutor executor = ctx.getExecutor();
-            if (executor != null) {
-                return executor.getSummaryProfile();
-            }
-        }
-        return null;
     }
 
     public void setStatistics(Statistics statistics) {

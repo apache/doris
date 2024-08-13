@@ -27,7 +27,7 @@
 namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_columns = {
         //   name,       type,          size
-        {"BE_ID", TYPE_BIGINT, sizeof(StringRef), false},
+        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
@@ -51,7 +51,8 @@ Status SchemaBackendActiveTasksScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendActiveTasksScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

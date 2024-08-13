@@ -53,7 +53,8 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
     io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
+            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
+            .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
@@ -100,24 +101,26 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
+    Status result_status;
     if (_file_format_transformer != nullptr) {
-        Status st = _file_format_transformer->close();
-        if (!st.ok()) {
+        result_status = _file_format_transformer->close();
+        if (!result_status.ok()) {
             LOG(WARNING) << fmt::format("_file_format_transformer close failed, reason: {}",
-                                        st.to_string());
+                                        result_status.to_string());
         }
     }
-    if (!status.ok() && _fs != nullptr) {
+    bool status_ok = result_status.ok() && status.ok();
+    if (!status_ok && _fs != nullptr) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    if (status.ok()) {
+    if (status_ok) {
         _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
     }
-    return Status::OK();
+    return result_status;
 }
 
 Status VIcebergPartitionWriter::write(vectorized::Block& block) {

@@ -118,6 +118,6 @@ public class MTMVPlanUtil {
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+        return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 }

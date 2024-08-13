@@ -63,7 +63,6 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
@@ -138,10 +137,13 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-s3Provider = "COS"
+s3Source="aliyun"
+
+// for multi cloud test case, eg. paimon_base_filesystem
+aliYunAk="***********"
+aliYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
 
 max_failure_num=50
 
@@ -163,3 +165,7 @@ enableTrinoConnectorTest = true
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+
+
+// LakeSoul catalog test config
+enableLakesoulTest = true

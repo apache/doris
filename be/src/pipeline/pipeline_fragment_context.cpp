@@ -124,12 +124,11 @@ PipelineFragmentContext::PipelineFragmentContext(
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb) {
     _fragment_watcher.start();
-    _query_thread_context = {query_id, _query_ctx->query_mem_tracker};
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -393,7 +392,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
             runtime_state->set_total_load_streams(request.total_load_streams);
             runtime_state->set_num_local_sink(request.num_local_sink);
             DCHECK(runtime_filter_mgr);
-            runtime_state->set_pipeline_x_runtime_filter_mgr(runtime_filter_mgr.get());
+            runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
         };
 
         auto filterparams = std::make_unique<RuntimeFilterParamsContext>();
@@ -698,7 +697,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                             is_shuffled_hash_join, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
-    auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
+    std::shared_ptr<LocalExchangeSharedState> shared_state =
+            data_distribution.distribution_type == ExchangeType::LOCAL_MERGE_SORT
+                    ? LocalMergeExchangeSharedState::create_shared(_num_instances)
+                    : LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -731,11 +733,20 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger = BroadcastExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
-                        : 0);
+        if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
+            // If shared hash table is enabled for BJ, hash table will be built by only one task
+            shared_state->exchanger = PassToOneExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            : 0);
+        } else {
+            shared_state->exchanger = BroadcastExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            : 0);
+        }
         break;
     case ExchangeType::LOCAL_MERGE_SORT: {
         auto child_op = cur_pipe->sink_x()->child_x();
@@ -789,7 +800,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     }
     operator_xs.insert(operator_xs.begin(), source_op);
 
-    shared_state->create_source_dependencies(source_op->operator_id(), source_op->node_id());
+    shared_state->create_dependencies(source_op->operator_id(), source_op->node_id());
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
@@ -1471,7 +1482,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     default:
-        return Status::InternalError("Unsupported exec type in pipelineX: {}",
+        return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(tnode.node_type));
     }
 

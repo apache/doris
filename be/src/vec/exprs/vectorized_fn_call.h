@@ -73,9 +73,14 @@ public:
     }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
+    bool can_push_down_to_index() const override;
+    bool can_fast_execute() const override;
+    Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
+                               std::shared_ptr<roaring::Roaring>& result) override;
+    bool equals(const VExpr& other) override;
+
 protected:
     FunctionBasePtr _function;
-    bool _can_fast_execute = false;
     std::string _expr_name;
     std::string _function_name;
 
@@ -83,4 +88,5 @@ private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                        int* result_column_id, std::vector<size_t>& args);
 };
+
 } // namespace doris::vectorized

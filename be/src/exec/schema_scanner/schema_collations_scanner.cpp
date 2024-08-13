@@ -50,7 +50,7 @@ SchemaCollationsScanner::SchemaCollationsScanner()
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
 
-Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaCollationsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }

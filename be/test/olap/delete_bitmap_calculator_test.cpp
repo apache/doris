@@ -103,8 +103,7 @@ public:
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
-        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr,
-                             INT32_MAX, opts, nullptr);
+        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts);
         st = writer.init();
         EXPECT_TRUE(st.ok());
 

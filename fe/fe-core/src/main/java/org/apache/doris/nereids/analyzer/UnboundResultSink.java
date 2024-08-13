@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -93,5 +94,10 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     @Override
     public String toString() {
         return Utils.toSqlString("UnboundResultSink[" + id.asInt() + "]");
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

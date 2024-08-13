@@ -902,4 +902,9 @@ public class CreateFunctionStmt extends DdlStmt {
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

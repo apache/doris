@@ -89,6 +89,11 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override;
+
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
                          ::google::protobuf::Closure* done) override;
@@ -181,6 +186,11 @@ public:
                               AlterObjStoreInfoResponse* response,
                               ::google::protobuf::Closure* done) override;
 
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
                       UpdateAkSkResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -264,6 +274,10 @@ public:
                                    const GetRLTaskCommitAttachRequest* request,
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
+
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override;
 
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
@@ -349,6 +363,14 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
+                                    const AbortTxnWithCoordinatorRequest* request,
+                                    AbortTxnWithCoordinatorResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_txn_with_coordinator, controller, request, response,
+                  done);
     }
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
@@ -485,6 +507,13 @@ public:
         call_impl(&cloud::MetaService::alter_obj_store_info, controller, request, response, done);
     }
 
+    void alter_storage_vault(google::protobuf::RpcController* controller,
+                             const AlterObjStoreInfoRequest* request,
+                             AlterObjStoreInfoResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::alter_storage_vault, controller, request, response, done);
+    }
+
     void update_ak_sk(google::protobuf::RpcController* controller, const UpdateAkSkRequest* request,
                       UpdateAkSkResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_ak_sk, controller, request, response, done);
@@ -614,6 +643,12 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
                   done);
+    }
+
+    void reset_rl_progress(::google::protobuf::RpcController* controller,
+                           const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_rl_progress, controller, request, response, done);
     }
 
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,

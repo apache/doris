@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,6 +58,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collectors;
 
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
@@ -181,8 +183,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // 2 complete route info
         replicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         completeRouteInfo();
-        for (UpdateCloudReplicaInfo info : replicaInfos) {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplica(info);
+        LOG.info("collect to editlog route {} infos", replicaInfos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(replicaInfos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         // 3 check whether the inflight preheating task has been completed
@@ -238,9 +245,20 @@ public class CloudTabletRebalancer extends MasterDaemon {
                      entry.getKey(), entry.getValue().size());
         }
 
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         // balance in partitions/index
         for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
-            balanceInPartition(entry.getValue(), entry.getKey());
+            balanceInPartition(entry.getValue(), entry.getKey(), infos);
+        }
+        long oldSize = infos.size();
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        LOG.info("collect to editlog partitions before size={} after size={} infos", oldSize, infos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
@@ -263,9 +281,20 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     entry.getKey(), entry.getValue().size());
         }
 
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         // balance in partitions/index
         for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
-            balanceInTable(entry.getValue(), entry.getKey());
+            balanceInTable(entry.getValue(), entry.getKey(), infos);
+        }
+        long oldSize = infos.size();
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        LOG.info("collect to editlog table before size={} after size={} infos", oldSize, infos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
@@ -288,8 +317,19 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     entry.getKey(), entry.getValue().size());
         }
 
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
-            balanceImpl(entry.getValue(), entry.getKey(), futureBeToTabletsGlobal, BalanceType.GLOBAL);
+            balanceImpl(entry.getValue(), entry.getKey(), futureBeToTabletsGlobal, BalanceType.GLOBAL, infos);
+        }
+        long oldSize = infos.size();
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        LOG.info("collect to editlog global before size={} after size={} infos", oldSize, infos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         for (Map.Entry<Long, List<Tablet>> entry : beToTabletsGlobal.entrySet()) {
@@ -310,6 +350,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             beToTabletIds.get(entry.getValue().destBe).add(entry.getValue().pickedTablet.getId());
         }
 
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
             LOG.info("before pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
             Backend destBackend = cloudSystemInfoService.getBackend(entry.getKey());
@@ -335,10 +376,20 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     if (!result.getValue()) {
                         LOG.info("{} pre cache timeout, forced to change the mapping", result.getKey());
                     }
-                    updateClusterToBeMap(task.pickedTablet, task.destBe, task.clusterId);
+                    updateClusterToBeMap(task.pickedTablet, task.destBe, task.clusterId, infos);
                     tabletToInfightTask.remove(result.getKey());
                 }
             }
+        }
+        long oldSize = infos.size();
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        LOG.info("collect to editlog warmup before size={} after size={} infos", oldSize, infos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         // recalculate inflight beToTablets, just for print the log
@@ -550,22 +601,22 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    public void balanceInPartition(List<Long> bes, String clusterId) {
+    public void balanceInPartition(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos) {
         // balance all partition
         for (Map.Entry<Long, Map<Long, Map<Long, List<Tablet>>>> partitionEntry : futurePartitionToTablets.entrySet()) {
             Map<Long, Map<Long, List<Tablet>>> indexToTablets = partitionEntry.getValue();
             // balance all index of a partition
             for (Map.Entry<Long, Map<Long, List<Tablet>>> entry : indexToTablets.entrySet()) {
                 // balance a index
-                balanceImpl(bes, clusterId, entry.getValue(), BalanceType.PARTITION);
+                balanceImpl(bes, clusterId, entry.getValue(), BalanceType.PARTITION, infos);
             }
         }
     }
 
-    public void balanceInTable(List<Long> bes, String clusterId) {
+    public void balanceInTable(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos) {
         // balance all tables
         for (Map.Entry<Long, Map<Long, List<Tablet>>> entry : futureBeToTabletsInTable.entrySet()) {
-            balanceImpl(bes, clusterId, entry.getValue(), BalanceType.TABLE);
+            balanceImpl(bes, clusterId, entry.getValue(), BalanceType.TABLE, infos);
         }
     }
 
@@ -641,7 +692,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         partToTablets);
     }
 
-    private void updateClusterToBeMap(Tablet pickedTablet, long destBe, String clusterId) {
+    private void updateClusterToBeMap(Tablet pickedTablet, long destBe, String clusterId,
+                                      List<UpdateCloudReplicaInfo> infos) {
         CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
         cloudReplica.updateClusterToBe(clusterId, destBe);
         Database db = Env.getCurrentInternalCatalog().getDbNullable(cloudReplica.getDbId());
@@ -663,7 +715,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(cloudReplica.getDbId(),
                     cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getIndexId(),
                     pickedTablet.getId(), cloudReplica.getId(), clusterId, destBe);
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplica(info);
+            infos.add(info);
         } finally {
             table.readUnlock();
         }
@@ -765,7 +817,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private void balanceImpl(List<Long> bes, String clusterId, Map<Long, List<Tablet>> beToTablets,
-            BalanceType balanceType) {
+            BalanceType balanceType, List<UpdateCloudReplicaInfo> infos) {
         if (bes == null || bes.isEmpty() || beToTablets == null || beToTablets.isEmpty()) {
             return;
         }
@@ -852,7 +904,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         beToTabletsInTable, partitionToTablets);
                 updateBeToTablets(pickedTablet, srcBe, destBe, balanceType,
                         futureBeToTabletsGlobal, futureBeToTabletsInTable, futurePartitionToTablets);
-                updateClusterToBeMap(pickedTablet, destBe, clusterId);
+                updateClusterToBeMap(pickedTablet, destBe, clusterId, infos);
             }
         }
     }
@@ -869,17 +921,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         List<Tablet> tablets = new ArrayList<>();
         if (!beToTabletsGlobal.containsKey(srcBe)) {
             LOG.info("smooth upgrade srcBe={} does not have any tablets, set inactive", srcBe);
-            // TODO(merge-cloud): wait add cloud upgrade mgr
-            // Env.getCurrentEnv().getCloudUpgradeMgr().setBeStateInactive(srcBe);
+            ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().setBeStateInactive(srcBe);
             return;
         }
         tablets = beToTabletsGlobal.get(srcBe);
         if (tablets.isEmpty()) {
             LOG.info("smooth upgrade srcBe={} does not have any tablets, set inactive", srcBe);
-            // TODO(merge-cloud): wait add cloud upgrade mgr
-            // Env.getCurrentEnv().getCloudUpgradeMgr().setBeStateInactive(srcBe);
+            ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().setBeStateInactive(srcBe);
             return;
         }
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Tablet tablet : tablets) {
             // get replica
             CloudReplica cloudReplica = (CloudReplica) tablet.getReplicas().get(0);
@@ -915,10 +966,20 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(cloudReplica.getDbId(),
                         cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getIndexId(),
                         tablet.getId(), cloudReplica.getId(), clusterId, dstBe);
-                Env.getCurrentEnv().getEditLog().logUpdateCloudReplica(info);
+                infos.add(info);
             } finally {
                 table.readUnlock();
             }
+        }
+        long oldSize = infos.size();
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        LOG.info("collect to editlog migrate before size={} after size={} infos", oldSize, infos.size());
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("update cloud replicas failed", e);
+            // edit log failed, try next time
+            throw new RuntimeException(e);
         }
 
         try {
@@ -927,6 +988,65 @@ public class CloudTabletRebalancer extends MasterDaemon {
             LOG.warn("registerWaterShedTxnId get exception", e);
             throw new RuntimeException(e);
         }
+    }
+
+    private List<UpdateCloudReplicaInfo> batchUpdateCloudReplicaInfoEditlogs(List<UpdateCloudReplicaInfo> infos) {
+        long start = System.currentTimeMillis();
+        List<UpdateCloudReplicaInfo> rets = new ArrayList<>();
+        // clusterId, infos
+        Map<String, List<UpdateCloudReplicaInfo>> clusterIdToInfos = infos.stream()
+                .collect(Collectors.groupingBy(UpdateCloudReplicaInfo::getClusterId));
+        for (Map.Entry<String, List<UpdateCloudReplicaInfo>> entry : clusterIdToInfos.entrySet()) {
+            // same cluster
+            String clusterId = entry.getKey();
+            List<UpdateCloudReplicaInfo> infoList = entry.getValue();
+            Map<Long, List<UpdateCloudReplicaInfo>> sameLocationInfos = infoList.stream()
+                    .collect(Collectors.groupingBy(
+                            info -> info.getDbId()
+                            + info.getTableId() + info.getPartitionId() + info.getIndexId()));
+            sameLocationInfos.forEach((location, locationInfos) -> {
+                UpdateCloudReplicaInfo newInfo = new UpdateCloudReplicaInfo();
+                long dbId = -1;
+                long tableId = -1;
+                long partitionId = -1;
+                long indexId = -1;
+                for (UpdateCloudReplicaInfo info : locationInfos) {
+                    Preconditions.checkState(clusterId.equals(info.getClusterId()),
+                            "impossible, cluster id not eq outer=" + clusterId + ", inner=" + info.getClusterId());
+
+                    dbId = info.getDbId();
+                    tableId = info.getTableId();
+                    partitionId = info.getPartitionId();
+                    indexId = info.getIndexId();
+
+                    StringBuilder sb = new StringBuilder("impossible, some locations do not match location");
+                    sb.append(", location=").append(location).append(", dbId=").append(dbId)
+                        .append(", tableId=").append(tableId).append(", partitionId=").append(partitionId)
+                        .append(", indexId=").append(indexId);
+                    Preconditions.checkState(location == dbId + tableId + partitionId + indexId, sb.toString());
+
+                    long tabletId = info.getTabletId();
+                    long replicaId = info.getReplicaId();
+                    long beId = info.getBeId();
+                    newInfo.getTabletIds().add(tabletId);
+                    newInfo.getReplicaIds().add(replicaId);
+                    newInfo.getBeIds().add(beId);
+                }
+                newInfo.setDbId(dbId);
+                newInfo.setTableId(tableId);
+                newInfo.setPartitionId(partitionId);
+                newInfo.setIndexId(indexId);
+                newInfo.setClusterId(clusterId);
+                // APPR: in unprotectUpdateCloudReplica, use batch must set tabletId = -1
+                newInfo.setTabletId(-1);
+                rets.add(newInfo);
+            });
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("batchUpdateCloudReplicaInfoEditlogs old size {}, cur size {} cost {} ms",
+                    infos.size(), rets.size(), System.currentTimeMillis() - start);
+        }
+        return rets;
     }
 }
 
