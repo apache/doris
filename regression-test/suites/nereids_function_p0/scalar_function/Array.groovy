@@ -1320,7 +1320,7 @@ suite("nereids_scalar_fn_Array") {
     // array_apply with string should be failed
     test {
        sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
-       exception("INVALID_ARGUMENT")
+       exception("errCode = 2")
     }
 
 }
