@@ -53,10 +53,14 @@ import java.util.stream.Collectors;
 
 public class HiveTableSink extends BaseExternalTableDataSink {
     public static final String PROP_FIELD_DELIMITER = "field.delim";
-    public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
+    public static final String DEFAULT_FIELD_DELIMITER = "\1";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
+    public static final String PROP_COLLECT_DELIMITER = "collection.delim";
+    public static final String DEFAULT_COLLECT_DELIMITER = "\2";
+    public static final String PROP_MAPKV_DELIMITER = "mapkv.delim";
+    public static final String DEFAULT_MAPKV_DELIMITER = "\3";
 
     private final HMSExternalTable targetTable;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -220,7 +224,17 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 PROP_LINE_DELIMITER);
         serDeProperties.setLineDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_LINE_DELIMITER, lineDelim)));
-        tSink.setSerdeProperties(serDeProperties);
+        // 3. set collection delimiter
+        Optional<String> collectDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_COLLECT_DELIMITER);
+        serDeProperties
+                .setCollectionDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_COLLECT_DELIMITER, collectDelim)));
+        // 4. set mapkv delimiter
+        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
+                PROP_MAPKV_DELIMITER);
+        serDeProperties.setMapkvDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_MAPKV_DELIMITER, mapkvDelim)));
     }
 
     protected TDataSinkType getDataSinkType() {
